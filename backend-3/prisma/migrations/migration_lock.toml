@@ -1,0 +1,3 @@
+# Prisma migration lock
+# Ensures all migrations use the same datasource provider.
+provider = "postgresql"

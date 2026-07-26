@@ -1,0 +1,21 @@
+Capability,Rave,Teleparty,Kast,Discord,Hearo,Watch2gether,Syncplay,Plink
+YouTube,Yes,Partial,Yes,Screen share,Yes,Yes,Partial,Yes
+Netflix,Yes,Yes,Partial,Screen share,Partial,Partial,No,No (App Store safe)
+Disney+,Yes,Yes,Partial,Screen share,Partial,Partial,No,No
+VK Video,Partial,No,No,No,No,No,No,Yes
+Rutube,Partial,No,No,No,No,No,No,Yes
+Voice chat,Yes,Premium,Yes,Yes,Partial,No,No,Code only (LiveKit off)
+Video camera,Partial,Premium,Yes,Yes,Partial,No,No,No
+Screen share,Partial,No,Yes,Yes,Partial,No,No,Partial iOS
+Text chat,Yes,Yes,Yes,Yes,Yes,Yes,No,Yes
+Custom emoji,Basic,Basic,Yes,Yes,Basic,Basic,No,Yes PNG packs
+AI companion,No,No,No,Bots,No,No,No,Yes
+Living themes,No,No,No,No,No,No,No,Yes Plink+
+Sync quality,Medium,Medium,Medium,N/A,Medium,Low,High,High design
+Visible drift ms,No,No,No,No,No,No,Partial,Yes desktop
+iOS,Yes,Partial,Yes,Yes,Yes,No,No,Yes
+Android,Yes,Partial,Yes,Yes,Yes,No,No,Thin (no sync)
+Desktop,Yes,Browser,Yes,Yes,Partial,Browser,Yes,Yes Tauri
+Web no install,Partial,Yes,Partial,Yes,Yes,Yes,No,Landing only
+Premium price,~$5/mo,$3.99-6.59,Paid,Nitro,Freemium,Free,Free,~149 RUB/mo
+Installs order,50M+,10M+,1M+,500M+,1M+,1M+,0.5M,0 public

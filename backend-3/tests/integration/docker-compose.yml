@@ -1,0 +1,41 @@
+# tests/integration/docker-compose.yml
+# Brain Review 3: Docker Compose Postgres + Redis for integration tests
+#
+# Usage:
+#   docker compose -f tests/integration/docker-compose.yml up -d
+#   DATABASE_URL="postgresql://plink:plink@localhost:5433/plink" \
+#   REDIS_URL="redis://localhost:6380" \
+#   npx vitest run src/tests/integration/
+#   docker compose -f tests/integration/docker-compose.yml down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: plink-test-postgres
+    environment:
+      POSTGRES_USER: plink
+      POSTGRES_PASSWORD: plink
+      POSTGRES_DB: plink
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plink -d plink"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: plink-test-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

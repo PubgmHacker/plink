@@ -1,0 +1,80 @@
+// migrations_m39.prisma — Plink M39
+//
+// Добавьте эти модели и поля в schema.prisma, затем выполните:
+//   npx prisma migrate dev --name m39_moderation_billing_push
+
+model Report {
+  id           String    @id @default(cuid())
+  reporterId   String
+  targetType   String    // user | message | room
+  targetId     String
+  reason       String    // spam | harassment | hate | sexual | violence | illegal | copyright | other
+  comment      String?
+  dueAt        DateTime
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolution   String?   // dismiss | hide | ban
+  createdAt    DateTime  @default(now())
+
+  @@index([targetType, targetId, resolvedAt])
+  @@index([resolvedAt, dueAt])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+}
+
+model Subscription {
+  id                    String    @id @default(cuid())
+  userId                String
+  transactionId         String    @unique
+  originalTransactionId String
+  productId             String
+  expiresAt             DateTime?
+  revokedAt             DateTime?
+  environment           String    @default("Production")
+  createdAt             DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([originalTransactionId])
+}
+
+model PushDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String   @default("ios")
+  appVersion String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model PushPreferences {
+  userId         String   @id
+  roomStarted    Boolean  @default(true)
+  friendRequests Boolean  @default(true)
+  messages       Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+}
+
+// —— Добавьте в существующую модель User ——
+// deletedAt    DateTime?
+// purgeAt      DateTime?
+// isPlus       Boolean  @default(false)
+// shadowbanned Boolean  @default(false)
+// isModerator  Boolean  @default(false)
+// @@index([deletedAt, purgeAt])
+
+// —— Добавьте в Message ——
+// hidden Boolean @default(false)
+
+// —— Добавьте в Room ——
+// hidden Boolean @default(false)

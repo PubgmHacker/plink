@@ -1,0 +1,1199 @@
+// src/routes/rooms.ts — с Redis кэшем
+import crypto from 'node:crypto';
+import { hashRoomPassword, verifyRoomPassword, requireHost } from '../middleware/security.js';
+import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
+import { logAudit, AuditActions } from '../utils/audit.js';
+import {
+    endRoom,
+    maybeEndAfterLeave,
+    recordWatchHistory,
+    sweepOrphanRooms,
+} from '../services/roomLifecycle.js';
+// M16: ИИ-модератор — запрещённый контент комнат, NSFW-фото, муты
+import {
+    violatesContentPolicy,
+    containsProfanity,
+    moderateImage,
+    muteUser,
+    muteRemainingSec,
+    auditModeration,
+    buildModWirePayload,
+} from '../moderation/autoMod.js';
+// M16: реальная очередь видео комнаты (REST + broadcast)
+import {
+    getRoomQueue,
+    enqueueRoomMedia,
+    dequeueRoomMedia,
+    promoteRoomMedia,
+    buildQueueWirePayload,
+} from '../realtime/roomQueueStore.js';
+
+const ROOMS_CACHE_KEY = 'rooms:public:50';
+const ROOMS_CACHE_TTL = 30; // 30 sec
+
+function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataUrl: string } | null {
+    const match = input.match(/^data:(image\/(jpeg|jpg|png|webp));base64,(.+)$/i);
+    if (!match) return null;
+    const mime = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
+    let buffer: Buffer;
+    try {
+        buffer = Buffer.from(match[3], 'base64');
+    } catch {
+        return null;
+    }
+    const isJPEG = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    const isPNG = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+    const isWebP = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
+    if (!isJPEG && !isPNG && !isWebP) return null;
+    return { mime, buffer, dataUrl: `data:${mime};base64,${match[3]}` };
+}
+
+// 🔧 FIX: mediaItem хранится в БД как JSON-строка (Prisma `String?` колонка).
+// iOS ожидает structured object, не строку — иначе decoding падает с typeMismatch
+// и весь Room decode ломается. Эта функция парсит строку обратно в объект.
+// Применяется во всех endpoints которые возвращают room: create, join, list, get.
+//
+// 🔧 ROBUSTNESS: try/catch вокруг JSON.parse. Если в БД лежит битая строка
+// (исторические данные, partial write и т.п.) — возвращаем null вместо того
+// чтобы ронять весь endpoint 500-й. Иначе iOS видит ошибку → myRooms = [] →
+// юзер думает что у него нет комнат, хотя они есть.
+function serializeRoom(room) {
+    if (!room) return null;
+    const { password, ...rest } = room;
+    let parsedMediaItem = null;
+    if (rest.mediaItem) {
+        try {
+            parsedMediaItem = JSON.parse(rest.mediaItem);
+        } catch (e: any) {
+            // Битая JSON-строка — логируем, возвращаем null, не роняем endpoint
+            console.warn(`[rooms] Failed to parse mediaItem for room ${rest.id}:`, e?.message || e);
+            parsedMediaItem = null;
+        }
+    }
+    return {
+        ...rest,
+        mediaItem: parsedMediaItem,
+    };
+}
+
+export default async function roomRoutes(fastify, _options) {
+    const { prisma } = fastify;
+
+    // M16: GET /api/rooms/:id/queue — текущая очередь видео комнаты
+    fastify.get('/rooms/:id/queue', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+        const roomId = request.params.id;
+        const isMember = await prisma.roomParticipant.findFirst({
+            where: { roomID: roomId, userID: request.user.id },
+        });
+        if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+        return reply.send({ queue: await getRoomQueue(roomId) });
+    });
+
+    // M16: POST /api/rooms/:id/queue — поставить видео в очередь (+ broadcast всем)
+    fastify.post('/rooms/:id/queue', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+        const roomId = request.params.id;
+        const isMember = await prisma.roomParticipant.findFirst({
+            where: { roomID: roomId, userID: request.user.id },
+        });
+        if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+        const body = request.body ?? {};
+        const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : '';
+        if (!title) return reply.status(400).send({ error: 'title обязателен' });
+        // M16: модерация контента очереди
+        const queueCheck = [title, body.streamURL, body.artist]
+            .filter((v: unknown) => typeof v === 'string')
+            .join(' ');
+        if (violatesContentPolicy(queueCheck)) {
+            return reply.status(422).send({ error: 'Контент нарушает правила Plink', code: 'CONTENT_BLOCKED' });
+        }
+        const qUser = await prisma.user.findUnique({
+            where: { id: request.user.id },
+            select: { username: true },
+        });
+        const queue = await enqueueRoomMedia(roomId, {
+            id: typeof body.id === 'string' ? body.id : crypto.randomUUID(),
+            title,
+            streamURL: typeof body.streamURL === 'string' ? body.streamURL : '',
+            source: typeof body.source === 'string' ? body.source : 'youtube',
+            addedBy: qUser?.username ?? 'user',
+        });
+        try {
+            await (fastify as any).gateway?.publishChatMessage?.({
+                kind: 'chat.broadcast' as const,
+                roomId,
+                messageId: crypto.randomUUID(),
+                clientMessageId: crypto.randomUUID(),
+                senderId: 'plink-ai',
+                senderName: 'Plink AI',
+                text: buildQueueWirePayload(queue),
+                createdAtMs: Date.now(),
+            });
+        } catch { /* noop */ }
+        return reply.status(201).send({ queue });
+    });
+
+    // M17: DELETE /api/rooms/:id/queue/:itemId — убрать элемент из очереди (+ broadcast)
+    fastify.delete('/rooms/:id/queue/:itemId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+        const roomId = request.params.id;
+        const itemId = request.params.itemId;
+        const isMember = await prisma.roomParticipant.findFirst({
+            where: { roomID: roomId, userID: request.user.id },
+        });
+        if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+        const queue = await dequeueRoomMedia(roomId, itemId);
+        try {
+            await (fastify as any).gateway?.publishChatMessage?.({
+                kind: 'chat.broadcast' as const,
+                roomId,
+                messageId: crypto.randomUUID(),
+                clientMessageId: crypto.randomUUID(),
+                senderId: 'plink-ai',
+                senderName: 'Plink AI',
+                text: buildQueueWirePayload(queue),
+                createdAtMs: Date.now(),
+            });
+        } catch { /* noop */ }
+        return reply.send({ queue });
+    });
+
+    // M17: POST /api/rooms/:id/queue/:itemId/play — включить элемент (промоут в начало + broadcast).
+    // Клиент показывает кнопку только хосту; сервер проверяет членство.
+    fastify.post('/rooms/:id/queue/:itemId/play', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+        const roomId = request.params.id;
+        const itemId = request.params.itemId;
+        const isMember = await prisma.roomParticipant.findFirst({
+            where: { roomID: roomId, userID: request.user.id },
+        });
+        if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+        const queue = await promoteRoomMedia(roomId, itemId);
+        const nowPlaying = queue.find((q) => q.id === itemId) ?? null;
+        try {
+            await (fastify as any).gateway?.publishChatMessage?.({
+                kind: 'chat.broadcast' as const,
+                roomId,
+                messageId: crypto.randomUUID(),
+                clientMessageId: crypto.randomUUID(),
+                senderId: 'plink-ai',
+                senderName: 'Plink AI',
+                text: buildQueueWirePayload(queue, nowPlaying),
+                createdAtMs: Date.now(),
+            });
+        } catch { /* noop */ }
+        return reply.send({ queue, nowPlaying });
+    });
+
+    // POST /api/rooms — Создание комнаты
+    fastify.post('/rooms', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { name, maxParticipants, mediaItem, privacy, password, hostName } = request.body;
+
+        // M16: ИИ-модерация контента — нельзя создать комнату с порнографией/запрещёнкой
+        const contentToCheck = [name, mediaItem?.title, mediaItem?.streamURL, mediaItem?.artist]
+            .filter((v: unknown) => typeof v === 'string' && (v as string).length > 0)
+            .join(' ');
+        if (violatesContentPolicy(contentToCheck)) {
+            return reply.status(422).send({
+                error: 'Название или контент комнаты нарушает правила Plink',
+                code: 'CONTENT_BLOCKED',
+            });
+        }
+
+        // 🔧 Pack v3 FIX: JWT содержит только {id}, без username.
+        // Берём username из БД, fallback на body.hostName, потом 'Unknown'.
+        let resolvedHostName = hostName || 'Unknown';
+        let isPremiumHost = false;
+        try {
+            const user = await prisma.user.findUnique({
+                where: { id: request.user.id },
+                select: { username: true, isPremium: true }
+            });
+            if (user?.username) resolvedHostName = user.username;
+            isPremiumHost = user?.isPremium ?? false;
+        } catch {}
+
+        // P1 free-tier: free users = 1 active room. Auto-close previous rooms
+        // so create never hard-fails with 403 when stale rooms were left open.
+        if (!isPremiumHost) {
+            const previous = await prisma.room.findMany({
+                where: { hostID: request.user.id, isActive: true },
+                select: { id: true },
+            });
+            if (previous.length > 0) {
+                const ids = previous.map((r: { id: string }) => r.id);
+                await prisma.room.updateMany({
+                    where: { id: { in: ids } },
+                    data: { isActive: false },
+                });
+                await prisma.roomParticipant.deleteMany({
+                    where: { roomID: { in: ids } },
+                });
+                console.log(`[rooms] free-tier: auto-ended ${ids.length} previous room(s) for ${request.user.id}`);
+            }
+        }
+
+        const requestedMax = Number(maxParticipants) || 10;
+        const effectiveMax = isPremiumHost
+            ? Math.min(Math.max(requestedMax, 2), 50)
+            : Math.min(Math.max(requestedMax, 2), 10);
+
+        const hashedPassword = password
+            ? await hashRoomPassword(password)
+            : null;
+
+        // B6: SSRF protection — validate mediaItem.streamURL if present
+        if (mediaItem?.streamURL) {
+            const streamURL = String(mediaItem.streamURL);
+            try {
+                const parsed = new URL(streamURL);
+                // Only allow http/https schemes
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    return reply.status(400).send({ error: `Invalid URL scheme: ${parsed.protocol}. Only http/https allowed.` });
+                }
+                // Block localhost, private IPs, and metadata endpoints
+                const hostname = parsed.hostname.toLowerCase();
+                const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1', 'metadata.google.internal'];
+                const privateIpPattern = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/;
+                if (blockedHosts.includes(hostname) || privateIpPattern.test(hostname)) {
+                    return reply.status(400).send({ error: 'URLs pointing to local or private networks are not allowed.' });
+                }
+            } catch {
+                return reply.status(400).send({ error: 'Invalid streamURL format.' });
+            }
+        }
+
+        // 🔧 SAFETY: simple create — no endedAt column (uses isActive: false
+        // to mark ended rooms instead, history preserved in /rooms/mine query).
+        const room = await prisma.room.create({
+            data: {
+                name: name || 'Комната',
+                hostID: request.user.id,
+                hostName: resolvedHostName,
+                code: generateRoomCode(),
+                maxParticipants: effectiveMax,
+                mediaItem: mediaItem ? JSON.stringify(mediaItem) : null,
+                privacy: privacy || 'public',
+                password: hashedPassword,
+                hostIsPremium: isPremiumHost,
+                isActive: true,
+            }
+        });
+
+        // Host is always a participant — otherwise UI shows "0 человек"
+        try {
+            await prisma.roomParticipant.create({
+                data: { roomID: room.id, userID: request.user.id },
+            });
+        } catch {
+            /* unique race ok */
+        }
+
+        // Invalidate cache
+        await cacheDel(ROOMS_CACHE_KEY);
+
+        await logAudit({
+            userId: request.user.id,
+            action: AuditActions.ROOM_CREATE,
+            ip: request.ip,
+            metadata: { roomId: room.id, roomCode: room.code },
+        });
+
+        const { password: _, ...roomWithoutPassword } = room;
+        // Include host as participant count for iOS
+        const payload = serializeRoom(roomWithoutPassword) as any;
+        payload._count = { participants: 1 };
+        payload.participantCount = 1;
+        reply.send(payload);
+    });
+
+    // POST /api/rooms/join — Вход в комнату
+    fastify.post('/rooms/join', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { code, password } = request.body;
+
+        const room = await prisma.room.findFirst({
+            where: { code: code.toUpperCase(), isActive: true }
+        });
+
+        if (!room) return reply.status(404).send({ error: 'Комната не найдена' });
+
+        if (room.password) {
+            if (!password) return reply.status(401).send({ error: 'Требуется пароль' });
+            const isValid = await verifyRoomPassword(password, room.password);
+            if (!isValid) return reply.status(401).send({ error: 'Неверный пароль' });
+        }
+
+        // M15: privacy 'friends' — впускаем только друзей хоста (в любом направлении дружбы)
+        if (room.privacy === 'friends' && room.hostID !== request.user.id) {
+            const friendship = await prisma.friendship.findFirst({
+                where: {
+                    OR: [
+                        { userID: room.hostID, friendID: request.user.id },
+                        { userID: request.user.id, friendID: room.hostID },
+                    ],
+                },
+                select: { id: true },
+            });
+            if (!friendship) {
+                return reply.status(403).send({
+                    error: 'Комната только для друзей хоста',
+                    code: 'FRIENDS_ONLY',
+                });
+            }
+        }
+
+        const participantCount = await prisma.roomParticipant.count({
+            where: { roomID: room.id }
+        });
+        // Free-tier hosts: hard cap 10 even if room was created with higher max historically
+        const cap = room.hostIsPremium ? room.maxParticipants : Math.min(room.maxParticipants, 10);
+        if (participantCount >= cap) {
+            return reply.status(409).send({
+                error: room.hostIsPremium
+                    ? 'Комната заполнена'
+                    : 'Free tier limit: 10 participants max. Host can upgrade to Plink+.',
+                code: 'ROOM_FULL',
+                upgradeUrl: '/plink-plus',
+            });
+        }
+
+        // Idempotent join if already a member
+        const existing = await prisma.roomParticipant.findUnique({
+            where: { roomID_userID: { roomID: room.id, userID: request.user.id } },
+        }).catch(() => null);
+        if (!existing) {
+            await prisma.roomParticipant.create({
+                data: { roomID: room.id, userID: request.user.id }
+            });
+        }
+
+        await logAudit({
+            userId: request.user.id,
+            action: AuditActions.ROOM_JOIN,
+            ip: request.ip,
+            metadata: { roomId: room.id, roomCode: room.code },
+        });
+
+        const { password: _, ...roomWithoutPassword } = room;
+        // 🔧 FIX: parse mediaItem JSON string back to object for iOS
+        reply.send(serializeRoom(roomWithoutPassword));
+    });
+
+    // DELETE /api/rooms/:id — soft-close (host/ADMIN). Room stays in history only.
+    // Hard delete would wipe WatchHistory cascade — we never do that here.
+    fastify.delete('/rooms/:id', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { id } = request.params;
+
+        const room = await prisma.room.findUnique({ where: { id } });
+        if (!room) {
+            return reply.status(404).send({ error: 'Комната не найдена' });
+        }
+
+        const isHost = room.hostID === request.user.id;
+        const isAdmin = request.user.role === 'ADMIN' || request.user.role === 'FOUNDER';
+        if (!isHost && !isAdmin) {
+            return reply.status(403).send({ error: 'Нет прав на удаление комнаты' });
+        }
+
+        await endRoom(prisma, id, { extraUserIds: [request.user.id] });
+        await cacheDel(ROOMS_CACHE_KEY);
+
+        await logAudit({
+            userId: request.user.id,
+            action: AuditActions.ROOM_DELETE,
+            ip: request.ip,
+            metadata: { roomId: id, roomCode: room.code, roomName: room.name, soft: true },
+        });
+
+        reply.send({ success: true, roomEnded: true });
+    });
+
+    // POST /api/rooms/:id/playback
+    fastify.post('/rooms/:id/playback', {
+        preHandler: [fastify.authenticate, requireHost(prisma)]
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const { time, isPlaying } = request.body;
+
+        await prisma.playbackState.upsert({
+            where: { roomID: id },
+            update: { currentTime: time, isPlaying },
+            create: { roomID: id, currentTime: time, isPlaying },
+        });
+
+        await logAudit({
+            userId: request.user.id,
+            action: AuditActions.PLAYBACK_CONTROL,
+            ip: request.ip,
+            metadata: { roomId: id, isPlaying, time },
+        });
+
+        reply.send({ success: true });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5 (Phase 4): PATCH /api/rooms/:id/appearance
+    // ─────────────────────────────────────────────────────────────────────
+    // Host-only. Validates Plink+ for premium theme IDs, persists the
+    // RoomAppearance JSON, broadcasts `room.appearance.updated` to all
+    // participants via WebSocket. Non-hosts receive 403.
+    fastify.patch('/rooms/:id/appearance', {
+        preHandler: [fastify.authenticate, requireHost(prisma)]
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const { themeId, themeRevision, intensity, motionEnabled } = request.body;
+
+        if (typeof themeId !== 'string' || typeof intensity !== 'number') {
+            return reply.status(400).send({ error: 'themeId and intensity required' });
+        }
+
+        // 44% intensity cap (V4 rule)
+        const cappedIntensity = Math.min(Math.max(intensity, 0), 0.44);
+        const appearance = JSON.stringify({
+            themeId,
+            themeRevision: typeof themeRevision === 'number' ? themeRevision : 1,
+            intensity: cappedIntensity,
+            motionEnabled: typeof motionEnabled === 'boolean' ? motionEnabled : true,
+            updatedAt: new Date().toISOString(),
+            updatedBy: request.user.id,
+        });
+
+        await prisma.room.update({
+            where: { id },
+            data: { appearance }
+        });
+
+        // Broadcast to all room participants via WebSocket (best-effort).
+        try {
+            const participants = await prisma.roomParticipant.findMany({
+                where: { roomID: id },
+                select: { userID: true }
+            });
+            for (const p of participants) {
+                // fastify.io is the Socket.IO server; we emit per-participant.
+                // (Group emit would be `fastify.io.to(roomId).emit(...)` if
+                // participants joined the Socket.IO room on connect.)
+                fastify.io?.to(`user:${p.userID}`).emit('room.appearance.updated', {
+                    roomId: id,
+                    appearance: JSON.parse(appearance)
+                });
+            }
+        } catch (e: any) {
+            // WS broadcast failure is non-fatal — clients will pull fresh state
+            // on next room fetch.
+            console.warn('[rooms/:id/appearance] WS broadcast failed:', e?.message ?? String(e));
+        }
+
+        await logAudit({
+            userId: request.user.id,
+            action: 'ROOM_APPEARANCE_UPDATE',
+            ip: request.ip,
+            metadata: { roomId: id, themeId, intensity: cappedIntensity }
+        });
+
+        reply.send({
+            success: true,
+            appearance: JSON.parse(appearance)
+        });
+    });
+
+    // GET /api/rooms — активные публичные комнаты (только с участниками)
+    // M15: PATCH /api/rooms/:id/privacy — хост меняет режим модерации живой комнаты
+    // (публичная / закрытая с паролем / по ссылке / только друзья)
+    fastify.patch('/rooms/:id/privacy', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { privacy, password } = request.body || {};
+        const allowed = ['public', 'private', 'link', 'friends'];
+        if (!allowed.includes(privacy)) {
+            return reply.status(400).send({ error: 'Invalid privacy value' });
+        }
+
+        const room = await prisma.room.findUnique({ where: { id: request.params.id } });
+        if (!room || !room.isActive) return reply.status(404).send({ error: 'Комната не найдена' });
+        if (room.hostID !== request.user.id) {
+            return reply.status(403).send({ error: 'Только хост может менять приватность' });
+        }
+
+        // Пароль имеет смысл только для 'private': новый — хешируем,
+        // не передан — сохраняем старый; для остальных режимов — сбрасываем.
+        const hashedPassword = privacy === 'private'
+            ? (password ? await hashRoomPassword(password) : room.password)
+            : null;
+
+        const updated = await prisma.room.update({
+            where: { id: room.id },
+            data: { privacy, password: hashedPassword },
+        });
+
+        const { password: _, ...roomWithoutPassword } = updated;
+        reply.send(serializeRoom(roomWithoutPassword));
+    });
+
+    fastify.get('/rooms', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        // Try cache first
+        const cached = await cacheGet<any[]>(ROOMS_CACHE_KEY);
+        if (cached) {
+            return reply.send(cached);
+        }
+
+        const rooms = await prisma.room.findMany({
+            where: {
+                isActive: true,
+                privacy: 'public',
+                // Hide empty shells — nothing to join
+                participants: { some: {} },
+            },
+            include: { _count: { select: { participants: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+        });
+
+        const safeRooms = rooms
+            .map(r => serializeRoom(r))
+            .filter((r: any) => (r?._count?.participants ?? r?.participantCount ?? 0) > 0);
+
+        // Save to cache
+        await cacheSet(ROOMS_CACHE_KEY, safeRooms, ROOMS_CACHE_TTL);
+
+        reply.send(safeRooms);
+    });
+
+    // POST /api/rooms/:id/leave — leave; host leave or 0 people → soft-end → history only
+    fastify.post('/rooms/:id/leave', {
+        preHandler: [fastify.authenticate],
+        schema: {
+            body: {
+                type: 'object',
+                additionalProperties: true,
+            },
+        },
+    }, async (request, reply) => {
+        if (request.body == null) (request as any).body = {};
+        const { id } = request.params as { id: string };
+
+        const room = await prisma.room.findUnique({ where: { id } });
+        if (!room) {
+            return reply.status(404).send({ error: 'Комната не найдена' });
+        }
+
+        // Remove this user's participation first
+        await prisma.roomParticipant.deleteMany({
+            where: { roomID: id, userID: request.user.id }
+        });
+
+        const { roomEnded } = await maybeEndAfterLeave(prisma, id, request.user.id);
+
+        await logAudit({
+            userId: request.user.id,
+            action: AuditActions.ROOM_LEAVE,
+            ip: request.ip,
+            metadata: { roomId: id, roomEnded },
+        });
+
+        if (roomEnded) {
+            await cacheDel(ROOMS_CACHE_KEY);
+        }
+
+        return reply.send({ success: true, roomEnded });
+    });
+
+    // POST /api/rooms/:id/end — host explicitly ends room (soft, keeps history)
+    fastify.post('/rooms/:id/end', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        const room = await prisma.room.findUnique({ where: { id } });
+        if (!room) return reply.status(404).send({ error: 'Комната не найдена' });
+        const isHost = room.hostID === request.user.id;
+        const isAdmin = request.user.role === 'ADMIN' || request.user.role === 'FOUNDER';
+        if (!isHost && !isAdmin) {
+            return reply.status(403).send({ error: 'Только хост может закрыть комнату' });
+        }
+        await endRoom(prisma, id, { extraUserIds: [request.user.id] });
+        await cacheDel(ROOMS_CACHE_KEY);
+        await logAudit({
+            userId: request.user.id,
+            action: AuditActions.ROOM_LEAVE,
+            ip: request.ip,
+            metadata: { roomId: id, roomEnded: true, explicit: true },
+        });
+        reply.send({ success: true, roomEnded: true });
+    });
+
+    // POST /api/rooms/:id/kick — host removes a participant (UGC / room control)
+    fastify.post('/rooms/:id/kick', {
+        preHandler: [fastify.authenticate],
+        config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    }, async (request: any, reply: any) => {
+        const { id } = request.params as { id: string };
+        const { userId } = (request.body ?? {}) as { userId?: string };
+        if (!userId) return reply.status(400).send({ error: 'userId required' });
+
+        const room = await prisma.room.findUnique({ where: { id } });
+        if (!room) return reply.status(404).send({ error: 'Room not found' });
+        if (room.hostID !== request.user.id) {
+            return reply.status(403).send({ error: 'Only the host can kick participants' });
+        }
+        if (userId === room.hostID) {
+            return reply.status(400).send({ error: 'Cannot kick the host' });
+        }
+
+        const removed = await prisma.roomParticipant.deleteMany({
+            where: { roomID: id, userID: userId },
+        });
+        if (removed.count === 0) {
+            return reply.status(404).send({ error: 'Participant not in room' });
+        }
+
+        // History for kicked user
+        await recordWatchHistory(prisma, userId, room);
+
+        // Best-effort WS notify (gateway may be null)
+        try {
+            const gateway = (fastify as any).gateway;
+            if (gateway?.broadcastToRoom) {
+                await gateway.broadcastToRoom(id, {
+                    type: 'participant.kicked',
+                    payload: { userId, roomId: id, by: request.user.id },
+                });
+            }
+        } catch {
+            /* ignore */
+        }
+
+        // If nobody left after kick — soft-end
+        const remaining = await prisma.roomParticipant.count({ where: { roomID: id } });
+        let roomEnded = false;
+        if (remaining === 0 && room.isActive) {
+            await endRoom(prisma, id);
+            roomEnded = true;
+            await cacheDel(ROOMS_CACHE_KEY);
+        }
+
+        reply.send({ success: true, kickedUserId: userId, roomEnded });
+    });
+
+    // GET /api/rooms/mine — мои комнаты
+    // ?status=active  — только живые (isActive + есть люди)
+    // ?status=history — закрытые (для истории; активные не показываем)
+    // default / ?status=all — active first, then history (legacy)
+    // NOTE: must be registered BEFORE /rooms/:id so "mine" is not captured as an id.
+    fastify.get('/rooms/mine', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const status = String((request.query as any)?.status || 'all').toLowerCase();
+        const userId = request.user.id;
+
+        if (status === 'active') {
+            const rooms = await prisma.room.findMany({
+                where: {
+                    isActive: true,
+                    participants: { some: {} },
+                    OR: [
+                        { hostID: userId },
+                        { participants: { some: { userID: userId } } },
+                    ],
+                },
+                include: { _count: { select: { participants: true } } },
+                orderBy: { createdAt: 'desc' },
+                take: 50,
+            });
+            return reply.send(rooms.map(r => serializeRoom(r)));
+        }
+
+        if (status === 'history') {
+            // Closed rooms I hosted, or appeared in watch history
+            const [hostedEnded, historyRows] = await Promise.all([
+                prisma.room.findMany({
+                    where: { hostID: userId, isActive: false },
+                    include: { _count: { select: { participants: true } } },
+                    orderBy: { createdAt: 'desc' },
+                    take: 40,
+                }),
+                prisma.watchHistory.findMany({
+                    where: { userID: userId, roomID: { not: null } },
+                    orderBy: { watchedAt: 'desc' },
+                    take: 40,
+                    select: { roomID: true },
+                }),
+            ]);
+            const extraIds = [
+                ...new Set(
+                    historyRows
+                        .map((h: { roomID: string | null }) => h.roomID)
+                        .filter((id: string | null): id is string => !!id)
+                ),
+            ].filter((id) => !hostedEnded.some((r) => r.id === id));
+
+            const extraRooms = extraIds.length
+                ? await prisma.room.findMany({
+                    where: { id: { in: extraIds }, isActive: false },
+                    include: { _count: { select: { participants: true } } },
+                })
+                : [];
+
+            const merged = [...hostedEnded, ...extraRooms]
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .slice(0, 50)
+                .map(r => serializeRoom(r));
+            return reply.send(merged);
+        }
+
+        // all — active (with people) + recent inactive history; never show empty "active" shells
+        const rooms = await prisma.room.findMany({
+            where: {
+                OR: [
+                    { hostID: userId },
+                    { participants: { some: { userID: userId } } },
+                    { watchHistory: { some: { userID: userId } } },
+                ],
+            },
+            include: { _count: { select: { participants: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 80,
+        });
+
+        // Soft-fix any active rows that have 0 participants (stale)
+        const staleActive = rooms.filter(
+            (r: any) => r.isActive && (r._count?.participants ?? 0) === 0
+        );
+        if (staleActive.length > 0) {
+            for (const r of staleActive) {
+                await endRoom(prisma, r.id, { extraUserIds: [userId] });
+                r.isActive = false;
+                if (r._count) r._count.participants = 0;
+            }
+            await cacheDel(ROOMS_CACHE_KEY);
+        }
+
+        const safeRooms = rooms.map(r => serializeRoom(r));
+        reply.send(safeRooms);
+    });
+
+    // GET /api/rooms/:id — single room (media recovery after create/join)
+    // Registered after /rooms/mine so "mine" is never treated as an id.
+    fastify.get('/rooms/:id', {
+        preHandler: [fastify.authenticate],
+    }, async (request: any, reply: any) => {
+        const { id } = request.params as { id: string };
+        if (!id || id === 'mine' || id === 'public') {
+            return reply.status(404).send({ error: 'Room not found' });
+        }
+        const room = await prisma.room.findUnique({ where: { id } });
+        if (!room) return reply.status(404).send({ error: 'Room not found' });
+        const me = request.user.id;
+        const isHost = room.hostID === me;
+        const isMember = await prisma.roomParticipant.findFirst({
+            where: { roomID: id, userID: me },
+            select: { id: true },
+        });
+        if (!isHost && !isMember) {
+            if (!(room.isActive && room.privacy === 'public')) {
+                return reply.status(403).send({ error: 'Forbidden' });
+            }
+        }
+        const count = await prisma.roomParticipant.count({ where: { roomID: id } });
+        const payload = serializeRoom(room) as any;
+        payload._count = { participants: count };
+        payload.participantCount = count;
+        return reply.send(payload);
+    });
+
+    // P0-50/P0-56/P0-57: GET /api/rooms/:id/participants — active participant snapshot
+    // P0-56: NO Redis KEYS — uses room-indexed ZSET + Lua to prune expired and return active userIds.
+    // P0-57: host returned separately with online status, not forced into participants.
+    // P1-65: single Lua call, no N+1 zcount.
+    fastify.get('/rooms/:id/participants', {
+        preHandler: [fastify.authenticate],
+        config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    }, async (request: any, reply: any) => {
+        const { id: roomId } = request.params;
+
+        // Verify membership
+        const [participant, room] = await Promise.all([
+            prisma.roomParticipant.findUnique({
+                where: { roomID_userID: { roomID: roomId, userID: request.user.id } },
+                select: { id: true },
+            }).catch(() => null),
+            prisma.room.findUnique({
+                where: { id: roomId },
+                select: { hostID: true, isActive: true },
+            }),
+        ]);
+        if (!room) return reply.status(404).send({ error: 'Room not found' });
+        if (room.hostID !== request.user.id && !participant) {
+            return reply.status(403).send({ error: 'Not a room member' });
+        }
+
+        // P0-56: Use room-indexed ZSET instead of KEYS.
+        // Each presence key is plink:presence:{roomId}:{userId} with ZSET of
+        // connectionId → leaseExpiresAtMs. We also maintain a room-level index
+        // ZSET: plink:room:{roomId}:activeUsers with userId → latestLeaseExpiresAtMs.
+        // This Lua script prunes expired entries from both the index and
+        // individual user keys, then returns active userIds.
+        const redis = fastify.redis;
+        let activeUserIds: string[] = [];
+        if (redis) {
+            const now = Date.now();
+            const roomIndexKey = `plink:room:${roomId}:activeUsers`;
+            // Prune expired from room index
+            await redis.zremrangebyscore(roomIndexKey, '-inf', now);
+            // Get active userIds from room index
+            const activeEntries = await redis.zrangebyscore(roomIndexKey, now, '+inf');
+            activeUserIds = activeEntries;
+        }
+
+        // P0-57: Fetch host separately with online status
+        const host = await prisma.user.findUnique({
+            where: { id: room.hostID },
+            select: { id: true, username: true },
+        });
+
+        // Fetch usernames for active participants
+        const users = activeUserIds.length > 0
+            ? await prisma.user.findMany({
+                where: { id: { in: activeUserIds } },
+                select: { id: true, username: true },
+            })
+            : [];
+
+        return reply.send({
+            // P0-57: host metadata separate from active participants
+            host: host ? {
+                userId: host.id,
+                username: host.username,
+                online: activeUserIds.includes(host.id),
+            } : null,
+            // P0-57: only actually active connections
+            participants: users.map(u => ({ userId: u.id, username: u.username })),
+        });
+    });
+
+    // POST /api/rooms/:id/messages/photo — room photo message via REST upload.
+    // Realtime only broadcasts metadata; base64 image bytes never go over WebSocket.
+    fastify.post('/rooms/:id/messages/photo', {
+        preHandler: [fastify.authenticate],
+        config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
+        bodyLimit: 3 * 1024 * 1024,
+    }, async (request: any, reply: any) => {
+        const { id: roomId } = request.params as { id: string };
+        const body = (request.body ?? {}) as { imageData?: string; content?: string; clientMessageId?: string };
+
+        const [participant, room, sender] = await Promise.all([
+            prisma.roomParticipant.findUnique({
+                where: { roomID_userID: { roomID: roomId, userID: request.user.id } },
+                select: { id: true },
+            }).catch(() => null),
+            prisma.room.findUnique({
+                where: { id: roomId },
+                select: { hostID: true, isActive: true },
+            }),
+            prisma.user.findUnique({
+                where: { id: request.user.id },
+                select: { username: true },
+            }),
+        ]);
+        if (!room) return reply.status(404).send({ error: 'Room not found' });
+        if (!room.isActive) return reply.status(410).send({ error: 'Room is closed' });
+        if (room.hostID !== request.user.id && !participant) {
+            return reply.status(403).send({ error: 'Not a room member' });
+        }
+
+        const parsed = parseImageDataURL(typeof body.imageData === 'string' ? body.imageData : '');
+        if (!parsed) {
+            return reply.status(400).send({ error: 'Invalid image. Expected JPEG/PNG/WebP data URL.' });
+        }
+        if (parsed.buffer.length < 200) {
+            return reply.status(400).send({ error: 'Image too small' });
+        }
+        if (parsed.buffer.length > 2.25 * 1024 * 1024) {
+            return reply.status(413).send({ error: 'Image too large (max 2.25MB)' });
+        }
+
+        // M16: ИИ-модератор — активный мут и NSFW-проверка фото перед публикацией
+        const modMutedSec = muteRemainingSec(roomId, request.user.id);
+        if (modMutedSec > 0) {
+            return reply.status(403).send({
+                error: `Вы замучены модератором ещё на ${modMutedSec} сек`,
+                code: 'MODERATION_MUTED',
+                mutedForSec: modMutedSec,
+            });
+        }
+        const imageCheck = await moderateImage(parsed.dataUrl);
+        if (imageCheck.nsfw) {
+            const seconds = muteUser(roomId, request.user.id, 'nsfw_image', 600);
+            const sysId = crypto.randomUUID();
+            void auditModeration({
+                roomId,
+                messageId: sysId,
+                subjectUserId: request.user.id,
+                action: 'mute_nsfw_photo',
+                reasonCode: 'nsfw_image',
+            });
+            try {
+                await (fastify as any).gateway?.publishChatMessage?.({
+                    kind: 'chat.broadcast' as const,
+                    roomId,
+                    messageId: sysId,
+                    clientMessageId: sysId,
+                    senderId: 'plink-ai-moderator',
+                    senderName: 'ИИ-модератор',
+                    text: buildModWirePayload({
+                        action: 'mute',
+                        userId: request.user.id,
+                        username: sender?.username ?? 'user',
+                        seconds,
+                        reason: 'nsfw_image',
+                    }),
+                    createdAtMs: Date.now(),
+                });
+            } catch { /* noop */ }
+            return reply.status(422).send({
+                error: `Фото отклонено ИИ-модератором. Мут на ${seconds} сек`,
+                code: 'NSFW_BLOCKED',
+                mutedForSec: seconds,
+            });
+        }
+        if (typeof body.content === 'string' && containsProfanity(body.content)) {
+            const seconds = muteUser(roomId, request.user.id, 'profanity');
+            return reply.status(403).send({
+                error: `Мут на ${seconds} сек за нецензурную лексику`,
+                code: 'MODERATION_MUTED',
+                mutedForSec: seconds,
+            });
+        }
+
+        const caption = typeof body.content === 'string' ? body.content.trim().slice(0, 2000) : '';
+        const created = await prisma.chatMessage.create({
+            data: {
+                roomID: roomId,
+                senderID: request.user.id,
+                text: caption,
+                mediaType: 'photo',
+                mediaData: parsed.dataUrl,
+            },
+        });
+        const clientMessageId = typeof body.clientMessageId === 'string' && body.clientMessageId.length > 0
+            ? body.clientMessageId
+            : null;
+        const senderName = sender?.username ?? request.user.username ?? 'unknown';
+        const event = {
+            kind: 'chat.broadcast' as const,
+            roomId,
+            messageId: created.id,
+            clientMessageId,
+            senderId: request.user.id,
+            senderName,
+            text: caption,
+            createdAtMs: created.createdAt.getTime(),
+            mediaType: 'photo' as const,
+            hasMedia: true,
+        };
+        try {
+            await (fastify as any).gateway?.publishChatMessage?.(event);
+        } catch (e: any) {
+            console.warn('[room-photo] realtime publish failed:', e?.message || e);
+        }
+        return reply.send({
+            messageId: created.id,
+            clientMessageId,
+            senderId: request.user.id,
+            senderName,
+            text: caption,
+            createdAtMs: created.createdAt.getTime(),
+            mediaType: 'photo',
+            hasMedia: true,
+        });
+    });
+
+    // GET /api/rooms/:id/messages/:messageId/photo — stream room photo attachment.
+    fastify.get('/rooms/:id/messages/:messageId/photo', {
+        preHandler: [fastify.authenticate],
+    }, async (request: any, reply: any) => {
+        const { id: roomId, messageId } = request.params as { id: string; messageId: string };
+        const [participant, room, message] = await Promise.all([
+            prisma.roomParticipant.findUnique({
+                where: { roomID_userID: { roomID: roomId, userID: request.user.id } },
+                select: { id: true },
+            }).catch(() => null),
+            prisma.room.findUnique({
+                where: { id: roomId },
+                select: { hostID: true },
+            }),
+            prisma.chatMessage.findUnique({
+                where: { id: messageId },
+                select: { roomID: true, mediaType: true, mediaData: true },
+            }),
+        ]);
+        if (!room || !message || message.roomID !== roomId) return reply.status(404).send({ error: 'Not found' });
+        if (room.hostID !== request.user.id && !participant) {
+            return reply.status(403).send({ error: 'Not a room member' });
+        }
+        if (message.mediaType !== 'photo' || !message.mediaData) {
+            return reply.status(404).send({ error: 'No photo attachment' });
+        }
+        const parsed = parseImageDataURL(String(message.mediaData));
+        if (!parsed) return reply.status(500).send({ error: 'Corrupt photo data' });
+        reply
+            .header('Cache-Control', 'private, max-age=3600')
+            .header('Content-Length', String(parsed.buffer.length))
+            .type(parsed.mime)
+            .send(parsed.buffer);
+    });
+
+    // P0-59/P1-11: GET /api/rooms/:id/messages — chat catch-up with opaque cursor
+    // P0-59: cursor is opaque base64 of (createdAtMs,id), not raw messageId.
+    // Fetches limit+1 to determine hasMore deterministically.
+    // Tie-breaker: createdAt > ts OR (createdAt = ts AND id > id).
+    fastify.get('/rooms/:id/messages', {
+        preHandler: [fastify.authenticate],
+        config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    }, async (request: any, reply: any) => {
+        const { id: roomId } = request.params;
+        const cursor = (request.query as any)?.cursor as string | undefined;
+        const limit = Math.min(parseInt((request.query as any)?.limit as string) || 50, 200);
+
+        // Verify membership
+        const [participant, room] = await Promise.all([
+            prisma.roomParticipant.findUnique({
+                where: { roomID_userID: { roomID: roomId, userID: request.user.id } },
+                select: { id: true },
+            }).catch(() => null),
+            prisma.room.findUnique({
+                where: { id: roomId },
+                select: { hostID: true, isActive: true },
+            }),
+        ]);
+        if (!room) return reply.status(404).send({ error: 'Room not found' });
+        if (room.hostID !== request.user.id && !participant) {
+            return reply.status(403).send({ error: 'Not a room member' });
+        }
+
+        // P0-59: decode opaque cursor — base64 of "createdAtMs:id"
+        let afterCreatedAt: Date | undefined;
+        let afterId: string | undefined;
+        if (cursor) {
+            try {
+                const decoded = Buffer.from(cursor, 'base64').toString('utf-8');
+                const parts = decoded.split(':');
+                if (parts.length === 2) {
+                    afterCreatedAt = new Date(parseInt(parts[0]));
+                    afterId = parts[1];
+                }
+            } catch {
+                // Invalid cursor — return from beginning
+            }
+        }
+
+        // P0-59: fetch limit+1 to determine hasMore
+        const fetchLimit = limit + 1;
+        const messages = await prisma.chatMessage.findMany({
+            where: {
+                roomID: roomId,
+                ...(afterCreatedAt && afterId
+                    ? {
+                        OR: [
+                            { createdAt: { gt: afterCreatedAt } },
+                            { createdAt: { equals: afterCreatedAt }, id: { gt: afterId } },
+                        ],
+                    }
+                    : afterCreatedAt
+                    ? { createdAt: { gt: afterCreatedAt } }
+                    : {}),
+            },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            take: fetchLimit,
+            select: {
+                id: true,
+                senderID: true,
+                text: true,
+                createdAt: true,
+                mediaType: true,
+                mediaData: true,
+            },
+        });
+
+        // P0-59: hasMore is true only if we got limit+1 messages
+        const hasMore = messages.length > limit;
+        const returnMessages = hasMore ? messages.slice(0, limit) : messages;
+
+        // P0-59: build nextCursor from last returned message
+        let nextCursor: string | null = null;
+        if (hasMore && returnMessages.length > 0) {
+            const last = returnMessages[returnMessages.length - 1];
+            nextCursor = Buffer.from(`${last.createdAt.getTime()}:${last.id}`).toString('base64');
+        }
+
+        // Fetch sender usernames in bulk
+        const senderIds = [...new Set(returnMessages.map(m => m.senderID))];
+        const senders = senderIds.length > 0
+            ? await prisma.user.findMany({
+                where: { id: { in: senderIds } },
+                select: { id: true, username: true },
+            })
+            : [];
+        const senderMap = new Map(senders.map(s => [s.id, s.username]));
+
+        reply.send({
+            messages: returnMessages.map(m => ({
+                messageId: m.id,
+                clientMessageId: null,
+                senderId: m.senderID,
+                senderName: senderMap.get(m.senderID) ?? 'unknown',
+                text: m.text,
+                createdAtMs: m.createdAt.getTime(),
+                mediaType: m.mediaType ?? null,
+                hasMedia: Boolean(m.mediaType && m.mediaData),
+            })),
+            hasMore,
+            nextCursor,  // P0-59: opaque cursor, not messageId
+        });
+    });
+
+    // AUTO-CLEANUP: empty rooms (0 participants) + abandoned (no WS presence).
+    // Soft-end only — room row + WatchHistory remain for UI history.
+    // Every 60s so ghost rooms don't linger on Home/Friends.
+    setInterval(async () => {
+        try {
+            const n = await sweepOrphanRooms(prisma, (fastify as any).redis);
+            if (n > 0) {
+                await cacheDel(ROOMS_CACHE_KEY);
+                console.log(`[cleanup] Soft-ended ${n} empty/abandoned room(s)`);
+            }
+        } catch (e: any) {
+            console.error('[cleanup] Error:', e?.message || e);
+        }
+    }, 60 * 1000).unref();
+
+    // One-shot sweep shortly after boot (clear stale from previous deploys)
+    setTimeout(async () => {
+        try {
+            const n = await sweepOrphanRooms(prisma, (fastify as any).redis);
+            if (n > 0) {
+                await cacheDel(ROOMS_CACHE_KEY);
+                console.log(`[cleanup] Boot sweep: soft-ended ${n} room(s)`);
+            }
+        } catch (e: any) {
+            console.error('[cleanup] Boot sweep error:', e?.message || e);
+        }
+    }, 15_000).unref();
+}
+
+function generateRoomCode(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+async function getUserPremiumStatus(prisma, userId: string): Promise<boolean> {
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { isPremium: true }
+    });
+    return user?.isPremium ?? false;
+}

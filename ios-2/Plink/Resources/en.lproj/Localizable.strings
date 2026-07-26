@@ -1,0 +1,88 @@
+/* Plink — English strings, M39 */
+
+/* Onboarding */
+"onboarding.skip" = "Skip";
+"onboarding.next" = "Next";
+"onboarding.start" = "Get started";
+"onboarding.1.title" = "Watch together, frame for frame";
+"onboarding.1.text" = "Rutube, VK Video, OK, Dzen, YouTube and your own files. Drift under 50 ms.";
+"onboarding.2.title" = "React and talk inside the room";
+"onboarding.2.text" = "Emoji over the video, chat and voice — without switching apps.";
+"onboarding.3.title" = "AI picks what to watch";
+"onboarding.3.text" = "Describe your mood and get a shortlist in seconds.";
+
+/* Paywall */
+"paywall.title.participantLimit" = "Invite everyone you want";
+"paywall.title.voiceChat" = "Talk out loud while you watch";
+"paywall.title.roomLimit" = "As many rooms as you like";
+"paywall.title.quality" = "Watch in 1080p";
+"paywall.title.aiPriority" = "AI without the queue";
+"paywall.title.settings" = "Plink+";
+"paywall.plan.monthly" = "Monthly";
+"paywall.plan.yearly" = "Yearly";
+"paywall.plan.lifetime" = "Lifetime";
+"paywall.restore" = "Restore purchases";
+"paywall.legal.subscription" = "Subscription renews automatically. Cancel anytime in Apple ID settings.";
+"paywall.legal.lifetime" = "One-time payment. No auto-renewal.";
+
+/* Moderation */
+"moderation.report" = "Report";
+"moderation.report.send" = "Send report";
+"moderation.report.sent" = "Report sent";
+"moderation.report.sla" = "We review reports within 24 hours.";
+"moderation.block" = "Block";
+"moderation.unblock" = "Unblock";
+"moderation.blocked.title" = "Blocked";
+"moderation.blocked.empty" = "People you block will appear here.";
+"moderation.eula.title" = "Community rules";
+"moderation.eula.accept" = "I accept the rules";
+
+/* Account deletion */
+"account.delete.title" = "Delete account";
+"account.delete.confirmWord" = "DELETE";
+"account.delete.grace" = "You have 7 days to come back.";
+"account.delete.export" = "Download my data";
+"account.delete.done" = "Account deleted";
+
+/* States */
+"state.offline.title" = "No connection";
+"state.offline.message" = "Check your network and try again.";
+"state.serverError.title" = "Something broke on our side";
+"state.notFound.title" = "Nothing found";
+"state.retry" = "Try again";
+"sync.inSync" = "in sync";
+"sync.aligning" = "aligning…";
+
+/* Sources */
+"media.unsupported.reason" = "We can't open links from this site yet. Supported: Rutube, VK Video, OK, Dzen, YouTube, Vimeo and direct video files.";
+"media.source.unknown" = "Unknown source";
+
+/* Push */
+"push.prompt.title" = "Know when friends start watching";
+"push.prompt.allow" = "Turn on notifications";
+"push.prompt.later" = "Not now";
+
+/* M39 — paywall and states (second wave) */
+"paywall.subtitle.participants" = "Four people watch for free. Plink+ fits up to 20 in one room.";
+"paywall.subtitle.voice" = "Voice chat while you watch is part of Plink+.";
+"paywall.subtitle.rooms" = "Two rooms a day for free. Plink+ removes the limit.";
+"paywall.subtitle.quality" = "1080p and above are available on Plink+.";
+"paywall.subtitle.themes" = "Cinema themes and bubbles come with Plink+.";
+"paywall.subtitle.generic" = "Everything Plink does best, without limits.";
+"paywall.benefit.participants" = "Up to 20 people per room";
+"paywall.benefit.voice" = "Voice chat while watching";
+"paywall.benefit.rooms" = "No daily room limit";
+"paywall.benefit.quality" = "1080p playback";
+"paywall.benefit.ai" = "Priority in the AI queue";
+"paywall.plan.perMonth" = "≈ %d ₽ per month";
+"paywall.plan.monthly.note" = "Cancel anytime";
+"paywall.plan.lifetime.note" = "One payment, yours forever";
+"paywall.plan.savings" = "−%d%%";
+"paywall.loading" = "Loading prices…";
+"paywall.cta" = "Get Plink+";
+"paywall.error.title" = "Purchase could not be completed";
+"legal.terms" = "Terms";
+"legal.privacy" = "Privacy";
+"common.ok" = "OK";
+"state.retry" = "Try again";
+"state.offline" = "You are offline — showing saved content";

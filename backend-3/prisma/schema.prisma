@@ -1,0 +1,455 @@
+// prisma/schema.prisma — Pack 5: с Referral, FeatureFlag, AdBreak моделями
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  FOUNDER
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  email        String   @unique
+  password     String
+  avatarURL    String?
+  /// Base64 data URL (data:image/jpeg;base64,...) — persisted in DB for Railway ephemeral FS.
+  avatarData   String?
+  /// Bumped only when avatar bytes change — used for friend-list cache bust (?v=).
+  avatarUpdatedAt DateTime?
+  /// 🔧 v11 (July 2026): Telegram-style display name (separate from @username).
+  /// nil = use username as display name (backward compat).
+  displayName  String?
+  /// 🔧 v11: profile cover photo URL — banner shown on profile screen.
+  coverURL     String?
+  isOnline     Boolean  @default(false)
+  /// Last time the user was seen online (login / WS / heartbeat). Used for «был(а) N мин назад».
+  lastSeenAt   DateTime @default(now())
+  isPremium    Boolean  @default(false)
+  premiumUntil DateTime?
+  role         UserRole @default(USER)
+  bannedUntil  DateTime?
+  fcmToken     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  twofaSecret      String?
+  twofaEnabled     Boolean  @default(false)
+  twofaBackupCodes String?
+
+  referralCode String?
+
+  // ─── V5 (Phase 4 of PLINK_MASTER_PLAN_10_OF_10.md) ───
+  /// JSON-stringified { appThemeID, bubbleStyleID, emojiPackID } for
+  /// cross-device appearance restore. Null = use client defaults.
+  appearancePrefs         String?
+  /// GDPR: when set, account is scheduled for cascade deletion after the
+  /// grace period (14 days). User can cancel by signing in before then.
+  /// A cron job (services/gdpr.ts) performs the actual delete.
+  scheduledForDeletionAt  DateTime?
+  /// Telegram-style soft delete. When set, profile is «Удалённый аккаунт»:
+  /// PII stripped, login blocked, DMs rejected, UI shows tombstone avatar.
+  deletedAt               DateTime?
+
+  hostedRooms      Room[]            @relation("HostRooms")
+  participations   RoomParticipant[]
+  sentMessages     ChatMessage[]
+  sentDMs          DirectMessage[]   @relation("SentDMs")
+  receivedDMs      DirectMessage[]   @relation("ReceivedDMs")
+  dmReactions      DirectMessageReaction[]
+  dmPins           DirectMessagePin[] @relation("DMPins")
+  friendRequestsSent     FriendRequest[]  @relation("RequestsSent")
+  friendRequestsReceived FriendRequest[]  @relation("RequestsReceived")
+  friendshipsInitiated   Friendship[]     @relation("FriendshipsInitiated")
+  friendshipsReceived    Friendship[]     @relation("FriendshipsReceived")
+  watchHistory     WatchHistory[]
+  playbackStates   PlaybackState[]
+  subscriptions    Subscription[]
+  blockedUsers     UserBlock[]       @relation("Blocker")
+  blockedBy        UserBlock[]       @relation("Blocked")
+  reports          Report[]          @relation("Reporter")
+  reportsResolved  Report[]          @relation("Resolver")
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+  referralsMade    Referral[] @relation("Referrer")
+  referralReceived Referral?  @relation("Referred")
+  // PATCH 16: App Store Server API V2 transaction records
+  transactions     TransactionRecord[]
+}
+
+model Room {
+  id             String   @id @default(uuid())
+  name           String
+  hostID         String
+  host           User     @relation("HostRooms", fields: [hostID], references: [id])
+  hostName       String
+  code           String   @unique
+  mediaItem      String?
+  isActive       Boolean  @default(true)
+  maxParticipants Int     @default(10)
+  hostIsPremium  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  privacy        String   @default("public")
+  password       String?
+
+  // ─── V5 (Phase 4) ───
+  /// JSON-stringified RoomAppearance { themeId, themeRevision, intensity,
+  /// motionEnabled }. Host-authoritative; broadcast to all participants on
+  /// change via WebSocket `room.appearance.updated` event.
+  appearance     String?
+
+  participants   RoomParticipant[]
+  messages       ChatMessage[]
+  playbackStates PlaybackState[]
+  watchHistory   WatchHistory[]
+  reports        Report[]          @relation("ReportedRoom")
+  adBreaks       AdBreak[]
+
+  // GPT-5 BE-P0-07: indexes for hot paths
+  // - isActive+createdAt: Home "Сейчас смотрят" rail
+  // - privacy+isActive: public discovery filtering
+  // - hostID: "my rooms" query
+  // - mediaItem: discovery/popular aggregation
+  @@index([isActive, createdAt])
+  @@index([privacy, isActive])
+  @@index([hostID])
+  @@index([mediaItem])
+}
+
+model RoomParticipant {
+  id       String   @id @default(uuid())
+  roomID   String
+  room     Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  userID   String
+  user     User     @relation(fields: [userID], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@unique([roomID, userID])
+  @@index([userID, joinedAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  roomID    String
+  room      Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  senderID  String
+  sender    User     @relation(fields: [senderID], references: [id])
+  text      String
+  createdAt DateTime @default(now())
+  /// Optional room-chat attachment: "photo" for image messages (data lives in mediaData).
+  mediaType String?
+  mediaData String?  @db.Text
+
+  @@index([roomID, createdAt])
+}
+
+model DirectMessage {
+  id          String   @id @default(uuid())
+  senderID    String
+  sender      User     @relation("SentDMs", fields: [senderID], references: [id])
+  receiverID  String
+  receiver    User     @relation("ReceivedDMs", fields: [receiverID], references: [id])
+  content     String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  /// Optional attachment: "voice" for friend voice notes (data lives in mediaData).
+  mediaType   String?
+  /// data:audio/mp4;base64,... — stored in DB (Railway ephemeral FS-safe).
+  mediaData   String?  @db.Text
+  mediaDurationSec Float?
+  reactions   DirectMessageReaction[]
+  /// Telegram-style reply: quoted message id (same thread).
+  replyToID   String?
+  replyTo     DirectMessage?  @relation("DMReply", fields: [replyToID], references: [id], onDelete: SetNull)
+  replies     DirectMessage[] @relation("DMReply")
+  /// Telegram-style forward attribution (snapshot survives source deletion).
+  forwardedFromID   String?
+  forwardedFromName String?
+  /// Telegram-style edit marker and per-user delete list.
+  editedAt      DateTime?
+  deletedForIDs String[]  @default([])
+  pins        DirectMessagePin[]
+
+  @@index([senderID, receiverID])
+}
+
+/// Telegram-style DM pin. One row per user view: «pin for me» creates one
+/// row (owner = actor); «pin for both» creates a row for each participant.
+model DirectMessagePin {
+  id         String   @id @default(uuid())
+  /// The user whose chat view shows this pin.
+  ownerID    String
+  owner      User     @relation("DMPins", fields: [ownerID], references: [id], onDelete: Cascade)
+  /// DM thread peer (the chat partner of ownerID).
+  peerID     String
+  messageID  String
+  message    DirectMessage @relation(fields: [messageID], references: [id], onDelete: Cascade)
+  /// Who performed the pin action (either participant).
+  pinnedByID String
+  createdAt  DateTime @default(now())
+
+  @@unique([ownerID, peerID, messageID])
+  @@index([ownerID, peerID])
+}
+
+/// Telegram-style reactions on DMs (one emoji per user per message).
+model DirectMessageReaction {
+  id        String   @id @default(uuid())
+  messageID String
+  message   DirectMessage @relation(fields: [messageID], references: [id], onDelete: Cascade)
+  userID    String
+  user      User     @relation(fields: [userID], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageID, userID])
+  @@index([messageID])
+}
+
+model FriendRequest {
+  id         String   @id @default(uuid())
+  fromUserID String
+  fromUser   User     @relation("RequestsSent", fields: [fromUserID], references: [id])
+  toUserID   String
+  toUser     User     @relation("RequestsReceived", fields: [toUserID], references: [id])
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+
+  @@unique([fromUserID, toUserID])
+}
+
+model Friendship {
+  id           String   @id @default(uuid())
+  userID       String
+  user         User     @relation("FriendshipsInitiated", fields: [userID], references: [id])
+  friendID     String
+  friend       User     @relation("FriendshipsReceived", fields: [friendID], references: [id])
+  friendsSince DateTime @default(now())
+  /// Per-user Telegram-style pin (only on the row userID=me → friendID).
+  isPinned     Boolean  @default(false)
+  /// Lower = higher in pinned section (0 = top).
+  pinOrder     Int      @default(0)
+
+  @@unique([userID, friendID])
+  @@index([userID, isPinned, pinOrder])
+}
+
+model WatchHistory {
+  id        String   @id @default(uuid())
+  userID    String
+  user      User     @relation(fields: [userID], references: [id])
+  roomID    String?
+  room      Room?    @relation(fields: [roomID], references: [id])
+  mediaTitle String?
+  watchedAt DateTime @default(now())
+}
+
+model PlaybackState {
+  id         String   @id @default(uuid())
+  roomID     String
+  room       Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  userID     String?
+  user       User?    @relation(fields: [userID], references: [id])
+  currentTime    Float    @default(0)
+  isPlaying   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  // P1-39: removed @@unique([roomID, userID]) from schema — migration uses
+  // partial unique indexes instead (WHERE userID IS NOT NULL / IS NULL).
+  // Prisma migrate diff now produces empty diff against fresh DB.
+  @@index([roomID, updatedAt])
+}
+
+model Subscription {
+  id                    String   @id @default(uuid())
+  userID                String
+  user                  User     @relation(fields: [userID], references: [id])
+  plan                  String   @default("monthly")
+  isActive              Boolean  @default(true)
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
+  // PATCH 16: App Store Server API V2 fields
+  originalTransactionId String?  // stable across renewals
+  environment           String?  // "Sandbox" | "Production"
+  revokedAt             DateTime?
+  lastVerifiedAt        DateTime?
+  @@index([userID, isActive])
+  @@index([originalTransactionId])
+}
+
+/// PATCH 16: Signed transaction records (JWS) from App Store Server API V2.
+/// One row per verified transaction. Used for audit trail + revocation.
+model TransactionRecord {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  transactionId         String   @unique  // stable per transaction
+  originalTransactionId String
+  productId             String
+  environment           String   // "Sandbox" | "Production"
+  jws                   String   @db.Text  // signed JWS from Apple
+  expiresAt             DateTime?
+  revocationDate        DateTime?
+  verifiedAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([originalTransactionId])
+  @@index([productId])
+}
+
+model UserBlock {
+  id          String @id @default(uuid())
+  blockerID   String
+  blocker     User   @relation("Blocker", fields: [blockerID], references: [id])
+  blockedID   String
+  blocked     User   @relation("Blocked", fields: [blockedID], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([blockerID, blockedID])
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  reporterID  String
+  reporter    User     @relation("Reporter", fields: [reporterID], references: [id])
+  roomID      String?
+  reportedRoom Room?   @relation("ReportedRoom", fields: [roomID], references: [id])
+  reason      String
+  status      String   @default("pending")  // pending | resolved | dismissed
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  resolver    User?    @relation("Resolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  ip        String?
+  userAgent String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+// Pack 5: НОВЫЕ МОДЕЛИ
+
+model Referral {
+  id          String   @id @default(uuid())
+  referrerId  String
+  referrer    User     @relation("Referrer", fields: [referrerId], references: [id])
+  referredId  String   @unique
+  referred    User     @relation("Referred", fields: [referredId], references: [id])
+  status      String   @default("completed")
+  rewardDays  Int      @default(7)
+  createdAt   DateTime @default(now())
+
+  @@index([referrerId])
+}
+
+model FeatureFlag {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model AdBreak {
+  id          String   @id @default(uuid())
+  roomID      String
+  room        Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  startTime   Float
+  endTime     Float
+  adType      String   @default("preroll")
+  createdAt   DateTime @default(now())
+
+  @@index([roomID])
+}
+
+// GPT-5.6 §14: AI Moderation Audit
+model AIModerationAudit {
+  id             String   @id @default(cuid())
+  roomId         String
+  messageId      String
+  subjectUserId  String
+  action         String
+  reasonCode     String
+  confidence     Float?
+  policyVersion  String
+  modelVersion   String?
+  evidenceHash   String
+  reversible     Boolean  @default(true)
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([subjectUserId, createdAt])
+}
+
+/// M16: групповые чаты (беседы) — полноценный мессенджер внутри Plink.
+model GroupChat {
+  id        String   @id @default(uuid())
+  title     String
+  ownerID   String
+  createdAt DateTime @default(now())
+  members   GroupMember[]
+  messages  GroupMessage[]
+}
+
+model GroupMember {
+  id       String    @id @default(uuid())
+  groupID  String
+  group    GroupChat @relation(fields: [groupID], references: [id], onDelete: Cascade)
+  userID   String
+  role       String    @default("member")
+  joinedAt   DateTime  @default(now())
+  lastReadAt DateTime?
+
+  @@unique([groupID, userID])
+  @@index([userID])
+}
+
+model GroupMessage {
+  id         String    @id @default(uuid())
+  groupID    String
+  group      GroupChat @relation(fields: [groupID], references: [id], onDelete: Cascade)
+  senderID   String
+  senderName String
+  content    String
+  deletedAt  DateTime?
+  reactions  Json?
+  /// "photo" — фото в беседе (data URL в mediaData, как в DM).
+  mediaType  String?
+  mediaData  String?   @db.Text
+  createdAt  DateTime  @default(now())
+
+  @@index([groupID, createdAt])
+}

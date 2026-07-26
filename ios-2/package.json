@@ -1,0 +1,18 @@
+{
+  "name": "plink-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Plink MVP scripts",
+  "scripts": {
+    "drift-lab": "node scripts/drift-lab.mjs",
+    "desktop:dev": "npm --prefix windows-client run dev",
+    "desktop:build": "npm --prefix windows-client run build",
+    "desktop:dmg": "npm --prefix windows-client run tauri:build",
+    "landing:dev": "npm --prefix plink-landing run dev",
+    "android:apk": "cd android-client && ./gradlew assembleDebug",
+    "backend:build": "npm --prefix plink-backend run build"
+  },
+  "devDependencies": {
+    "ws": "^8.21.1"
+  }
+}

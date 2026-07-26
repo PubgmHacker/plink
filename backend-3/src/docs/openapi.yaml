@@ -1,0 +1,346 @@
+openapi: 3.0.3
+info:
+  title: Plink Backend API
+  version: 1.4.0
+  description: |
+    Plink — синхронный просмотр видео с друзьями.
+    
+    ## Аутентификация
+    Все endpoints (кроме /api/auth/signin, /api/auth/signup, /health) требуют JWT.
+    
+    Используйте `Authorization: Bearer <token>` header.
+    
+    ## Rate Limits
+    - Signin: 10 attempts / 5 min
+    - Signup: 5 attempts / 20 min  
+    - Refresh: 60 attempts / 1 min
+    - Media search: 30 attempts / 1 min
+    - Stream extract: 20 attempts / 1 min
+    
+    ## WebSocket
+    Подключение: `wss://plink-backend-production-ef31.up.railway.app/ws?token=JWT&roomId=ROOM_ID`
+    
+    Message types:
+    - `{ command: "ping", timestamp }` → `{ command: "pong", serverTimestamp }`
+    - `{ command: "play"|"pause"|"seek", roomID, mediaTime, timestamp }`
+    - `{ type: "chat", roomID, text }`
+    - `{ action: "send_reaction", roomId, emoji }`
+    - `{ type: "typing", roomId, isTyping }`
+    
+servers:
+  - url: https://plink-backend-production-ef31.up.railway.app
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        avatarURL:
+          type: string
+          nullable: true
+        isPremium:
+          type: boolean
+        role:
+          type: string
+          enum: [USER, MODERATOR, ADMIN, FOUNDER]
+        createdAt:
+          type: string
+          format: date-time
+    Room:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        hostID:
+          type: string
+        hostName:
+          type: string
+        code:
+          type: string
+          description: 6-character room code
+        maxParticipants:
+          type: integer
+        privacy:
+          type: string
+          enum: [public, private, link]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token (7 days)
+        refreshToken:
+          type: string
+          description: Refresh token (90 days)
+        accessExpiresAt:
+          type: number
+          description: Unix timestamp (ms) when access token expires
+        user:
+          $ref: '#/components/schemas/User'
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  timestamp: { type: number }
+                  uptime: { type: number }
+                  services:
+                    type: object
+                    properties:
+                      database: { type: string }
+                      redis: { type: string }
+
+  /api/auth/signup:
+    post:
+      summary: Register new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, username]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                username: { type: string, minLength: 3 }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: Email or username taken
+
+  /api/auth/signin:
+    post:
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+        '403':
+          description: Account banned
+
+  /api/auth/refresh:
+    post:
+      summary: Refresh access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid or expired refresh token
+
+  /api/auth/logout:
+    post:
+      summary: Logout (revoke all refresh tokens)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+
+  /api/rooms:
+    get:
+      summary: List public rooms
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Room'
+    post:
+      summary: Create room
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                maxParticipants: { type: integer, default: 10 }
+                mediaItem: { type: string }
+                privacy: { type: string, enum: [public, private, link] }
+                password: { type: string }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+
+  /api/media/search:
+    get:
+      summary: Search YouTube videos
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 12 }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        title: { type: string }
+                        channel: { type: string }
+                        thumbnailURL: { type: string }
+
+  /api/media/extract:
+    get:
+      summary: Extract direct stream URL (yt-dlp)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+          description: YouTube video ID
+      responses:
+        '200':
+          description: Stream info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  streamURL: { type: string, description: Direct MP4 URL }
+                  duration: { type: number }
+
+  /api/2fa/setup:
+    post:
+      summary: Generate TOTP secret for 2FA
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret: { type: string }
+                  otpauthUrl: { type: string }
+                  qrCodeUrl: { type: string }
+
+  /api/billing/verify:
+    post:
+      summary: Verify Apple receipt and activate premium
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receipt, productId]
+              properties:
+                receipt: { type: string, description: Base64 receipt data }
+                productId: { type: string, enum: [plink.premium.monthly, plink.premium.yearly, plink.premium.lifetime] }
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  premium: { type: boolean }
+                  premiumUntil: { type: string, format: date-time }

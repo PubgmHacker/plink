@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "510225034112",
+    "project_id": "plink-beta",
+    "storage_bucket": "plink-beta.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:510225034112:android:9c431b1f9e6e164ba06f65",
+        "android_client_info": {
+          "package_name": "com.plink.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLvTDtEqK0Y3frZTHGKXQ-x4bDvS3rdGc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
