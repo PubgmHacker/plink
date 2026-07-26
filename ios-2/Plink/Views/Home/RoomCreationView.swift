@@ -785,8 +785,7 @@ struct ServiceAuthSheet: View {
                     Text("Войдите в \(service.title)")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(Cinema2026.text)
-                    Text("Чтобы стать Host, необходима подписка \(service.title).
-Гости смотрят бесплатно через Plink.")
+                    Text("Чтобы стать Host, необходима подписка \(service.title).\nГости смотрят бесплатно через Plink.")
                         .font(.system(size: 15))
                         .foregroundStyle(Cinema2026.secondary)
                         .multilineTextAlignment(.center)

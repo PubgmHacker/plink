@@ -93,7 +93,7 @@ final class ModerationService: ObservableObject {
     }
 
     func refreshBlockedList() async {
-        guard let url = URL(string: APIConfig.baseURL + "/api/moderation/blocked") else { return }
+        guard let url = URL(string: PlinkConfig.baseURLString + "/api/moderation/blocked") else { return }
         var request = URLRequest(url: url)
         if let token = AuthTokenStore.shared.token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -113,7 +113,7 @@ final class ModerationService: ObservableObject {
     }
 
     private func send(path: String, method: String, body: [String: Any]?) async {
-        guard let url = URL(string: APIConfig.baseURL + path) else { return }
+        guard let url = URL(string: PlinkConfig.baseURLString + path) else { return }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

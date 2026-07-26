@@ -169,8 +169,7 @@ struct AIAssistantView: View {
             VStack(spacing: 20) {
                 Spacer(minLength: 12)
                 AssistantOrbView(state: vm.orbState.metal).frame(width: 130, height: 130)
-                Text("Привет! Я Plink AI
-Помогу выбрать фильм и создам комнату.")
+                Text("Привет! Я Plink AI\nПомогу выбрать фильм и создам комнату.")
                     .font(.system(size: 15)).foregroundStyle(.white.opacity(0.8))
                     .multilineTextAlignment(.center).padding(.horizontal, 32)
                 VStack(spacing: 8) {

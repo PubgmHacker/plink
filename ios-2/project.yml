@@ -52,6 +52,13 @@ targets:
       - path: Plink/Resources
         excludes:
           - "**/.DS_Store"
+          # Localization/*.lproj/Localizable.strings is a stale duplicate of
+          # the in-code L10n.table (see Localization/LocalizationManager.swift).
+          # Keeping it as a build resource collides with the real .lproj at
+          # Resources/{en,ru}.lproj and breaks the build ("Multiple commands
+          # produce .../en.lproj/Localizable.strings"). Exclude it from the
+          # copy-resources phase; the Swift table remains the single source.
+          - "Localization/**"
       - path: Plink/Resources/Emojis
         type: folder
       - path: Plink/Resources/LiveThemes
