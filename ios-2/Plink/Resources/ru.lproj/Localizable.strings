@@ -74,13 +74,14 @@
 "paywall.benefit.rooms" = "Комнаты без суточного лимита";
 "paywall.benefit.quality" = "Качество 1080p";
 "paywall.benefit.ai" = "Приоритет в очереди ИИ-подбора";
-"paywall.plan.perMonth" = "≈ %d ₽ в месяц";
+"paywall.plan.perMonth" = "≈ %@ в месяц";
 "paywall.plan.monthly.note" = "Отмена в любой момент";
 "paywall.plan.lifetime.note" = "Разовый платёж, навсегда";
 "paywall.plan.savings" = "−%d%%";
 "paywall.loading" = "Загружаем цены…";
 "paywall.cta" = "Подключить Plink+";
 "paywall.error.title" = "Не удалось завершить покупку";
+"paywall.error.productUnavailable" = "Подписка ещё загружается из App Store. Попробуйте через несколько секунд.";
 "legal.terms" = "Условия";
 "legal.privacy" = "Конфиденциальность";
 "common.ok" = "Понятно";

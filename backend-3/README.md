@@ -15,3 +15,11 @@
 - npx prisma db push (через Railway CLI или console)
 - API будет на https://ваш-домен.up.railway.app/api
 - WebSocket на wss://ваш-домен.up.railway.app/ws
+
+## CI и тесты
+
+- CI: `.github/workflows/ci.yml` (корень монорепо) — job `backend`: redis:7 как service, `npm ci` → `prisma generate` → `tsc --noEmit` → `vitest run` с `REDIS_URL`.
+- Локально: `npm test` (watch) или `npx vitest run`; без Redis интеграционные тесты скипаются, и в конце прогона печатается громкое предупреждение с их количеством.
+- Полный интеграционный прогон: `REDIS_URL="redis://localhost:6380" npm run test:integration` — скрипт падает, если `REDIS_URL` не задан.
+- Типы: `npx tsc --noEmit` обязан давать 0 ошибок перед любым коммитом.
+- iOS-job в CI пока заглушка (репозиторий на GitHub устарел, macos-runner не настроен).

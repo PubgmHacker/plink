@@ -104,18 +104,37 @@ final class DeepLinkTests: XCTestCase {
     }
 
     func testHandle_invalidLink_doesNotSetPendingLink() {
+        // pendingLink не Optional — «нет ссылки» это .none, XCTAssertNil тут всегда падал.
         let url = URL(string: "https://evil.com/r/ABCDEF")!
         router.handle(url)
-        XCTAssertNil(router.pendingLink)
+        XCTAssertEqual(router.pendingLink, .none)
     }
 
     func testClear_resetsPendingLink() {
         let url = URL(string: "https://plink.app/r/ABCDEF")!
         router.handle(url)
-        XCTAssertNotNil(router.pendingLink)
+        XCTAssertEqual(router.pendingLink, .room(code: "ABCDEF"))
 
         router.clear()
-        XCTAssertNil(router.pendingLink)
+        XCTAssertEqual(router.pendingLink, .none)
+    }
+
+    // MARK: - Форматы ссылок из share-текстов приложения
+
+    func testParse_currentScheme_room() {
+        let url = URL(string: "plink://r/ABCDEF")!
+        XCTAssertEqual(router.parse(url), .room(code: "ABCDEF"))
+    }
+
+    func testParse_currentScheme_roomAlias() {
+        let url = URL(string: "plink://room/ABCDEF")!
+        XCTAssertEqual(router.parse(url), .room(code: "ABCDEF"))
+    }
+
+    func testParse_joinPath_treatedAsRoom() {
+        // Старые share-тексты рассылали https://plink.app/join/<code>.
+        let url = URL(string: "https://plink.app/join/ABCDEF")!
+        XCTAssertEqual(router.parse(url), .room(code: "ABCDEF"))
     }
 
     // MARK: - URL builders

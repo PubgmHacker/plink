@@ -94,11 +94,15 @@ final class ProfileTests: XCTestCase {
     // MARK: - UserPreview
 
     func testUserPreview_equality() {
+        // Живой UserPreview — синтезированный Hashable/Equatable:
+        // равенство по ВСЕМ полям (value-семантика), не только по id.
         let p1 = UserPreview(id: "u1", username: "alice", avatarURL: nil, isOnline: false)
-        let p2 = UserPreview(id: "u1", username: "alice", avatarURL: nil, isOnline: true)
-        let p3 = UserPreview(id: "u2", username: "bob", avatarURL: nil, isOnline: false)
-        XCTAssertEqual(p1, p2, "UserPreview equality is by id")
-        XCTAssertNotEqual(p1, p3)
+        let p2 = UserPreview(id: "u1", username: "alice", avatarURL: nil, isOnline: false)
+        let p3 = UserPreview(id: "u1", username: "alice", avatarURL: nil, isOnline: true)
+        let p4 = UserPreview(id: "u2", username: "bob", avatarURL: nil, isOnline: false)
+        XCTAssertEqual(p1, p2, "Полное совпадение полей → равны")
+        XCTAssertNotEqual(p1, p3, "Разный isOnline → не равны (равенство по всем полям)")
+        XCTAssertNotEqual(p1, p4)
     }
 
     func testUserPreview_id_isStable() {

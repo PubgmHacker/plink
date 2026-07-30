@@ -13,6 +13,10 @@ import SwiftUI
 
 struct PresenceBar: View {
     let model: WatchRoomModel
+    // Ревью 26.07.2026: см. WatchChatView — скрим живой темы читает
+    // «Уменьшение прозрачности» и наличие подложки за поверхностью.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.verticalSizeClass) private var heightClass
 
     var body: some View {
         HStack(spacing: 12) {
@@ -74,7 +78,16 @@ struct PresenceBar: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 56)
-        .background(Cinema2026.background)
+        // P1 5.11: полоса присутствия — первая поверхность под плеером, именно
+        // здесь живая тема комнаты читается лучше всего. Без темы фон прежний.
+        .background(
+            Cinema2026.background
+                .opacity(RoomLiveTheme.scrimOpacity(
+                    model.appearanceStore.appearance,
+                    reduceTransparency: reduceTransparency,
+                    backdropVisible: heightClass != .compact
+                ))
+        )
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Cinema2026.divider.opacity(0.35))

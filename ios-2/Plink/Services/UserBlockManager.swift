@@ -90,24 +90,32 @@ final class UserBlockManager: ObservableObject {
         reason: ReportReason,
         details: String? = nil
     ) async throws {
+        // Контракт сервера (moderation.ts:170): { targetType, targetId, reason, comment }.
+        // Клиент слал { targetUserId, roomId, messageId, reason, details } — сервер
+        // первым же условием отвечал 400 invalid_target_type, то есть НИ ОДНА жалоба
+        // из приложения не доходила до очереди модерации.
         struct Body: Encodable {
-            let targetUserId: String?
-            let roomId: String?
-            let messageId: String?
+            let targetType: String
+            let targetId: String
             let reason: String
-            let details: String?
+            let comment: String?
         }
         struct Resp: Decodable { let success: Bool? }
+
+        let target: (type: String, id: String)
+        if let messageId { target = ("message", messageId) }
+        else if let roomId { target = ("room", roomId) }
+        else if let targetUserId { target = ("user", targetUserId) }
+        else { throw APIError.serverError(status: 400, message: "Не указан объект жалобы") }
 
         let _: Resp = try await api.request(
             "moderation/report",
             method: .post,
             body: Body(
-                targetUserId: targetUserId,
-                roomId: roomId,
-                messageId: messageId,
+                targetType: target.type,
+                targetId: target.id,
                 reason: reason.apiCode,
-                details: details
+                comment: details
             )
         )
     }
@@ -140,10 +148,14 @@ final class UserBlockManager: ObservableObject {
     // MARK: - Server sync
 
     func refreshBlocksFromServer() async {
-        struct Row: Decodable { let id: String }
+        // Роут называется /moderation/blocked (moderation.ts:265) и отдаёт
+        // { blockedUserIds: [String] }, а не массив объектов. Прежний путь
+        // «moderation/blocks» давал 404, поэтому список блокировок никогда не
+        // синхронизировался с сервером и жил только локально на устройстве.
+        struct Resp: Decodable { let blockedUserIds: [String] }
         do {
-            let rows: [Row] = try await api.request("moderation/blocks")
-            blockedUserIds = Set(rows.map(\.id))
+            let resp: Resp = try await api.request("moderation/blocked")
+            blockedUserIds = Set(resp.blockedUserIds)
             persist()
         } catch {
             // Keep local list if offline
@@ -186,7 +198,9 @@ enum ReportReason: String, CaseIterable, Identifiable {
         switch self {
         case .spam: return "spam"
         case .harassment: return "harassment"
-        case .nsfw: return "nsfw"
+        // Сервер принимает строго REASONS из moderation.ts:41 — 'nsfw' там нет,
+        // жалоба отвергалась с 400 invalid_reason. Верное значение — 'sexual'.
+        case .nsfw: return "sexual"
         case .other: return "other"
         }
     }

@@ -2,7 +2,7 @@
 //
 // Slimmed down per PATCH 02 spec. UI views have been extracted to:
 //   - PlayerControlLayer.swift  (PlayerTopChrome, PlayerCenterControl,
-//                                 PlayerChromeButton, PlayerSmallButton,
+//                                 PlayerChromeButton,
 //                                 PlayerLoadingView, BufferingOverlay,
 //                                 SyncHealthPill)
 //   - RoomIdentityBar.swift     (RoomIdentityBar)

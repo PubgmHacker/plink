@@ -24,9 +24,8 @@ final class FakeRoomService: RoomServiceProtocol {
         rooms.values.filter { myRoomIds.contains($0.id) }.sorted { $0.createdAt > $1.createdAt }
     }
 
-    func fetchPublicRooms() async throws -> [Room] {
-        rooms.values.filter { $0.isActive && $0.privacy == .publicRoom }.sorted { $0.createdAt > $1.createdAt }
-    }
+    // Аудит 26.07.2026: fetchPublicRooms удалён вслед за протоколом —
+    // серверный роут /rooms/public мёртв.
 
     func createRoom(_ request: CreateRoomRequest) async throws -> Room {
         let id = UUID().uuidString

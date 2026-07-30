@@ -477,6 +477,8 @@ enum L10n {
         // M20: Network
         case offlineTitle = "network.offline"
         case offlineRetry = "network.retry"
+        case connectionLost = "network.connectionLost"
+        case msgSending = "network.msgSending"
         // M19: Groups / Chats
         case groupsEmpty = "groups.empty"
         case groupsEmptySubtitle = "groups.emptySubtitle"
@@ -1840,6 +1842,16 @@ enum L10n {
             .russian: "Повторить",
             .english: "Retry",
             .chinese: "重试"
+        ],
+        .connectionLost: [
+            .russian: "Связь потеряна",
+            .english: "Connection lost",
+            .chinese: "连接已断开"
+        ],
+        .msgSending: [
+            .russian: "Отправка…",
+            .english: "Sending…",
+            .chinese: "发送中…"
         ],
         // M19: Paywall
         .plusTagline: [

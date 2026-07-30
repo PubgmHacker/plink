@@ -311,6 +311,9 @@ struct V4AppearanceView: View {
         }
         selectedBubbleID = style.id
         PlinkBubbleStylePrefs.set(style.id)
+        // Аудит 26.07.2026: бабл-стиль уезжает PUT /api/profile/appearance
+        // (кросс-девайс); сбой сети — молча остаёмся на локальном выборе.
+        AppearanceStore.shared.syncBubbleStyle(style.id)
         HapticManager.selection()
         flashToast("Бабл: \(style.title)")
     }

@@ -131,7 +131,7 @@ final class SyncTelemetryCollector {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = KeychainHelper.read(for: "rave_auth_token") {
+        if let token = AuthTokenStore.shared.token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         req.httpBody = try? JSONEncoder().encode(sample)
@@ -171,7 +171,7 @@ final class SyncTelemetryCollector {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = KeychainHelper.read(for: "rave_auth_token") {
+        if let token = AuthTokenStore.shared.token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         req.httpBody = try? JSONEncoder().encode(aggregate)

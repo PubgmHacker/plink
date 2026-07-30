@@ -20,20 +20,304 @@ final class DMChatService: ObservableObject {
     @Published private(set) var lastPreviewByFriend: [String: String] = [:]
     /// friendId → last message / activity time (Telegram chat reordering)
     @Published private(set) var lastActivityAtByFriend: [String: Date] = [:]
+    /// M39-fix: архивированные чаты (Telegram-style) — скрыты из основного списка, состояние хранится локально.
+    @Published private(set) var archivedFriendIDs: Set<String> = []
+    private static let archivedKey = "plink.dm.archived.v1"
     /// Bumps when inbox activity changes so chat list can re-sort.
     @Published private(set) var inboxEpoch: Int = 0
     @Published private(set) var historyEpoch: Int = 0
     @Published var isLoading = false
     @Published var errorMessage: String?
+    // Аудит 26.07.2026 P1: явный учёт оптимистичных локальных сообщений вместо
+    // эвристики «id длиннее 20 символов» — серверные UUID тоже 36 символов,
+    // из-за чего удалённые собеседником сообщения «воскресали» при merge.
+    private var pendingLocalIDs: Set<String> = []
+    /// Неотправленные сообщения (сеть/сервер отказали): помечаются в UI и никогда
+    /// не выбрасываются из ленты при merge. Аудит 26.07.2026 P1.
+    @Published private(set) var failedMessageIDs: Set<String> = []
+    /// Аудит 26.07.2026 P1: пагинация истории. friendId → есть ли страницы старше.
+    @Published private(set) var hasMoreHistoryByFriend: [String: Bool] = [:]
+    @Published private(set) var isLoadingOlderHistory = false
+    /// Размер серверного окна истории без курсора (take: 200 на бэкенде).
+    private static let serverHistoryWindow = 200
+    /// Размер страницы при подгрузке старых сообщений (?before=&limit=).
+    private static let olderPageSize = 100
 
     /// Currently open DM friend id — unread for this id stays 0 while open.
     private(set) var openFriendId: String?
 
     private let api: APIClient
     private var unreadPollTask: Task<Void, Never>?
+    /// Аудит 26.07.2026 P2: fallback-интервал опроса непрочитанных. Мгновенные
+    /// события идут через DMRealtimeClient, поэтому раз в секунду больше не бьём —
+    /// это жгло батарею и трафик и поллило сервер даже в фоне.
+    private static let unreadPollIntervalNs: UInt64 = 15_000_000_000
 
     init(api: APIClient) {
         self.api = api
+        self.archivedFriendIDs = Set(UserDefaults.standard.stringArray(forKey: Self.archivedKey) ?? [])
+        restoreInboxCache()
+        restorePendingChatDeletes()
+        pruneForeignCaches()
+        // Ревью 26.07.2026: выход из аккаунта обязан уносить офлайн-кэш DM,
+        // иначе следующий пользователь на этом устройстве увидит чужую переписку.
+        signOutObserver = NotificationCenter.default.addObserver(
+            forName: .plinkSignedOut,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.purgeOfflineCaches() }
+        }
+    }
+
+    // MARK: - Archive (Telegram-style, локально)
+
+    func isArchived(_ friendId: String) -> Bool { archivedFriendIDs.contains(friendId) }
+
+    /// Архивировать чат: убрать из основного списка. Состояние хранится локально между запусками.
+    func archiveChat(with friend: Friend) async {
+        archivedFriendIDs.insert(friend.id)
+        UserDefaults.standard.set(Array(archivedFriendIDs), forKey: Self.archivedKey)
+    }
+
+    /// Вернуть архивированный чат обратно в основной список.
+    func unarchiveChat(friendId: String) {
+        archivedFriendIDs.remove(friendId)
+        UserDefaults.standard.set(Array(archivedFriendIDs), forKey: Self.archivedKey)
+    }
+
+    // MARK: - Офлайн-кэш инбокса / диалога (Аудит 26.07.2026 P2)
+
+    /// Снимок инбокса на диске: холодный старт без сети показывает список чатов,
+    /// а не пустоту. Свежие сетевые данные всегда важнее кэша.
+    private struct InboxCacheSnapshot: Codable {
+        var previews: [String: String]
+        var unread: [String: Int]
+        var activity: [String: Date]
+    }
+
+    // Ревью 26.07.2026: ключи кэша обязаны быть привязаны к аккаунту — раньше
+    // `…history.cache.v1.<friendId>` подставлял переписку прошлого пользователя
+    // в диалог нового (общий друг на том же устройстве).
+    private static let inboxCacheKeyPrefix = "plink.dm.inbox.cache.v1."
+    private static let historyCacheKeyPrefix = "plink.dm.history.cache.v1."
+    private static let pendingDeletesKeyPrefix = "plink.dm.pendingDeletes.v1."
+    /// Сколько последних сообщений диалога держим в офлайн-кэше.
+    private static let historyCacheLimit = 60
+    /// Троттлинг записи инбокса на диск.
+    private var lastInboxPersistAt: Date = .distantPast
+    /// Троттлинг записи истории диалога на диск (convID → момент записи).
+    private var lastHistoryPersistAt: [String: Date] = [:]
+    /// Диалоги, историю которых уже поднимали из кэша (кэш не должен лечь поверх сети).
+    private var historyRestoredFor: Set<String> = []
+    /// Диалоги, по которым сеть уже отвечала в этой сессии (кэш перестаёт быть авторитетом).
+    private var historyNetworkConfirmed: Set<String> = []
+    /// Удаления чата, не доехавшие до сервера: friendId → момент локального удаления.
+    /// Отсечка нужна, чтобы серверный DELETE (скрывает ВЕСЬ тред) не унёс сообщения,
+    /// пришедшие уже после удаления и ни разу не показанные пользователю.
+    private var pendingChatDeletes: [String: Date] = [:]
+    private var pendingDeletesRestored = false
+    /// Пользователь, которому принадлежит текущее состояние/кэш.
+    private var cacheOwnerId: String?
+    private var signOutObserver: NSObjectProtocol?
+
+    private func cacheScope() -> String? {
+        guard let me = currentUserId, !me.isEmpty else { return nil }
+        // Сессия могла истечь и смениться без нотификации выхода
+        // (AuthService.restoreAndValidateSession → signOutLocally(postNotification: false)),
+        // поэтому владельца кэша сверяем на каждом обращении.
+        if let owner = cacheOwnerId, owner != me {
+            resetInMemoryState()
+        }
+        cacheOwnerId = me
+        return me
+    }
+
+    private func inboxCacheKey() -> String? {
+        cacheScope().map { Self.inboxCacheKeyPrefix + $0 }
+    }
+
+    private func historyCacheKey(friendId: String) -> String? {
+        cacheScope().map { Self.historyCacheKeyPrefix + $0 + "." + friendId }
+    }
+
+    private func pendingDeletesKey() -> String? {
+        cacheScope().map { Self.pendingDeletesKeyPrefix + $0 }
+    }
+
+    /// Снести кэши DM, не принадлежащие текущему аккаунту (в т.ч. ключи ранней
+    /// сборки без привязки к пользователю) — тексты чужих переписок в plist не место.
+    private func pruneForeignCaches() {
+        guard let me = cacheScope() else { return }
+        let defaults = UserDefaults.standard
+        let mine = [
+            Self.inboxCacheKeyPrefix + me,
+            Self.pendingDeletesKeyPrefix + me
+        ]
+        let myHistoryPrefix = Self.historyCacheKeyPrefix + me + "."
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("plink.dm.inbox.cache.v1")
+            || key.hasPrefix("plink.dm.history.cache.v1")
+            || key.hasPrefix("plink.dm.pendingDeletes.v1") {
+            if mine.contains(key) || key.hasPrefix(myHistoryPrefix) { continue }
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    /// Полная очистка локального состояния DM при выходе из аккаунта.
+    private func purgeOfflineCaches() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix(Self.inboxCacheKeyPrefix)
+            || key.hasPrefix(Self.historyCacheKeyPrefix)
+            || key.hasPrefix(Self.pendingDeletesKeyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+        cacheOwnerId = nil
+        resetInMemoryState()
+    }
+
+    /// Сброс только оперативного состояния (диск не трогаем).
+    private func resetInMemoryState() {
+        conversations = [:]
+        lastMessages = []
+        unreadByFriend = [:]
+        lastPreviewByFriend = [:]
+        lastActivityAtByFriend = [:]
+        pinsByFriend = [:]
+        typingByFriend = [:]
+        pendingLocalIDs = []
+        failedMessageIDs = []
+        pendingChatDeletes = [:]
+        pendingDeletesRestored = false
+        historyRestoredFor = []
+        historyNetworkConfirmed = []
+        lastHistoryPersistAt = [:]
+        openFriendId = nil
+        inboxEpoch &+= 1
+        historyEpoch &+= 1
+    }
+
+    private func restoreInboxCache() {
+        guard let key = inboxCacheKey(),
+              let data = UserDefaults.standard.data(forKey: key),
+              let snap = try? JSONDecoder().decode(InboxCacheSnapshot.self, from: data) else { return }
+        // Вызывается только из init: словари ещё пустые, кэш ничего не перетирает.
+        if lastPreviewByFriend.isEmpty { lastPreviewByFriend = snap.previews }
+        if unreadByFriend.isEmpty { unreadByFriend = snap.unread.filter { $0.value > 0 } }
+        if lastActivityAtByFriend.isEmpty { lastActivityAtByFriend = snap.activity }
+        inboxEpoch &+= 1
+    }
+
+    private func persistInboxCache(force: Bool = false) {
+        guard let key = inboxCacheKey() else { return }
+        let now = Date()
+        if !force, now.timeIntervalSince(lastInboxPersistAt) < 3 { return }
+        lastInboxPersistAt = now
+        let snap = InboxCacheSnapshot(
+            previews: lastPreviewByFriend,
+            unread: unreadByFriend,
+            activity: lastActivityAtByFriend
+        )
+        guard let data = try? JSONEncoder().encode(snap) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    /// Поднять последнюю известную историю диалога до ответа сети (один раз за сессию).
+    private func restoreHistoryCache(friendId: String, convID: String) {
+        guard !historyRestoredFor.contains(convID),
+              !historyNetworkConfirmed.contains(convID),
+              (conversations[convID]?.isEmpty ?? true),
+              let key = historyCacheKey(friendId: friendId),
+              let data = UserDefaults.standard.data(forKey: key),
+              let cached = try? JSONDecoder().decode([DirectMessage].self, from: data),
+              !cached.isEmpty,
+              // Страховка от чужого/устаревшего кэша: convID содержит оба участника.
+              cached.allSatisfy({ $0.conversationID == convID }) else { return }
+        // Ревью 26.07.2026: отмечаем диалог только когда кэш реально применён —
+        // иначе одна realtime-строка навсегда блокировала подъём кэша за сессию.
+        historyRestoredFor.insert(convID)
+        conversations[convID] = cached.sorted { $0.timestamp < $1.timestamp }
+        historyEpoch &+= 1
+    }
+
+    private func persistHistoryCache(friendId: String, convID: String, force: Bool = false) {
+        guard let key = historyCacheKey(friendId: friendId) else { return }
+        let now = Date()
+        if !force, now.timeIntervalSince(lastHistoryPersistAt[convID] ?? .distantPast) < 5 { return }
+        let msgs = conversations[convID] ?? []
+        // Ревью 26.07.2026: оптимистичные/неотправленные сообщения в кэш не пишем —
+        // pendingLocalIDs/failedMessageIDs живут только в памяти, и после перезапуска
+        // такая строка выглядела бы доставленной, а затем молча исчезала.
+        let persistable = msgs.filter {
+            !pendingLocalIDs.contains($0.id) && !failedMessageIDs.contains($0.id)
+        }
+        guard !persistable.isEmpty else {
+            lastHistoryPersistAt[convID] = now
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        let tail = Array(persistable.suffix(Self.historyCacheLimit))
+        guard let data = try? JSONEncoder().encode(tail) else { return }
+        lastHistoryPersistAt[convID] = now
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    private func restorePendingChatDeletes() {
+        guard !pendingDeletesRestored, let key = pendingDeletesKey() else { return }
+        pendingDeletesRestored = true
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let map = try? JSONDecoder().decode([String: Date].self, from: data) else { return }
+        pendingChatDeletes = map
+    }
+
+    private func savePendingChatDeletes() {
+        guard let key = pendingDeletesKey() else { return }
+        guard !pendingChatDeletes.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(pendingChatDeletes) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    /// Досылка удалений чата, не доехавших до сервера (офлайн-очередь).
+    /// Вызывается ТОЛЬКО после сверки с инбоксом: если после локального удаления
+    /// пришли новые сообщения, удаление уже снято из очереди (чат честно вернулся).
+    private func flushPendingChatDeletes() async {
+        guard !pendingChatDeletes.isEmpty, api.authToken != nil else { return }
+        struct Resp: Decodable { let success: Bool?; let deleted: Int? }
+        for friendId in Array(pendingChatDeletes.keys) {
+            do {
+                let _: Resp = try await api.request("messages/dm/\(friendId)", method: .delete)
+                pendingChatDeletes.removeValue(forKey: friendId)
+            } catch {
+                Logger.api.warn("DM chat delete retry failed")
+                break // сеть всё ещё недоступна — повторим на следующем опросе
+            }
+        }
+        savePendingChatDeletes()
+    }
+
+    /// Аудит 26.07.2026 P2: после подмены localID на серверный id в ленте может
+    /// оказаться вторая копия того же сообщения (поллинг успел вставить серверную
+    /// версию до ответа POST). Оставляем строку с индексом `keeping`.
+    private func removeDuplicateRows(in list: inout [DirectMessage], id: String, keeping idx: Int) {
+        guard list.filter({ $0.id == id }).count > 1 else { return }
+        var dups: [Int] = []
+        for (i, msg) in list.enumerated() where i != idx && msg.id == id {
+            dups.append(i)
+        }
+        for i in dups.reversed() { list.remove(at: i) }
+    }
+
+    /// Максимум символов текста DM: серверный лимит 280 считается по wire-строке,
+    /// в которую входит маркер стиля пузыря `[[bs:…]]`. UI обязан считать лимит
+    /// динамически, иначе хвост сообщения молча обрезался. Аудит 26.07.2026 P2.
+    nonisolated static func textLimit(forStyleID styleID: String? = nil) -> Int {
+        let id = BubbleStyleRegistry.migrateLegacyID(styleID ?? PlinkBubbleStylePrefs.currentID)
+        let markerLen = "[[bs:\(id)]]".count
+        return max(1, 280 - markerLen)
     }
 
     /// Start aggressive background unread polling (≈1s) for instant badges.
@@ -56,8 +340,12 @@ final class DMChatService: ObservableObject {
         unreadPollTask = Task { [weak self] in
             await self?.refreshUnread()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+                try? await Task.sleep(nanoseconds: Self.unreadPollIntervalNs)
                 guard !Task.isCancelled else { break }
+                #if canImport(UIKit)
+                // В фоне не поллим: бейджи всё равно обновит push / realtime при возврате.
+                guard UIApplication.shared.applicationState == .active else { continue }
+                #endif
                 await self?.refreshUnread()
             }
         }
@@ -83,6 +371,7 @@ final class DMChatService: ObservableObject {
                 self?.typingByFriend[from] = false
             }
         case "message", "edited", "deleted":
+            let isNewMessage = event.event == "message"
             Task { [weak self] in
                 guard let self else { return }
                 if self.openFriendId == from || self.conversations[self.conversationID(with: from)] != nil {
@@ -93,6 +382,12 @@ final class DMChatService: ObservableObject {
                     )
                 }
                 await self.refreshUnread()
+                // Ревью 26.07.2026: приглашения в комнату приходят обычным DM
+                // (payload plink-invite:…) и раньше обнаруживались только 20-секундным
+                // поллингом — карточка появлялась с задержкой до 20 с.
+                if isNewMessage {
+                    await RoomInviteService.shared.refreshFromServer()
+                }
             }
         default:
             break
@@ -107,7 +402,7 @@ final class DMChatService: ObservableObject {
             return id
         }
         return UserDefaults.standard.data(forKey: "rave_saved_user")
-            .flatMap { try? JSONDecoder().decode(User.self, from: $0) }?.id
+            .flatMap { User.decodeCached($0) }?.id
     }
 
     var totalUnread: Int {
@@ -133,6 +428,7 @@ final class DMChatService: ObservableObject {
                 lastPreviewByFriend[friendId] = preview
             }
             inboxEpoch &+= 1
+            persistInboxCache()
         }
     }
 
@@ -152,6 +448,9 @@ final class DMChatService: ObservableObject {
         if openFriendId == friendId {
             openFriendId = nil
         }
+        // Ревью 26.07.2026: запись кэша троттлится, поэтому на выходе из чата
+        // сохраняем последнее состояние ленты принудительно.
+        persistHistoryCache(friendId: friendId, convID: conversationID(with: friendId), force: true)
         Task { await refreshUnread() }
     }
 
@@ -160,13 +459,28 @@ final class DMChatService: ObservableObject {
     func refreshUnread() async {
         ensureToken()
         guard api.authToken != nil else { return }
+        restorePendingChatDeletes()
         do {
             let items: [UnreadDTO] = try await api.request("messages/unread")
             var counts: [String: Int] = [:]
-            var previews: [String: String] = lastPreviewByFriend
-            var activities: [String: Date] = lastActivityAtByFriend
-            var activityChanged = false
+            // Ревью 26.07.2026: превью/время собираем с нуля из ответа сервера —
+            // раньше словарь только пополнялся, и восстановленный с диска мусор
+            // (чат очищен на другом устройстве) висел в списке навсегда.
+            // Кэш остаётся авторитетом только до первого успешного ответа.
+            var previews: [String: String] = [:]
+            var activities: [String: Date] = [:]
             for item in items {
+                if let deletedAt = pendingChatDeletes[item.friendId] {
+                    if let at = item.lastAt, at > deletedAt {
+                        // Ревью 26.07.2026: после локального удаления пришли новые
+                        // сообщения — отменяем отложенный DELETE (он скрыл бы весь
+                        // тред), чат честно возвращается вместе с непрочитанным.
+                        pendingChatDeletes.removeValue(forKey: item.friendId)
+                        savePendingChatDeletes()
+                    } else {
+                        continue
+                    }
+                }
                 if openFriendId == item.friendId {
                     // Open chat — treat as read optimistically, still track last activity
                 } else if item.unreadCount > 0 {
@@ -179,7 +493,6 @@ final class DMChatService: ObservableObject {
                     let prev = activities[item.friendId]
                     if prev == nil || at > (prev ?? .distantPast) {
                         activities[item.friendId] = at
-                        activityChanged = true
                     }
                 }
             }
@@ -187,11 +500,18 @@ final class DMChatService: ObservableObject {
             if counts != unreadByFriend {
                 unreadByFriend = counts
             }
-            lastPreviewByFriend = previews
-            if activityChanged || activities != lastActivityAtByFriend {
+            if previews != lastPreviewByFriend {
+                lastPreviewByFriend = previews
+            }
+            if activities != lastActivityAtByFriend {
                 lastActivityAtByFriend = activities
                 inboxEpoch &+= 1
             }
+            // Аудит 26.07.2026 P2: снимок инбокса на диск для холодного старта без сети.
+            persistInboxCache()
+            // Ревью 26.07.2026: досылаем офлайн-удаления ПОСЛЕ сверки с инбоксом —
+            // раньше флэш шёл первым и мог скрыть тред вместе с новыми сообщениями.
+            await flushPendingChatDeletes()
         } catch {
             Logger.api.warn("DM unread refresh failed")
         }
@@ -207,11 +527,15 @@ final class DMChatService: ObservableObject {
         }
         let convID = conversationID(with: friendId)
         if !friendName.isEmpty { friendNameById[friendId] = friendName }
+        // Аудит 26.07.2026 P2: до ответа сети показываем последний офлайн-снимок
+        // диалога (раньше холодный старт без сети давал пустую переписку).
+        restoreHistoryCache(friendId: friendId, convID: convID)
         if !quiet {
             isLoading = true
         }
         defer { if !quiet { isLoading = false } }
 
+        let confirmedBeforeThisLoad = historyNetworkConfirmed.contains(convID)
         do {
             let dtos: [DMMessageDTO] = try await api.request("messages/dm/\(friendId)")
             // Server marks inbound as read on this GET
@@ -220,70 +544,64 @@ final class DMChatService: ObservableObject {
                 unreadByFriend = unreadByFriend.filter { $0.value > 0 }
             }
             let me = currentUserId ?? ""
-            let messages = dtos.map { dto -> DirectMessage in
-                let isOwn = !me.isEmpty && dto.senderID == me
-                let decoded = PlinkBubbleWire.decode(dto.content)
-                let chips = (dto.reactions ?? []).map {
-                    DMReactionChip(emoji: $0.emoji, count: $0.count, includesMe: $0.includesMe)
-                }
-                // Telegram read receipt:
-                //  - outbound (I sent): isRead=true means peer opened the chat (✓✓)
-                //  - inbound: isRead is for our unread badge; default true once history loaded
-                let readFlag: Bool
-                if isOwn {
-                    readFlag = dto.isRead ?? false
-                } else {
-                    readFlag = dto.isRead ?? true
-                }
-                let voiceMeta = PlinkVoiceWire.decode(decoded.text)
-                let isVoice = dto.mediaType == "voice" || (dto.hasMedia == true) || voiceMeta.isVoice
-                let displayText = voiceMeta.isVoice ? voiceMeta.displayText : decoded.text
-                return DirectMessage(
-                    id: dto.id,
-                    conversationID: convID,
-                    senderID: dto.senderID,
-                    recipientID: dto.receiverID,
-                    senderName: isOwn ? "You" : friendName,
-                    text: displayText,
-                    timestamp: dto.createdAt,
-                    isRead: readFlag,
-                    senderAvatarURL: isOwn ? nil : friendAvatarURL,
-                    bubbleStyle: decoded.styleID,
-                    reactions: chips,
-                    mediaType: isVoice ? "voice" : dto.mediaType,
-                    mediaDurationSec: dto.mediaDurationSec ?? voiceMeta.durationSec,
-                    hasMedia: isVoice || (dto.hasMedia == true),
-                    replyToID: dto.replyTo?.id,
-                    replyPreviewText: dto.replyTo.map { (r) -> String in
-                        if r.mediaType == "voice" { return "🎤 Голосовое сообщение" }
-                        if r.mediaType == "photo" { return "📷 Фото" }
-                        return PlinkBubbleWire.decode(r.content).text
-                    },
-                    replyPreviewSenderID: dto.replyTo?.senderID,
-                    forwardedFromName: dto.forwardedFromName,
-                    editedAt: dto.editedAt
-                )
+            let messages = dtos.map {
+                mapDTO($0, convID: convID, friendName: friendName, friendAvatarURL: friendAvatarURL, me: me)
             }
             // Server history is source of truth for this window (newest 200).
             // Keep only very recent optimistic locals not yet on server.
+            historyNetworkConfirmed.insert(convID)
             if messages.isEmpty, let existing = conversations[convID], !existing.isEmpty {
-                _ = existing
+                // Аудит 26.07.2026 P2: если в ленте лежал только офлайн-кэш, а сервер
+                // отдал пусто — кэш устарел (чат очищен/удалён на другом устройстве).
+                // Собственные неотправленные сообщения при этом сохраняем.
+                if !confirmedBeforeThisLoad {
+                    let keep = existing.filter {
+                        pendingLocalIDs.contains($0.id) || failedMessageIDs.contains($0.id)
+                    }
+                    if keep.count != existing.count {
+                        conversations[convID] = keep
+                        historyEpoch &+= 1
+                        // force: устаревший кэш надо стереть сразу, иначе он
+                        // «воскресит» удалённый чат на следующем холодном старте.
+                        persistHistoryCache(friendId: friendId, convID: convID, force: true)
+                    }
+                }
             } else {
                 var merged = messages
                 if let existing = conversations[convID] {
                     let serverIds = Set(messages.map(\.id))
-                    let newestServer = messages.map(\.timestamp).max() ?? .distantPast
+                    // Аудит 26.07.2026 P1: оставляем только ЯВНО локальные сообщения
+                    // (in-flight / failed). Раньше фильтр «UUID + свежее минуты»
+                    // пропускал и серверные сообщения, удалённые собеседником, —
+                    // они «воскресали» как призраки при каждом 5-секундном опросе.
                     let localsOnly = existing.filter { msg in
                         !serverIds.contains(msg.id)
-                            && msg.id.count > 20 // UUID optimistic
-                            && msg.timestamp >= newestServer.addingTimeInterval(-60)
+                            && (pendingLocalIDs.contains(msg.id) || failedMessageIDs.contains(msg.id))
                     }
                     for loc in localsOnly {
+                        // Аудит 26.07.2026 P2: сравниваем ещё и отправителя — раньше
+                        // входящее сообщение с тем же текстом «съедало» наш локальный
+                        // пузырь. Окно по времени остаётся страховкой на случай, когда
+                        // POST ещё не ответил; окончательный дедуп идёт по id при ответе.
                         if !merged.contains(where: {
-                            $0.text == loc.text && abs($0.timestamp.timeIntervalSince(loc.timestamp)) < 45
+                            $0.senderID == loc.senderID
+                                && $0.text == loc.text
+                                && abs($0.timestamp.timeIntervalSince(loc.timestamp)) < 45
                         }) {
                             merged.append(loc)
                         }
+                    }
+                    // Аудит 26.07.2026 P1: страницы, подгруженные пагинацией (старше
+                    // серверного окна), не затираем поллингом свежего окна.
+                    if messages.count >= Self.serverHistoryWindow,
+                       let oldestServer = messages.map(\.timestamp).min() {
+                        let olderPages = existing.filter { msg in
+                            !serverIds.contains(msg.id)
+                                && msg.timestamp < oldestServer
+                                && !pendingLocalIDs.contains(msg.id)
+                                && !failedMessageIDs.contains(msg.id)
+                        }
+                        merged.append(contentsOf: olderPages)
                     }
                     merged.sort { $0.timestamp < $1.timestamp }
                 }
@@ -303,6 +621,7 @@ final class DMChatService: ObservableObject {
                 if changed {
                     conversations[convID] = merged
                     historyEpoch &+= 1
+                    persistHistoryCache(friendId: friendId, convID: convID)
                 }
             }
             // Preview / activity from real last message in conversation
@@ -325,6 +644,150 @@ final class DMChatService: ObservableObject {
         }
     }
 
+    /// Общий маппинг DTO → DirectMessage (история + пагинация). Аудит 26.07.2026 P1.
+    private func mapDTO(
+        _ dto: DMMessageDTO,
+        convID: String,
+        friendName: String,
+        friendAvatarURL: String?,
+        me: String
+    ) -> DirectMessage {
+        let isOwn = !me.isEmpty && dto.senderID == me
+        let decoded = PlinkBubbleWire.decode(dto.content)
+        let chips = (dto.reactions ?? []).map {
+            DMReactionChip(emoji: $0.emoji, count: $0.count, includesMe: $0.includesMe)
+        }
+        // Telegram read receipt:
+        //  - outbound (I sent): isRead=true means peer opened the chat (✓✓)
+        //  - inbound: isRead is for our unread badge; default true once history loaded
+        let readFlag: Bool
+        if isOwn {
+            readFlag = dto.isRead ?? false
+        } else {
+            readFlag = dto.isRead ?? true
+        }
+        let voiceMeta = PlinkVoiceWire.decode(decoded.text)
+        let isVoice = dto.mediaType == "voice" || (dto.hasMedia == true) || voiceMeta.isVoice
+        let displayText = voiceMeta.isVoice ? voiceMeta.displayText : decoded.text
+        return DirectMessage(
+            id: dto.id,
+            conversationID: convID,
+            senderID: dto.senderID,
+            recipientID: dto.receiverID,
+            senderName: isOwn ? "You" : friendName,
+            text: displayText,
+            timestamp: dto.createdAt,
+            isRead: readFlag,
+            senderAvatarURL: isOwn ? nil : friendAvatarURL,
+            bubbleStyle: decoded.styleID,
+            reactions: chips,
+            mediaType: isVoice ? "voice" : dto.mediaType,
+            mediaDurationSec: dto.mediaDurationSec ?? voiceMeta.durationSec,
+            hasMedia: isVoice || (dto.hasMedia == true),
+            replyToID: dto.replyTo?.id,
+            replyPreviewText: dto.replyTo.map { (r) -> String in
+                if r.mediaType == "voice" { return "🎤 Голосовое сообщение" }
+                if r.mediaType == "photo" { return "📷 Фото" }
+                return PlinkBubbleWire.decode(r.content).text
+            },
+            replyPreviewSenderID: dto.replyTo?.senderID,
+            forwardedFromName: dto.forwardedFromName,
+            editedAt: dto.editedAt
+        )
+    }
+
+    // MARK: - Пагинация истории (Аудит 26.07.2026 P1)
+
+    /// Есть ли сообщения старше уже загруженных (триггер «подгрузить раньше»).
+    func hasMoreHistory(for friendId: String) -> Bool {
+        if let known = hasMoreHistoryByFriend[friendId] { return known }
+        // До первого запроса судим по полноте серверного окна (полные 200 = вероятно есть ещё)
+        let convID = conversationID(with: friendId)
+        return (conversations[convID]?.count ?? 0) >= Self.serverHistoryWindow
+    }
+
+    /// Подгрузка старой страницы: before = createdAt самого верхнего сообщения (ISO8601).
+    func loadOlderMessages(friendId: String, friendName: String, friendAvatarURL: String? = nil) async {
+        ensureToken()
+        guard api.authToken != nil, !isLoadingOlderHistory else { return }
+        let convID = conversationID(with: friendId)
+        guard let oldest = conversations[convID]?.first else { return }
+        if hasMoreHistoryByFriend[friendId] == false { return }
+        isLoadingOlderHistory = true
+        defer { isLoadingOlderHistory = false }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        do {
+            let dtos: [DMMessageDTO] = try await api.request(
+                "messages/dm/\(friendId)",
+                query: [
+                    "before": iso.string(from: oldest.timestamp),
+                    "limit": String(Self.olderPageSize),
+                ]
+            )
+            hasMoreHistoryByFriend[friendId] = dtos.count >= Self.olderPageSize
+            guard !dtos.isEmpty else { return }
+            let me = currentUserId ?? ""
+            let older = dtos.map {
+                mapDTO($0, convID: convID, friendName: friendName, friendAvatarURL: friendAvatarURL, me: me)
+            }
+            var cur = conversations[convID] ?? []
+            let existingIds = Set(cur.map(\.id))
+            let fresh = older
+                .filter { !existingIds.contains($0.id) }
+                .sorted { $0.timestamp < $1.timestamp }
+            guard !fresh.isEmpty else { return }
+            cur.insert(contentsOf: fresh, at: 0)
+            conversations[convID] = cur
+            historyEpoch &+= 1
+        } catch {
+            Logger.api.warn("DM older history load failed")
+        }
+    }
+
+    // MARK: - Явное «прочитано» (Аудит 26.07.2026 P1)
+
+    /// Отметить чат прочитанным из списка чатов БЕЗ подмены openFriendId.
+    /// Раньше вместо этого звали chatDidOpen — чат «висел открытым»: бейдж молчал,
+    /// а все будущие входящие авточитались realtime-обработчиком.
+    func markChatRead(friendId: String) async {
+        ensureToken()
+        guard api.authToken != nil else { return }
+        // Мгновенно чистим локальный бейдж (сервер догонит следующим опросом)
+        if unreadByFriend[friendId] != nil {
+            var next = unreadByFriend
+            next.removeValue(forKey: friendId)
+            unreadByFriend = next
+        }
+        struct Resp: Decodable { let success: Bool?; let marked: Int? }
+        do {
+            let _: Resp = try await api.request("messages/dm/\(friendId)/read", method: .post)
+        } catch {
+            Logger.api.warn("DM mark-read failed")
+        }
+    }
+
+    // MARK: - Повтор отправки (Аудит 26.07.2026 P1)
+
+    /// Повторная отправка неотправленного ТЕКСТОВОГО сообщения (медиа-байты не храним).
+    func retrySend(messageId: String, friend: Friend) {
+        let convID = conversationID(with: friend.id)
+        guard var msgs = conversations[convID],
+              let idx = msgs.firstIndex(where: { $0.id == messageId }) else {
+            failedMessageIDs.remove(messageId)
+            return
+        }
+        let msg = msgs[idx]
+        guard !msg.isVoiceNote, !msg.isPhotoMessage else { return }
+        msgs.remove(at: idx)
+        conversations[convID] = msgs
+        failedMessageIDs.remove(messageId)
+        historyEpoch &+= 1
+        let replyTarget = msg.replyToID.flatMap { rid in msgs.first(where: { $0.id == rid }) }
+        sendMessage(msg.text, to: friend, replyTo: replyTarget)
+    }
+
     func messages(for friendID: String) -> [DirectMessage] {
         let convID = conversationID(with: friendID)
         let msgs = conversations[convID] ?? []
@@ -340,6 +803,9 @@ final class DMChatService: ObservableObject {
     func deleteChat(with friend: Friend) async {
         let friendId = friend.id
         let convID = conversationID(with: friendId)
+        // Ревью 26.07.2026: отсечка для офлайн-очереди — всё, что придёт позже,
+        // удалением не затрагивается (иначе серверный DELETE унёс бы и его).
+        let deleteCutoff = Date()
         // Optimistic local clear
         conversations[convID] = []
         lastPreviewByFriend[friendId] = nil
@@ -349,6 +815,8 @@ final class DMChatService: ObservableObject {
         lastMessages.removeAll { $0.id == convID }
         historyEpoch &+= 1
         inboxEpoch &+= 1
+        persistHistoryCache(friendId: friendId, convID: convID, force: true)
+        persistInboxCache(force: true)
 
         ensureToken()
         struct Resp: Decodable { let success: Bool?; let deleted: Int? }
@@ -357,10 +825,14 @@ final class DMChatService: ObservableObject {
                 "messages/dm/\(friendId)",
                 method: .delete
             )
+            if pendingChatDeletes.removeValue(forKey: friendId) != nil { savePendingChatDeletes() }
             Logger.api.info("DM chat deleted")
         } catch {
             Logger.api.warn("DM chat delete sync failed")
-            // Local clear already applied — list stays clean offline
+            // Аудит 26.07.2026 P2: удаление больше не теряется при отказе сети —
+            // ставим в очередь и досылаем при следующем опросе непрочитанных.
+            pendingChatDeletes[friendId] = deleteCutoff
+            savePendingChatDeletes()
         }
     }
 
@@ -375,6 +847,8 @@ final class DMChatService: ObservableObject {
         lastMessages.removeAll { $0.id == convID }
         historyEpoch &+= 1
         inboxEpoch &+= 1
+        persistHistoryCache(friendId: friendId, convID: convID, force: true)
+        persistInboxCache(force: true)
     }
 
     // MARK: - Send voice note (real audio)
@@ -428,6 +902,7 @@ final class DMChatService: ObservableObject {
         var list = conversations[convID] ?? []
         list.append(message)
         conversations[convID] = list
+        pendingLocalIDs.insert(localID) // Аудит 26.07.2026 P1: явный in-flight учёт
         historyEpoch &+= 1
         lastPreviewByFriend[friend.id] = "🎤 Голосовое сообщение"
         touchActivity(friendId: friend.id, at: message.timestamp, preview: "🎤 Голосовое сообщение")
@@ -480,11 +955,18 @@ final class DMChatService: ObservableObject {
                         mediaDurationSec: saved.mediaDurationSec ?? dur,
                         hasMedia: true
                     )
+                    removeDuplicateRows(in: &cur, id: saved.id, keeping: idx)
                     conversations[convID] = cur
                     historyEpoch &+= 1
+                    persistHistoryCache(friendId: friend.id, convID: convID)
                 }
+                pendingLocalIDs.remove(localID)
             } catch {
-                errorMessage = "Голосовое: \(error.localizedDescription)"
+                // Аудит 26.07.2026 P1: маркер «не отправлено» вместо тихой потери
+                pendingLocalIDs.remove(localID)
+                failedMessageIDs.insert(localID)
+                errorMessage = "Голосовое не отправлено: \(error.localizedDescription)"
+                historyEpoch &+= 1
                 Logger.api.warn("DM voice note send failed")
                 // Keep optimistic row — still playable from local cache
             }
@@ -534,6 +1016,7 @@ final class DMChatService: ObservableObject {
         var list = conversations[convID] ?? []
         list.append(message)
         conversations[convID] = list
+        pendingLocalIDs.insert(localID) // Аудит 26.07.2026 P1: явный in-flight учёт
         historyEpoch &+= 1
         lastPreviewByFriend[friend.id] = preview
         touchActivity(friendId: friend.id, at: message.timestamp, preview: preview)
@@ -578,11 +1061,18 @@ final class DMChatService: ObservableObject {
                         mediaDurationSec: nil,
                         hasMedia: true
                     )
+                    removeDuplicateRows(in: &cur, id: saved.id, keeping: idx)
                     conversations[convID] = cur
                     historyEpoch &+= 1
+                    persistHistoryCache(friendId: friend.id, convID: convID)
                 }
+                pendingLocalIDs.remove(localID)
             } catch {
-                errorMessage = "Фото: \(error.localizedDescription)"
+                // Аудит 26.07.2026 P1: маркер «не отправлено» вместо тихой потери
+                pendingLocalIDs.remove(localID)
+                failedMessageIDs.insert(localID)
+                errorMessage = "Фото не отправлено: \(error.localizedDescription)"
+                historyEpoch &+= 1
                 Logger.api.warn("DM photo send failed")
             }
         }
@@ -611,7 +1101,6 @@ final class DMChatService: ObservableObject {
         // Allow room-invite payloads (up to 280 server-side)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let payload = String(trimmed.prefix(280))
 
         ensureToken()
         // Stable id for isOwnMessage + conversation key
@@ -625,9 +1114,10 @@ final class DMChatService: ObservableObject {
         let convID = conversationID(with: friend.id)
         let localID = UUID().uuidString
         let styleID = PlinkBubbleStylePrefs.currentID
-        // Wire style so peer devices render the same bubble (fits in 280 server limit)
-        let markerLen = "[[bs:\(BubbleStyleRegistry.migrateLegacyID(styleID))]]".count
-        let body = String(payload.prefix(max(1, 280 - markerLen)))
+        // Wire style so peer devices render the same bubble (fits in 280 server limit).
+        // Аудит 26.07.2026 P2: лимит считается тем же textLimit(), что показывает
+        // композер, — раньше UI обещал 280, а сервис резал под маркер стиля.
+        let body = String(trimmed.prefix(Self.textLimit(forStyleID: styleID)))
         let wireContent = PlinkBubbleWire.encode(text: body, styleID: styleID)
 
         let message = DirectMessage(
@@ -654,6 +1144,7 @@ final class DMChatService: ObservableObject {
         var list = conversations[convID] ?? []
         list.append(message)
         conversations[convID] = list
+        pendingLocalIDs.insert(localID) // Аудит 26.07.2026 P1: явный in-flight учёт
         historyEpoch &+= 1
         lastPreviewByFriend[friend.id] = body
         touchActivity(friendId: friend.id, at: message.timestamp, preview: body)
@@ -693,11 +1184,19 @@ final class DMChatService: ObservableObject {
                         },
                         replyPreviewSenderID: replyTarget?.senderID
                     )
+                    removeDuplicateRows(in: &cur, id: saved.id, keeping: idx)
                     conversations[convID] = cur
                     historyEpoch &+= 1
+                    persistHistoryCache(friendId: friend.id, convID: convID)
                 }
+                pendingLocalIDs.remove(localID)
             } catch {
-                errorMessage = error.localizedDescription
+                // Аудит 26.07.2026 P1: помечаем как «не отправлено» (красный маркер
+                // + «Повторить» в UI) вместо тихой потери через 60 секунд.
+                pendingLocalIDs.remove(localID)
+                failedMessageIDs.insert(localID)
+                errorMessage = "Сообщение не отправлено: \(error.localizedDescription)"
+                historyEpoch &+= 1
                 Logger.api.warn("DM send failed")
                 // Keep optimistic message visible so chat does not "disappear"
             }
@@ -880,9 +1379,12 @@ final class DMChatService: ObservableObject {
         ensureToken()
         struct Resp: Decodable { let success: Bool?; let removed: Int? }
         do {
+            // Аудит 26.07.2026 P1 (смежное): query нельзя класть в path —
+            // appendingPathComponent кодирует «?» в %3F и роут не матчится.
             let _: Resp = try await api.request(
-                "messages/dm/\(friendId)/pin/\(messageId)?forBoth=\(forBoth)",
-                method: .delete
+                "messages/dm/\(friendId)/pin/\(messageId)",
+                method: .delete,
+                query: ["forBoth": forBoth ? "true" : "false"]
             )
             await loadPins(friendId: friendId)
         } catch {
@@ -957,9 +1459,12 @@ final class DMChatService: ObservableObject {
         ensureToken()
         struct Resp: Decodable { let success: Bool? }
         do {
+            // Аудит 26.07.2026 P1 (смежное): query нельзя класть в path —
+            // appendingPathComponent кодирует «?» в %3F и роут не матчится.
             let _: Resp = try await api.request(
-                "messages/dm/message/\(message.id)?forBoth=\(forBoth)",
-                method: .delete
+                "messages/dm/message/\(message.id)",
+                method: .delete,
+                query: ["forBoth": forBoth ? "true" : "false"]
             )
             let convID = conversationID(with: friendId)
             if var msgs = conversations[convID] {
@@ -1017,7 +1522,7 @@ final class DMChatService: ObservableObject {
 
     private func ensureToken() {
         if api.authToken == nil {
-            api.authToken = KeychainHelper.read(for: "rave_auth_token")
+            api.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
     }

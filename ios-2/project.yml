@@ -112,8 +112,20 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # Диплинки: plink://r/<code> и plink://u/<userId> (см. DeepLinkRouter).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.syncwatch.plink
+            CFBundleURLSchemes: [plink]
     entitlements:
       path: Plink/Resources/Plink.entitlements
+      # ⚠️ Associated Domains (universal links) НЕ добавлять, пока команда —
+      # личная (Personal Team): провижининг падает с "Personal development
+      # teams do not support the Associated Domains capability".
+      # После покупки Apple Developer Program вернуть properties:
+      #   com.apple.developer.associated-domains:
+      #     - applinks:plink.app
+      #     - applinks:plink-backend-production-ef31.up.railway.app
+      # Диплинки plink:// работают и без этого (CFBundleURLTypes выше).
 
   PlinkTests:
     type: bundle.unit-test

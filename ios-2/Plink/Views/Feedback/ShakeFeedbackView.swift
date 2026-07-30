@@ -4,14 +4,16 @@ import UIKit
 // MARK: - Shake to Report (M20)
 // Добавь .shakeToReport() на корневой View чтобы включить shake-фич.
 
-// UIWindow subclass перехватывает motionEnded
-class PlinkShakeWindow: UIWindow {
-    var onShake: (() -> Void)?
-
-    override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+// Аудит 26.07.2026: PlinkShakeWindow (UIWindow-сабкласс) удалён — его никто
+// не инстанцировал, поэтому .plinkShakeDetected никогда не постился и
+// shake-to-report был мёртв. Вместо этого перехватываем motionEnded прямо
+// в extension UIWindow: SwiftUI-окно приложения наследует этот override,
+// и встряска доходит до ShakeDetectorModifier без кастомного окна.
+extension UIWindow {
+    open override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
         super.motionEnded(motion, with: event)
         if motion == .motionShake {
-            onShake?()
+            NotificationCenter.default.post(name: .plinkShakeDetected, object: nil)
         }
     }
 }
@@ -160,7 +162,7 @@ struct FeedbackSheetView: View {
                 var req = URLRequest(url: url)
                 req.httpMethod = "POST"
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                if let token = KeychainHelper.read(for: "rave_auth_token") {
+                if let token = AuthTokenStore.shared.token {
                     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 }
                 req.httpBody = body

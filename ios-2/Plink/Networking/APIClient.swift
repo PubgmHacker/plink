@@ -109,11 +109,34 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         return publicPaths.contains(where: { path.hasPrefix($0) })
     }
 
+    // Аудит 26.07.2026 P0: раньше ЛЮБОЙ 401 немедленно постил plinkSessionExpired
+    // и выбрасывал на логин, хотя в Keychain лежал валидный refresh-токен, а
+    // серверный TTL access-токена (1 час) короче клиентского хардкода (24 часа).
+    // Теперь: один тихий рефреш → повтор запроса; sessionExpired — только если
+    // рефреш не помог.
     func request<T: Decodable>(
         _ path: String,
         method: HTTPMethod = .get,
         body: Encodable? = nil,
         query: [String: String]? = nil
+    ) async throws -> T {
+        do {
+            return try await performRequest(path, method: method, body: body, query: query, isRetry: false)
+        } catch APIError.unauthorizedNeedsRefresh {
+            if await AuthService.shared.refreshSessionToken() != nil {
+                return try await performRequest(path, method: method, body: body, query: query, isRetry: true)
+            }
+            await Self.postSessionExpired()
+            throw APIError.unauthorized
+        }
+    }
+
+    private func performRequest<T: Decodable>(
+        _ path: String,
+        method: HTTPMethod,
+        body: Encodable?,
+        query: [String: String]?,
+        isRetry: Bool
     ) async throws -> T {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
         if let query {
@@ -157,9 +180,22 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             }
             return try decoder.decode(T.self, from: data)
         case 401:
-            if !Self.isPublicAuthEndpoint(path) {
-                NotificationCenter.default.post(name: Notification.Name("plinkSessionExpired"), object: nil)
+            // Аудит 26.07.2026 P1: на публичных auth-маршрутах 401 = неверные креды,
+            // а не «Сессия истекла» — отдаём осмысленный текст вместо unauthorized.
+            if Self.isPublicAuthEndpoint(path) {
+                let serverMsg = Self.parseErrorMessage(data: data)
+                let friendly: String
+                if let serverMsg, serverMsg.lowercased() != "invalid credentials" {
+                    friendly = serverMsg
+                } else {
+                    friendly = "Неверный email или пароль"
+                }
+                throw APIError.invalidCredentials(message: friendly)
             }
+            if !isRetry {
+                throw APIError.unauthorizedNeedsRefresh
+            }
+            await Self.postSessionExpired()
             throw APIError.unauthorized
         case 404:
             throw APIError.notFound
@@ -176,6 +212,13 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Аудит 26.07.2026 P1: post только с main-потока — подписчик
+    /// (AuthLaunchGate) мутирует @State и зовёт @MainActor-методы.
+    @MainActor
+    static func postSessionExpired() {
+        NotificationCenter.default.post(name: Notification.Name("plinkSessionExpired"), object: nil)
+    }
+
     /// Извлекает человекочитаемое сообщение из тела ошибки.
     /// Сервер шлёт {"error": "..."} или {"message": "..."}.
     static func parseErrorMessage(data: Data) -> String? {
@@ -190,6 +233,24 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         method: HTTPMethod = .get,
         body: Encodable? = nil,
         query: [String: String]? = nil
+    ) async throws {
+        do {
+            try await performRequestNoBody(path, method: method, body: body, query: query, isRetry: false)
+        } catch APIError.unauthorizedNeedsRefresh {
+            if await AuthService.shared.refreshSessionToken() != nil {
+                return try await performRequestNoBody(path, method: method, body: body, query: query, isRetry: true)
+            }
+            await Self.postSessionExpired()
+            throw APIError.unauthorized
+        }
+    }
+
+    private func performRequestNoBody(
+        _ path: String,
+        method: HTTPMethod,
+        body: Encodable?,
+        query: [String: String]?,
+        isRetry: Bool
     ) async throws {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
         if let query {
@@ -218,7 +279,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             request.httpBody = try encoder.encode(body)
         }
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
@@ -228,15 +289,29 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         case 200..<300:
             return
         case 401:
-            if !Self.isPublicAuthEndpoint(path) {
-                NotificationCenter.default.post(name: Notification.Name("plinkSessionExpired"), object: nil)
+            // Аудит 26.07.2026 P1: те же правила, что и в request<T> —
+            // на публичных auth-маршрутах 401 = неверные креды, post — только с main.
+            if Self.isPublicAuthEndpoint(path) {
+                let serverMsg = Self.parseErrorMessage(data: data)
+                let friendly: String
+                if let serverMsg, serverMsg.lowercased() != "invalid credentials" {
+                    friendly = serverMsg
+                } else {
+                    friendly = "Неверный email или пароль"
+                }
+                throw APIError.invalidCredentials(message: friendly)
             }
+            if !isRetry {
+                throw APIError.unauthorizedNeedsRefresh
+            }
+            await Self.postSessionExpired()
             throw APIError.unauthorized
         // 🔧 FIX M7: requestNoBody was missing 404 handling
         case 404:
             throw APIError.notFound
         case 409:
-            let serverMsg = Self.parseErrorMessage(data: Data())
+            // Аудит 26.07.2026 P1: парсим реальное тело ответа (раньше — Data())
+            let serverMsg = Self.parseErrorMessage(data: data)
             throw APIError.conflict(message: serverMsg ?? "Конфликт данных")
         default:
             throw APIError.serverError(status: httpResponse.statusCode, message: "Request failed")
@@ -270,6 +345,13 @@ enum APIError: LocalizedError {
     case invalidURL
     case invalidResponse
     case unauthorized
+    /// Аудит 26.07.2026 P0: внутренний сигнал «401 на первой попытке» —
+    /// обёртка request/requestNoBody ловит его, делает одиночный refresh и
+    /// повторяет запрос. Наружу этот кейс не выходит.
+    case unauthorizedNeedsRefresh
+    /// Аудит 26.07.2026 P1: 401 на публичных auth-маршрутах (signin/signup) —
+    /// это неверные креды, а не истёкшая сессия. Отдельный кейс с текстом сервера.
+    case invalidCredentials(message: String)
     case notFound
     case conflict(message: String)
     case serverError(status: Int, message: String)
@@ -281,6 +363,9 @@ enum APIError: LocalizedError {
         case .invalidURL: return "Invalid URL"
         case .invalidResponse: return "Invalid server response"
         case .unauthorized: return "Сессия истекла. Войдите заново."
+        // Наружу не выходит — обёртка request/requestNoBody перехватывает.
+        case .unauthorizedNeedsRefresh: return "Сессия истекла. Войдите заново."
+        case .invalidCredentials(let msg): return msg
         case .notFound: return "Ресурс не найден"
         case .conflict(let msg): return msg
         case .serverError(let status, let msg): return "Ошибка сервера (\(status)): \(msg)"

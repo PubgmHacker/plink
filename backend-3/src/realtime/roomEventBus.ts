@@ -2,7 +2,7 @@
 //
 // Distributes ALL room-scoped events across replicas, not just sync.state.
 // Used for: chat.broadcast, reaction.broadcast, participant.joined,
-// participant.left.
+// participant.left, participant.kicked, room.appearance.updated.
 //
 // P1-10 fix: incoming events are validated with Zod before dispatch. A
 // malformed event from a compromised publisher is dropped with a warning,
@@ -60,6 +60,27 @@ export type RoomEvent =
       userId: string;
       username: string;
       timestampMs: number;
+    }
+  | {
+      // Аудит 26.07.2026 P1: отзыв WS-доступа при кике — реплики закрывают
+      // локальные сокеты кикнутого пользователя (см. gateway.kickUser).
+      kind: 'participant.kicked';
+      roomId: string;
+      userId: string;
+      byUserId: string;
+      timestampMs: number;
+    }
+  | {
+      // Аудит 26.07.2026 P2: живая доставка темы комнаты. Поля плоские (как у
+      // остальных событий шины); в вложенный wire-формат room.appearance.updated
+      // их сворачивает gateway.eventToServerMessage.
+      kind: 'room.appearance.updated';
+      roomId: string;
+      themeId: string;
+      themeRevision: number;
+      intensity: number;
+      motionEnabled: boolean;
+      serverTimeMs: number;
     };
 
 export type RoomEventListener = (event: RoomEvent) => void;
@@ -67,15 +88,25 @@ export type RoomEventListener = (event: RoomEvent) => void;
 // ── P1-10: Zod validation for incoming events ──────────────────────────
 // Any publisher with Redis access can send malformed events. Validate
 // before dispatch — don't trust JSON.parse(raw) as RoomEvent.
-const RoomEventSchema = z.discriminatedUnion('kind', [
+// Аудит 26.07.2026 P2: схема экспортируется — контрактные тесты раньше
+// держали её РУЧНУЮ копию и успели разойтись с оригиналом (uuid у
+// clientMessageId/senderId, лимит text). Проверяем настоящую схему.
+export const RoomEventSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('chat.broadcast'),
     roomId: z.string().uuid(),
     messageId: z.string().min(1),
-    clientMessageId: z.string().uuid().nullable(),
-    senderId: z.string().uuid(),
+    // Аудит 26.07.2026 P1: clientMessageId клиента — произвольная строка
+    // (rooms.ts photo-роут), не обязательно UUID; uuid() молча дропал событие.
+    clientMessageId: z.string().min(1).max(128).nullable(),
+    // Аудит 26.07.2026 P1: senderId бывает сервисным ('plink-ai',
+    // 'plink-ai-moderator') — строгий uuid() молча дропал все системные
+    // броадкасты (очередь видео, ИИ-ассистент, уведомления о мутах).
+    senderId: z.string().min(1).max(64),
     senderName: z.string().min(1).max(64),
-    text: z.string().min(0).max(2000),
+    // Аудит 26.07.2026 P1: системные wire-пейлоады (очередь до 50 элементов)
+    // превышают 2000 символов; лимит юзерского чата обеспечивает ChatSendSchema.
+    text: z.string().max(100_000),
     createdAtMs: z.number().int(),
     mediaType: z.enum(['photo']).nullable().optional(),
     hasMedia: z.boolean().optional(),
@@ -101,6 +132,27 @@ const RoomEventSchema = z.discriminatedUnion('kind', [
     userId: z.string().uuid(),
     username: z.string().min(1).max(64),
     timestampMs: z.number().int(),
+  }),
+  // Аудит 26.07.2026 P1: событие кика для отзыва WS-доступа
+  z.object({
+    kind: z.literal('participant.kicked'),
+    roomId: z.string().uuid(),
+    userId: z.string().uuid(),
+    byUserId: z.string().uuid(),
+    timestampMs: z.number().int(),
+  }),
+  // Аудит 26.07.2026 P2: тема комнаты. Границы полей совпадают с
+  // RoomAppearanceUpdatedSchema (contracts/realtime-v2.ts) — если роут
+  // однажды перестанет резать intensity до 0.44, publish() упадёт у
+  // отправителя, а не отдаст клиенту значение вне контракта.
+  z.object({
+    kind: z.literal('room.appearance.updated'),
+    roomId: z.string().uuid(),
+    themeId: z.string().min(1).max(64),
+    themeRevision: z.number().int().nonnegative(),
+    intensity: z.number().min(0).max(0.44),
+    motionEnabled: z.boolean(),
+    serverTimeMs: z.number().int(),
   }),
 ]);
 
@@ -135,7 +187,21 @@ export class RoomEventBus {
         const parsed = JSON.parse(raw);
         event = RoomEventSchema.parse(parsed) as RoomEvent;
       } catch (err) {
-        console.warn('[RoomEventBus] dropped malformed event:', (err as Error).message);
+        // Аудит 26.07.2026 P2: печатаем kind. При rolling deploy старая реплика
+        // видит kind, добавленный новой версией схемы, и без этого поля warn не
+        // отличить от реального мусора от скомпрометированного публикатора.
+        let kind = 'unparsable';
+        try {
+          const k = (JSON.parse(raw) as { kind?: unknown }).kind;
+          if (typeof k === 'string') kind = k;
+          else kind = 'missing-kind';
+        } catch {
+          /* raw не JSON — так и оставляем 'unparsable' */
+        }
+        console.warn(
+          `[RoomEventBus] dropped malformed event (kind=${kind}):`,
+          (err as Error).message,
+        );
         return;
       }
       for (const fn of set) {
@@ -156,6 +222,12 @@ export class RoomEventBus {
   }
 
   async publish(roomId: string, event: RoomEvent): Promise<void> {
+    // Аудит 26.07.2026 P1: валидируем при публикации — расхождение со схемой
+    // падает у отправителя, а не молча дропается у подписчика.
+    const check = RoomEventSchema.safeParse(event);
+    if (!check.success) {
+      throw new Error(`[RoomEventBus] invalid ${event.kind} event: ${check.error.message}`);
+    }
     await this.publisher.publish(`roomEvents:${roomId}`, JSON.stringify(event));
   }
 
@@ -180,8 +252,16 @@ export class RoomEventBus {
     if (set.size === 0) {
       this.listeners.delete(roomId);
       if (this.subscribedChannels.has(roomId)) {
-        await this.subscriber.unsubscribe(`roomEvents:${roomId}`);
+        // Аудит 26.07.2026 P1: снимаем флаг ДО await — иначе конкурентный
+        // subscribe() в окне await считал канал подписанным, пропускал
+        // реальный SUBSCRIBE, и после реконнекта комната теряла события.
         this.subscribedChannels.delete(roomId);
+        try {
+          await this.subscriber.unsubscribe(`roomEvents:${roomId}`);
+        } catch (err) {
+          this.subscribedChannels.add(roomId);
+          throw err;
+        }
       }
     }
   }

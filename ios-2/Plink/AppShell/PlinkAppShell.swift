@@ -4,12 +4,13 @@
 // iPad: PlinkSidebarShell (existing)
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct PlinkAppShell: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selection: AppSection = .home
     @State private var createPresented: Bool = false
-    @State private var createIntent: CreateRoomIntent?
     @State private var createdRoom: Room?
 
     let dependencies: AppDependencies
@@ -23,7 +24,11 @@ struct PlinkAppShell: View {
                 dependencies: dependencies
             )
             #else
-            if horizontalSizeClass == .regular {
+            // Аудит 26.07.2026 P1: выбор шелла по устройству, а не по size class.
+            // На iPhone Max/Plus в landscape horizontalSizeClass становится .regular:
+            // поворот живьём пересобирал корневой шелл (V4Root ↔ Sidebar), убивая
+            // все @State-сторы и дисмисся fullScreenCover открытой комнаты.
+            if UIDevice.current.userInterfaceIdiom == .pad {
                 PlinkSidebarShell(
                     selection: $selection,
                     createPresented: $createPresented,
@@ -35,11 +40,21 @@ struct PlinkAppShell: View {
             }
             #endif
         }
-        .sheet(item: $createIntent) { intent in
+        // Аудит 26.07.2026 P2: лист висел на $createIntent, который никто не
+        // выставлял, — кнопка «Создать комнату» в сайдбаре iPad/Mac (она пишет
+        // в createPresented) не открывала ничего. Теперь лист слушает тот же
+        // флаг, а мёртвый createIntent убран.
+        .sheet(isPresented: $createPresented) {
             RoomCreationView(
                 onRoomCreated: { room in
-                    createIntent = nil
-                    createdRoom = room
+                    createPresented = false
+                    // Закрытие листа и открытие fullScreenCover в одной
+                    // транзакции — SwiftUI теряет вторую презентацию, и комната
+                    // создаётся «в пустоту». На iPhone (PlinkApprovedV4Root:132)
+                    // ровно для этого стоит аналогичная задержка.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        createdRoom = room
+                    }
                 }
             )
             .environmentObject(dependencies.apiClient)

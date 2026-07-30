@@ -125,13 +125,24 @@ internal extension AuthService {
     // MARK: 4 — Sign out other sessions
 
     /// Phase 4: real `POST /api/auth/signout-others`
+    /// Аудит 26.07.2026: сервер отзывает все refresh-токены и возвращает
+    /// новую пару для текущего устройства. Старый вызов через requestNoBody
+    /// выбрасывал тело ответа — этот девайс терял валидный refresh-токен и
+    /// разлогинивался на следующем refresh. Теперь пара сохраняется.
     @MainActor
     func signOutOtherSessions() async throws {
         struct EmptyBody: Codable, Sendable {}
-        try await APIClient.shared.requestNoBody(
+        struct SignoutOthersResponse: Codable, Sendable {
+            let success: Bool
+            let token: String
+            let refreshToken: String?
+            let accessExpiresAt: Double?
+        }
+        let resp: SignoutOthersResponse = try await APIClient.shared.request(
             "auth/signout-others",
             method: .post,
             body: EmptyBody()
         )
+        await applyReissuedTokens(token: resp.token, refreshToken: resp.refreshToken, accessExpiresAtMs: resp.accessExpiresAt)
     }
 }

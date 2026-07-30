@@ -111,7 +111,9 @@ enum PlinkPlusLiveTheme: Int, CaseIterable, Identifiable {
         case .aurora: return (Color(red:40/255,green:15/255,blue:33/255), Color(red:252/255,green:99/255,blue:152/255), Color(red:224/255,green:72/255,blue:114/255), Color(red:182/255,green:48/255,blue:84/255))
         case .cosmos: return (Color(red:0,green:0,blue:0), Color(red:1/255,green:44/255,blue:237/255), Color(red:8/255,green:82/255,blue:242/255), Color(red:19/255,green:112/255,blue:252/255))
         case .verdant: return (Color(red:14/255,green:16/255,blue:11/255), Color(red:158/255,green:244/255,blue:89/255), Color(red:126/255,green:226/255,blue:99/255), Color(red:164/255,green:255/255,blue:131/255))
-        case .magma: return (Color(red:0,green:0,blue:0), Color(red:174/255,green:0,blue:0), Color(red:142/255,green:0,blue:0), Color(red:105/255,green:0,blue:3/255))
+        // Фон Magma — «остывшая лава»: почти чёрный с тёплым красным подтоном
+        // (раньше был чистый чёрный — побайтовая копия фона Cosmos).
+        case .magma: return (Color(red:26/255,green:5/255,blue:3/255), Color(red:174/255,green:0,blue:0), Color(red:142/255,green:0,blue:0), Color(red:105/255,green:0,blue:3/255))
         }
     }
     var accentColor: Color { colors.1 }

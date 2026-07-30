@@ -82,8 +82,17 @@ export class RoomPubSub {
     if (set.size === 0) {
       this.listeners.delete(roomId);
       if (this.subscribedChannels.has(roomId)) {
-        await this.subscriber.unsubscribe(`room:${roomId}`);
+        // Аудит 26.07.2026 P1: снимаем флаг ДО await — иначе конкурентный
+        // subscribe() (быстрый реконнект) в окне await считал канал
+        // подписанным, пропускал реальный SUBSCRIBE, и реплика переставала
+        // получать sync.state до полного опустошения комнаты.
         this.subscribedChannels.delete(roomId);
+        try {
+          await this.subscriber.unsubscribe(`room:${roomId}`);
+        } catch (err) {
+          this.subscribedChannels.add(roomId);
+          throw err;
+        }
       }
     }
   }

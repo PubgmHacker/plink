@@ -6,8 +6,15 @@
 //   - window.plinkPlay / plinkPause / plinkSeek / plinkSnapshot
 //   - window.__plinkIsReady() → boolean
 
-export function youtubePlayerHTML(videoId: string): string {
+// Аудит 26.07.2026 — «свой полноценный плеер».
+// `chrome` управляет тем, кто рисует контролы:
+//   'plink' (по умолчанию) → controls:0, всю панель рисует приложение;
+//   'youtube'              → controls:1, прежнее поведение (запасной путь).
+// Плюс расширенный JS-API: скорость, качество, громкость и буферизация —
+// без них своя панель управления невозможна.
+export function youtubePlayerHTML(videoId: string, chrome: 'plink' | 'youtube' = 'plink'): string {
   const safeId = String(videoId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20);
+  const showNativeControls = chrome === 'youtube' ? 1 : 0;
 
   return `<!DOCTYPE html>
 <html>
@@ -30,13 +37,37 @@ export function youtubePlayerHTML(videoId: string): string {
         var videoId = ${JSON.stringify(safeId)};
 
         function snapshot() {
-            if (!player || !ready) return { time: 0, duration: 0, state: -1, playing: false };
+            if (!player || !ready) {
+                return { time: 0, duration: 0, state: -1, playing: false,
+                         buffered: 0, rate: 1, muted: false, volume: 100,
+                         quality: '', qualities: [] };
+            }
             var state = player.getPlayerState ? player.getPlayerState() : -1;
+            var loaded = 0;
+            try { loaded = player.getVideoLoadedFraction ? player.getVideoLoadedFraction() : 0; } catch (e) {}
+            var rate = 1;
+            try { rate = player.getPlaybackRate ? player.getPlaybackRate() : 1; } catch (e) {}
+            var muted = false;
+            try { muted = player.isMuted ? player.isMuted() : false; } catch (e) {}
+            var volume = 100;
+            try { volume = player.getVolume ? player.getVolume() : 100; } catch (e) {}
+            var quality = '';
+            try { quality = player.getPlaybackQuality ? player.getPlaybackQuality() : ''; } catch (e) {}
+            var qualities = [];
+            try { qualities = player.getAvailableQualityLevels ? player.getAvailableQualityLevels() : []; } catch (e) {}
             return {
                 time: (player.getCurrentTime && player.getCurrentTime()) || 0,
                 duration: (player.getDuration && player.getDuration()) || 0,
                 state: state,
-                playing: state === 1
+                playing: state === 1,
+                // Всё нужное для своей панели управления — одним вызовом,
+                // чтобы не гонять по мосту пять отдельных запросов на каждый тик.
+                buffered: loaded,
+                rate: rate,
+                muted: muted,
+                volume: volume,
+                quality: quality,
+                qualities: qualities
             };
         }
 
@@ -136,6 +167,35 @@ export function youtubePlayerHTML(videoId: string): string {
         };
         window.__plinkIsReady = function() { return !!ready; };
 
+        // ── API для своей панели управления (M40) ──────────────────────────
+        window.plinkSetRate = function(rate) {
+            if (player && ready && player.setPlaybackRate) {
+                player.setPlaybackRate(rate);
+                return true;
+            }
+            return false;
+        };
+        window.plinkSetQuality = function(q) {
+            // setPlaybackQuality — «пожелание»: YouTube может его не выполнить,
+            // поэтому реальное качество всегда читаем обратно из snapshot().
+            if (player && ready && player.setPlaybackQuality) {
+                player.setPlaybackQuality(q);
+                return true;
+            }
+            return false;
+        };
+        window.plinkSetVolume = function(v) {
+            if (player && ready && player.setVolume) {
+                player.setVolume(Math.max(0, Math.min(100, v)));
+                return true;
+            }
+            return false;
+        };
+        window.plinkSetMuted = function(m) {
+            if (!player || !ready) return false;
+            try { m ? player.mute() : player.unMute(); return true; } catch (e) { return false; }
+        };
+
         function bootPlayer() {
             if (playerBooted) return;
             if (!(window.YT && window.YT.Player)) return;
@@ -148,7 +208,11 @@ export function youtubePlayerHTML(videoId: string): string {
                     host: 'https://www.youtube.com',
                     playerVars: {
                         playsinline: 1,
-                        controls: 1,
+                        // 0 = свою панель рисует Plink, 1 = родные контролы YouTube
+                        controls: ${showNativeControls},
+                        // При своей панели прячем лишние наложения YouTube,
+                        // иначе они перехватывают тапы у нашего seek-бара.
+                        disablekb: ${showNativeControls === 0 ? 1 : 0},
                         rel: 0,
                         modestbranding: 1,
                         iv_load_policy: 3,

@@ -56,6 +56,9 @@ enum Cinema2026 {
         startPoint: .top,
         endPoint: .bottom
     )
+    /// Alias for `background` — used by RoomCreationView / ConnectedServicesSettingsView.
+    /// (FIX: "Type 'Cinema2026' has no member 'bg'")
+    static let bg = background
     static let live = accent
     static let warning = amber
     static let tertiary = divider

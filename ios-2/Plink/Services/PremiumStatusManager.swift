@@ -27,6 +27,13 @@ final class PremiumStatusManager: ObservableObject {
     private let avatarBorderKey = "rave_avatar_border"
     private let roomThemeKey = "rave_room_theme"
 
+    /// Аудит 26.07.2026 (P2, ревью): по C9 `isPremium` на старте ВСЕГДА false,
+    /// поэтому «этот девайс был премиумным» знает только кэш UserDefaults.
+    /// Подсказка нужна для двух вещей: не отбирать у платящего выбор
+    /// премиум-оформления на каждом холодном старте и всё-таки откатить его,
+    /// когда сервер/StoreKit подтвердит потерю прав.
+    private var cachedPremiumHint = false
+
     // MARK: - Callbacks
 
     /// Вызывается при изменении премиум-статуса (для обновления WS-состояния).
@@ -59,12 +66,24 @@ final class PremiumStatusManager: ObservableObject {
     }
 
     func deactivatePremium() {
+        // Аудит 26.07.2026 (P2, ревью): потерю прав надо отработать и когда
+        // премиум был только в локальном кэше (isPremium уже false из-за C9) —
+        // иначе у пользователя с истёкшей подпиской платное оформление
+        // оставалось бы навсегда.
+        let hadPremium = isPremium || cachedPremiumHint
+        cachedPremiumHint = false
         isPremium = false
         subscriptionExpiry = nil
         selectedNickStyle = .default
         selectedAvatarBorder = .none
         selectedRoomTheme = .default
         persist()
+        // Аудит 26.07.2026 (P2): откат оформления не вызывал никто — после
+        // истечения Plink+ оставались премиум-тема приложения, кино-бабл,
+        // эмоджи-пак и живой оверлей.
+        if hadPremium {
+            rollbackPremiumAppearance()
+        }
         onPremiumStatusChanged?(false)
     }
 
@@ -77,16 +96,29 @@ final class PremiumStatusManager: ObservableObject {
     /// Called after AuthService.signIn/signUp/getFreshToken resolves the user.
     /// This is the authoritative source — server decision overrides any local cache.
     func syncFromServer(isPremium serverIsPremium: Bool, expiry: Date?) {
-        serverConfirmed = true
         if serverIsPremium {
-            if isPremium != true || subscriptionExpiry != expiry {
+            // Аудит 26.07.2026 (P2): expiry == nil здесь означает «сервер не
+            // сообщил дату» — /auth/signin, /auth/signup и /users/me не отдают
+            // premiumUntil. Раньше такой вызов записывал nil и подписка молча
+            // становилась пожизненной. Настоящую дату приносит
+            // StoreManager.refreshEntitlement() → /api/billing/entitlements
+            // (activatePremium/activateLifetime), поэтому неизвестную дату
+            // просто не трогаем. Ревью: заведомо просроченную локальную дату
+            // при этом не сохраняем — сервер только что сказал «права есть»,
+            // значит она устарела (иначе UI показал бы «Действует до <прошлое>»).
+            let resolvedExpiry = expiry ?? subscriptionExpiry.flatMap { $0 > Date() ? $0 : nil }
+            cachedPremiumHint = false
+            if isPremium != true || subscriptionExpiry != resolvedExpiry {
                 isPremium = true
-                subscriptionExpiry = expiry
+                subscriptionExpiry = resolvedExpiry
                 persist()
                 onPremiumStatusChanged?(true)
             }
         } else {
-            if isPremium == true {
+            // Ревью: `cachedPremiumHint` — случай «на старте премиум был только
+            // в кэше, сервер говорит нет»: isPremium уже false, но платное
+            // оформление ещё выбрано и его надо откатить.
+            if isPremium == true || cachedPremiumHint {
                 deactivatePremium()
             }
         }
@@ -149,8 +181,10 @@ final class PremiumStatusManager: ObservableObject {
         defaults.set(selectedRoomTheme.rawValue, forKey: roomThemeKey)
     }
 
-    /// 🔧 FIX 3.4: Track whether server has confirmed premium status
-    private var serverConfirmed = false
+    // Аудит 26.07.2026 (P2): флаг serverConfirmed был мёртвым — он только
+    // писался (syncFromServer / loadPersistedState) и не читался нигде.
+    // Роль «сервер — источник истины» выполняют syncFromServer и
+    // StoreManager.applyEntitlement, отдельный флаг ничего не гейтил.
 
     private func loadPersistedState() {
         // C9: local UserDefaults is NOT authority. Always start free until
@@ -158,8 +192,8 @@ final class PremiumStatusManager: ObservableObject {
         // sticky "Plink+ active" after testing / stale flags on other devices.
         let cachedPremium = defaults.bool(forKey: premiumKey)
         isPremium = false
+        cachedPremiumHint = cachedPremium
         subscriptionExpiry = defaults.object(forKey: expiryKey) as? Date
-        serverConfirmed = false
         if cachedPremium {
             Logger.store.info("[Premium] ignored stale local premium flag until server/StoreKit confirms")
         }
@@ -187,6 +221,17 @@ final class PremiumStatusManager: ObservableObject {
             if !Self.isFreeBubbleStyle(bubble) {
                 UserDefaults.standard.set("bubble-quiet", forKey: "plink.bubbleStyleID")
             }
+            // Аудит 26.07.2026 (P2): страховочный clamp чистил только бабл и
+            // live-тему — премиум-тема приложения и эмоджи-пак оставались
+            // выбранными. Откатываем их на fallback из каталога, но ТОЛЬКО если
+            // локальный кэш тоже не помнит премиум: здесь isPremium всегда false
+            // (C9), поэтому безусловный clamp отбирал бы выбор у платящего
+            // подписчика на каждом холодном старте. Реальную потерю прав
+            // отрабатывает deactivatePremium() → rollbackPremiumAppearance().
+            if !cachedPremium {
+                clampPremiumAppearanceKey("plink.appThemeID", fallback: AppearanceCatalog.defaultAppThemeID)
+                clampPremiumAppearanceKey("plink.emojiPackID", fallback: AppearanceCatalog.defaultEmojiPackID)
+            }
             // Clear Plink+ live theme overlay
             if UserDefaults.standard.integer(forKey: "plink.liveTheme") > 0 {
                 UserDefaults.standard.set(0, forKey: "plink.liveTheme")
@@ -198,6 +243,37 @@ final class PremiumStatusManager: ObservableObject {
         if let expiry = subscriptionExpiry, expiry < Date() {
             deactivatePremium()
         }
+    }
+
+    /// Сбрасывает премиум-пресет оформления в его бесплатный fallback.
+    /// Работает на уровне UserDefaults — AppearanceStore читает эти же ключи
+    /// при создании, поэтому clamp обязан отработать до его инициализации.
+    private func clampPremiumAppearanceKey(_ key: String, fallback: String) {
+        let current = UserDefaults.standard.string(forKey: key) ?? fallback
+        guard let descriptor = AppearanceCatalog.all.first(where: { $0.id == current }),
+              descriptor.premium else { return }
+        UserDefaults.standard.set(descriptor.fallbackID ?? fallback, forKey: key)
+    }
+
+    /// Полный откат платного оформления при потере прав: ключи UserDefaults,
+    /// живой оверлей Plink+ и уже созданный AppearanceStore (чтобы UI обновился
+    /// без перезапуска). Стор намеренно НЕ создаём — сервисный слой не должен
+    /// инстанцировать SwiftUI-стор как побочный эффект (это ломало юнит-тесты
+    /// и порядок инициализации).
+    private func rollbackPremiumAppearance() {
+        clampPremiumAppearanceKey("plink.appThemeID", fallback: AppearanceCatalog.defaultAppThemeID)
+        clampPremiumAppearanceKey("plink.emojiPackID", fallback: AppearanceCatalog.defaultEmojiPackID)
+        let bubble = UserDefaults.standard.string(forKey: "plink.bubbleStyleID") ?? "bubble-quiet"
+        if !Self.isFreeBubbleStyle(bubble) {
+            UserDefaults.standard.set("bubble-quiet", forKey: "plink.bubbleStyleID")
+        }
+        // Ревью: live-оверлей Plink+ раньше сбрасывался только на следующем
+        // холодном старте — платная тема продолжала работать всю сессию.
+        if UserDefaults.standard.integer(forKey: "plink.liveTheme") > 0 {
+            UserDefaults.standard.set(0, forKey: "plink.liveTheme")
+            NotificationCenter.default.post(name: .plinkLiveThemeChanged, object: 0)
+        }
+        AppearanceStore.live?.handleEntitlementExpiry()
     }
 }
 

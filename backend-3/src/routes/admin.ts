@@ -27,6 +27,7 @@
 import { prisma } from '../config/db.js';
 import { pushBroadcast } from '../services/pushService.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
+import { invalidateUserSnapshot } from '../middleware/auth.js';
 
 // Admin role check middleware — must be ADMIN or FOUNDER.
 // GPT-5 BE-P0-01: also require 2FA verified + recent auth (<=10 minutes)
@@ -155,6 +156,9 @@ export async function adminRoutes(fastify: any) {
       return reply.status(500).send({ error: 'Internal Server Error' });
     }
 
+    // Без сброса кэша снапшотов бан вступал бы в силу только через TTL (~30 c).
+    invalidateUserSnapshot(id);
+
     reply.send({ success: true, bannedUntil, banStatus, reason });
   });
 
@@ -195,6 +199,8 @@ export async function adminRoutes(fastify: any) {
       return reply.status(500).send({ error: 'Internal Server Error' });
     }
 
+    invalidateUserSnapshot(id);
+
     reply.send({ success: true, banStatus: 'NONE' });
   });
 
@@ -209,6 +215,8 @@ export async function adminRoutes(fastify: any) {
       where: { id },
       data: { role },
     });
+
+    invalidateUserSnapshot(id);
 
     await logAudit({
       userId: request.user.id,

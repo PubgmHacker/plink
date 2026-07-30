@@ -6,17 +6,8 @@ import PhotosUI
 import UIKit
 import Foundation
 
-struct V4FriendsView: View {
-    let theme: V4Theme
-    var body: some View {
-        ScrollView(showsIndicators:false) {
-            VStack(spacing:0) {
-                HStack(alignment:.top) { V4Heading(eyebrow:"ВМЕСТЕ ЛУЧШЕ",title:"Друзья"); Spacer(); V4RoundButton(symbol:"＋") }
-                    .padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
-            }.padding(.bottom,92)
-        }.foregroundStyle(V4.ink)
-    }
-}
+// Аудит 26.07.2026: здесь был статический макет V4FriendsView с захардкоженными
+// данными (0 инстанцирований) — удалён; enum сегментов оставлен, он живой.
 
 // MARK: - Friends hub segments
 
@@ -44,6 +35,7 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
     }
 }
 
+
 // MARK: - Live friends
 
 struct V4FriendsViewLive: View {
@@ -51,7 +43,7 @@ struct V4FriendsViewLive: View {
     // M21/M22: unified inbox — беседы встроены прямо в чаты
     @ObservedObject private var groupService = GroupChatService.shared
     @ObservedObject private var muteStore = ChatMuteStore.shared
-    @State private var openGroup: GroupChat? = nil
+    @State private var openGroup: GroupChatDTO? = nil
     let theme: V4Theme
     var store: V4FriendsStore?
     /// M14: активные комнаты — для «Друг сейчас смотрит».
@@ -117,7 +109,7 @@ struct V4FriendsViewLive: View {
 
     /// Telegram order: pinned (stable) → unpinned by last message time. Blocked hidden.
     private var orderedFriends: [Friend] {
-        let list = (store?.friends ?? []).filter { !blockManager.isBlocked($0.id) }
+        let list = (store?.friends ?? []).filter { !blockManager.isBlocked($0.id) && !dmService.isArchived($0.id) }
         return pinStore.sortedChats(
             friends: list,
             lastActivity: { dmService.lastActivityAt(for: $0) },
@@ -227,8 +219,7 @@ struct V4FriendsViewLive: View {
                             watchWithFriend = nil
                         }
                     }
-                },
-                inviteFriend: watchWithFriend
+                }
             )
             .environmentObject(APIClient.shared)
             .preferredColorScheme(.dark)
@@ -312,24 +303,32 @@ struct V4FriendsViewLive: View {
         .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
             Task { await loadRecentRooms() }
         }
-        // Friends list (presence + avatars) while tab visible — ~1s for near-realtime avatars
+        // Friends list (presence + avatars) while tab visible.
+        // Аудит 26.07.2026 P2: было 1 с — три параллельных цикла давали ~3 запроса
+        // в секунду и жгли батарею/трафик. Мгновенные события идут по realtime,
+        // поллинг оставлен fallback-ом и только для активной вкладки на переднем плане.
         .task(id: isActive) {
             guard isActive else { return }
             await store?.refreshQuietly()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+                try? await Task.sleep(nanoseconds: 20_000_000_000) // 20s fallback
                 guard !Task.isCancelled, isActive else { break }
+                // scenePhase внутри долгоживущего .task «залипает» на значении момента
+                // старта, поэтому спрашиваем состояние приложения напрямую.
+                let foreground = await MainActor.run { UIApplication.shared.applicationState == .active }
+                guard foreground else { continue }
                 await store?.refreshQuietly()
             }
         }
-        // Unread DMs: 1s global poll for instant badges
+        // Unread DMs: realtime + редкий fallback-опрос внутри сервиса
         .task {
             dmService.startUnreadPolling()
             await inviteService.refreshFromServer()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
                 guard !Task.isCancelled else { break }
-                if scenePhase == .active {
+                let foreground = await MainActor.run { UIApplication.shared.applicationState == .active }
+                if foreground {
                     await inviteService.refreshFromServer()
                 }
             }
@@ -939,7 +938,7 @@ struct V4FriendsViewLive: View {
                     watchWithFriend = friend
                     showCreateRoom = true
                 } label: {
-                    Label("Смотреть вместе", systemImage: "film.fill")
+                    Label("��мотреть вместе", systemImage: "film.fill")
                 }
             }
         }
@@ -947,19 +946,21 @@ struct V4FriendsViewLive: View {
 
     // MARK: - Чаты / Общение
 
-    @ViewBuilder
     // MARK: - M21/M22 Unified Inbox helpers
 
+    // Аудит 26.07.2026: вложенный тип не наследует MainActor-изоляцию View,
+    // а его геттеры дёргают DMChatService и FriendPinStore — оба @MainActor.
+    @MainActor
     private enum InboxItem: Identifiable {
         case dm(Friend)
-        case group(GroupChat)
+        case group(GroupChatDTO)
         var id: String {
             switch self { case .dm(let f): return "dm-\(f.id)"; case .group(let g): return "grp-\(g.id)" }
         }
         var lastActivity: Date {
             switch self {
             case .dm(let f): return DMChatService.shared.lastActivityAt(for: f.id) ?? .distantPast
-            case .group(let g): return g.lastMessageAt ?? .distantPast
+            case .group(let g): return g.lastMessageDate ?? .distantPast
             }
         }
         var isPinned: Bool {
@@ -975,7 +976,7 @@ struct V4FriendsViewLive: View {
         let _ = pinStore.orderedPinnedIds
         let dms = orderedFriends.map { InboxItem.dm($0) }
         let groups = groupService.groups
-            .sorted { ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast) }
+            .sorted { ($0.lastMessageDate ?? .distantPast) > ($1.lastMessageDate ?? .distantPast) }
             .map { InboxItem.group($0) }
         let pinned  = dms.filter(\.isPinned)
         let unpinned = (dms.filter { !$0.isPinned } + groups)
@@ -1053,7 +1054,7 @@ struct V4FriendsViewLive: View {
 
     /// M21/M22: Telegram-style group chat row (unified inbox)
     @ViewBuilder
-    private func groupChatRow(_ group: GroupChat) -> some View {
+    private func groupChatRow(_ group: GroupChatDTO) -> some View {
         let unread  = group.unreadCount ?? 0
         let muteKey = "grp-\(group.id)"
         let muted   = muteStore.isMuted(muteKey)
@@ -1091,7 +1092,7 @@ struct V4FriendsViewLive: View {
                             .foregroundStyle(V4.ink)
                             .lineLimit(1)
                         Spacer(minLength: 6)
-                        if let lastAt = group.lastMessageAt {
+                        if let lastAt = group.lastMessageDate {
                             Text(Self.chatListTime(lastAt))
                                 .font(.system(size: 12, weight: unread > 0 ? .semibold : .regular))
                                 .foregroundStyle(unread > 0 ? V4.accent : V4.muted)
@@ -1133,40 +1134,15 @@ struct V4FriendsViewLive: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 74)
         }
-        // M22: Telegram July 2026 — свайп влево
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                HapticManager.impact(.medium)
-                Task { await groupService.deleteGroup(group) }
-                toast = "Беседа удалена"
-            } label: { Label("Удалить", systemImage: "trash.fill") }
-            Button {
-                HapticManager.impact(.light)
-                muteStore.toggle(muteKey)
-                toast = muteStore.isMuted(muteKey) ? "Беседа заглушена" : "Уведомления включены"
-            } label: {
-                Label(muted ? "Вкл. звук" : "Без звука",
-                      systemImage: muted ? "bell.fill" : "bell.slash.fill")
-            }
-            .tint(.orange)
-        }
-        // M22: Telegram July 2026 — свайп вправо
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button {
-                Task { await groupService.markAllRead(group) }
-                toast = "Отмечено как прочитанное"
-            } label: {
-                Label("Прочитано", systemImage: "checkmark.message.fill")
-            }
-            .tint(.blue)
-        }
+        // Аудит 26.07.2026 P1: swipeActions удалены — работают только в List,
+        // строки лежат в VStack/ScrollView (свайпы не срабатывали). Действия — в contextMenu.
         // M22: контекстное меню (долгий тап)
         .contextMenu {
             Button { openGroup = group } label: {
                 Label("Открыть беседу", systemImage: "person.3.fill")
             }
             Button {
-                Task { await groupService.markAllRead(group) }
+                Task { await groupService.markRead(groupId: group.id) }
                 toast = "Отмечено как прочитанное"
             } label: { Label("Отметить как прочитанное", systemImage: "checkmark.message.fill") }
             Button {
@@ -1178,7 +1154,7 @@ struct V4FriendsViewLive: View {
             }
             Divider()
             Button(role: .destructive) {
-                Task { await groupService.deleteGroup(group) }
+                Task { await groupService.leave(groupId: group.id) }
                 toast = "Беседа удалена"
             } label: { Label("Удалить беседу", systemImage: "trash") }
         }
@@ -1212,7 +1188,7 @@ struct V4FriendsViewLive: View {
                     emptyInside(
                         icon: "play.rectangle.fill",
                         title: "Пока пусто",
-                        subtitle: "Создай комнату с другом — здесь появится история «с кем и что»",
+                        subtitle: "Создай комнату с другом — здесь появит��я история «с кем и что»",
                         cta: "Создать комнату"
                     ) { showCreateRoom = true }
                 } else {
@@ -1334,7 +1310,9 @@ struct V4FriendsViewLive: View {
                 Label("Открыть чат", systemImage: "message.fill")
             }
             Button {
-                dmService.markAllRead(for: friend.id)
+                // Аудит 26.07.2026 P1: раньше тут звали chatDidOpen — чат «висел
+                // открытым» (openFriendId), бейдж молчал, всё входящее авточиталось.
+                Task { await dmService.markChatRead(friendId: friend.id) }
                 toast = "Отмечено как прочитанное"
             } label: {
                 Label("Отметить как прочитанное", systemImage: "checkmark.message.fill")
@@ -1379,71 +1357,28 @@ struct V4FriendsViewLive: View {
                 }
             } label: { Label("Заблокировать", systemImage: "hand.raised.fill") }
         }
-        // M22: Telegram-style trailing swipe — Mute · Archive · Delete
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            // ❶ Delete (destructive, far right)
-            Button(role: .destructive) {
-                Task {
-                    await dmService.deleteChat(with: friend)
-                    toast = "Чат удалён"
-                }
-            } label: {
-                Label("Удалить", systemImage: "trash.fill")
-            }
-            // ❷ Archive (gray)
-            Button {
-                HapticManager.impact(.medium)
-                Task { await dmService.archiveChat(with: friend) }
-                toast = "\(friend.displayTitle) архивирован"
-            } label: {
-                Label("Архив", systemImage: "archivebox.fill")
-            }
-            .tint(Color(white: 0.35))
-            // ❸ Mute/Unmute (orange)
-            Button {
-                HapticManager.impact(.light)
-                let muted = muteStore.isMuted(friend.id)
-                muteStore.setMuted(friend.id, muted: !muted)
-                toast = muted ? "Уведомления включены" : "\(friend.displayTitle) заглушён"
-            } label: {
-                let muted = muteStore.isMuted(friend.id)
-                Label(muted ? "Вкл. звук" : "Без звука",
-                      systemImage: muted ? "bell.fill" : "bell.slash.fill")
-            }
-            .tint(.orange)
-        }
-        // M22: Telegram-style leading swipe — Pin · Mark as Read
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            // ❶ Pin/Unpin (accent, full-swipe = instant pin)
-            Button {
-                togglePin(friend)
-            } label: {
-                let pinned = pinStore.isPinned(friend.id)
-                Label(pinned ? "Открепить" : "Закрепить",
-                      systemImage: pinned ? "pin.slash.fill" : "pin.fill")
-            }
-            .tint(V4.accent)
-            // ❷ Mark as Read
-            Button {
-                HapticManager.impact(.light)
-                dmService.markAllRead(for: friend.id)
-                toast = "Отмечено как прочитанное"
-            } label: {
-                Label("Прочитано", systemImage: "checkmark.message.fill")
-            }
-            .tint(.blue)
-        }
+        // Аудит 26.07.2026 P1: swipeActions удалены — они работают только в List,
+        // а строки лежат в VStack/ScrollView (мёртвый код, свайпы не срабатывали).
+        // Все действия доступны через contextMenu выше.
     }
 
     private func togglePin(_ friend: Friend) {
         HapticManager.impact(.medium)
         let willPin = !pinStore.isPinned(friend.id)
         Task {
-            let ok = await store?.friendManager.setPinned(friendId: friend.id, pinned: willPin) ?? false
+            // Аудит 26.07.2026 P2: различаем «сервер подтвердил», «лимит» и
+            // «сеть не ответила» — раньше любой сбой показывался как успех.
+            let result = await store?.friendManager.setPinned(friendId: friend.id, pinned: willPin)
+                ?? .syncFailed
             await MainActor.run {
-                if willPin && !ok {
+                switch result {
+                case .limitReached:
                     toast = "Максимум 10 закреплений"
-                } else {
+                case .syncFailed:
+                    toast = willPin
+                        ? "Закреплено локально · синхронизируем позже"
+                        : "Откреплено локально · синхронизируем позже"
+                case .synced:
                     toast = willPin
                         ? "\(friend.displayTitle) закреплён"
                         : "\(friend.displayTitle) откреплён"

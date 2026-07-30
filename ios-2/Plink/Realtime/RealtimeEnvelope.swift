@@ -174,6 +174,7 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
     case error(ErrorMessage)
     case sessionReady(SessionReady)
     case serverDraining(ServerDraining)
+    case roomAppearanceUpdated(RoomAppearanceUpdated)
 
     public struct SyncStateMessage: Decodable, Sendable, Equatable {
         public let type: String  // "sync.state"
@@ -256,6 +257,65 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
         public let retryInMs: Int64
     }
 
+    // P1 5.11: room.appearance.updated — живая тема комнаты.
+    // Хост сохраняет вид через PATCH /rooms/:id/appearance, сервер публикует
+    // событие в RoomEventBus, и каждая реплика рассылает его своим сокетам
+    // (backend-3/src/contracts/realtime-v2.ts → RoomAppearanceUpdatedSchema).
+    public struct RoomAppearanceUpdated: Decodable, Sendable, Equatable {
+        /// Полезная нагрузка вида. ОДНА структура на два источника:
+        ///   1) провод — strict, ровно четыре поля;
+        ///   2) строка `Room.appearance` из БД (GET /rooms/:id), где сверху
+        ///      лежат аудит-поля updatedAt/updatedBy.
+        /// Поэтому аудит-поля здесь optional — иначе гидрация из БД падала бы
+        /// на проводе, а провод — на БД.
+        public struct Payload: Decodable, Sendable, Equatable {
+            public let themeId: String
+            public let themeRevision: Int
+            public let intensity: Double
+            public let motionEnabled: Bool
+            /// Только БД — на проводе отсутствует.
+            public let updatedAt: String?
+            /// Только БД — на проводе отсутствует.
+            public let updatedBy: String?
+
+            public init(
+                themeId: String,
+                themeRevision: Int,
+                intensity: Double,
+                motionEnabled: Bool,
+                updatedAt: String? = nil,
+                updatedBy: String? = nil
+            ) {
+                self.themeId = themeId
+                self.themeRevision = themeRevision
+                self.intensity = intensity
+                self.motionEnabled = motionEnabled
+                self.updatedAt = updatedAt
+                self.updatedBy = updatedBy
+            }
+        }
+
+        public let type: String  // "room.appearance.updated"
+        public let protocolVersion: Int
+        public let roomId: String
+        public let appearance: Payload
+        public let serverTimeMs: Int64
+
+        public init(
+            type: String = "room.appearance.updated",
+            protocolVersion: Int = 2,
+            roomId: String,
+            appearance: Payload,
+            serverTimeMs: Int64
+        ) {
+            self.type = type
+            self.protocolVersion = protocolVersion
+            self.roomId = roomId
+            self.appearance = appearance
+            self.serverTimeMs = serverTimeMs
+        }
+    }
+
     private enum DiscriminatorKey: String, CodingKey { case type, protocolVersion }
 
     public init(from decoder: Decoder) throws {
@@ -292,6 +352,8 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
             self = .reactionBroadcast(try single.decode(ReactionBroadcast.self))
         case "server.draining":
             self = .serverDraining(try single.decode(ServerDraining.self))
+        case "room.appearance.updated":
+            self = .roomAppearanceUpdated(try single.decode(RoomAppearanceUpdated.self))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,

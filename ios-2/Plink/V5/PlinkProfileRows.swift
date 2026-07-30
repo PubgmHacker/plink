@@ -413,7 +413,7 @@ internal struct PersonalDataView: View {
 
         // Ensure API client has JWT (PersonalData may open without EnvironmentObject)
         if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
+            APIClient.shared.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
         guard APIClient.shared.authToken != nil else {
@@ -460,7 +460,6 @@ internal struct PrivacySecurityView: View {
     @AppStorage("privacy_discoverable") private var discoverable = true
     @AppStorage("privacy_online_status") private var showOnlineStatus = true
     @AppStorage("privacy_dm_from") private var dmFromFriendsOnly = true
-    @State private var twoFAEnabled = false
     @State private var showSessions = false
 
     private var inviteBinding: Binding<String> {
@@ -509,12 +508,17 @@ internal struct PrivacySecurityView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Безопасность")
                 SettingsCard {
-                    SettingsToggleRow(
+                    // Аудит 26.07.2026: раньше здесь стоял Toggle, который писал
+                    // только в локальный @State и притворялся рабочей 2FA.
+                    // На сервере есть поля twofaEnabled/twofaSecret, но нет
+                    // пользовательских роутов включения/выключения (есть только
+                    // step-up verify для админов в /auth/admin-verify). Пока
+                    // роутов нет — честная строка «Скоро» без переключателя.
+                    SettingsInfoRow(
                         icon: "lock.shield.fill",
                         title: "Двухфакторная защита",
-                        subtitle: twoFAEnabled ? "Включена" : "Скоро · пока локальный переключатель",
-                        iconColor: Color(hex: 0xA855F7),
-                        isOn: $twoFAEnabled
+                        value: "Скоро",
+                        iconColor: Color(hex: 0xA855F7)
                     )
                     SettingsNavRow(
                         icon: "laptopcomputer.and.iphone",
@@ -542,15 +546,7 @@ internal struct PrivacySecurityView: View {
         }
         .sheet(isPresented: $showSessions) {
             NavigationStack {
-                ActiveSessionsView(sessions: [
-                    ActiveSession(
-                        id: "1",
-                        device: "Этот iPhone",
-                        location: nil,
-                        lastSeen: Date(),
-                        isCurrent: true
-                    ),
-                ])
+                ActiveSessionsView()
             }
             .preferredColorScheme(.dark)
         }
@@ -561,30 +557,82 @@ internal enum InvitePermission: String, CaseIterable, Codable {
     case everyone, friendsOnly, noOne
 }
 
+// Аудит 26.07.2026: раньше сюда снаружи передавался выдуманный список из
+// одной захардкоженной сессии («Этот iPhone») — прямая ложь пользователю.
+// Сервер (POST /auth/heartbeat) пока не ведёт учёт сессий по устройствам и
+// возвращает только текущую, поэтому честный минимум: показываем текущее
+// устройство с реальными данными из UIDevice и рабочую кнопку «Завершить
+// остальные сессии» (POST /auth/signout-others с подтверждением).
 struct ActiveSessionsView: View {
-    let sessions: [ActiveSession]
+    @State private var signingOut = false
+    @State private var showConfirm = false
+    @State private var resultMessage: String?
+    @State private var resultIsError = false
+
+    private var currentDeviceTitle: String {
+        "\(UIDevice.current.model) · iOS \(UIDevice.current.systemVersion)"
+    }
 
     var body: some View {
-        SettingsScaffold(title: "Сессии", subtitle: "Где открыт твой аккаунт") {
+        SettingsScaffold(
+            title: "Сессии",
+            subtitle: "Сервер пока не хранит список устройств — видно только текущее"
+        ) {
             SettingsCard {
-                if sessions.isEmpty {
-                    Text(LocalizationManager.shared.string(.pxNoSessions))
-                        .font(.subheadline)
-                        .foregroundStyle(V4.muted)
-                        .padding(20)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    ForEach(sessions) { s in
-                        SettingsInfoRow(
-                            icon: "iphone",
-                            title: s.device,
-                            value: s.isCurrent
-                                ? "Это устройство · \(s.lastSeen.formatted(.relative(presentation: .named)))"
-                                : "Активна · \(s.lastSeen.formatted(.relative(presentation: .named)))"
-                        )
-                    }
+                SettingsInfoRow(
+                    icon: "iphone",
+                    title: "Это устройство",
+                    value: currentDeviceTitle
+                )
+            }
+
+            SettingsCard {
+                SettingsNavRow(
+                    icon: "rectangle.portrait.and.arrow.right",
+                    title: "Завершить остальные сессии",
+                    subtitle: "Другие устройства выйдут из аккаунта",
+                    iconColor: V4.danger,
+                    trailing: ""
+                ) {
+                    showConfirm = true
                 }
             }
+
+            if signingOut {
+                ProgressView()
+                    .tint(V4.accent)
+                    .frame(maxWidth: .infinity)
+            }
+            if let msg = resultMessage {
+                Text(msg)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(resultIsError ? V4.danger : V4.accent)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .alert("Завершить остальные сессии?", isPresented: $showConfirm) {
+            Button("Завершить", role: .destructive) {
+                Task { await signOutOthers() }
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Все другие устройства будут разлогинены. Это устройство останется в аккаунте.")
+        }
+    }
+
+    private func signOutOthers() async {
+        signingOut = true
+        resultMessage = nil
+        defer { signingOut = false }
+        do {
+            try await AuthService.shared.signOutOtherSessions()
+            resultIsError = false
+            resultMessage = "Готово — остальные сессии завершены"
+            HapticManager.impact(.medium)
+        } catch {
+            resultIsError = true
+            resultMessage = "Не удалось: \(error.localizedDescription)"
+            HapticManager.errorOccurred()
         }
     }
 }

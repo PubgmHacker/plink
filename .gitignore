@@ -57,3 +57,7 @@ AuthKey_*.p8
 *.log
 logs/
 .env.local
+
+# локальные скретч-скрипты с ключами — никогда не коммитить
+test.py
+*.local.py

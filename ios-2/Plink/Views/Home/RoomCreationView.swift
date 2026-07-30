@@ -334,9 +334,18 @@ struct RoomCreationView: View {
     private var contentStep: some View {
         Group {
             if let svc = selectedService {
-                ServiceBrowserView(service: svc) { video in
-                    detectedVideo = video
-                    roomName = video.title
+                // FIX: ServiceBrowserView отдаёт ДВА аргумента (contentURL, title),
+                // а не готовый DetectedVideo — собираем модель здесь.
+                ServiceBrowserView(service: svc) { contentURL, title in
+                    let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    detectedVideo = DetectedVideo(
+                        title: cleanTitle.isEmpty ? nil : cleanTitle,
+                        embedURL: contentURL,
+                        originalURL: contentURL,
+                        service: svc,
+                        thumbnailURL: Self.thumbnailURL(for: contentURL, service: svc)
+                    )
+                    roomName = cleanTitle.isEmpty ? svc.title : cleanTitle
                     withAnimation { step = .setup }
                 }
             } else {
@@ -493,6 +502,13 @@ struct RoomCreationView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    /// Постер для превью на шаге «Настройка». Сейчас надёжно восстанавливается
+    /// только для YouTube; остальные сервисы — плейсхолдер (nil).
+    private static func thumbnailURL(for rawURL: String, service: VideoService) -> String? {
+        guard service == .youtube, let vid = extractYouTubeID(from: rawURL) else { return nil }
+        return "https://img.youtube.com/vi/\(vid)/hqdefault.jpg"
     }
 
     private static func extractYouTubeID(from raw: String) -> String? {
@@ -832,7 +848,7 @@ struct ServiceAuthSheet: View {
             .background(Cinema2026.bg.ignoresSafeArea())
             .navigationBarHidden(true)
             .sheet(isPresented: $webShown) {
-                ServiceBrowserView(service: service) { _ in
+                ServiceBrowserView(service: service) { _, _ in
                     onAuthorized()
                 }
             }

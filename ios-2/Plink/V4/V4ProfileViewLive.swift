@@ -358,7 +358,7 @@ struct V4ProfileViewLive: View {
             AdminRootView().preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showAvatarPicker) {
-            AvatarPickerSheet(store: store, onAvatarChanged: { url in
+            AvatarPickerSheet(store: store, theme: theme, onAvatarChanged: { url in
                 currentAvatarURL = url
             }).preferredColorScheme(.dark)
         }
@@ -380,6 +380,9 @@ struct V4ProfileViewLive: View {
 
 struct AvatarPickerSheet: View {
     var store: V4ProfileStore?
+    /// Аудит 26.07.2026: шит рисовался акцентом Cinema2026 — третьей палитрой,
+    /// не связанной с темой приложения. Тема приходит от родителя.
+    var theme: V4Theme = .electric
     var onAvatarChanged: ((URL) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var uploading = false
@@ -419,7 +422,7 @@ struct AvatarPickerSheet: View {
                 }
                 .frame(width: 120, height: 120)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(uploadOK ? Color.green : Cinema2026.accent, lineWidth: 3))
+                .overlay(Circle().stroke(uploadOK ? Color.green : theme.accentColor, lineWidth: 3))
 
                 if uploadOK {
                     Label("Сохранено на сервере", systemImage: "checkmark.circle.fill")
@@ -466,7 +469,7 @@ struct AvatarPickerSheet: View {
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Cinema2026.accent)
+                    .background(theme.accentColor)
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
@@ -502,7 +505,7 @@ struct AvatarPickerSheet: View {
                         .foregroundStyle(Cinema2026.background)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
-                        .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 14))
+                        .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)
                 .disabled(uploading)
@@ -531,7 +534,7 @@ struct AvatarPickerSheet: View {
                 .resizable().scaledToFill()
                 .frame(width: 64, height: 64)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(selectedDefault == name ? Cinema2026.accent : V4.line, lineWidth: selectedDefault == name ? 3 : 1))
+                .overlay(Circle().stroke(selectedDefault == name ? theme.accentColor : V4.line, lineWidth: selectedDefault == name ? 3 : 1))
         } else {
             Circle()
                 .fill(V4.surface)
@@ -627,7 +630,7 @@ struct AvatarPickerSheet: View {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 60
-        if let token = KeychainHelper.read(for: "rave_auth_token") {
+        if let token = AuthTokenStore.shared.token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } else {
             uploadError = "Не авторизован. Войдите заново."

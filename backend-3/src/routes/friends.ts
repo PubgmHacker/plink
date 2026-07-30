@@ -2,6 +2,9 @@ import { prisma } from '../config/db.js';
 import { pushToUser } from '../services/pushService.js';
 import { resolvePresence } from '../services/presence.js';
 
+/** Минимальная длина поискового запроса (защита от перечисления профилей). */
+const MIN_SEARCH_LEN = 2;
+
 export default async function friendRoutes(fastify: any) {
   // GET /api/friends — accepted friendships (both directions, de-duplicated)
   // Some historical rows may exist only as A→B; always surface the other user.
@@ -140,29 +143,31 @@ export default async function friendRoutes(fastify: any) {
       byId.set(f.user.id, mapFriend(f.user, f.friendsSince, { isPinned: false, pinOrder: 0 }));
     }
 
-    // Self-heal: if only one direction exists, create the reverse row
-    for (const f of asInitiator) {
-      const hasReverse = asTarget.some((t: any) => t.userID === f.friendID);
-      if (!hasReverse && f.friendID) {
-        try {
-          await prisma.friendship.create({
-            data: { userID: f.friendID, friendID: me },
-          });
-        } catch {
-          /* unique race ok */
-        }
-      }
+    // Self-heal: if only one direction exists, create the reverse row.
+    // Аудит 26.07.2026 P2: O(n) по Set вместо .some (было O(n^2)) и один
+    // createMany вместо последовательных create — эндпоинт клиент поллит
+    // каждую секунду. Записи происходят только пока в графе есть перекос.
+    const forwardIds = new Set<string>(
+      asInitiator.map((f: any) => f.friendID).filter((id: any): id is string => !!id),
+    );
+    const reverseIds = new Set<string>(
+      asTarget.map((f: any) => f.userID).filter((id: any): id is string => !!id),
+    );
+    const missing: { userID: string; friendID: string }[] = [];
+    for (const friendId of forwardIds) {
+      if (!reverseIds.has(friendId)) missing.push({ userID: friendId, friendID: me });
     }
-    for (const f of asTarget) {
-      const hasForward = asInitiator.some((t: any) => t.friendID === f.userID);
-      if (!hasForward && f.userID) {
-        try {
-          await prisma.friendship.create({
-            data: { userID: me, friendID: f.userID },
-          });
-        } catch {
-          /* unique race ok */
-        }
+    for (const userId of reverseIds) {
+      if (!forwardIds.has(userId)) missing.push({ userID: me, friendID: userId });
+    }
+    // Ревью: по одной строке за раз — легаси-строка с friendID, которого нет в
+    // User, даёт FK violation и одним createMany откатила бы весь батч (перекос
+    // не лечился бы никогда). Строк тут единицы, и только пока перекос есть.
+    for (const row of missing) {
+      try {
+        await prisma.friendship.createMany({ data: [row], skipDuplicates: true });
+      } catch {
+        /* unique race / битая легаси-строка — остальные всё равно лечим */
       }
     }
 
@@ -255,6 +260,20 @@ export default async function friendRoutes(fastify: any) {
 
       const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
       if (!target) return reply.status(404).send({ error: 'User not found' });
+
+      // Аудит 26.07.2026 P1: при блокировке (в любую сторону) заявки запрещены —
+      // иначе заблокированный получал прямой канал пуш-уведомлений жертве.
+      // Отвечаем 404, не раскрывая факт блокировки.
+      const blockedPair = await prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerID: request.user.id, blockedID: targetId },
+            { blockerID: targetId, blockedID: request.user.id },
+          ],
+        },
+        select: { id: true },
+      }).catch(() => null);
+      if (blockedPair) return reply.status(404).send({ error: 'User not found' });
 
       // Already friends?
       const already = await prisma.friendship.findFirst({
@@ -517,9 +536,20 @@ export default async function friendRoutes(fastify: any) {
   // GET /api/friends/search?q=
   fastify.get('/friends/search', { preHandler: [fastify.authenticate] }, async (request: any, reply: any) => {
     let { q } = request.query as { q?: string };
-    if (!q || q.length < 1) return reply.send([]);
+    if (!q) return reply.send([]);
     q = q.trim().replace(/^@/, '');
-    if (q.length < 1) return reply.send([]);
+    // Аудит 26.07.2026 P2: минимум 2 символа — запрос из одной буквы отдавал
+    // 20 произвольных аккаунтов (перечисление чужих профилей) и всегда бил
+    // full scan по users на каждый кейстрок.
+    // Ревью: длина считается в code points, а для не-ASCII (китайская локаль —
+    // один иероглиф = полноценное имя) порог 1 символ.
+    const qLen = [...q].length;
+    if (qLen < (/^[\x00-\x7F]*$/.test(q) ? MIN_SEARCH_LEN : 1)) return reply.send([]);
+
+    // Ревью: поиск по хвосту id вернули — клиент показывает тег #<последние 8
+    // символов id> в результатах поиска и в профиле (FriendsView/User.shortId),
+    // полный UUID в UI не виден нигде. 8+ hex-символов = не перечисление.
+    const idTail = qLen >= 8 && /^[0-9a-fA-F-]+$/.test(q) ? [{ id: { endsWith: q } }] : [];
 
     // Hide soft-deleted tombstones from discovery (Telegram: cannot find deleted users)
     let users: any[] = [];
@@ -535,7 +565,7 @@ export default async function friendRoutes(fastify: any) {
                 { username: { contains: q, mode: 'insensitive' } },
                 { displayName: { contains: q, mode: 'insensitive' } },
                 { id: { equals: q } },
-                { id: { endsWith: q } },
+                ...idTail,
               ],
             },
           ],
@@ -554,7 +584,7 @@ export default async function friendRoutes(fastify: any) {
                 { username: { contains: q, mode: 'insensitive' } },
                 { displayName: { contains: q, mode: 'insensitive' } },
                 { id: { equals: q } },
-                { id: { endsWith: q } },
+                ...idTail,
               ],
             },
           ],

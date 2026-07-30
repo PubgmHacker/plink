@@ -48,6 +48,20 @@ struct WatchRoomScreen: View {
             // AmbientVideoSampler). ui.ambient is no longer used.
             Cinema2026.background.ignoresSafeArea()
 
+            // P1 5.11: живая тема комнаты (Plink+) — амбиентная подложка ПОД
+            // всем контентом. Плеер, чат и управление рисуются поверх; слой
+            // не ловит касания и ничего не перекрывает.
+            // Ревью: в landscape подложку целиком перекрывает PlayerStage
+            // (WatchLayouts.swift), а occlusion culling SwiftUI не делает —
+            // без suppressed слой продолжал бы крутить 20 к/с полноэкранных
+            // blur-фильтров в невидимом кадре, и именно в том режиме, где
+            // смотрят дольше всего.
+            RoomLiveThemeBackdrop(
+                appearance: model.appearanceStore.appearance,
+                suppressed: layoutVariant == .landscape
+            )
+            .ignoresSafeArea()
+
             switch layoutVariant {
             case .portrait:
                 PortraitWatchLayout(model: model, ui: $ui)
@@ -80,15 +94,25 @@ struct WatchRoomScreen: View {
                 .zIndex(101)
             }
 
+            // P0 5.3: пустая комната — один участник и нет контента.
+            // Крупное «Позвать друга» вместо чёрного экрана с иконкой за тапом.
+            if model.participants.count <= 1,
+               model.mediaSource == nil,
+               model.coordinator.currentSource == nil {
+                RoomEmptyStateView(model: model)
+                    .zIndex(90)
+                    .transition(.opacity)
+            }
+
             // Offline / error state (P0)
             if case .failed = model.connectionState, let error = model.lastError {
                 VStack {
                     Image(systemName: "wifi.slash")
                         .font(.largeTitle)
-                    Text("Connection lost")
+                    Text(LocalizationManager.shared.string(.connectionLost))
                     Text(error)
                         .font(.caption)
-                    Button("Retry") {
+                    Button(LocalizationManager.shared.string(.offlineRetry)) {
                         Task { await model.connect() }
                     }
                 }
@@ -244,6 +268,18 @@ struct WatchRoomScreen: View {
                 model.sendPoll(question: question, options: options)
             }
         }
+        // P1 5.11 (ревью): панель живой темы презентуется С УРОВНЯ ЭКРАНА.
+        // Раньше она жила в PlayerTopChrome внутри `if ui.controlsVisible` —
+        // автоскрытие контролов через 4 с сносило хром, а вместе с ним и шит:
+        // единственная точка входа в платную фичу закрывалась сама собой.
+        .sheet(isPresented: $ui.appearancePanelPresented) {
+            RoomAppearanceControlPanel(
+                store: model.appearanceStore,
+                onError: { model.reportRoomError($0) }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(Cinema2026.background)
+        }
         .task { await model.connect() }
         .task {
             // M15: приватность комнаты + автопоказ бара модерации для хоста.
@@ -289,6 +325,37 @@ struct WatchRoomScreen: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 OrientationManager.shared.unlockOrientation()
             }
+        }
+        // Аудит 26.07.2026 (P1 5.11): lastError раньше был виден ТОЛЬКО внутри
+        // карточки «Connection lost» — то есть при живом соединении ошибка
+        // (отказ кика, мут, серверный reject) не доезжала до пользователя
+        // вовсе. Показываем тостом; медиа-ошибки идут своим каналом
+        // (mediaError) и остаются в плеере.
+        //
+        // Ревью 26.07.2026: тост — НЕ канал доставки ошибок панели темы. Панель
+        // это .sheet поверх экрана, тост рисуется под ним и его не видно;
+        // ошибки выбора темы показывает inlineError внутри самой панели.
+        // Здесь же чиним вторую половину: lastError сбрасывается сразу после
+        // показа, иначе повтор ОДНОГО И ТОГО ЖЕ текста не проходил
+        // Equatable-сравнение onChange и второй тап не давал никакой реакции.
+        .onChange(of: model.lastError) { _, newValue in
+            guard let text = newValue, !text.isEmpty else { return }
+            // Медиа-ошибку уже рисует плеер — вторым слоем тост не нужен.
+            guard text != model.mediaError else { return }
+            // В .failed текст нужен карточке «Connection lost» — не гасим его.
+            if case .failed = model.connectionState { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                ui.activeToast = RoomToast(kind: .error, text: text)
+            }
+            model.clearLastError()
+        }
+        // Тост сам гаснет: раньше он висел до конца сессии (единственный
+        // источник — подсказка про перемотку — так и оставался на экране).
+        .task(id: ui.activeToast?.id) {
+            guard ui.activeToast != nil else { return }
+            try? await Task.sleep(for: .seconds(3.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { ui.activeToast = nil }
         }
         .onChange(of: model.connectionState) { _, newState in
             if newState == .idle && model.wantsDismiss {

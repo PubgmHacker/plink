@@ -11,13 +11,17 @@ final class NotificationTests: XCTestCase {
     // MARK: - RoomPrivacy (used in notification routing)
 
     func testRoomPrivacy_allCases() {
-        XCTAssertEqual(RoomPrivacy.allCases.count, 3)
+        // Живой RoomPrivacy (Plink/Models/Room.swift) — 4 режима:
+        // M15 добавил friendsRoom. Явный список ловит будущие изменения enum.
+        XCTAssertEqual(RoomPrivacy.allCases,
+                       [.publicRoom, .privateRoom, .byLink, .friendsRoom])
     }
 
     func testRoomPrivacy_rawValues() {
         XCTAssertEqual(RoomPrivacy.publicRoom.rawValue, "public")
         XCTAssertEqual(RoomPrivacy.privateRoom.rawValue, "private")
         XCTAssertEqual(RoomPrivacy.byLink.rawValue, "link")
+        XCTAssertEqual(RoomPrivacy.friendsRoom.rawValue, "friends")
     }
 
     // MARK: - Notification deep link routing

@@ -20,6 +20,30 @@ struct GroupChatDTO: Codable, Identifiable, Equatable {
     var unreadCount: Int?
 }
 
+// Аудит 26.07.2026: сервер отдаёт lastMessageAt строкой ISO-8601, иногда с
+// миллисекундами (та же история, что и в APIClient/AuthService). Для сортировки
+// unified inbox нужен Date, поэтому разбираем его один раз здесь, а не в каждой вьюхе.
+extension GroupChatDTO {
+    private static let isoWithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let isoPlain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    /// Дата последнего сообщения; nil — если сообщений ещё нет или строка битая.
+    var lastMessageDate: Date? {
+        guard let lastMessageAt, !lastMessageAt.isEmpty else { return nil }
+        return Self.isoWithFractionalSeconds.date(from: lastMessageAt)
+            ?? Self.isoPlain.date(from: lastMessageAt)
+    }
+}
+
 struct GroupMessageDTO: Codable, Identifiable, Equatable {
     let id: String
     let senderID: String

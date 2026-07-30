@@ -4,6 +4,7 @@
 
 import SwiftUI
 import PhotosUI
+import ImageIO          // CGImageSource* + ключи метаданных GIF (задержка кадров)
 
 struct WatchChatComposer: View {
     let model: WatchRoomModel
@@ -349,7 +350,7 @@ struct PacksPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Emoji Packs")
+            Text("Наборы эмодзи")
                 .font(.headline)
                 .padding(.horizontal)
 
@@ -470,72 +471,206 @@ extension Notification.Name {
     static let plinkInsertAtCursor = Notification.Name("plinkInsertAtCursor")
 }
 
-// Helper to load custom PNG/GIF emoji from bundle Resources/Emojis/<pack>/
-// Supports both SF Symbol renders (Reactions, Plink+, Fun packs)
-// and custom art (Cute Faces, Pepe, Stickers, Cats, Le Pepe packs).
-struct EmojiAssetImage: View {
-    let name: String
-    let pack: String
+// MARK: - Emoji asset loading
+//
+// Аудит 26.07.2026. Здесь было три бага, из-за которых «отображались не все эмодзи»:
+//
+//  1. ГЛАВНЫЙ: каталог хранит имена с префиксом `emoji_` («emoji_laugh»), а файлы
+//     на диске лежат без него («reactions/laugh.png»). Bundle.url(forResource:)
+//     ищет точное совпадение → не находил НИЧЕГО, и все 36 эмодзи паков
+//     Reactions (20), Plink+ (8) и Fun (8) показывали одну заглушку face.smiling.
+//     Кастомные паки (Cute Faces, Pepe, Stickers, Cats, Le Pepe) совпадали
+//     по именам один в один и поэтому работали — отсюда и ощущение «часть есть,
+//     часть нет».
+//
+//  2. Файл читался с диска и декодировался ЗАНОВО на каждой перерисовке тела View.
+//     В панели на 100+ эмодзи это сотни лишних чтений и декодов PNG на главном
+//     потоке при каждом скролле. Теперь результат кэшируется.
+//
+//  3. Для любого ненайденного имени показывался один и тот же смайлик, поэтому
+//     «злой», «грустный» и «спящий» выглядели одинаково. Теперь для каждого
+//     имени подбирается осмысленный SF Symbol — он рисуется нативно, тянется
+//     под нужный размер и красится в цвет темы.
+//
+// GIF-кадры декодируются вне главного потока и уважают Reduce Motion.
 
-    @State private var gifFrames: [UIImage] = []
-    @State private var gifLoaded = false
+/// Потокобезопасный кэш ассетов эмодзи (NSCache сам по себе thread-safe).
+final class EmojiAssetCache {
+    static let shared = EmojiAssetCache()
 
-    var body: some View {
-        Group {
-            if let uiImage = loadStaticImage() {
-                Image(uiImage: uiImage)
-                    .resizable()
-            } else if !gifFrames.isEmpty {
-                GifPlayerView(images: gifFrames)
-            } else {
-                // Fallback to SF Symbol
-                Image(systemName: "face.smiling")
-                    .resizable()
+    private let stills = NSCache<NSString, UIImage>()
+    private let animations = NSCache<NSString, NSArray>()
+    private let delays = NSCache<NSString, NSNumber>()
+    private let misses = NSCache<NSString, NSNumber>()
+
+    private init() {
+        stills.countLimit = 300
+        animations.countLimit = 40
+    }
+
+    private func key(_ name: String, _ pack: String) -> NSString {
+        "\(pack)/\(name)" as NSString
+    }
+
+    /// Имя из каталога может быть с префиксом `emoji_`, а файл на диске — без него.
+    /// Пробуем оба варианта, каждый — как .png и как .gif.
+    private func locate(name: String, pack: String) -> (url: URL, isGIF: Bool)? {
+        let dir = "Emojis/\(PlinkEmojiCatalog.packDirectory(for: pack))"
+        var candidates = [name]
+        if name.hasPrefix("emoji_") {
+            candidates.append(String(name.dropFirst("emoji_".count)))
+        }
+        for candidate in candidates {
+            if let url = Bundle.main.url(forResource: candidate, withExtension: "png", subdirectory: dir) {
+                return (url, false)
             }
-        }
-        .onAppear { loadGifIfNeeded() }
-    }
-
-    private func packDir() -> String {
-        PlinkEmojiCatalog.packDirectory(for: pack)
-    }
-
-    private func loadStaticImage() -> UIImage? {
-        // Try PNG first
-        if let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Emojis/\(packDir())"),
-           let data = try? Data(contentsOf: url),
-           let img = UIImage(data: data) {
-            return img
-        }
-        // Try Assets.xcassets (for new custom packs)
-        if let img = UIImage(named: name, in: .main, with: nil) {
-            return img
+            if let url = Bundle.main.url(forResource: candidate, withExtension: "gif", subdirectory: dir) {
+                return (url, true)
+            }
         }
         return nil
     }
 
-    private func loadGifIfNeeded() {
-        guard !gifLoaded else { return }
-        gifLoaded = true
+    /// Статичная картинка (PNG). Для GIF возвращает nil — его рисует анимированная ветка.
+    func still(name: String, pack: String) -> UIImage? {
+        let k = key(name, pack)
+        if let cached = stills.object(forKey: k) { return cached }
+        if misses.object(forKey: k) != nil { return nil }
 
-        // Try GIF
-        guard let url = Bundle.main.url(forResource: name, withExtension: "gif", subdirectory: "Emojis/\(packDir())"),
-              let data = try? Data(contentsOf: url) else {
-            return
+        guard let found = locate(name: name, pack: pack), !found.isGIF,
+              let data = try? Data(contentsOf: found.url),
+              let image = UIImage(data: data)
+        else {
+            // Ассет-каталог как запасной источник (на случай новых паков в .xcassets)
+            if let fromCatalog = UIImage(named: name, in: .main, with: nil) {
+                stills.setObject(fromCatalog, forKey: k)
+                return fromCatalog
+            }
+            misses.setObject(1, forKey: k)
+            return nil
         }
-        gifFrames = decodeGif(data)
+        stills.setObject(image, forKey: k)
+        return image
     }
 
-    private func decodeGif(_ data: Data) -> [UIImage] {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return [] }
-        let count = CGImageSourceGetCount(source)
-        var images: [UIImage] = []
-        for i in 0..<count {
-            if let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) {
-                images.append(UIImage(cgImage: cgImage))
+    /// Есть ли у этого имени GIF (быстрая проверка без декодирования).
+    func hasAnimation(name: String, pack: String) -> Bool {
+        locate(name: name, pack: pack)?.isGIF ?? false
+    }
+
+    /// Кадры GIF + средняя задержка. Декодирование уходит с главного потока.
+    func animation(name: String, pack: String) async -> (frames: [UIImage], delay: TimeInterval) {
+        let k = key(name, pack)
+        if let cached = animations.object(forKey: k) as? [UIImage], !cached.isEmpty {
+            return (cached, delays.object(forKey: k)?.doubleValue ?? 0.1)
+        }
+        guard let found = locate(name: name, pack: pack), found.isGIF else { return ([], 0.1) }
+
+        let decoded: ([UIImage], TimeInterval) = await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: found.url),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil)
+            else { return ([], 0.1) }
+
+            let count = CGImageSourceGetCount(source)
+            var frames: [UIImage] = []
+            frames.reserveCapacity(count)
+            var total: TimeInterval = 0
+
+            for index in 0..<count {
+                if let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) {
+                    frames.append(UIImage(cgImage: cgImage))
+                }
+                // Реальная задержка кадра из метаданных GIF вместо жёстких 0.1 с,
+                // иначе быстрые гифки играли медленно, а медленные — слишком быстро.
+                if let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+                   let gif = props[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+                    let unclamped = gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double
+                    let clamped = gif[kCGImagePropertyGIFDelayTime] as? Double
+                    total += max(unclamped ?? clamped ?? 0.1, 0.02)
+                }
+            }
+            let average = frames.isEmpty ? 0.1 : max(total / Double(frames.count), 0.02)
+            return (frames, average)
+        }.value
+
+        if !decoded.0.isEmpty {
+            animations.setObject(decoded.0 as NSArray, forKey: k)
+            delays.setObject(NSNumber(value: decoded.1), forKey: k)
+        }
+        return decoded
+    }
+}
+
+/// Загружает кастомное эмодзи (PNG/GIF) из `Resources/Emojis/<pack>/`.
+/// Если файла нет — рисует подходящий SF Symbol, а не пустоту.
+struct EmojiAssetImage: View {
+    let name: String
+    let pack: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var frames: [UIImage] = []
+    @State private var frameDelay: TimeInterval = 0.1
+
+    var body: some View {
+        Group {
+            if let still = EmojiAssetCache.shared.still(name: name, pack: pack) {
+                Image(uiImage: still).resizable()
+            } else if !frames.isEmpty {
+                if reduceMotion, let first = frames.first {
+                    // Уважаем «Уменьшение движения»: показываем первый кадр.
+                    Image(uiImage: first).resizable()
+                } else {
+                    GifPlayerView(images: frames, frameDuration: frameDelay)
+                }
+            } else {
+                Image(systemName: Self.symbolName(for: name)).resizable()
             }
         }
-        return images
+        .task(id: "\(pack)/\(name)") {
+            guard EmojiAssetCache.shared.hasAnimation(name: name, pack: pack) else { return }
+            let result = await EmojiAssetCache.shared.animation(name: name, pack: pack)
+            frames = result.frames
+            frameDelay = result.delay
+        }
+    }
+
+    /// Осмысленный SF Symbol для имён, у которых пока нет своей картинки.
+    /// Покрывает 13 позиций каталога без файлов на диске: Reactions (scream, cry,
+    /// think, cool, angry, sad, wow, sleepy, pray, ok, poop) и Plink+ (neon_cool,
+    /// neon_wow). Так «злой» и «грустный» перестают выглядеть одинаково.
+    static func symbolName(for rawName: String) -> String {
+        var key = rawName
+        if key.hasPrefix("emoji_") { key = String(key.dropFirst("emoji_".count)) }
+        if key.hasPrefix("neon_") { key = String(key.dropFirst("neon_".count)) }
+
+        switch key {
+        case "laugh": return "face.smiling"
+        case "fire": return "flame.fill"
+        case "heart", "love": return "heart.fill"
+        case "thumbs_up": return "hand.thumbsup.fill"
+        case "thumbs_down": return "hand.thumbsdown.fill"
+        case "clap": return "hands.clap.fill"
+        case "flex": return "figure.strengthtraining.traditional"
+        case "party": return "sparkles"
+        case "scream": return "exclamationmark.bubble.fill"
+        case "cry", "sad": return "drop.fill"
+        case "think": return "questionmark.bubble.fill"
+        case "cool": return "eyeglasses"
+        case "angry": return "bolt.fill"
+        case "wow": return "sparkle"
+        case "sleepy": return "moon.zzz.fill"
+        case "pray": return "hands.sparkles.fill"
+        case "ok": return "checkmark.seal.fill"
+        case "poop": return "trash.fill"
+        case "popcorn": return "popcorn.fill"
+        case "movie", "film": return "film.fill"
+        case "clapper": return "film.stack.fill"
+        case "director": return "megaphone.fill"
+        case "oscar": return "star.fill"
+        case "ticket": return "ticket.fill"
+        case "camera": return "camera.fill"
+        default: return "face.smiling"
+        }
     }
 }
 
@@ -544,7 +679,13 @@ struct GifPlayerView: View {
     let images: [UIImage]
     @State private var currentFrame = 0
     @State private var frameTimer: Timer?
-    private let frameDuration: TimeInterval = 0.1
+    /// Реальная задержка кадров из метаданных GIF. По умолчанию — прежние 0.1 с.
+    var frameDuration: TimeInterval = 0.1
+
+    init(images: [UIImage], frameDuration: TimeInterval = 0.1) {
+        self.images = images
+        self.frameDuration = frameDuration
+    }
 
     var body: some View {
         if images.isEmpty {

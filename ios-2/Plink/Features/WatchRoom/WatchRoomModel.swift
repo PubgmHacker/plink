@@ -38,7 +38,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var activePoll: RoomPollState?
 
     /// M15: текущий режим приватности комнаты (бар модерации).
-    public private(set) var roomPrivacy: RoomPrivacy = .publicRoom
+    // Аудит 26.07.2026: RoomPrivacy — internal-тип, поэтому свойство не может быть public.
+    private(set) var roomPrivacy: RoomPrivacy = .publicRoom
     /// M15: видимость бара модерации (управляется экраном и топ-хромом).
     public var moderationBarVisible = false
 
@@ -53,10 +54,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     /// M16: очередь видео комнаты (ИИ-ассистент ставит ролики по-настоящему).
-    public private(set) var roomQueue: [RoomQueueWire.Item] = []
+    // Аудит 26.07.2026: RoomQueueWire — internal-тип (RoomQueue.swift), public здесь невозможен.
+    private(set) var roomQueue: [RoomQueueWire.Item] = []
 
     // M17: управление очередью — REST; broadcast обновит roomQueue у всех участников.
-    public func removeFromQueue(_ item: RoomQueueWire.Item) {
+    func removeFromQueue(_ item: RoomQueueWire.Item) {
         let rid = _roomId
         Task {
             struct Resp: Decodable { let queue: [RoomQueueWire.Item] }
@@ -68,7 +70,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    public func playFromQueue(_ item: RoomQueueWire.Item) {
+    func playFromQueue(_ item: RoomQueueWire.Item) {
         guard isHost else { return }
         let rid = _roomId
         Task {
@@ -86,6 +88,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var countdownRemaining: Int? = nil
     private var countdownTask: Task<Void, Never>?
     public private(set) var lastError: String?
+    /// Аудит 26.07.2026 (P0): отдельный канал ТОЛЬКО для ошибок загрузки медиа.
+    /// Раньше в оверлей плеера падал любой lastError (kick, chat catch-up,
+    /// «Voice chat requires Plink+») и рисовал чёрный экран поверх идущего видео.
+    public private(set) var mediaError: String?
     public private(set) var clockSynced: Bool = false
     public private(set) var hardCorrectionCount: Int = 0
     public private(set) var lastDriftMs: Double = 0
@@ -140,6 +146,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     // P0-61: single authoritative rollback state
     private var lastAuthoritativeState: RealtimeRoomState?
 
+    /// P1 5.11: живая тема комнаты (Plink+). Стор — на комнату; realtime-событие
+    /// room.appearance.updated зовёт applyServerUpdate, хост меняет тему через
+    /// updateTheme. Тип internal, поэтому свойство не может быть public.
+    private(set) var appearanceStore: RoomAppearanceStore
+
     // P0-35: REST client for chat catch-up
     private let chatCatchupClient: ChatCatchupClient?
     /// Host user id from Room model (presence highlight).
@@ -189,6 +200,17 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         self.danmakuEngine = danmakuEngine
         self.ambientSampler = ambientSampler
 
+        // P1 5.11: живая тема комнаты. Стор создаётся здесь и живёт ровно
+        // столько же, сколько модель (модель — в @State у WatchRoomContainer),
+        // поэтому смена темы переживает пересборку вью и поворот экрана.
+        // Роль ещё не известна (она придёт в session.ready) — стартуем с
+        // предположения по hostID комнаты и уточняем в sessionDidConnect.
+        self.appearanceStore = RoomAppearanceStore(
+            roomID: roomId,
+            isHost: roomHostId != nil && roomHostId == currentUserId,
+            entitlement: DefaultEntitlementProvider()
+        )
+
         // Now all stored properties are initialized — safe to use self.
         self.realtimeClient = RealtimeClient(baseEndpoint: baseEndpoint, ticketProvider: ticketProvider)
         self.realtimeClient.delegate = self
@@ -209,12 +231,26 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         return String(_roomId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
     }
 
+    // Ссылки несут КОД комнаты, а не UUID: сервер джойнит только по коду
+    // (POST /rooms/join { code }), и лендинг с AASA живёт на /r/<code>.
+    //
+    // P2-фикс аудита: код приходит с сервера, поэтому перед подстановкой в URL
+    // его надо экранировать — пробел или не-ASCII символ раньше давал nil и
+    // краш на force-unwrap при открытии шита приглашения.
+    //
+    // Ревью P2: именно экранирование, а не выкидывание символов — иначе ссылка
+    // и QR молча расходились бы с кодом, который показан в шите и в шер-тексте.
+    private var linkRoomCode: String {
+        displayRoomCode.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            ?? displayRoomCode
+    }
+
     public var roomDeepLink: URL {
-        URL(string: "plink://room/\(_roomId)")!
+        URL(string: "plink://r/\(linkRoomCode)") ?? URL(string: "plink://r")!
     }
 
     public var roomFallbackURL: URL {
-        URL(string: "https://plink.app/join/\(_roomId)")!
+        URL(string: "https://plink.app/r/\(linkRoomCode)") ?? URL(string: "https://plink.app")!
     }
 
     public var roomShareText: String {
@@ -239,6 +275,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public func connect() async {
         wantsDismiss = false
         connectionState = .connecting
+        // Новая попытка — прошлая медиа-ошибка не должна закрывать плеер.
+        mediaError = nil
 
         // Show local user immediately (never "0 in room" while WS is negotiating)
         if !participants.contains(where: { $0.userId == currentUserId }) {
@@ -254,6 +292,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // Realtime first — chat/presence must work even while YouTube is loading.
         realtimeClient.connect(roomId: _roomId)
         startDanmakuPolling()
+        // P1 5.11: тема, выбранная хостом ДО нашего входа, живёт в БД —
+        // событие room.appearance.updated её не переиграет, пока хост не
+        // тронет панель. Поэтому гидрируем из GET /rooms/:id.
+        Task { await loadAppearance() }
 
         // Media prepare: resolve YouTube/native handoff off the main actor while
         // realtime chat/presence are already connecting. This keeps the room UI
@@ -300,10 +342,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 if !recovered {
                     let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                     lastError = "Не удалось загрузить видео: \(detail)"
+                    mediaError = lastError
                 }
             }
         } else {
             lastError = "Нет медиа в комнате — выберите YouTube-видео при создании"
+            mediaError = lastError
         }
     }
 
@@ -384,7 +428,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // IP that extracted the URL and supports Range requests.
         let api = APIClient.shared
         if api.authToken == nil {
-            api.authToken = KeychainHelper.read(for: "rave_auth_token")
+            api.authToken = AuthTokenStore.shared.token
         }
         guard api.authToken != nil else { return nil }
 
@@ -396,9 +440,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             let resp: StreamTokenResp = try await api.request("media/stream-token", method: .post)
             token = resp.token
         } catch {
-            // Fallback for older backend builds without /media/stream-token
-            guard let legacy = api.authToken else { return nil }
-            token = legacy
+            // P2-фикс аудита: legacy-ветка клала сам session JWT в query —
+            // ровно то, что запрещает комментарий выше. Бэкенд уже отдаёт
+            // stream-token, поэтому при ошибке просто падаем на встроенный
+            // YouTube-плеер.
+            Logger.api.error("[WatchRoom] stream-token failed: \(error.localizedDescription)")
+            return nil
         }
 
         var components = URLComponents(
@@ -435,7 +482,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     private nonisolated static func extractYouTubeStreamURL(videoId: String) async -> URL? {
         let api = APIClient.shared
         if api.authToken == nil {
-            api.authToken = KeychainHelper.read(for: "rave_auth_token")
+            api.authToken = AuthTokenStore.shared.token
         }
         guard let token = api.authToken else {
             return nil
@@ -478,6 +525,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         pendingActions.removeAll()
         reactionExpiryTask?.cancel()
         reactionExpiryTask = nil
+        // P2-фикс аудита: отсчёт 3-2-1 тоже надо гасить — иначе выход из
+        // комнаты во время отсчёта оставляет задачу жить и она дёргает
+        // sendPlayCommand по уже разобранному координатору.
+        countdownTask?.cancel()
+        countdownTask = nil
+        countdownRemaining = nil
         realtimeClient.disconnect()
         coordinator.teardown()
         syncController.resetCompletely()
@@ -568,6 +621,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         let preActionPosition: Double
         let preActionPlaying: Bool
         let timestamp: Date
+        // Аудит 26.07.2026 P1: epoch/seq на момент отправки — авторитетное
+        // состояние с бОльшим (epoch, seq) означает подтверждение команды.
+        let epochAtSend: Int64
+        let seqAtSend: Int64
     }
     private var pendingActions: [String: PendingAction] = [:]
     private static let actionTimeoutMs: Int64 = 10_000
@@ -581,13 +638,19 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         let prePlaying = coordinator.isPlaying
         // P0-33: optimistic local apply
         await coordinator.currentController?.play()
+        // Ревью P2: play() — точка подвеса. Если за это время комнату покинули
+        // (disconnect уже почистил pendingActions), запись нельзя заводить
+        // заново: её таймаут через 10 с напишет ложную ошибку вне комнаты.
+        guard connectionState != .idle else { return }
         let actionId = UUID().uuidString
         // P0-54: track pending action for rollback
         pendingActions[actionId] = PendingAction(
             actionId: actionId,
             preActionPosition: prePosition,
             preActionPlaying: prePlaying,
-            timestamp: Date()
+            timestamp: Date(),
+            epochAtSend: lastEpoch, // Аудит 26.07.2026 P1
+            seqAtSend: lastSeq
         )
         realtimeClient.send(.syncCommand(.init(
             roomId: _roomId,
@@ -612,7 +675,9 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             actionId: actionId,
             preActionPosition: prePosition,
             preActionPlaying: prePlaying,
-            timestamp: Date()
+            timestamp: Date(),
+            epochAtSend: lastEpoch, // Аудит 26.07.2026 P1
+            seqAtSend: lastSeq
         )
         realtimeClient.send(.syncCommand(.init(
             roomId: _roomId,
@@ -631,13 +696,17 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         let prePlaying = coordinator.isPlaying
         // P0-33: optimistic local seek
         _ = await coordinator.currentController?.seek(to: seconds, precise: true)
+        // Ревью P2: та же точка подвеса, что и в sendPlayCommand.
+        guard connectionState != .idle else { return }
         let actionId = UUID().uuidString
         // P0-54: track pending action
         pendingActions[actionId] = PendingAction(
             actionId: actionId,
             preActionPosition: prePosition,
             preActionPlaying: prePlaying,
-            timestamp: Date()
+            timestamp: Date(),
+            epochAtSend: lastEpoch, // Аудит 26.07.2026 P1
+            seqAtSend: lastSeq
         )
         realtimeClient.send(.syncCommand(.init(
             roomId: _roomId,
@@ -685,10 +754,18 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     // P0-54: clear pending action when authoritative state arrives
+    // Аудит 26.07.2026 P1: раньше параметр state игнорировался — команды никогда
+    // не «подтверждались», и scheduleActionTimeout через 10 с писал ложный
+    // "Command timeout" на каждую команду хоста. Теперь команда считается
+    // подтверждённой, когда пришло авторитетное состояние, выпущенное ПОСЛЕ
+    // её отправки: state.(epoch, seq) > (epochAtSend, seqAtSend).
     private func clearPendingActionsIfConfirmed(state: RealtimeRoomState) {
-        // Clear confirmed/stale pending actions
         pendingActions = pendingActions.filter { (_, action) in
-            Date().timeIntervalSince(action.timestamp) < Double(Self.actionTimeoutMs / 1000)
+            let confirmed = state.epoch > action.epochAtSend
+                || (state.epoch == action.epochAtSend && state.seq > action.seqAtSend)
+            if confirmed { return false }
+            // Страховка от вечно висящих записей (таймаут-задача уже покажет ошибку)
+            return Date().timeIntervalSince(action.timestamp) < Double(Self.actionTimeoutMs / 1000)
         }
     }
 
@@ -736,7 +813,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     /// Один в комнате — обычный мгновенный старт без церемоний.
     public func sendPlayWithCountdown() {
         guard isHost else { return }
-        guard !coordinator.isPlaying, participants.count >= 2, countdownRemaining == nil else {
+        // P2-фикс аудита: повторный тап во время отсчёта не должен обходить
+        // отсчёт мгновенным play — просто игнорируем.
+        if countdownRemaining != nil { return }
+        guard !coordinator.isPlaying, participants.count >= 2 else {
             Task { await sendPlayCommand() }
             return
         }
@@ -1048,6 +1128,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public func sessionDidConnect(role: RoomRole) {
         self.role = role
         self.isHost = (role == .host)
+        // P1 5.11: панель темы комнаты — только у хоста; роль авторитетна здесь.
+        appearanceStore.setHost(role == .host)
         connectionState = .connected
         // Avoid "0 in room" flash — ensure local user is listed immediately
         if !participants.contains(where: { $0.userId == currentUserId }) {
@@ -1074,7 +1156,22 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             positionMs: positionMs,
             playing: playing
         )))
-        scheduleActionTimeout(actionId)
+        // Аудит 26.07.2026 P1: scheduleActionTimeout здесь убран — PendingAction
+        // для периодического публиша не регистрируется, таймер был пустым no-op.
+    }
+
+    /// Показать пользователю НЕ медийную ошибку (модерация, отказ действия).
+    /// Пишем в lastError — экран комнаты рисует его тостом. В mediaError не
+    /// пишем никогда: тот канал рисует полноэкранную ошибку поверх видео.
+    func reportRoomError(_ message: String) {
+        lastError = message
+    }
+
+    /// Ревью 26.07.2026: экран гасит lastError сразу после показа тоста.
+    /// Иначе повтор той же ошибки (тот же текст) не проходил Equatable-проверку
+    /// `.onChange(of: model.lastError)` и второй раз не показывался вообще.
+    func clearLastError() {
+        lastError = nil
     }
 
     public func handleOtherMessage(_ message: RealtimeServerMessage) {
@@ -1089,6 +1186,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             handleParticipantLeft(event)
         case .serverDraining(let drain):
             lastError = drain.message
+        // P1 5.11: живая тема комнаты — авторитетное состояние приходит только
+        // отсюда, у хоста и у зрителей одинаково.
+        case .roomAppearanceUpdated(let event):
+            appearanceStore.applyServerUpdate(RoomAppearance(wire: event.appearance))
         case .error(let err):
             lastError = "\(err.code): \(err.message)"
             // P0-54: rollback on rejection errors
@@ -1244,13 +1345,27 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     // P1-61: remove old reactions after 3s
+    // P2-фикс аудита: раньше каждая новая реакция отменяла предыдущий таймер,
+    // и при потоке реакций чаще раза в 3 с очистка не выполнялась никогда —
+    // реакции накапливались. Теперь таймер один: он подметает срез каждые
+    // 500 мс, пока реакции есть, и сам завершается, когда список пуст.
     private func scheduleReactionExpiry() {
-        reactionExpiryTask?.cancel()
+        guard reactionExpiryTask == nil else { return }
         reactionExpiryTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, let self else { return }
-            let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - 3000
-            self.reactions.removeAll { $0.timestampMs < cutoff }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled, let self else { return }
+                // Ревью P2: срез по локальной метке получения, поштучно.
+                // Раньше здесь был счётчик подметаний, который раз в минуту
+                // непрерывного потока стирал ВСЕ реакции разом (включая
+                // пришедшую только что), обрывая анимацию на полуслове.
+                let cutoff = Date().addingTimeInterval(-3)
+                self.reactions.removeAll { $0.receivedAt < cutoff }
+                if self.reactions.isEmpty {
+                    self.reactionExpiryTask = nil
+                    return
+                }
+            }
         }
     }
 
@@ -1480,6 +1595,32 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     // MARK: - M15: Приватность комнаты (бар модерации)
 
     /// Подтягивает актуальный режим приватности с бэкенда.
+    /// P1 5.11: начальная тема комнаты при входе.
+    ///
+    /// GET /api/rooms/:id отдаёт колонку `appearance` КАК СТРОКУ (serializeRoom
+    /// разбирает только mediaItem), и внутри неё, помимо провода, лежат
+    /// аудит-поля updatedAt/updatedBy — поэтому разбор идёт тем же типом
+    /// RoomAppearanceUpdated.Payload, где они опциональны.
+    /// Тихо: нет темы / битая строка / нет сети → остаётся defaultStatic.
+    func loadAppearance() async {
+        struct RoomAppearanceEnvelope: Decodable { let appearance: String? }
+        guard let envelope: RoomAppearanceEnvelope = try? await APIClient.shared.request(
+            "rooms/\(_roomId)"
+        ) else { return }
+        guard let raw = envelope.appearance, !raw.isEmpty,
+              let data = raw.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(
+                  RealtimeServerMessage.RoomAppearanceUpdated.Payload.self,
+                  from: data
+              )
+        else { return }
+        // Ревью 26.07.2026: именно applyHydration, а не applyServerUpdate —
+        // запрос стартует параллельно сокету, и ответ БД не должен перезаписать
+        // уже применённое событие room.appearance.updated (или собственную
+        // успешную запись хоста).
+        appearanceStore.applyHydration(RoomAppearance(wire: payload))
+    }
+
     func loadPrivacy() async {
         guard let room = try? await RoomService(api: APIClient.shared).fetchRoom(id: _roomId) else { return }
         roomPrivacy = room.privacy
@@ -1538,8 +1679,9 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             }
         }
     }
-    func openPlayerSettings() {}
-    func startPiP() {}
+    // Аудит 26.07.2026 (P1 5.5): пустые openPlayerSettings()/startPiP() удалены.
+    // Настройки плеера живут инлайн в PlinkPlayerControls.bottomBar; системный
+    // PiP для WKWebView-эмбеда недоступен, а кнопок на эти методы не было.
     func enterFullscreen() {
         // PATCH: force landscape rotation — do NOT disconnect or stop playback
         #if canImport(UIKit)
@@ -1555,8 +1697,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         OrientationManager.shared.forcePortrait()
         #endif
     }
-    func openEmojiPicker() {}  // PATCH 14: kept for back-compat; picker is now shown by composer
     func toggleMicrophone() async {
+        // P0 5.1: голос выключен целиком (LiveKit не сконфигурирован).
+        // Кнопка скрыта флагом в PresenceBar; guard — второй барьер.
+        guard FeatureFlags.liveKitVoiceEnabled else { return }
         // P0.2: Premium gate for speaking
         guard PremiumStatusManager.shared.isPremium else {
             lastError = "Voice chat requires Plink+"
@@ -1644,6 +1788,11 @@ public struct WatchReactionEvent: Identifiable, Sendable, Equatable {
     public let username: String
     public let emoji: String
     public let timestampMs: Int64
+    // Ревью P2: локальная метка получения. Экспирация и анимация считаются по
+    // ней, а серверная timestampMs остаётся только для сортировки/дедупа —
+    // часы устройства могут расходиться с серверными на секунды, и срез по
+    // серверной метке тогда либо не наступал никогда, либо срабатывал сразу.
+    public let receivedAt: Date
     // Blueprint: reaction animation properties
     public let startX: CGFloat
     public let rotation: Double
@@ -1656,6 +1805,7 @@ public struct WatchReactionEvent: Identifiable, Sendable, Equatable {
         self.username = username
         self.emoji = emoji
         self.timestampMs = timestampMs
+        self.receivedAt = Date()
         self.startX = CGFloat.random(in: 0.1...0.9)
         self.rotation = Double.random(in: -30...30)
         self.scale = 1.5
@@ -1663,7 +1813,7 @@ public struct WatchReactionEvent: Identifiable, Sendable, Equatable {
     }
 
     public func currentY(in height: CGFloat) -> CGFloat {
-        let elapsed = max(0, Date().timeIntervalSince1970 * 1000 - Double(timestampMs))
+        let elapsed = max(0, Date().timeIntervalSince(receivedAt) * 1000)
         let progress = min(1, elapsed / 2500)
         return height * (1 - CGFloat(progress) * 0.8)
     }

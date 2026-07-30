@@ -25,7 +25,7 @@ final class FriendsTests: XCTestCase {
 
     // MARK: - Friend
 
-    func testFriend_initials_uppercasedFirst2() {
+    func testFriend_initials_singleUppercasedLetter() {
         let friend = Friend(
             id: "u1",
             username: "alice",
@@ -33,7 +33,9 @@ final class FriendsTests: XCTestCase {
             isOnline: true,
             friendsSince: Date()
         )
-        XCTAssertEqual(friend.initials, "AL")
+        // Живой Friend.initials — ОДНА заглавная буква (PlinkAvatarURL.letter):
+        // единый placeholder аватарки во всём UI. "alice" → "A".
+        XCTAssertEqual(friend.initials, "A")
     }
 
     func testFriend_initials_shortUsername() {
@@ -63,11 +65,18 @@ final class FriendsTests: XCTestCase {
     }
 
     func testFriend_equality() {
-        let f1 = Friend(id: "u1", username: "alice", avatarURL: nil, isOnline: true, friendsSince: Date())
-        let f2 = Friend(id: "u1", username: "alice", avatarURL: nil, isOnline: false, friendsSince: Date())
-        let f3 = Friend(id: "u2", username: "bob", avatarURL: nil, isOnline: true, friendsSince: Date())
-        XCTAssertEqual(f1, f2, "Friend equality is by id only (Hashable)")
-        XCTAssertNotEqual(f1, f3)
+        // Живой Friend использует синтезированный Equatable/Hashable:
+        // сравниваются ВСЕ поля (value-семантика), а не только id.
+        let since = Date(timeIntervalSince1970: 1_700_000_000)
+        let f1 = Friend(id: "u1", username: "alice", avatarURL: nil, isOnline: true, friendsSince: since)
+        let f2 = Friend(id: "u1", username: "alice", avatarURL: nil, isOnline: true, friendsSince: since)
+        let f3 = Friend(id: "u1", username: "alice", avatarURL: nil, isOnline: false, friendsSince: since)
+        let f4 = Friend(id: "u2", username: "bob", avatarURL: nil, isOnline: true, friendsSince: since)
+        XCTAssertEqual(f1, f2, "Полное совпадение полей → равны")
+        XCTAssertNotEqual(f1, f3, "Разный isOnline → не равны (равенство по всем полям)")
+        XCTAssertNotEqual(f1, f4)
+        // Hashable-контракт: равные значения дают равный хэш.
+        XCTAssertEqual(f1.hashValue, f2.hashValue)
     }
 
     // MARK: - FriendRequest

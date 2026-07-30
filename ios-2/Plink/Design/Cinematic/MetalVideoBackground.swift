@@ -44,16 +44,72 @@ struct MetalVideoBackground: View {
     /// Implemented as: alpha = max(r, max(g, b)) in the fragment shader.
     var transparentBlack: Bool = false
 
+    // Аудит 26.07.2026: энергодисциплина по образцу RoomLiveThemeBackdrop
+    // (Features/WatchRoom/RoomLiveThemeLayer.swift). Раньше декодер и
+    // Metal-рендер крутились при Reduce Motion, Low Power Mode,
+    // термотроттлинге и в фоне приложения. Теперь при любом из режимов —
+    // пауза плеера и статичный постер-кадр, при возврате — возобновление.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.scenePhase) private var scenePhase
+
+    // Low Power / thermalState — НАБЛЮДАЕМОЕ состояние, а не снимок при
+    // вычислении body: иначе уже запущенная анимация продолжала бы крутиться
+    // до следующей случайной перерисовки (та же правка была в RoomLiveThemeBackdrop).
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var thermalThrottled = ProcessInfo.processInfo.thermalState != .nominal
+    @State private var livingMotion = PlinkAppearancePrefs.livingMotion
+
+    private var animationEnabled: Bool {
+        VideoThemeMotionPolicy.shouldAnimate(VideoThemeMotionInputs(
+            reduceMotion: reduceMotion,
+            lowPowerMode: lowPower,
+            thermalThrottled: thermalThrottled,
+            sceneActive: scenePhase == .active,
+            motionPreferenceEnabled: livingMotion
+        ))
+    }
+
     var body: some View {
         MetalVideoBackgroundRepresentable(
             videoName: videoName,
-            opacity: opacity,
+            // Reduce Transparency: яркость видео режется (плотный тёмный фон
+            // под текстом), сама тема не отключается — как в эталоне.
+            opacity: VideoThemeMotionPolicy.effectiveVideoOpacity(
+                base: opacity, reduceTransparency: reduceTransparency
+            ),
             overlayColor: overlayColor,
             overlayOpacity: overlayOpacity,
-            transparentBlack: transparentBlack
+            transparentBlack: transparentBlack,
+            paused: !animationEnabled
         )
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onReceive(
+            NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
+        ) { _ in
+            let throttled = ProcessInfo.processInfo.thermalState != .nominal
+            if thermalThrottled != throttled { thermalThrottled = throttled }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: Notification.Name.NSProcessInfoPowerStateDidChange)
+        ) { _ in
+            let saving = ProcessInfo.processInfo.isLowPowerModeEnabled
+            if lowPower != saving { lowPower = saving }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .plinkAppearancePrefsChanged)
+        ) { _ in
+            let motion = PlinkAppearancePrefs.livingMotion
+            if livingMotion != motion { livingMotion = motion }
+        }
+        .onAppear {
+            // Состояние могло смениться, пока вью была снята с иерархии —
+            // при возврате синхронизируемся.
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            thermalThrottled = ProcessInfo.processInfo.thermalState != .nominal
+            livingMotion = PlinkAppearancePrefs.livingMotion
+        }
     }
 }
 
@@ -65,6 +121,9 @@ struct MetalVideoBackgroundRepresentable: UIViewRepresentable {
     let overlayColor: Color
     let overlayOpacity: Double
     let transparentBlack: Bool
+    /// Аудит 26.07.2026: true — декодер остановлен, CADisplayLink выключен,
+    /// на экране статичный постер-кадр. Решение принимает VideoThemeMotionPolicy.
+    var paused: Bool = false
 
     func makeUIView(context: Context) -> MTKView {
         let device = MTLCreateSystemDefaultDevice()
@@ -85,7 +144,13 @@ struct MetalVideoBackgroundRepresentable: UIViewRepresentable {
         )
         view.delegate = renderer
         context.coordinator.renderer = renderer
-        renderer.start()
+        // Аудит 26.07.2026: если вью рождается уже в паузе (Reduce Motion /
+        // Low Power / фон), полный декод не стартует — только постер-кадр.
+        if paused {
+            renderer.setPaused(true)
+        } else {
+            renderer.start()
+        }
         return view
     }
 
@@ -107,6 +172,12 @@ struct MetalVideoBackgroundRepresentable: UIViewRepresentable {
         // video even after SwiftUI updates the videoName prop.
         if context.coordinator.renderer?.currentVideoName != videoName {
             context.coordinator.renderer?.loadNewVideo(videoName)
+        }
+
+        // Аудит: пауза должна применяться и при СМЕНЕ состояния в рантайме
+        // (Low Power включили при живой вью), а не только при создании.
+        if let renderer = context.coordinator.renderer, renderer.isPausedNow != paused {
+            renderer.setPaused(paused)
         }
     }
 
@@ -168,6 +239,10 @@ final class MetalVideoRenderer: NSObject, MTKViewDelegate {
     // Decoder state
     private var isDecoding = false
     private var isStopped = false
+
+    /// Аудит: энергодисциплина. true — декодер остановлен, CADisplayLink
+    /// выключен, на экране статичный постер-кадр (lastFrame сохраняется).
+    private(set) var isPausedNow = false
 
     init(device: MTLDevice, view: MTKView, videoName: String, transparentBlack: Bool = false) {
         self.device = device
@@ -302,6 +377,76 @@ final class MetalVideoRenderer: NSObject, MTKViewDelegate {
         guard videoURL != nil else { return }
         isStopped = false
         beginDecoding()
+    }
+
+    /// Пауза без сброса постер-кадра: декодер останавливается, lastFrame
+    /// остаётся на экране. Если вью родилась сразу в паузе (Reduce Motion /
+    /// Low Power), декодируем ровно один кадр как постер.
+    func setPaused(_ paused: Bool) {
+        guard isPausedNow != paused else { return }
+        isPausedNow = paused
+        if paused {
+            isStopped = true
+            assetReader?.cancelReading()
+            assetReader = nil
+            trackOutput = nil
+            lastFrameLock.lock()
+            let hasPoster = lastFrame != nil
+            lastFrameLock.unlock()
+            if !hasPoster { decodePosterFrame() }
+            // Выключаем CADisplayLink — рендер по запросу, не 45 fps.
+            view?.isPaused = true
+            view?.enableSetNeedsDisplay = true
+            view?.setNeedsDisplay()
+        } else {
+            view?.isPaused = false
+            view?.enableSetNeedsDisplay = false
+            start()
+        }
+    }
+
+    /// Один кадр видео → lastFrame (постер для паузы). Фоновая очередь.
+    private func decodePosterFrame() {
+        guard let url = videoURL else { return }
+        decodeQueue.async { [weak self] in
+            guard let self else { return }
+            let asset = AVURLAsset(url: url)
+            guard let reader = try? AVAssetReader(asset: asset) else { return }
+            let track: AVAssetTrack?
+            if #available(iOS 16, *) {
+                let semaphore = DispatchSemaphore(value: 0)
+                var loadedTrack: AVAssetTrack?
+                Task {
+                    if let tracks = try? await asset.loadTracks(withMediaType: .video) {
+                        loadedTrack = tracks.first
+                    }
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                track = loadedTrack
+            } else {
+                track = asset.tracks(withMediaType: .video).first
+            }
+            guard let track else { return }
+            let outputSettings: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ]
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
+            output.alwaysCopiesSampleData = true  // кадр переживает reader
+            reader.add(output)
+            reader.startReading()
+            if let sample = output.copyNextSampleBuffer(),
+               let pixelBuffer = CMSampleBufferGetImageBuffer(sample),
+               let texture = self.makeTexture(from: pixelBuffer) {
+                self.lastFrameLock.lock()
+                self.lastFrame = texture
+                self.lastFrameLock.unlock()
+                DispatchQueue.main.async { [weak self] in
+                    self?.view?.setNeedsDisplay()
+                }
+            }
+            reader.cancelReading()
+        }
     }
 
     func stop() {

@@ -55,9 +55,23 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
     /// surface YouTube error callback for UI binding.
     public private(set) var lastError: String?
 
-    /// Brain Phase 2: YouTube owns transport controls — Plink does NOT
-    /// render its own PlayerControlLayer on this content.
-    public var chromeOwnership: PlayerChromeOwnership { .provider }
+    /// M40: контролы рисует Plink (`controls=0` в обёртке плеера).
+    /// Раньше здесь было `.provider` — панель YouTube поверх видео.
+    /// Переключается вместе с параметром `chrome` в URL обёртки: если
+    /// вернуть `.provider`, надо вернуть и `chrome=youtube`, иначе видео
+    /// останется вообще без органов управления.
+    public var chromeOwnership: PlayerChromeOwnership { .plink }
+
+    // MARK: - M40: состояние для своей панели управления
+
+    /// Доля загруженного (0…1) — рисуется вторым слоем на полосе перемотки.
+    public private(set) var buffered: Double = 0
+    /// Текущая скорость воспроизведения.
+    public private(set) var playbackRate: Float = 1
+    public private(set) var isMuted: Bool = false
+    /// Доступные уровни качества от YouTube (hd1080, hd720, large…).
+    public private(set) var availableQualities: [String] = []
+    public private(set) var currentQuality: String = ""
 
     /// Fired when the *user* (or YouTube chrome) changes play/pause/seek —
     /// not when Plink programmatically applies remote sync commands.
@@ -213,8 +227,11 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
         components.path = "/api/media/youtube-player"
         components.queryItems = [
             URLQueryItem(name: "id", value: id),
+            // M40: обёртка отдаёт плеер без родных контролов — панель рисует Plink.
+            // Значение должно соответствовать `chromeOwnership` выше.
+            URLQueryItem(name: "chrome", value: "plink"),
             // Cache-bust so wrapper HTML updates (bridge fixes) land immediately
-            URLQueryItem(name: "v", value: "22")
+            URLQueryItem(name: "v", value: "40")
         ]
         guard let wrapperURL = components.url else {
             throw ProviderError.loadingFailed("Invalid wrapper URL")
@@ -349,9 +366,30 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
     }
 
     public func setRate(_ rate: Float) {
-        // YouTube IFrame API supports setPlaybackRate for some content,
-        // but rate correction is disabled per capabilities.supportsRateCorrection
-        // = false. OrderedSyncController falls back to precise seeks.
+        // M40: скорость нужна своей панели управления. Для синхронизации она
+        // по-прежнему не используется — `capabilities.supportsRateCorrection`
+        // остаётся false, и OrderedSyncController правит рассинхрон точным seek.
+        let clamped = max(0.25, min(2.0, rate))
+        playbackRate = clamped
+        Task { await evaluate("window.plinkSetRate && window.plinkSetRate(\(clamped));") }
+    }
+
+    /// Запрос качества. YouTube трактует его как пожелание, поэтому
+    /// фактическое значение всегда перечитывается из snapshot().
+    public func setQuality(_ quality: String) {
+        let safe = quality.filter { $0.isLetter || $0.isNumber }
+        guard !safe.isEmpty else { return }
+        Task { await evaluate("window.plinkSetQuality && window.plinkSetQuality('\(safe)');") }
+    }
+
+    public func setMuted(_ muted: Bool) {
+        isMuted = muted
+        Task { await evaluate("window.plinkSetMuted && window.plinkSetMuted(\(muted));") }
+    }
+
+    public func setVolume(_ volume: Double) {
+        let clamped = max(0, min(100, volume))
+        Task { await evaluate("window.plinkSetVolume && window.plinkSetVolume(\(clamped));") }
     }
 
     // MARK: - Teardown
@@ -514,6 +552,19 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
                                 self.isPlaying = true
                                 self.isBuffering = false
                             }
+                        }
+                        // M40: расширенный снимок для своей панели управления.
+                        if let b = dict["buffered"] as? Double, b.isFinite {
+                            self.buffered = max(0, min(1, b))
+                        }
+                        if let r = dict["rate"] as? Double, r > 0 {
+                            self.playbackRate = Float(r)
+                        }
+                        if let m = dict["muted"] as? Bool { self.isMuted = m }
+                        if let q = dict["quality"] as? String { self.currentQuality = q }
+                        if let list = dict["qualities"] as? [String] {
+                            // «auto» YouTube отдаёт отдельно; порядок сохраняем как есть.
+                            if list != self.availableQualities { self.availableQualities = list }
                         }
                         // M29-YT: buffering watchdog
                         if state == 3 {

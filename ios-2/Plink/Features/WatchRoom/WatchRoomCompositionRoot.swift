@@ -23,26 +23,46 @@ public enum WatchRoomCompositionRoot {
         authToken: String
     ) -> some View {
         if FeatureFlags.realtimeProtocolV2 {
-            // Derive PlaybackSource from room.mediaItem
-            let mediaSource = mediaSourceFromRoom(room)
-            let mediaId = mediaIdFromRoom(room)
-            let model = makeV2Model(
-                roomId: room.id,
+            let model = makeModelForRoom(
+                room: room,
                 userId: userId,
                 username: username,
-                mediaSource: mediaSource,
-                mediaId: mediaId,
-                roomCode: room.code,
                 apiBaseURL: apiBaseURL,
                 wsBaseURL: wsBaseURL,
-                authToken: authToken,
-                hostId: room.hostID
+                authToken: authToken
             )
             return AnyView(WatchRoomScreen(model: model))
         } else {
             // P0-49: real legacy fallback — actual RoomView, not placeholder
             return AnyView(Text("Legacy room view retired"))
         }
+    }
+
+    /// Аудит 26.07.2026 (P0): модель должна создаваться ОДИН раз и жить в
+    /// @State владельца (WatchRoomContainer) — makeScreenForRoom из body
+    /// пересоздавал WatchRoomModel на каждом пересчёте: комната сбрасывалась,
+    /// старый WebSocket утекал.
+    @MainActor
+    static func makeModelForRoom(
+        room: Room,
+        userId: String,
+        username: String,
+        apiBaseURL: URL,
+        wsBaseURL: URL,
+        authToken: String
+    ) -> WatchRoomModel {
+        makeV2Model(
+            roomId: room.id,
+            userId: userId,
+            username: username,
+            mediaSource: mediaSourceFromRoom(room),
+            mediaId: mediaIdFromRoom(room),
+            roomCode: room.code,
+            apiBaseURL: apiBaseURL,
+            wsBaseURL: wsBaseURL,
+            authToken: authToken,
+            hostId: room.hostID
+        )
     }
 
     /// Public so WatchRoomModel can recover media after a stripped create/join payload.

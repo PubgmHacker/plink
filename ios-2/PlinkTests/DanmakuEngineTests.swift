@@ -104,22 +104,31 @@ final class DanmakuEngineTests: XCTestCase {
 
     // MARK: - Capacity cap
 
-    func testEnqueue_returnsNilAtMaxActiveCapacity() async {
+    func testEnqueue_returnsNilWhenAllLanesBusy() async {
+        // Движок ограничивает дорожки диапазоном 1...7 (7 — максимум для
+        // ландшафта), поэтому «50 дорожек» невозможны: configure(50) даст 7.
+        // maxActive=50 — отдельная страховка на общее число активных
+        // сообщений; мгновенными enqueue она недостижима, т.к. дорожка
+        // освобождается лишь через duration*0.42 (~3.4с). Фактическая
+        // мгновенная ёмкость = число дорожек — берём её у самого движка.
         let engine = DanmakuEngine()
-        await engine.configure(laneCount: 50)  // need 50 lanes to fit 50 active
+        await engine.configure(laneCount: 50)
         await engine.updateSettings(DanmakuSettings(enabled: true, density: 1.0))
 
-        // Enqueue 50 messages — all should fit (one per lane).
-        for i in 0..<50 {
+        let lanes = await engine.laneCount()
+        XCTAssertEqual(lanes, 7, "configure(50) must clamp to the 7-lane landscape max")
+
+        // По одному сообщению на каждую свободную дорожку — все помещаются.
+        for i in 0..<lanes {
             let m = DanmakuMessage(text: "msg\(i)", color: .white, senderName: "u")
             let p = await engine.enqueue(m, textWidth: 50, viewportWidth: 400)
-            XCTAssertNotNil(p, "Message \(i) should fit within 50-lane capacity")
+            XCTAssertNotNil(p, "Message \(i) should fit within \(lanes)-lane capacity")
         }
 
-        // 51st must be rejected.
+        // Следующее — отбой: все дорожки заняты до истечения duration*0.42.
         let overflow = DanmakuMessage(text: "overflow", color: .white, senderName: "u")
         let p = await engine.enqueue(overflow, textWidth: 50, viewportWidth: 400)
-        XCTAssertNil(p, "51st message must be rejected at maxActive=50")
+        XCTAssertNil(p, "Message \(lanes + 1) must be rejected while all lanes are busy")
     }
 
     // MARK: - Duration clamping

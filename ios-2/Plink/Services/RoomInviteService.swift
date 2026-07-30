@@ -21,7 +21,7 @@ final class RoomInviteService: ObservableObject {
 
     func refreshFromServer() async {
         if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
+            APIClient.shared.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
         guard APIClient.shared.authToken != nil else { return }
@@ -61,10 +61,17 @@ final class RoomInviteService: ObservableObject {
 
     /// Sends DM with machine-readable invite token friend can accept.
     func sendInvite(to friend: Friend, room: Room, mediaTitle: String?) async {
-        let code = room.code.uppercased()
-        let name = room.name.replacingOccurrences(of: "|", with: " ")
+        await sendInvite(to: friend, roomCode: room.code, roomId: room.id, roomName: room.name)
+    }
+
+    /// P0 5.3: приглашение из открытой комнаты — WatchRoomModel не хранит
+    /// полный Room, поэтому принимаем поля по отдельности.
+    func sendInvite(to friend: Friend, roomCode: String, roomId: String, roomName: String? = nil) async {
+        let code = roomCode.uppercased()
+        let name = (roomName?.isEmpty == false ? roomName! : "Комната \(code)")
+            .replacingOccurrences(of: "|", with: " ")
         let shortName = String(name.prefix(40))
-        let body = "🎬 Смотрим вместе «\(shortName)» · код \(code)\nplink-invite:\(code)|\(room.id)|\(shortName)"
+        let body = "🎬 Смотрим вместе «\(shortName)» · код \(code)\nplink-invite:\(code)|\(roomId)|\(shortName)"
 
         // Single send via shared DM service (optimistic + server)
         DMChatService.shared.sendMessage(body, to: friend)
@@ -83,7 +90,7 @@ final class RoomInviteService: ObservableObject {
 
     func acceptInvite(_ invite: RoomInvite) async -> Room? {
         if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
+            APIClient.shared.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
         // Dismiss UI immediately so it never "sticks" if join is slow

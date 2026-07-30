@@ -127,7 +127,7 @@ final class VoiceNotePlayer: NSObject {
 
         // Download from API
         if api.authToken == nil {
-            api.authToken = KeychainHelper.read(for: "rave_auth_token")
+            api.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
         guard let token = api.authToken else {

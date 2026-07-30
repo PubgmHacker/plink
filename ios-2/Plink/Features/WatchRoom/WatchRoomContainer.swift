@@ -13,20 +13,17 @@ struct WatchRoomContainer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var resolved: SessionIdentity?
     @State private var resolveFailed = false
+    /// Аудит 26.07.2026 (P0): модель живёт в @State и создаётся один раз
+    /// в hydrateSession() — раньше makeScreenForRoom из body пересоздавал её
+    /// на каждом пересчёте: комната сбрасывалась, WebSocket утекал.
+    @State private var model: WatchRoomModel?
     /// Ensures REST leave even if user dismisses cover without tapping X.
     @State private var didSendLeave = false
 
     var body: some View {
         Group {
-            if let identity = resolved {
-                WatchRoomCompositionRoot.makeScreenForRoom(
-                    room: room,
-                    userId: identity.userId,
-                    username: identity.username,
-                    apiBaseURL: URL(string: PlinkConfig.baseURLString)!,
-                    wsBaseURL: URL(string: PlinkConfig.wsURLString)!,
-                    authToken: identity.token
-                )
+            if let model {
+                WatchRoomScreen(model: model)
             } else if resolveFailed {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -71,7 +68,7 @@ struct WatchRoomContainer: View {
     private func hydrateSession() async {
         // 1) Prefer live AuthService
         var token = AuthService.shared.authToken
-            ?? KeychainHelper.read(for: "rave_auth_token")
+            ?? AuthTokenStore.shared.token
         var userId = AuthService.shared.currentUserValue?.id
             ?? UserDefaults.standard.string(forKey: "plink_current_user_id")
         var username = AuthService.shared.currentUserValue?.username
@@ -81,9 +78,9 @@ struct WatchRoomContainer: View {
         // 2) Re-decode cached user (ISO8601) if memory user missing
         if userId == nil || userId?.isEmpty == true {
             if let data = UserDefaults.standard.data(forKey: "rave_saved_user") {
-                let dec = JSONDecoder()
-                dec.dateDecodingStrategy = .iso8601
-                if let user = try? dec.decode(User.self, from: data) {
+                // Аудит 26.07.2026 (P2): единый разбор кэша профиля — терпит и
+                // ISO8601 с миллисекундами, и без них (см. User.decodeCached).
+                if let user = User.decodeCached(data) {
                     userId = user.id
                     username = user.username
                     UserDefaults.standard.set(user.id, forKey: "plink_current_user_id")
@@ -94,7 +91,7 @@ struct WatchRoomContainer: View {
 
         // 3) Soft-refresh AuthService so the rest of the app sees the session
         if token == nil {
-            token = KeychainHelper.read(for: "rave_auth_token")
+            token = AuthTokenStore.shared.token
         }
         if let token {
             APIClient.shared.authToken = token
@@ -128,6 +125,14 @@ struct WatchRoomContainer: View {
         }
 
         resolved = SessionIdentity(userId: uid, username: username, token: tok)
+        model = WatchRoomCompositionRoot.makeModelForRoom(
+            room: room,
+            userId: uid,
+            username: username,
+            apiBaseURL: URL(string: PlinkConfig.baseURLString)!,
+            wsBaseURL: URL(string: PlinkConfig.wsURLString)!,
+            authToken: tok
+        )
     }
 }
 

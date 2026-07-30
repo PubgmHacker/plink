@@ -2,6 +2,7 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 import AVFoundation
+import UserNotifications
 #endif
 #if canImport(FirebaseCore)
 import FirebaseCore
@@ -46,7 +47,6 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
         return lock
     }
 
-    // M20: Shake-to-report — заменяем window на PlinkShakeWindow
     func application(_ application: UIApplication,
                      configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
@@ -54,12 +54,10 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        // Wire shake detection via notification
-        NotificationCenter.default.addObserver(
-            forName: .plinkShakeDetected,
-            object: nil,
-            queue: .main
-        ) { _ in } // handled in ShakeDetectorModifier
+        // Аудит 26.07.2026: delegate центра уведомлений раньше не ставился нигде
+        // (единственное место было в мёртвом PushNotificationService, который никто
+        // не создавал) — тап по пушу никуда не вёл, в форграунде баннер не показывался.
+        UNUserNotificationCenter.current().delegate = self
         // P1.4 Firebase - optional, only configure if valid GoogleService-Info.plist exists
         #if canImport(FirebaseCore)
         if let plistPath = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
@@ -106,7 +104,11 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private static func sendPushToken(_ token: String) async {
-        guard let auth = KeychainHelper.read(for: "rave_auth_token"),
+        // FIX: токен давно живёт в AuthTokenStore (ключ plink_auth_token).
+        // Старое чтение по ключу "rave_auth_token" после миграции всегда возвращало
+        // пустоту — APNs-токен никогда не доезжал до бэкенда (пуши молчали).
+        let stored: String? = await MainActor.run { AuthTokenStore.shared.token }
+        guard let auth = stored, !auth.isEmpty,
               let url = URL(string: PlinkConfig.apiURLString + "/auth/fcm-token") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -114,6 +116,53 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
         req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
         _ = try? await URLSession.shared.data(for: req)
+    }
+}
+
+// MARK: - UNUserNotificationCenterDelegate (форграунд-баннер + тап по пушу)
+//
+// Аудит 26.07.2026: роутинг тапа строится СТРОГО по реальным полям payload'а
+// бэкенда (backend-3/src/services/pushService.ts кладёт content.data в корень
+// APNs-JSON → сюда приходит в userInfo верхнего уровня):
+//   { kind: "dm",             fromUserId: <id> }  — messages.ts:629
+//   { kind: "friend_request", fromUserId: <id> }  — friends.ts:361
+//   { kind: "broadcast",      topic: <string> }   — admin.ts:412
+extension PlinkAppDelegate: UNUserNotificationCenterDelegate {
+
+    // Форграунд: раньше системный дефолт молча глотал пуш — показываем баннер и звук.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound, .badge])
+    }
+
+    // Тап по пушу: ведём пользователя по kind. Пустой/неизвестный payload —
+    // просто открываем приложение, без крэша.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        switch info["kind"] as? String {
+        case "friend_request":
+            // Существующий deep-link /u/<userId>: PlinkApprovedV4Root покажет алерт
+            // «Добавить в друзья», а бэкенд при встречной pending-заявке
+            // автоматически принимает её (friends.ts: reverse → accepted).
+            if let fromUserId = info["fromUserId"] as? String, !fromUserId.isEmpty {
+                Task { @MainActor in
+                    DeepLinkRouter.shared.handle(DeepLinkRouter.friendInviteURL(userId: fromUserId))
+                }
+            }
+        case "dm":
+            // Механизма «открыть конкретный чат» в V4-корне нет — не выдумываем
+            // навигацию; подтягиваем непрочитанные, чтобы бейджик на табе «Друзья»
+            // был актуален сразу после открытия.
+            Task { @MainActor in
+                await DMChatService.shared.refreshUnread()
+            }
+        default:
+            break // broadcast и всё неизвестное — просто открыть приложение
+        }
+        completionHandler()
     }
 }
 #else
@@ -142,6 +191,13 @@ struct PlinkApp: App {
     private let mediaService: MediaService
     private let roomService: RoomService
 
+    // Аудит 26.07.2026 P2: контейнер зависимостей собирается ОДИН раз.
+    // Раньше AppDependencies(...) создавался прямо в body, а его переоценку
+    // триггерит любой @Published у deepLinkRouter — сервисы внутри контейнера
+    // пересоздавались и теряли состояние. (Исторически так утекал каталог
+    // Discovery; само поколение Discovery удалено этим же аудитом.)
+    private let dependencies: AppDependencies
+
     // Социальный слой (Блок 3)
     // 🔧 FIX C5: Inject shared apiClient into FriendManager (was: own unauth client)
     @State private var friendManager: FriendManager
@@ -150,15 +206,12 @@ struct PlinkApp: App {
     @State private var dmChatService: DMChatService
 
     // Deep-linking (Блок 3)
-    @StateObject private var deepLinkRouter = DeepLinkRouter()
+    // Аудит 26.07.2026 P1: единый роутер — AppDelegate (didReceive выше) шлёт
+    // тапы по пушам в DeepLinkRouter.shared, UI подписан на тот же экземпляр.
+    @StateObject private var deepLinkRouter = DeepLinkRouter.shared
 
-    // MARK: - State
-
-    @State private var showProfile = false
-    @State private var showFriends = false
-    @State private var showCreateRoom = false
-    @State private var deepLinkRoom: Room?
-    @State private var friendInviteAlert: FriendInviteAlert?
+    // Аудит 26.07.2026 P2: @State showProfile/showFriends/showCreateRoom удалены —
+    // они только объявлялись, ни одна вьюха их не читала и не писала.
 
     // MARK: - Init
 
@@ -176,14 +229,35 @@ struct PlinkApp: App {
         #endif
 
         let api = APIClient.shared
+        let auth = AuthService.shared
+        let media = MediaService()
+        let rooms = RoomService(api: api)
         apiClient = api
-        authService = AuthService.shared
-        mediaService = MediaService()
-        roomService = RoomService(api: api)
+        authService = auth
+        mediaService = media
+        roomService = rooms
         // 🔧 FIX C5: Shared authenticated client injected into social layer
-        _friendManager = State(initialValue: FriendManager(api: api))
+        let friends = FriendManager(api: api)
+        _friendManager = State(initialValue: friends)
         // 🔧 FIX C4: Shared authenticated client injected into DM layer
-        _dmChatService = State(initialValue: DMChatService(api: api))
+        let dms = DMChatService(api: api)
+        _dmChatService = State(initialValue: dms)
+        // Контейнер зависимостей — один на весь жизненный цикл приложения.
+        dependencies = AppDependencies(
+            apiClient: api,
+            authService: auth,
+            roomService: rooms,
+            mediaService: media,
+            friendManager: friends,
+            dmChatService: dms
+        )
+
+        // Аудит 26.07.2026 (P0): StoreManager.apiBaseURL никогда не выставлялся,
+        // из-за чего покупка не доходила до сервера, а серверная проверка прав
+        // при следующем запуске отзывала Plink+. Задаём базовый URL и сразу
+        // подтягиваем актуальные права из /api/billing/entitlements.
+        StoreManager.shared.apiBaseURL = URL(string: PlinkConfig.baseURLString)
+        Task { await StoreManager.shared.refreshEntitlement() }
     }
 
     // MARK: - Root View
@@ -192,23 +266,16 @@ struct PlinkApp: App {
         WindowGroup {
             // PATCH: new cinematic launch gate
             AuthLaunchGate(
-                dependencies: AppDependencies(
-                    apiClient: apiClient,
-                    authService: authService,
-                    roomService: roomService,
-                    mediaService: mediaService,
-                    friendManager: friendManager,
-                    dmChatService: dmChatService
-                ),
+                dependencies: dependencies,
                 onboardingStore: UserDefaultsOnboardingStore()
             )
             .environmentObject(deepLinkRouter)
             .environmentObject(friendManager)
             .environmentObject(dmChatService)
             .environmentObject(apiClient)
-            .onOpenURL { url in
-                handleDeepLink(url)
-            }
+            // Аудит 26.07.2026 P1: дублирующий .onOpenURL/handleDeepLink удалён —
+            // единственная точка входа ссылок это AuthLaunchGate.onOpenURL,
+            // единственный консьюмер pendingLink — PlinkApprovedV4Root.
             // M20: оффлайн-баннер поверх всего приложения
             .withOfflineBanner()
             // M20: shake-to-report на корневом уровне
@@ -223,66 +290,9 @@ struct PlinkApp: App {
 
     // MARK: - Deep-Link Handler (Блок 3)
 
-    /// Обрабатывает вход��щие Universal Links и custom scheme.
-    private func handleDeepLink(_ url: URL) {
-        deepLinkRouter.handle(url)
+    // Аудит 26.07.2026 P1: handleDeepLink/fetchUsername удалены — состояние
+    // deepLinkRoom/friendInviteAlert писалось, но нигде не читалось (тупик:
+    // сервер джойнил комнату, UI не открывался). Обработка перенесена в
+    // PlinkApprovedV4Root (подписка на DeepLinkRouter.shared.$pendingLink).
 
-        switch deepLinkRouter.pendingLink {
-        case .room(let code):
-            // Присоединяемся к комнате по коду из ссылки.
-            Task {
-                do {
-                    let room = try await roomService.joinRoom(code: code)
-                await MainActor.run {
-                        deepLinkRoom = room
-                        deepLinkRouter.clear()
-                    }
-                } catch {
-                    // Комната не найдена — сбрасываем.
-                await MainActor.run { deepLinkRouter.clear() }
-                }
-            }
-
-        case .friendInvite(let userId):
-            // 🔧 FIX L10: Fetch real username from server (was: hardcoded "Пользователь").
-            Task {
-                let username = await fetchUsername(userId: userId)
-            await MainActor.run {
-                    friendInviteAlert = FriendInviteAlert(userId: userId, username: username)
-                    deepLinkRouter.clear()
-                }
-            }
-
-        case .none:
-            break
-        }
-    }
-
-    /// 🔧 FIX L10: Fetch user display name from server for friend-invite alerts.
-    private func fetchUsername(userId: String) async -> String {
-        // Try to fetch the user's profile from /api/users/:id
-        // Falls back to a generic localized string if the request fails.
-        struct UserDTO: Decodable {
-            let username: String?
-        }
-        do {
-            let user: UserDTO = try await apiClient.request("users/\(userId)")
-            return user.username ?? "Пользователь"
-        } catch {
-            Logger.api.warn("Failed to fetch username for friend invite: \(error.localizedDescription)")
-            return "Пользователь"
-        }
-    }
-
-}
-
-// MARK: - Friend Invite Alert Model
-private struct FriendInviteAlert: Identifiable, Equatable {
-    let id = UUID()
-    let userId: String
-    let username: String
-
-    static func == (lhs: FriendInviteAlert, rhs: FriendInviteAlert) -> Bool {
-        lhs.id == rhs.id
-    }
 }

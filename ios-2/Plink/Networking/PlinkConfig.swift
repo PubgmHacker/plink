@@ -25,3 +25,28 @@ enum PlinkConfig {
             .replacingOccurrences(of: "http://", with: "ws://") + "/ws"
     }
 }
+
+// MARK: - APIConfig
+
+/// FIX (аудит 26.07.2026): семь вызовов в пяти файлах ссылались на
+/// `APIConfig.baseURL` (AccountDeletionView, ClockSync, PushNotificationService,
+/// StoreKitManager, AIStreamClient), но самого типа в проекте не было —
+/// «Cannot find 'APIConfig' in scope».
+///
+/// Живёт именно здесь, а не в отдельном файле, потому что Plink.xcodeproj
+/// лежит в репозитории и перечисляет файлы явно: новый .swift не попадает
+/// в таргет без перегенерации через XcodeGen. PlinkConfig.swift уже в таргете,
+/// поэтому фикс работает сразу, без правки проектного файла.
+///
+/// Это не вторая конфигурация, а тонкий алиас к PlinkConfig.
+enum APIConfig {
+    /// Хост без завершающего слэша и без суффикса /api.
+    /// Вызовы вида `APIConfig.baseURL + "/api/..."` остаются корректными.
+    static var baseURL: String { PlinkConfig.baseURLString }
+
+    /// REST-база: <host>/api
+    static var apiURL: String { PlinkConfig.apiURLString }
+
+    /// Realtime WebSocket: wss://<host>/ws
+    static var wsURL: String { PlinkConfig.wsURLString }
+}

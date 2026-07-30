@@ -113,7 +113,7 @@ struct DirectMessage: Codable, Identifiable, Sendable, Equatable, Hashable {
             return senderID == id
         }
         guard let data = UserDefaults.standard.data(forKey: "rave_saved_user"),
-              let user = try? JSONDecoder().decode(User.self, from: data) else {
+              let user = User.decodeCached(data) else {
             return false
         }
         return senderID == user.id

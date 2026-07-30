@@ -81,7 +81,7 @@ export const ClockProbeSchema = z
   .object({
     type: z.literal('clock.probe'),
     protocolVersion: z.literal(2),
-    clientSentMs: z.number().int(),
+    clientSentMs: z.number().finite(), // Аудит 26.07.2026 P0: .int() отбивал дробные мс из Swift
   })
   .strict();
 
@@ -133,7 +133,7 @@ export const ClockProbeReplySchema = z
   .object({
     type: z.literal('clock.probe.reply'),
     protocolVersion: z.literal(2),
-    clientSentMs: z.number().int(),
+    clientSentMs: z.number().finite(), // Аудит 26.07.2026 P0: .int() отбивал дробные мс из Swift
     serverMs: z.number().int(),
   })
   .strict();
@@ -198,6 +198,32 @@ export const RoleChangedSchema = z
   })
   .strict();
 
+/**
+ * Аудит 26.07.2026 P2: живая доставка темы комнаты. Хост сохраняет вид через
+ * PATCH /rooms/:id/appearance, сервер публикует событие в RoomEventBus, и
+ * КАЖДАЯ реплика рассылает его своим сокетам комнаты (gateway).
+ * На провод идут только поля, нужные клиенту для отрисовки: updatedAt/updatedBy
+ * остаются аудит-метаданными в БД и наружу не выходят.
+ * intensity ограничен теми же 0.44, что и в роуте (V4 cap) — расхождение
+ * упадёт на публикации, а не тихо доедет до клиента.
+ */
+export const RoomAppearanceUpdatedSchema = z
+  .object({
+    type: z.literal('room.appearance.updated'),
+    protocolVersion: z.literal(2),
+    roomId: z.string().uuid(),
+    appearance: z
+      .object({
+        themeId: z.string().min(1).max(64),
+        themeRevision: z.number().int().nonnegative(),
+        intensity: z.number().min(0).max(0.44),
+        motionEnabled: z.boolean(),
+      })
+      .strict(),
+    serverTimeMs: z.number().int(),
+  })
+  .strict();
+
 /** Server draining — graceful shutdown announcement (P1-20: typed contract). */
 export const ServerDrainingSchema = z
   .object({
@@ -228,6 +254,7 @@ export type ParticipantEvent = z.infer<typeof ParticipantEventSchema>;
 export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 export type SessionReady = z.infer<typeof SessionReadySchema>;
 export type RoleChanged = z.infer<typeof RoleChangedSchema>;
+export type RoomAppearanceUpdated = z.infer<typeof RoomAppearanceUpdatedSchema>;
 export type ServerDraining = z.infer<typeof ServerDrainingSchema>;
 
 /** Discriminated union of all client→server messages for type-safe routing. */
@@ -252,6 +279,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   ErrorMessageSchema,
   SessionReadySchema,
   RoleChangedSchema,  // P1-64
+  RoomAppearanceUpdatedSchema,  // Аудит 26.07.2026 P2
   ServerDrainingSchema,
 ]);
 
@@ -277,5 +305,6 @@ export const SERVER_MESSAGE_TYPES = [
   'error',
   'session.ready',
   'role.changed',  // P1-64
+  'room.appearance.updated',  // Аудит 26.07.2026 P2
   'server.draining',
 ] as const;

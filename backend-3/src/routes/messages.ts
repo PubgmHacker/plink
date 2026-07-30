@@ -1,5 +1,7 @@
 import { prisma } from '../config/db.js';
 import { pushToUser } from '../services/pushService.js';
+import { validateBody } from '../middleware/validate.js';
+import { dmSendBody } from '../schemas/requests.js';
 // M16: ИИ-модератор в личке — муты за маты и NSFW-фото
 import {
   containsProfanity,
@@ -46,6 +48,17 @@ function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataU
   return { mime, buffer, dataUrl: `data:${mime};base64,${match[3]}` };
 }
 
+/**
+ * Аудит 26.07.2026 P2: проверки собеседника (tombstone/блокировка) были обёрнуты в
+ * `try/catch { console.warn }` и пропускали сообщение при ЛЮБОЙ ошибке БД.
+ * Глотаем только drift схемы (нет колонки/таблицы/поля), остальное — наружу (503).
+ */
+function isSchemaDriftError(e: any): boolean {
+  const code = e?.code;
+  if (code === 'P2021' || code === 'P2022') return true;
+  return e?.name === 'PrismaClientValidationError';
+}
+
 function aggregateReactions(
   rows: { emoji: string; userID: string }[],
   me: string
@@ -73,15 +86,151 @@ export default async function messageRoutes(fastify) {
     for (const [k, t] of typingMap) { if (t < cutoff) typingMap.delete(k); }
   };
 
+  // Аудит 26.07.2026 P2: «печатает…» рассылалось любому по id — в обход блокировок.
+  // Ревью 26.07.2026: гейт сведён к контракту отправки DM (только отсутствие
+  // UserBlock в обе стороны) — раньше он требовал дружбу или существующий тред,
+  // хотя POST /messages/dm разрешает писать любому незаблокированному.
+  // Кэшируем «запрещено» на 30 с, «разрешено» — на 3 с, чтобы свежая блокировка
+  // не оставляла окно доставки индикатора заблокированному.
+  const TYPING_DENY_TTL_MS = 30_000;
+  const TYPING_ALLOW_TTL_MS = 3_000;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const typingAllowCache = new Map<string, { allowed: boolean; at: number }>();
+  const typingAllowTtl = (allowed: boolean) => (allowed ? TYPING_ALLOW_TTL_MS : TYPING_DENY_TTL_MS);
+  const pruneTypingAllow = () => {
+    if (typingAllowCache.size <= 5000) return;
+    const now = Date.now();
+    for (const [k, v] of typingAllowCache) {
+      if (now - v.at >= typingAllowTtl(v.allowed)) typingAllowCache.delete(k);
+    }
+    // Точечного вытеснения не хватило (аномальный трафик) — сбрасываем целиком
+    if (typingAllowCache.size > 5000) typingAllowCache.clear();
+  };
+  const canNotifyTyping = async (me: string, peerId: string): Promise<boolean> => {
+    // Невалидный id отбрасываем до БД: маршрут дёргают циклом со случайными uuid
+    if (!peerId || typeof peerId !== 'string' || peerId === me || !UUID_RE.test(peerId)) return false;
+    const key = `${me}:${peerId}`;
+    const hit = typingAllowCache.get(key);
+    if (hit && Date.now() - hit.at < typingAllowTtl(hit.allowed)) return hit.allowed;
+    let allowed = false;
+    try {
+      const blocked = await prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerID: me, blockedID: peerId },
+            { blockerID: peerId, blockedID: me },
+          ],
+        },
+        select: { id: true },
+      });
+      allowed = !blocked;
+    } catch (e: any) {
+      // fail-closed и без кэширования — ошибка БД не должна открывать канал
+      console.warn('[dm-typing] peer check failed:', e?.message);
+      return false;
+    }
+    pruneTypingAllow();
+    typingAllowCache.set(key, { allowed, at: Date.now() });
+    return allowed;
+  };
+
   // GET /messages/unread — inbox summary for chat list (Telegram-style sort)
   // Returns last message + unread count per friend (including read threads).
   fastify.get('/messages/unread', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const me = request.user.id;
 
+    // Аудит 26.07.2026 P2: инбокс собирался по последним 800 DM (take: 800) —
+    // один болтливый тред вытеснял остальные чаты вместе с их unread-счётчиками.
+    // Теперь один запрос: DISTINCT ON по собеседнику + COUNT непрочитанных, без лимита.
+    type UnreadRow = {
+      friendId: string;
+      unreadCount: number;
+      content: string | null;
+      mediaType: string | null;
+      lastAt: Date;
+    };
+    const buildPreview = (content: string | null, mediaType: string | null): string => {
+      const rawPreview = String(content || '');
+      const voiceish = mediaType === 'voice' || rawPreview.includes('[[vn:') || rawPreview.includes('🎤');
+      const photoish = mediaType === 'photo';
+      return voiceish
+        ? '🎤 Голосовое сообщение'
+        : photoish
+          ? (rawPreview.trim() ? `📷 ${rawPreview.slice(0, 76)}` : '📷 Фото')
+          : rawPreview.slice(0, 80);
+    };
+
+    let rows: UnreadRow[] | null = null;
+    try {
+      rows = await prisma.$queryRaw<UnreadRow[]>`
+        WITH mine AS (
+          SELECT
+            CASE WHEN m."senderID" = ${me} THEN m."receiverID" ELSE m."senderID" END AS peer,
+            m."receiverID" AS receiver_id,
+            m."isRead"     AS is_read,
+            m."content"    AS content,
+            m."mediaType"  AS media_type,
+            m."createdAt"  AS created_at
+          FROM "DirectMessage" m
+          WHERE (m."senderID" = ${me} OR m."receiverID" = ${me})
+            AND COALESCE(NOT (m."deletedForIDs" @> ARRAY[${me}::text]), TRUE)
+        ),
+        peers AS (
+          SELECT * FROM mine WHERE peer IS NOT NULL AND peer <> ${me}
+        ),
+        last_msg AS (
+          SELECT DISTINCT ON (peer) peer, content, media_type, created_at
+          FROM peers
+          ORDER BY peer, created_at DESC
+        ),
+        unread AS (
+          SELECT peer, COUNT(*)::int AS unread_count
+          FROM peers
+          WHERE receiver_id = ${me} AND is_read = FALSE
+          GROUP BY peer
+        )
+        SELECT
+          l.peer                      AS "friendId",
+          COALESCE(u.unread_count, 0) AS "unreadCount",
+          l.content                   AS "content",
+          l.media_type                AS "mediaType",
+          l.created_at                AS "lastAt"
+        FROM last_msg l
+        LEFT JOIN unread u ON u.peer = l.peer
+        ORDER BY l.created_at DESC
+      `;
+    } catch (e: any) {
+      // Ревью 26.07.2026: на фолбэк уходим ТОЛЬКО при drift схемы. Таймаут/обрыв
+      // соединения раньше молча отдавал деградированный инбокс (take: 800 без
+      // фильтра deletedForIDs) с кодом 200 — клиент не мог отличить его от верного.
+      if (!isSchemaDriftError(e)) {
+        console.error('[messages/unread] aggregate failed:', e?.message);
+        return reply
+          .status(503)
+          .send({ error: 'Inbox temporarily unavailable', code: 'INBOX_UNAVAILABLE' });
+      }
+      rows = null;
+      console.warn('[messages/unread] raw aggregate failed (schema drift):', e?.message);
+    }
+
+    if (rows) {
+      return reply.send(
+        rows.map((r) => ({
+          friendId: r.friendId,
+          unreadCount: Number(r.unreadCount) || 0,
+          lastPreview: buildPreview(r.content, r.mediaType),
+          lastAt: r.lastAt,
+        }))
+      );
+    }
+
     // Latest activity across all DMs involving me (read + unread)
     const recent = await prisma.directMessage.findMany({
       where: {
         OR: [{ senderID: me }, { receiverID: me }],
+        // Ревью 26.07.2026: тот же фильтр, что и в raw-пути, — чтобы удалённые
+        // «у себя» треды не всплывали в инбоксе на фолбэке.
+        NOT: { deletedForIDs: { has: me } },
       },
       orderBy: { createdAt: 'desc' },
       take: 800,
@@ -110,17 +259,10 @@ export default async function messageRoutes(fastify) {
 
       const existing = byFriend.get(friendId);
       if (!existing) {
-        const rawPreview = String(m.content || '');
-        const voiceish = m.mediaType === 'voice' || rawPreview.includes('[[vn:') || rawPreview.includes('🎤');
-        const photoish = m.mediaType === 'photo';
         byFriend.set(friendId, {
           friendId,
           unreadCount: 0,
-          lastPreview: voiceish
-            ? '🎤 Голосовое сообщение'
-            : photoish
-              ? (rawPreview.trim() ? `📷 ${rawPreview.slice(0, 76)}` : '📷 Фото')
-              : rawPreview.slice(0, 80),
+          lastPreview: buildPreview(m.content, m.mediaType),
           lastAt: m.createdAt,
         });
       }
@@ -139,19 +281,58 @@ export default async function messageRoutes(fastify) {
   });
 
   // GET /messages/dm/:friendId — history; opening chat marks inbound as read
+  // Аудит 26.07.2026 P1 (кросс-задача): курсорная пагинация.
+  //   ?before=<ISO-дата | id сообщения> — отдать более старые сообщения строго до курсора
+  //   ?limit=<1..200> — размер страницы (с before дефолт 50; без параметров — прежние 200)
   fastify.get('/messages/dm/:friendId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { friendId } = request.params;
     const me = request.user.id;
+    const q = (request.query ?? {}) as { before?: string; limit?: string };
 
-    // Mark everything from this friend as read (user opened the chat)
-    await prisma.directMessage.updateMany({
-      where: {
-        senderID: friendId,
-        receiverID: me,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
+    // Разбор курсора before: ISO-дата или id сообщения этого треда
+    let beforeDate: Date | null = null;
+    if (typeof q.before === 'string' && q.before.trim().length > 0) {
+      const raw = q.before.trim();
+      const asDate = new Date(raw);
+      if (!Number.isNaN(asDate.getTime()) && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        beforeDate = asDate;
+      } else {
+        const anchor = await prisma.directMessage
+          .findUnique({
+            where: { id: raw },
+            select: { createdAt: true, senderID: true, receiverID: true },
+          })
+          .catch(() => null);
+        if (anchor && (anchor.senderID === me || anchor.receiverID === me)) {
+          beforeDate = anchor.createdAt;
+        }
+      }
+      if (!beforeDate) {
+        return reply.status(400).send({ error: 'Invalid before cursor', code: 'BAD_CURSOR' });
+      }
+    }
+
+    // Лимит: явный 1..200; без limit — 50 при пагинации, 200 в обычном режиме (совместимость)
+    let take = beforeDate ? 50 : 200;
+    if (typeof q.limit === 'string' && q.limit.trim() !== '') {
+      const n = parseInt(q.limit, 10);
+      if (Number.isFinite(n)) take = Math.min(200, Math.max(1, n));
+    }
+
+    // Mark everything from this friend as read (user opened the chat).
+    // При пагинации старых страниц (before) сайд-эффект не нужен.
+    if (!beforeDate) {
+      await prisma.directMessage.updateMany({
+        where: {
+          senderID: friendId,
+          receiverID: me,
+          isRead: false,
+        },
+        data: { isRead: true },
+      });
+    }
+
+    const cursorFilter = beforeDate ? { createdAt: { lt: beforeDate } } : {};
 
     // IMPORTANT: take NEWEST messages, not oldest.
     // `orderBy asc + take 100` returned the first 100 ever → inbox preview
@@ -166,9 +347,10 @@ export default async function messageRoutes(fastify) {
           ],
           // Telegram: hide messages this user deleted for themselves
           NOT: { deletedForIDs: { has: me } },
+          ...cursorFilter,
         },
         orderBy: { createdAt: 'desc' },
-        take: 200,
+        take,
         include: {
           reactions: {
             select: { emoji: true, userID: true },
@@ -187,9 +369,10 @@ export default async function messageRoutes(fastify) {
             { senderID: me, receiverID: friendId },
             { senderID: friendId, receiverID: me },
           ],
+          ...cursorFilter,
         },
         orderBy: { createdAt: 'desc' },
-        take: 200,
+        take,
       });
       messages = messages.reverse();
     }
@@ -238,7 +421,9 @@ export default async function messageRoutes(fastify) {
   });
 
   // DELETE /messages/dm/:friendId — Telegram-style «delete chat»
-  // Clears the entire DM thread between me and friendId (both directions).
+  // Аудит 26.07.2026 P1: по умолчанию — скрытие только у себя (deletedForIDs),
+  // физическое удаление у обоих — только по явному ?forBoth=true.
+  // Раньше один участник безвозвратно уничтожал копию переписки второго.
   fastify.delete(
     '/messages/dm/:friendId',
     {
@@ -251,41 +436,74 @@ export default async function messageRoutes(fastify) {
       if (!friendId || friendId === me) {
         return reply.status(400).send({ error: 'Invalid friendId' });
       }
+      const threadWhere = {
+        OR: [
+          { senderID: me, receiverID: friendId },
+          { senderID: friendId, receiverID: me },
+        ],
+      };
+      const forBoth = String((request.query as any)?.forBoth ?? '') === 'true';
 
-      // Reactions cascade via FK on message delete when configured; otherwise clean manually.
-      const thread = await prisma.directMessage.findMany({
-        where: {
-          OR: [
-            { senderID: me, receiverID: friendId },
-            { senderID: friendId, receiverID: me },
-          ],
-        },
-        select: { id: true },
-        take: 5000,
-      });
-      const ids = thread.map((m: { id: string }) => m.id);
-      if (ids.length > 0) {
-        try {
-          await prisma.directMessageReaction.deleteMany({
-            where: { messageID: { in: ids } },
-          });
-        } catch {
-          /* reactions table may be missing mid-migrate */
+      if (forBoth) {
+        // Прежнее поведение: физически чистим весь тред у обоих.
+        // Reactions cascade via FK on message delete when configured; otherwise clean manually.
+        const thread = await prisma.directMessage.findMany({
+          where: threadWhere,
+          select: { id: true },
+          take: 5000,
+        });
+        const ids = thread.map((m: { id: string }) => m.id);
+        if (ids.length > 0) {
+          try {
+            await prisma.directMessageReaction.deleteMany({
+              where: { messageID: { in: ids } },
+            });
+          } catch {
+            /* reactions table may be missing mid-migrate */
+          }
         }
+        const result = await prisma.directMessage.deleteMany({ where: threadWhere });
+        return reply.send({ success: true, deleted: result.count, forBoth: true });
       }
-      const result = await prisma.directMessage.deleteMany({
+
+      // По умолчанию: скрыть тред только у себя (как «удалить у себя» для одного сообщения)
+      const result = await prisma.directMessage.updateMany({
         where: {
-          OR: [
-            { senderID: me, receiverID: friendId },
-            { senderID: friendId, receiverID: me },
-          ],
+          ...threadWhere,
+          NOT: { deletedForIDs: { has: me } },
         },
+        data: { deletedForIDs: { push: me } },
       });
-      reply.send({ success: true, deleted: result.count });
+
+      // Сообщения, скрытые обоими участниками, можно физически зачистить
+      try {
+        const bothHidden = await prisma.directMessage.findMany({
+          where: {
+            ...threadWhere,
+            AND: [
+              { deletedForIDs: { has: me } },
+              { deletedForIDs: { has: friendId } },
+            ],
+          },
+          select: { id: true },
+          take: 5000,
+        });
+        const hiddenIds = bothHidden.map((m: { id: string }) => m.id);
+        if (hiddenIds.length > 0) {
+          await prisma.directMessageReaction
+            .deleteMany({ where: { messageID: { in: hiddenIds } } })
+            .catch(() => {});
+          await prisma.directMessage.deleteMany({ where: { id: { in: hiddenIds } } });
+        }
+      } catch {
+        /* необязательная зачистка */
+      }
+
+      reply.send({ success: true, deleted: result.count, forBoth: false });
     }
   );
 
-  fastify.post('/messages/dm', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  fastify.post('/messages/dm', { preHandler: [fastify.authenticate, validateBody(dmSendBody)] }, async (request, reply) => {
     const { receiverId, content, replyToId } = request.body;
     // 280: room invites + short chat (was 150 — invites didn't fit)
     if (!content || typeof content !== 'string' || content.length > 280) {
@@ -338,7 +556,17 @@ export default async function messageRoutes(fastify) {
           code: 'ACCOUNT_DELETED',
         });
       }
-      // Also block if either side blocked the other
+    } catch (e: any) {
+      if (!isSchemaDriftError(e)) {
+        console.error('[dm] peer check failed:', e?.message);
+        return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
+      }
+      console.warn('[dm] peer check:', e?.message);
+    }
+
+    // Also block if either side blocked the other.
+    // Аудит 26.07.2026 P2: enforcement блокировок fail-closed — ошибка БД не пропускает DM.
+    try {
       const blocked = await prisma.userBlock.findFirst({
         where: {
           OR: [
@@ -352,7 +580,8 @@ export default async function messageRoutes(fastify) {
         return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
       }
     } catch (e: any) {
-      console.warn('[dm] peer check:', e?.message);
+      console.error('[dm] block check failed:', e?.message);
+      return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
     }
 
     // Telegram-style reply: quoted message must belong to this thread
@@ -449,8 +678,59 @@ export default async function messageRoutes(fastify) {
             code: 'ACCOUNT_DELETED',
           });
         }
-      } catch {
+      } catch (e: any) {
+        if (!isSchemaDriftError(e)) {
+          console.error('[dm-voice] peer check failed:', e?.message);
+          return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
+        }
         /* schema drift — allow path below */
+      }
+
+      // Аудит 26.07.2026 P1: голосовые обязаны уважать блокировку — как текст и фото
+      // Аудит 26.07.2026 P2: проверка вне try/catch собеседника — fail-closed
+      try {
+        const blocked = await prisma.userBlock.findFirst({
+          where: {
+            OR: [
+              { blockerID: me, blockedID: receiverId },
+              { blockerID: receiverId, blockedID: me },
+            ],
+          },
+          select: { id: true },
+        });
+        if (blocked) {
+          return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
+        }
+      } catch (e: any) {
+        console.error('[dm-voice] block check failed:', e?.message);
+        return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
+      }
+
+      // Аудит 26.07.2026 P1: мут и фильтр матов действуют и на голосовые (капшен)
+      {
+        const dmMutedSec = muteRemainingSec('dm', me);
+        if (dmMutedSec > 0) {
+          return reply.status(403).send({
+            error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
+            code: 'MODERATION_MUTED',
+            mutedForSec: dmMutedSec,
+          });
+        }
+        if (typeof body.content === 'string' && containsProfanity(body.content)) {
+          const seconds = muteUser('dm', me, 'profanity');
+          void auditModeration({
+            roomId: `dm:${receiverId}`,
+            messageId: `dmv-${Date.now()}`,
+            subjectUserId: me,
+            action: 'mute_profanity',
+            reasonCode: 'profanity',
+          });
+          return reply.status(403).send({
+            error: `Мут на ${seconds} сек за нецензурную лексику`,
+            code: 'MODERATION_MUTED',
+            mutedForSec: seconds,
+          });
+        }
       }
 
       const audioData = typeof body.audioData === 'string' ? body.audioData : '';
@@ -615,6 +895,16 @@ export default async function messageRoutes(fastify) {
         if (isDeletedUser(peer as any)) {
           return reply.status(403).send({ error: 'This account has been deleted', code: 'ACCOUNT_DELETED' });
         }
+      } catch (e: any) {
+        if (!isSchemaDriftError(e)) {
+          console.error('[dm-photo] peer check failed:', e?.message);
+          return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
+        }
+        console.warn('[dm-photo] peer check:', e?.message);
+      }
+
+      // Аудит 26.07.2026 P2: блокировки — fail-closed, ошибка БД не пропускает фото
+      try {
         const blocked = await prisma.userBlock.findFirst({
           where: {
             OR: [
@@ -626,7 +916,8 @@ export default async function messageRoutes(fastify) {
         });
         if (blocked) return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
       } catch (e: any) {
-        console.warn('[dm-photo] peer check:', e?.message);
+        console.error('[dm-photo] block check failed:', e?.message);
+        return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
       }
 
       const parsed = parseImageDataURL(typeof body.imageData === 'string' ? body.imageData : '');
@@ -1048,8 +1339,35 @@ export default async function messageRoutes(fastify) {
       const me = request.user.id;
       const { messageId } = request.params;
       const { content } = (request.body ?? {}) as any;
-      if (!content || typeof content !== 'string' || content.length > 4000) {
-        return reply.status(400).send({ error: 'Valid content required' });
+      // Аудит 26.07.2026 P1: лимит как при отправке (280), иначе PATCH обходил ограничение
+      if (!content || typeof content !== 'string' || content.length > 280) {
+        return reply.status(400).send({ error: 'Valid content required (max 280 chars)' });
+      }
+      // Аудит 26.07.2026 P1: редактирование проходит ту же модерацию, что и отправка
+      {
+        const dmMutedSec = muteRemainingSec('dm', me);
+        if (dmMutedSec > 0) {
+          return reply.status(403).send({
+            error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
+            code: 'MODERATION_MUTED',
+            mutedForSec: dmMutedSec,
+          });
+        }
+        if (containsProfanity(content)) {
+          const seconds = muteUser('dm', me, 'profanity');
+          void auditModeration({
+            roomId: `dm:edit`,
+            messageId: `dme-${Date.now()}`,
+            subjectUserId: me,
+            action: 'mute_profanity',
+            reasonCode: 'profanity',
+          });
+          return reply.status(403).send({
+            error: `Мут на ${seconds} сек за нецензурную лексику`,
+            code: 'MODERATION_MUTED',
+            mutedForSec: seconds,
+          });
+        }
       }
       const msg = await prisma.directMessage.findUnique({ where: { id: messageId } });
       if (!msg) return reply.status(404).send({ error: 'Message not found' });
@@ -1129,15 +1447,26 @@ export default async function messageRoutes(fastify) {
   // ── Typing indicator (poll-friendly, in-memory) ──
   fastify.post(
     '/messages/dm/:friendId/typing',
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      // Ревью 26.07.2026: маршрут ходит в БД на каждый промах кэша, а глобальный
+      // лимитер выключен (app.ts: global: false) — свой лимит обязателен.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
     async (request: any, reply: any) => {
       pruneTyping();
-      typingMap.set(`${request.user.id}:${request.params.friendId}`, Date.now());
+      const me = request.user.id;
+      const friendId = typeof request.params?.friendId === 'string' ? request.params.friendId : '';
+      // Аудит 26.07.2026 P2: при блокировке/невалидном id отвечаем успехом, но ничего не рассылаем
+      if (!(await canNotifyTyping(me, friendId))) {
+        return reply.send({ success: true });
+      }
+      typingMap.set(`${me}:${friendId}`, Date.now());
       try {
-        (fastify as any).gateway?.notifyUser(request.params.friendId, {
+        (fastify as any).gateway?.notifyUser(friendId, {
           type: 'dm.event',
           event: 'typing',
-          fromUserId: request.user.id,
+          fromUserId: me,
         });
       } catch { /* noop */ }
       reply.send({ success: true });

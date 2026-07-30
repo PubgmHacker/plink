@@ -83,7 +83,11 @@ internal enum AppearanceError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .requiresPlinkPlus:            return "Доступно с Plink+"
-        case .hostRoomContextRequired:      return "Тема комнаты выбирается только хостом."
+        // Ревью 26.07.2026: витрина «Оформление» была тупиком — сообщение
+        // констатировало отказ и не говорило, где фича включается. Реальная
+        // точка входа: комната, где вы хост → кнопка с кистью в верхнем хроме.
+        case .hostRoomContextRequired:
+            return "Включается в комнате: вы хост → кнопка с кистью сверху."
         case .unknownDescriptor:            return "Неизвестный пресет."
         case .persistenceFailed(let r):     return "Не удалось сохранить: \(r)"
         case .backendRejected(let r):       return "Сервер отклонил: \(r)"
@@ -113,7 +117,9 @@ internal final class DefaultEntitlementProvider: EntitlementProviding {
         // Bridge to real PremiumStatusManager.
         let pm = PremiumStatusManager.shared
         self.isPlinkPlus = pm.isPremium
-        self.plinkPlusExpiresAt = nil
+        // Аудит 26.07.2026 (P2): дата истечения затиралась в nil, хотя
+        // PremiumStatusManager её знает (nil здесь читается как «пожизненно»).
+        self.plinkPlusExpiresAt = pm.subscriptionExpiry
     }
 }
 
@@ -186,6 +192,21 @@ internal final class AppearanceStore {
     private let profileAPI: ProfileAPI
     private let defaults: UserDefaults
 
+    /// Аудит 26.07.2026 (P2, ревью): сервисному слою (PremiumStatusManager)
+    /// нужно откатить платное оформление при потере прав и обновить живой UI,
+    /// но он не должен создавать стор как побочный эффект (иначе стор
+    /// инициализировался бы из юнит-тестов и из init'а менеджера). Слабая
+    /// ссылка на созданный стор: nil, пока живой флоу его не создал.
+    static weak var live: AppearanceStore?
+
+    /// Аудит 26.07.2026: живой стор V4-флоу. Раньше стор создавался только
+    /// мёртвым V5-экраном AppearanceRootView (0 инстанцирований), поэтому
+    /// `live` был вечным nil, а откат платных тем при истечении Plink+ —
+    /// no-op. Создаётся лениво из bootstrap PlinkApprovedV4Root; init
+    /// присваивает `Self.live`, так что PremiumStatusManager видит стор.
+    @MainActor
+    static let shared = AppearanceStore(entitlement: DefaultEntitlementProvider())
+
     init(
         entitlement: EntitlementProviding,
         profileAPI: ProfileAPI = DefaultProfileAPI(),
@@ -201,6 +222,7 @@ internal final class AppearanceStore {
         self.emojiPackID = defaults.string(forKey: "plink.emojiPackID") ?? AppearanceCatalog.defaultEmojiPackID
 
         self.catalog = AppearanceCatalog.all
+        Self.live = self
     }
 
     // MARK: - Catalog queries
@@ -276,22 +298,134 @@ internal final class AppearanceStore {
         persistLocallyImmediately()
     }
 
+    // MARK: - V4 sync (Аудит 26.07.2026)
+    // Живой UI — V4 (PlinkApprovedV4Root/V4AppearanceView), но он писал только
+    // в UserDefaults и не делал ни одного сетевого вызова. Мост ниже гоняет
+    // V4-состояние через PUT/GET /api/profile/appearance: смена темы уезжает
+    // на сервер, старт приложения подтягивает и применяет серверный выбор.
+    // Сетевые сбои — молча остаёмся на локальных значениях (offline-first).
+
+    /// Пуш V4-темы (plink.v4ThemeName + plink.liveTheme) на сервер.
+    /// Зовётся из PlinkApprovedV4Root при каждой смене темы.
+    func syncV4Theme(themeName: String, liveIndex: Int) {
+        let id = V4AppearanceThemeMap.appThemeID(themeName: themeName, liveIndex: liveIndex)
+        guard id != appThemeID else { return }
+        appThemeID = id
+        persistLocallyImmediately()
+        Task { await self.pushToBackendSilently() }
+    }
+
+    /// Пуш выбранного бабл-стиля (ID каталога уже общий с V4).
+    func syncBubbleStyle(_ id: String) {
+        guard id != bubbleStyleID, catalog.contains(where: { $0.id == id }) else { return }
+        bubbleStyleID = id
+        persistLocallyImmediately()
+        Task { await self.pushToBackendSilently() }
+    }
+
+    /// Гидрация при старте (bootstrap V4-корня): GET → каталог → V4-ключи.
+    /// Работает без открытия экрана «Оформление» — смена устройства
+    /// подтягивает тему сразу. Особый случай: сервер отдаёт дефолты и когда
+    /// пользователь НИКОГДА не синкался — тогда локальный не-дефолтный выбор
+    /// главнее (миграция со старых сборок) и уезжает наверх, а не затирается.
+    func hydrateFromBackendAndApplyToV4() async {
+        await entitlement.refresh()
+        guard let remote = try? await profileAPI.fetchAppearance() else { return }
+
+        let localFromV4 = V4AppearanceThemeMap.appThemeID(
+            themeName: defaults.string(forKey: "plink.v4ThemeName") ?? "electric",
+            liveIndex: defaults.integer(forKey: "plink.liveTheme")
+        )
+        let remoteIsDefaults = remote.appThemeID == AppearanceCatalog.defaultAppThemeID
+            && remote.bubbleStyleID == AppearanceCatalog.defaultBubbleStyleID
+            && remote.emojiPackID == AppearanceCatalog.defaultEmojiPackID
+        let localIsDefaults = localFromV4 == AppearanceCatalog.defaultAppThemeID
+            && bubbleStyleID == AppearanceCatalog.defaultBubbleStyleID
+            && emojiPackID == AppearanceCatalog.defaultEmojiPackID
+
+        if remoteIsDefaults && !localIsDefaults {
+            // Миграция: сервер пуст — поднимаем локальный выбор.
+            appThemeID = sanitizedID(localFromV4, fallback: AppearanceCatalog.defaultAppThemeID)
+            persistLocallyImmediately()
+            await pushToBackendSilently()
+            return
+        }
+
+        let sanitizedTheme = sanitizedID(remote.appThemeID, fallback: AppearanceCatalog.defaultAppThemeID)
+        let sanitizedBubble = sanitizedID(remote.bubbleStyleID, fallback: AppearanceCatalog.defaultBubbleStyleID)
+        let sanitizedEmoji = sanitizedID(remote.emojiPackID, fallback: AppearanceCatalog.defaultEmojiPackID)
+        appThemeID = sanitizedTheme
+        bubbleStyleID = sanitizedBubble
+        emojiPackID = sanitizedEmoji
+        persistLocallyImmediately()
+        applyAppThemeToV4()
+        NotificationCenter.default.post(name: .plinkBubbleStyleChanged, object: bubbleStyleID)
+
+        // Сервер помнит платную тему, а прав уже нет — сообщаем даунгрейд.
+        if sanitizedTheme != remote.appThemeID
+            || sanitizedBubble != remote.bubbleStyleID
+            || sanitizedEmoji != remote.emojiPackID {
+            await pushToBackendSilently()
+        }
+    }
+
+    /// Премиум-ID без Plink+ схлопывается в свой бесплатный fallback;
+    /// неизвестный ID — в дефолт.
+    private func sanitizedID(_ id: String, fallback: String) -> String {
+        guard let d = descriptor(id: id) else { return fallback }
+        if d.premium && !entitlement.isPlinkPlus { return d.fallbackID ?? fallback }
+        return id
+    }
+
+    /// Применяет appThemeID к живым V4-ключам и уведомляет открытые экраны.
+    private func applyAppThemeToV4() {
+        let v4 = V4AppearanceThemeMap.v4State(for: appThemeID)
+        defaults.set(v4.themeName, forKey: "plink.v4ThemeName")
+        defaults.set(v4.liveIndex, forKey: "plink.liveTheme")
+        NotificationCenter.default.post(name: .plinkLiveThemeChanged, object: v4.liveIndex)
+        NotificationCenter.default.post(name: .plinkV4ThemeRestored, object: v4.themeName)
+    }
+
+    /// Единая точка PUT /api/profile/appearance. Ошибки глотаем: локальный
+    /// выбор уже сохранён, ретрай случится при следующей смене/гидрации.
+    private func pushToBackendSilently() async {
+        isCommitting = true
+        defer { isCommitting = false }
+        try? await profileAPI.updateAppearance(
+            appThemeID: appThemeID,
+            bubbleStyleID: bubbleStyleID,
+            emojiPackID: emojiPackID
+        )
+    }
+
     // MARK: - Plink+ expiry rollback
 
     /// Called when entitlement expires. Locked selections are reverted to
     /// their fallback so the user never sees a "broken" profile.
     func handleEntitlementExpiry() {
+        var rolledBack = false
         if let d = descriptor(id: appThemeID), d.premium {
             appThemeID = d.fallbackID ?? AppearanceCatalog.defaultAppThemeID
             persistLocallyImmediately()
+            rolledBack = true
         }
         if let d = descriptor(id: bubbleStyleID), d.premium {
             bubbleStyleID = d.fallbackID ?? AppearanceCatalog.defaultBubbleStyleID
             persistLocallyImmediately()
+            rolledBack = true
         }
         if let d = descriptor(id: emojiPackID), d.premium {
             emojiPackID = d.fallbackID ?? AppearanceCatalog.defaultEmojiPackID
             persistLocallyImmediately()
+            rolledBack = true
+        }
+        // Аудит 26.07.2026: откат виден сразу (V4-ключи + нотификации) и
+        // уезжает на сервер — иначе другое устройство снова гидрирует
+        // платную тему после даунгрейда Plink+.
+        if rolledBack {
+            applyAppThemeToV4()
+            NotificationCenter.default.post(name: .plinkBubbleStyleChanged, object: bubbleStyleID)
+            Task { await self.pushToBackendSilently() }
         }
     }
 
@@ -316,7 +450,9 @@ internal enum AppearanceCatalog {
 
     static let all: [AppearanceDescriptor] = appStatic + appLive + roomLive + bubbleStatic + bubbleAnimated + emojiPack
 
-    // 2 free app themes
+    // Free app themes. Аудит 26.07.2026: каталог покрывает ВСЕ пять
+    // статических тем живого V4 (V4Theme.allCases) — эти ID хранит сервер
+    // в /api/profile/appearance, маппинг на V4Theme — V4AppearanceThemeMap.
     static let appStatic: [AppearanceDescriptor] = [
         .init(
             id: "electric-static", kind: .appStatic,
@@ -332,10 +468,64 @@ internal enum AppearanceCatalog {
             previewAsset: "drop.fill",
             previewColors: ["#06231F", "#0F4D45", "#3FE8C8"]
         ),
+        .init(
+            id: "ember-static", kind: .appStatic,
+            title: "Ember", subtitle: "Янтарный V4",
+            premium: false,
+            previewAsset: "flame.fill",
+            previewColors: ["#1A1410", "#FF8A3D", "#F5C26B"]
+        ),
+        .init(
+            id: "violet-static", kind: .appStatic,
+            title: "Violet", subtitle: "Фиолетовый V4",
+            premium: false,
+            previewAsset: "moon.stars.fill",
+            previewColors: ["#160B2A", "#A855F7", "#F0ABFC"]
+        ),
+        .init(
+            id: "bloom-static", kind: .appStatic,
+            title: "Bloom", subtitle: "Розовый V4",
+            premium: false,
+            previewAsset: "circle.dashed.inset.filled",
+            previewColors: ["#2A0B1F", "#F472B6", "#FBCFE8"]
+        ),
     ]
 
-    // 5 Plink+ live app themes
+    // Plink+ live app themes.
+    // Аудит 26.07.2026: первые четыре — живые видео-темы V4
+    // (PlinkPlusLiveTheme: aurora/cosmos/verdant/magma), именно их выбирает
+    // живой экран V4AppearanceView и хранит сервер. Остальные — легаси-ID
+    // V5-каталога: оставлены, чтобы старые серверные записи валидировались
+    // и корректно схлопывались в fallback при гидрации.
     static let appLive: [AppearanceDescriptor] = [
+        .init(
+            id: "live-aurora", kind: .appLive,
+            title: "Aurora", subtitle: "Живое видео V4",
+            premium: true, previewAsset: "sparkles",
+            previewColors: ["#280F21", "#FC6398", "#B63054"],
+            fallbackID: "bloom-static"
+        ),
+        .init(
+            id: "live-cosmos", kind: .appLive,
+            title: "Cosmos", subtitle: "Живое видео V4",
+            premium: true, previewAsset: "moon.stars.fill",
+            previewColors: ["#000000", "#012CED", "#1370FC"],
+            fallbackID: "electric-static"
+        ),
+        .init(
+            id: "live-verdant", kind: .appLive,
+            title: "Verdant", subtitle: "Живое видео V4",
+            premium: true, previewAsset: "leaf.fill",
+            previewColors: ["#0E100B", "#9EF459", "#A4FF83"],
+            fallbackID: "plink-static"
+        ),
+        .init(
+            id: "live-magma", kind: .appLive,
+            title: "Magma", subtitle: "Живое видео V4",
+            premium: true, previewAsset: "flame.fill",
+            previewColors: ["#1A0503", "#AE0000", "#690003"],
+            fallbackID: "ember-static"
+        ),
         .init(
             id: "afterglow-live", kind: .appLive,
             title: "Afterglow", subtitle: "Северное свечение",
@@ -461,4 +651,55 @@ internal enum AppearanceCatalog {
               premium: true, previewAsset: "crown.fill",
               previewColors: ["#22D3EE", "#0E7490"], fallbackID: "system-unicode"),
     ]
+}
+
+// MARK: - V4AppearanceThemeMap (Аудит 26.07.2026)
+
+/// Мост между V4-состоянием темы (UserDefaults: plink.v4ThemeName +
+/// plink.liveTheme) и каноническими ID каталога, которые хранит сервер в
+/// /api/profile/appearance. Держит обе стороны синка детерминированными.
+internal enum V4AppearanceThemeMap {
+    /// V4Theme.rawValue → ID статической темы каталога.
+    private static let staticByTheme: [String: String] = [
+        "electric": "electric-static",
+        "plink": "plink-static",
+        "ember": "ember-static",
+        "violet": "violet-static",
+        "bloom": "bloom-static",
+    ]
+
+    /// PlinkPlusLiveTheme.rawValue → ID живой темы каталога.
+    private static let liveByIndex: [Int: String] = [
+        1: "live-aurora",
+        2: "live-cosmos",
+        3: "live-verdant",
+        4: "live-magma",
+    ]
+
+    static func appThemeID(themeName: String, liveIndex: Int) -> String {
+        if let id = liveByIndex[liveIndex] { return id }
+        return staticByTheme[themeName] ?? AppearanceCatalog.defaultAppThemeID
+    }
+
+    static func v4State(for appThemeID: String) -> (themeName: String, liveIndex: Int) {
+        if let idx = liveByIndex.first(where: { $0.value == appThemeID })?.key {
+            let name = PlinkPlusLiveTheme.resolve(idx)?.closestStandardTheme.rawValue ?? "electric"
+            return (name, idx)
+        }
+        if let name = staticByTheme.first(where: { $0.value == appThemeID })?.key {
+            return (name, 0)
+        }
+        // Легаси V5-ID (afterglow-live и т.п.): один шаг по fallbackID каталога.
+        if let fb = AppearanceCatalog.all.first(where: { $0.id == appThemeID })?.fallbackID,
+           let name = staticByTheme.first(where: { $0.value == fb })?.key {
+            return (name, 0)
+        }
+        return ("electric", 0)
+    }
+}
+
+internal extension Notification.Name {
+    /// Аудит 26.07.2026: статическая V4-тема, восстановленная с сервера
+    /// (object — V4Theme.rawValue). Слушает PlinkApprovedV4Root.
+    static let plinkV4ThemeRestored = Notification.Name("plink.v4ThemeRestored")
 }

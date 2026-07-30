@@ -22,6 +22,14 @@ export interface PlinkSocket extends WebSocket {
   // used by heartbeat to refresh lease via refreshPresenceLease().
   connectionId?: string;
   _rateBuckets?: Map<string, { count: number; resetAt: number }>;
+  // Аудит 26.07.2026 P2: учёт пропущенных из-за backpressure отправок.
+  // Пассивный зритель ничего не шлёт, поэтому входящий checkSlowConsumer
+  // (messageRouter) его не отсекает — считаем пропуски здесь.
+  _dropStreak?: number;
+  _dropSince?: number;
+  // Ревью P2: время последнего пропуска — нужно, чтобы отличить непрерывный
+  // затык от двух пропусков, разделённых минутой тишины в комнате.
+  _lastDropAt?: number;
 }
 
 export class ConnectionRegistry {
@@ -126,10 +134,7 @@ export class ConnectionRegistry {
     const encoded = JSON.stringify(payload);
     let sent = 0;
     for (const s of userSet) {
-      if (s.readyState !== s.OPEN) continue;
-      if ((s.bufferedAmount ?? 0) > 256 * 1024) continue;
-      s.send(encoded);
-      sent++;
+      if (this.trySend(s, encoded)) sent++;
     }
     return sent;
   }
@@ -143,11 +148,68 @@ export class ConnectionRegistry {
     if (sockets.length === 0) return;
     const encoded = JSON.stringify(msg);
     for (const s of sockets) {
-      if (s.readyState !== s.OPEN) continue;
-      // Slow consumer guard — don't add to a backpressured socket
-      if ((s.bufferedAmount ?? 0) > 256 * 1024) continue;
-      s.send(encoded);
+      this.trySend(s, encoded);
     }
+  }
+
+  // ── Аудит 26.07.2026 P2: backpressure с эвикцией ────────────────────────
+  // Раньше сокет с bufferedAmount > 256KB просто пропускался (continue) и
+  // навсегда оставался в комнате, тихо теряя sync.state и чат: входящий
+  // checkSlowConsumer к нему не применялся, потому что зритель ничего не
+  // шлёт. Теперь считаем подряд идущие пропуски и длительность непрерывного
+  // backpressure — при превышении порога закрываем сокет, клиент
+  // переподключится и заберёт снапшот.
+  private static readonly BACKPRESSURE_BYTES = 256 * 1024;
+  private static readonly MAX_DROP_STREAK = 20;
+  private static readonly MAX_BACKPRESSURE_MS = 15_000;
+  // Ревью P2: _dropSince сбрасывался только при УСПЕШНОЙ отправке, а попытки
+  // происходят лишь при броадкасте. В тихой комнате между двумя пропусками
+  // проходили десятки секунд, и второй же пропуск давал stuckMs >= 15s —
+  // здоровый клиент вылетал с 1011. Серия считается прерванной, если между
+  // пропусками была пауза длиннее этого окна.
+  private static readonly DROP_STREAK_GAP_MS = 5_000;
+
+  /** Отправить, если сокет успевает читать. true — сообщение ушло. */
+  private trySend(socket: PlinkSocket, encoded: string): boolean {
+    if (socket.readyState !== socket.OPEN) return false;
+    const buffered = (socket.bufferedAmount ?? 0) as number;
+    if (buffered > ConnectionRegistry.BACKPRESSURE_BYTES) {
+      const now = Date.now();
+      const lastDropAt = socket._lastDropAt;
+      if (lastDropAt === undefined || now - lastDropAt > ConnectionRegistry.DROP_STREAK_GAP_MS) {
+        // Пропуски шли не подряд — начинаем новую серию.
+        socket._dropStreak = 0;
+        socket._dropSince = now;
+      }
+      socket._lastDropAt = now;
+      socket._dropStreak = (socket._dropStreak ?? 0) + 1;
+      if (socket._dropSince === undefined) socket._dropSince = now;
+      const stuckMs = now - socket._dropSince;
+      if (
+        socket._dropStreak >= ConnectionRegistry.MAX_DROP_STREAK ||
+        stuckMs >= ConnectionRegistry.MAX_BACKPRESSURE_MS
+      ) {
+        console.warn(
+          `[ConnectionRegistry] slow consumer evicted: user=${socket.userId} room=${socket.activeRoomId} ` +
+            `buffered=${buffered} skipped=${socket._dropStreak} stuckMs=${stuckMs}`,
+        );
+        socket._dropStreak = 0;
+        socket._dropSince = undefined;
+        socket._lastDropAt = undefined;
+        try {
+          socket.close(1011, 'Slow consumer');
+        } catch {
+          /* сокет уже рвётся — cleanup сделает finalize по 'close' */
+        }
+      }
+      return false;
+    }
+    // Сокет разгрузился — сбрасываем счётчики.
+    socket._dropStreak = 0;
+    socket._dropSince = undefined;
+    socket._lastDropAt = undefined;
+    socket.send(encoded);
+    return true;
   }
 
   /** Total connections on this replica (for metrics). */

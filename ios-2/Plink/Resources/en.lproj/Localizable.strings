@@ -74,13 +74,14 @@
 "paywall.benefit.rooms" = "No daily room limit";
 "paywall.benefit.quality" = "1080p playback";
 "paywall.benefit.ai" = "Priority in the AI queue";
-"paywall.plan.perMonth" = "≈ %d ₽ per month";
+"paywall.plan.perMonth" = "≈ %@ per month";
 "paywall.plan.monthly.note" = "Cancel anytime";
 "paywall.plan.lifetime.note" = "One payment, yours forever";
 "paywall.plan.savings" = "−%d%%";
 "paywall.loading" = "Loading prices…";
 "paywall.cta" = "Get Plink+";
 "paywall.error.title" = "Purchase could not be completed";
+"paywall.error.productUnavailable" = "Prices are still loading from the App Store. Please try again in a few seconds.";
 "legal.terms" = "Terms";
 "legal.privacy" = "Privacy";
 "common.ok" = "OK";

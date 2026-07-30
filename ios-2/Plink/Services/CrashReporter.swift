@@ -93,7 +93,7 @@ final class CrashReporter: @unchecked Sendable {
                 at: Self.reportsDirectory, includingPropertiesForKeys: nil
             ), !files.isEmpty else { return }
             guard let url = URL(string: PlinkConfig.apiURLString + "/telemetry/crash") else { return }
-            let token = KeychainHelper.read(for: "rave_auth_token")
+            let token = AuthTokenStore.shared.token
 
             for file in files.prefix(10) where file.pathExtension == "json" {
                 guard let data = try? Data(contentsOf: file) else { continue }

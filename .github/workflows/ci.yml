@@ -1,0 +1,55 @@
+# Аудит 26.07.2026 (7.5): первый CI проекта. До этого «100 passed» на машине
+# без Redis молча превращалось в 86 — здесь Redis поднят как service,
+# интеграционные тесты обязаны выполняться, а не скипаться.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: backend-3 (tsc + vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-3
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend-3/package-lock.json
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Prisma client (нужен для типов до tsc)
+        run: npx prisma generate
+
+      - name: Типы (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Тесты (vitest, Redis доступен как service)
+        run: npx vitest run
+
+  # ios: job-заглушка.
+  # Аудит 26.07.2026: iOS-сборку в CI НЕ добавляем — GitHub-репозиторий бэкенда
+  # устарел относительно локального монорепо, macos-runner не настроен,
+  # и xcodegen-проект живёт только локально. Когда репо синхронизируют:
+  # runs-on: macos-14, шаги xcodegen generate → xcodebuild -scheme Plink build.

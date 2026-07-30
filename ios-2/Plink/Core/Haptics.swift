@@ -6,31 +6,36 @@
 
 import UIKit
 
+// Аудит 26.07.2026: хранимое свойство `light` и метод `light()` — это для Swift
+// одно и то же имя в одном типе (базовое имя совпадает, аргументов нет) —
+// отсюда «Invalid redeclaration of 'light()'» и то же для 'medium()'.
+// Генераторам дан суффикс Generator — как у уже существовавшего selectionGenerator.
+// Публичный API (Haptics.light(), Haptics.medium(), …) не изменился.
 @MainActor
 enum Haptics {
-    private static let light = UIImpactFeedbackGenerator(style: .light)
-    private static let medium = UIImpactFeedbackGenerator(style: .medium)
-    private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+    private static let lightGenerator = UIImpactFeedbackGenerator(style: .light)
+    private static let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
+    private static let rigidGenerator = UIImpactFeedbackGenerator(style: .rigid)
     private static let selectionGenerator = UISelectionFeedbackGenerator()
-    private static let notification = UINotificationFeedbackGenerator()
+    private static let notificationGenerator = UINotificationFeedbackGenerator()
 
     static func prepare() {
-        light.prepare()
-        medium.prepare()
-        rigid.prepare()
+        lightGenerator.prepare()
+        mediumGenerator.prepare()
+        rigidGenerator.prepare()
         selectionGenerator.prepare()
-        notification.prepare()
+        notificationGenerator.prepare()
     }
 
-    static func light() { light.impactOccurred() }
-    static func medium() { medium.impactOccurred() }
-    static func rigidTap() { rigid.impactOccurred() }
+    static func light() { lightGenerator.impactOccurred() }
+    static func medium() { mediumGenerator.impactOccurred() }
+    static func rigidTap() { rigidGenerator.impactOccurred() }
     static func selection() { selectionGenerator.selectionChanged() }
-    static func success() { notification.notificationOccurred(.success) }
-    static func warning() { notification.notificationOccurred(.warning) }
-    static func error() { notification.notificationOccurred(.error) }
+    static func success() { notificationGenerator.notificationOccurred(.success) }
+    static func warning() { notificationGenerator.notificationOccurred(.warning) }
+    static func error() { notificationGenerator.notificationOccurred(.error) }
 
     /// Отсчёт 3-2-1 перед стартом просмотра: каждая цифра — короткий тик.
-    static func countdownTick() { rigid.impactOccurred(intensity: 0.7) }
-    static func countdownFinish() { notification.notificationOccurred(.success) }
+    static func countdownTick() { rigidGenerator.impactOccurred(intensity: 0.7) }
+    static func countdownFinish() { notificationGenerator.notificationOccurred(.success) }
 }

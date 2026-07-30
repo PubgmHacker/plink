@@ -7,6 +7,12 @@ import UIKit
 
 struct WatchChatView: View {
     let model: WatchRoomModel
+    // Ревью 26.07.2026: скрим живой темы обязан слушать «Уменьшение
+    // прозрачности» (иначе фон под текстом становится полупрозрачным ровно
+    // там, где настройка просит обратного) и знать, есть ли за поверхностью
+    // сама подложка — в landscape её перекрывает плеер, и просвечивало бы видео.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.verticalSizeClass) private var heightClass
     @State private var atBottom = true
     @State private var reportTarget: ChatMessageInfo?
     @State private var blockTarget: ChatMessageInfo?
@@ -71,10 +77,25 @@ struct WatchChatView: View {
             .scrollIndicators(.hidden)
             .background(
                 ZStack {
-                    // Room theme from Оформление → Темы комнат
-                    PremiumStatusManager.shared.selectedRoomTheme.chatBackground
-                        .opacity(0.92)
-                    Cinema2026.background.opacity(0.18)
+                    // P1 5.11: когда хост включил живую тему комнаты, фоном
+                    // владеет она — пропускаем подложку сквозь чат, оставляя
+                    // только скрим для читаемости текста. Без живой темы всё
+                    // как раньше: тема из «Оформление → Темы комнат».
+                    // scrimOpacity == 1.0 означает «подложки нет или её просили
+                    // не просвечивать» — тогда идём обычной веткой.
+                    let scrim = RoomLiveTheme.scrimOpacity(
+                        model.appearanceStore.appearance,
+                        reduceTransparency: reduceTransparency,
+                        backdropVisible: heightClass != .compact
+                    )
+                    if scrim < 1.0 {
+                        Cinema2026.background
+                            .opacity(scrim)
+                    } else {
+                        PremiumStatusManager.shared.selectedRoomTheme.chatBackground
+                            .opacity(0.92)
+                        Cinema2026.background.opacity(0.18)
+                    }
                 }
                 .ignoresSafeArea()
             )
@@ -335,14 +356,14 @@ private struct WatchChatBubbleInline: View {
                 }
 
                 if message.isPending {
-                    Text("Sending…")
+                    Text(LocalizationManager.shared.string(.msgSending))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Cinema2026.secondary)
                 } else if message.isFailed {
                     Button(action: onRetry) {
                         HStack(spacing: 3) {
                             Image(systemName: "arrow.clockwise")
-                            Text("Retry")
+                            Text(LocalizationManager.shared.string(.offlineRetry))
                         }
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Cinema2026.danger)

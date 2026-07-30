@@ -106,12 +106,11 @@ final class DMTests: XCTestCase {
             isRead: false,
             senderAvatarURL: nil
         )
-        // initials takes first letter of each word part (prefix 2).
-        // "Alice" → "A"
+        // Живой initials — одна буква (PlinkAvatarURL.letter): "Alice" → "A"
         XCTAssertFalse(dm.initials.isEmpty)
     }
 
-    func testDirectMessage_initials_twoWords() {
+    func testDirectMessage_initials_firstLetterOnly() {
         let dm = DirectMessage(
             id: "msg-1",
             conversationID: "conv-1",
@@ -123,28 +122,30 @@ final class DMTests: XCTestCase {
             isRead: false,
             senderAvatarURL: nil
         )
-        // "Alice Wonderland" → "AW"
-        XCTAssertEqual(dm.initials.count, 2)
+        // Живой DirectMessage.initials — ОДНА заглавная буква первого слова
+        // (PlinkAvatarURL.letter), консистентно с Friend.initials и
+        // placeholder-аватарками во всём UI: "Alice Wonderland" → "A".
+        XCTAssertEqual(dm.initials, "A")
     }
 
     // MARK: - DMChatService
 
     func testDMChatService_conversationID_isDeterministic() {
-        let service = DMChatService()
+        let service = DMChatService(api: APIClient.shared)
         let id1 = service.conversationID(with: "friend-1")
         let id2 = service.conversationID(with: "friend-1")
         XCTAssertEqual(id1, id2, "conversationID must be deterministic for same friendID")
     }
 
     func testDMChatService_conversationID_differentForDifferentFriends() {
-        let service = DMChatService()
+        let service = DMChatService(api: APIClient.shared)
         let id1 = service.conversationID(with: "friend-1")
         let id2 = service.conversationID(with: "friend-2")
         XCTAssertNotEqual(id1, id2)
     }
 
     func testDMChatService_messagesForFriend_emptyInitially() {
-        let service = DMChatService()
+        let service = DMChatService(api: APIClient.shared)
         let messages = service.messages(for: "friend-1")
         XCTAssertTrue(messages.isEmpty, "Messages should be empty before loadHistory")
     }
@@ -166,7 +167,7 @@ final class DMTests: XCTestCase {
         let data = try? JSONEncoder().encode(user)
         UserDefaults.standard.set(data, forKey: "rave_saved_user")
 
-        let service = DMChatService()
+        let service = DMChatService(api: APIClient.shared)
         let convId = service.conversationID(with: "friend-1")
         // Conversation ID format is typically sorted pair — verify it's stable.
         XCTAssertFalse(convId.isEmpty)

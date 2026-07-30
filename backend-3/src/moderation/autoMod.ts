@@ -49,15 +49,34 @@ const mutes = new Map<string, MuteEntry>();
 const strikes = new Map<string, { count: number; windowStart: number }>();
 
 const STRIKE_WINDOW_MS = 10 * 60_000;
+const PRUNE_INTERVAL_MS = 60_000;
+let lastPruneAt = 0;
 
 function muteKey(scope: string, userId: string): string {
   return `${scope}::${userId}`;
+}
+
+/**
+ * Ленивая чистка in-memory карт: истёкшие муты и страйки за пределами окна.
+ * Без страйков ключи вида `group:<uuid>::<userId>` копились до рестарта процесса.
+ * Специально без setInterval — таймер держал бы event loop (graceful shutdown/тесты).
+ */
+function pruneExpired(now: number): void {
+  if (now - lastPruneAt < PRUNE_INTERVAL_MS) return;
+  lastPruneAt = now;
+  for (const [key, entry] of mutes) {
+    if (entry.until <= now) mutes.delete(key);
+  }
+  for (const [key, s] of strikes) {
+    if (now - s.windowStart >= STRIKE_WINDOW_MS) strikes.delete(key);
+  }
 }
 
 /** Замутить. Эскалация: 1-й страйк 60с, 2-й — 3 мин, 3+ — 10 мин (в окне 10 мин). */
 export function muteUser(scope: string, userId: string, reason: string, baseSeconds = 60): number {
   const key = muteKey(scope, userId);
   const now = Date.now();
+  pruneExpired(now);
   const s = strikes.get(key);
   let count = 1;
   if (s && now - s.windowStart < STRIKE_WINDOW_MS) count = s.count + 1;
@@ -70,14 +89,23 @@ export function muteUser(scope: string, userId: string, reason: string, baseSeco
 /** Остаток мута в секундах (0 — не замучен). */
 export function muteRemainingSec(scope: string, userId: string): number {
   const key = muteKey(scope, userId);
+  const now = Date.now();
+  pruneExpired(now);
   const entry = mutes.get(key);
   if (!entry) return 0;
-  const remaining = Math.ceil((entry.until - Date.now()) / 1000);
+  const remaining = Math.ceil((entry.until - now) / 1000);
   if (remaining <= 0) {
     mutes.delete(key);
+    const s = strikes.get(key);
+    if (s && now - s.windowStart >= STRIKE_WINDOW_MS) strikes.delete(key);
     return 0;
   }
   return remaining;
+}
+
+/** Только для тестов/диагностики: размер in-memory карт автомодерации. */
+export function __automodMapSizes(): { mutes: number; strikes: number } {
+  return { mutes: mutes.size, strikes: strikes.size };
 }
 
 // ── NSFW-проверка фото через vision-модель OpenRouter (fail-open при отсутствии ключа/таймауте).

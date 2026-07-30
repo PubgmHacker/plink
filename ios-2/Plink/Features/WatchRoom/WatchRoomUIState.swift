@@ -22,6 +22,11 @@ struct WatchRoomUIState: Equatable {
     var previewPosition: Double?
     var unreadCount = 0
     var activeToast: RoomToast?
+    /// P1 5.11 (ревью): панель живой темы комнаты. Флаг живёт ЗДЕСЬ, а не в
+    /// PlayerTopChrome: хром сидит внутри `if ui.controlsVisible` и через 4 с
+    /// автоскрытия удалялся из иерархии вместе с презентованным шитом —
+    /// панель схлопывалась прямо под пальцем хоста.
+    var appearancePanelPresented = false
 
     // PATCH 02 scaffolding — ambient + identity + presence shell.
     // Commit 7 (PATCH 06) replaces AmbientState defaults with sampled palette.

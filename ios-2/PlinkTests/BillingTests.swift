@@ -112,4 +112,114 @@ final class BillingTests: XCTestCase {
         XCTAssertEqual(manager.purchaseState, .idle)
         XCTAssertNil(manager.errorMessage)
     }
+
+    // MARK: - User.premiumUntil (серверная дата окончания Plink+)
+    //
+    // Аудит 26.07.2026 (P2): бэкенд отдаёт `premiumUntil` в GET /users/me и
+    // PATCH /users/me, но модель User это поле теряла — PremiumStatusManager
+    // никогда не узнавал авторитетную дату истечения подписки.
+
+    /// Копия стратегии дат из APIClient.init — сервер шлёт JS `toISOString()`
+    /// с миллисекундами, стандартный `.iso8601` их не разбирает.
+    private func apiLikeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            if let date = formatter.date(from: raw) { return date }
+            if let date = ISO8601DateFormatter().date(from: raw) { return date }
+            return Date()
+        }
+        return decoder
+    }
+
+    /// "2026-08-25T10:00:00.000Z"
+    private let premiumUntilEpoch: TimeInterval = 1_787_652_000
+
+    func testUser_decodesPremiumUntilWithMilliseconds() throws {
+        let json = """
+        {
+            "id": "u1", "username": "alex_films", "email": "alex@example.com",
+            "avatarURL": null, "avatarData": null, "displayName": "Alex",
+            "coverURL": null, "isOnline": true, "isPremium": true,
+            "premiumUntil": "2026-08-25T10:00:00.000Z",
+            "role": "USER", "createdAt": "2026-07-03T16:53:52.778Z"
+        }
+        """.data(using: .utf8)!
+
+        let user = try apiLikeDecoder().decode(User.self, from: json)
+        XCTAssertTrue(user.isPremium)
+        // Жёсткая проверка значения: стратегия APIClient на неразобранной строке
+        // возвращает Date() («сейчас»), поэтому XCTAssertNotNil ничего не доказал бы.
+        XCTAssertEqual(user.premiumUntil?.timeIntervalSince1970 ?? 0,
+                       premiumUntilEpoch, accuracy: 0.5)
+    }
+
+    func testUser_decodesWithoutPremiumUntil_authResponseShape() throws {
+        // /auth/signin и /auth/signup поле не отдают — модель обязана выжить.
+        let json = """
+        {
+            "id": "u1", "username": "alex_films", "email": "alex@example.com",
+            "isPremium": true, "role": "USER"
+        }
+        """.data(using: .utf8)!
+
+        let user = try apiLikeDecoder().decode(User.self, from: json)
+        XCTAssertNil(user.premiumUntil, "Отсутствующее поле = «сервер дату не сообщил»")
+        XCTAssertTrue(user.isPremium)
+        XCTAssertEqual(user.username, "alex_films")
+    }
+
+    func testUser_decodesNullPremiumUntil_lifetime() throws {
+        // isPremium=true + premiumUntil=null в БД = пожизненный Plink+.
+        let json = """
+        {
+            "id": "u1", "username": "alex_films", "email": "alex@example.com",
+            "isPremium": true, "premiumUntil": null,
+            "role": "USER", "createdAt": "2026-07-03T16:53:52.778Z"
+        }
+        """.data(using: .utf8)!
+
+        let user = try apiLikeDecoder().decode(User.self, from: json)
+        XCTAssertNil(user.premiumUntil)
+        XCTAssertTrue(user.isPremium)
+    }
+
+    /// User декодируют и обычным `JSONDecoder()` (кэш профиля, сторонние
+    /// вызовы) — там стратегия `.deferredToDate` ждёт число и на ISO-строке
+    /// бросает typeMismatch. Новое поле не должно ронять всю модель.
+    func testUser_premiumUntilSurvivesDefaultDateStrategy() throws {
+        let json = """
+        {
+            "id": "u1", "username": "alex_films", "email": "alex@example.com",
+            "isPremium": true, "premiumUntil": "2026-08-25T10:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let user = try JSONDecoder().decode(User.self, from: json)
+        XCTAssertEqual(user.premiumUntil?.timeIntervalSince1970 ?? 0,
+                       premiumUntilEpoch, accuracy: 0.5)
+    }
+
+    /// AuthService.cacheUser кодирует `.iso8601`, decodeCachedUser читает
+    /// кастомной стратегией — дата обязана пережить перезапуск приложения.
+    func testUser_premiumUntilSurvivesCacheRoundTrip() throws {
+        let original = User(
+            id: "u1", username: "alex_films", email: "alex@example.com",
+            avatarURL: nil, isOnline: true, isPremium: true,
+            premiumUntil: Date(timeIntervalSince1970: premiumUntilEpoch),
+            role: "USER", createdAt: Date()
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(original)
+
+        let restored = try apiLikeDecoder().decode(User.self, from: data)
+        XCTAssertEqual(restored.premiumUntil?.timeIntervalSince1970 ?? 0,
+                       premiumUntilEpoch, accuracy: 1.0)
+    }
 }

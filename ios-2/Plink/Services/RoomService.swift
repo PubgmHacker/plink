@@ -12,21 +12,33 @@ final class RoomService: RoomServiceProtocol {
 
     // MARK: - Create Room
 
+    // Аудит 26.07.2026: события воронки были ОПИСАНЫ в AnalyticsService,
+    // но не вызывались — 11 из 17. В том числе весь основной цикл продукта:
+    // создание комнаты, вход и выход. Без них удержание D1/D7/D30 измерить
+    // невозможно, а это метрика №1 для решения о масштабировании.
+    // Трекинг ставится ЗДЕСЬ, а не в UI: так событие фиксируется независимо
+    // от того, из какого экрана пришёл вызов, и ровно один раз.
+
     func createRoom(_ request: CreateRoomRequest) async throws -> Room {
-        try await api.request("rooms", method: .post, body: request)
+        let room: Room = try await api.request("rooms", method: .post, body: request)
+        AnalyticsService.shared.roomCreated(source: request.mediaItem?.source.rawValue ?? "unknown")
+        return room
     }
 
     // MARK: - Join Room
 
     func joinRoom(code: String, password: String? = nil) async throws -> Room {
         let request = JoinRoomRequest(code: code, password: password)
-        return try await api.request("rooms/join", method: .post, body: request)
+        let room: Room = try await api.request("rooms/join", method: .post, body: request)
+        AnalyticsService.shared.roomJoined(via: "code")
+        return room
     }
 
     // MARK: - Leave Room
 
     func leaveRoom(roomID: String) async throws {
         try await api.requestNoBody("rooms/\(roomID)/leave", method: .post)
+        AnalyticsService.shared.roomLeft()
         await MainActor.run {
             NotificationCenter.default.post(name: .plinkRoomsDidChange, object: roomID)
         }
@@ -75,11 +87,9 @@ final class RoomService: RoomServiceProtocol {
         try await api.requestNoBody("rooms/\(roomID)", method: .delete)
     }
 
-    // MARK: - Public Rooms (топ-5)
-
-    func fetchPublicRooms() async throws -> [Room] {
-        try await api.request("rooms/public")
-    }
+    // Аудит 26.07.2026: fetchPublicRooms() удалён — роут /rooms/public на
+    // сервере отдаёт 404 (rooms.ts), единственным потребителем был мёртвый
+    // DiscoveryService.
 
     // MARK: - My Rooms
 
@@ -89,8 +99,15 @@ final class RoomService: RoomServiceProtocol {
 
     /// - Parameter status: `active` | `history` | `all`.
     func fetchMyRooms(status: String) async throws -> [Room] {
-        let path = status == "all" ? "rooms/mine" : "rooms/mine?status=\(status)"
-        return try await api.request(path, method: .get)
+        // Строку запроса нельзя клеить к пути: APIClient собирает URL через
+        // appendingPathComponent, который экранирует «?» в %3F — получался путь
+        // «rooms/mine%3Fstatus=active» и стабильный 404. Из-за этого «мои комнаты»
+        // и история не загружались вообще. Параметры идём через query:.
+        return try await api.request(
+            "rooms/mine",
+            method: .get,
+            query: status == "all" ? nil : ["status": status]
+        )
     }
 
     /// Only rooms still joinable (live + people inside).

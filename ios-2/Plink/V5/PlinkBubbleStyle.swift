@@ -642,7 +642,7 @@ struct PlinkMessageBubble: View {
                 .strokeBorder(
                     isOwn
                         ? Cinema2026.accent.opacity(0.35)
-                        : (isDecorative ? frame.borderColor : Color.white.opacity(0.08)),
+                        : (isDecorative ? (frame.borderColors.first ?? Color.white.opacity(0.08)) : Color.white.opacity(0.08)),
                     lineWidth: isOwn ? 0 : (isDecorative ? 1.5 : 0.5)
                 )
 
@@ -883,7 +883,7 @@ struct PlinkPhotoMessageBubble: View {
         defer { isLoading = false }
         do {
             var request = URLRequest(url: imageURL)
-            let token = APIClient.shared.authToken ?? KeychainHelper.read(for: "rave_auth_token")
+            let token = APIClient.shared.authToken ?? AuthTokenStore.shared.token
             if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),

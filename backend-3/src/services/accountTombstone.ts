@@ -131,7 +131,18 @@ export async function tombstoneAccount(userId: string): Promise<{ alreadyDeleted
     /* ignore */
   }
 
-  await revokeAllUserTokens(userId).catch(() => {});
+  // Аудит 26.07.2026 (P2): молчаливый catch прятал незакрытые сессии — сбой
+  // отзыва не попадал ни в логи, ни в метрики. Бросать нельзя (PII уже вычищен,
+  // ответ клиенту обязан уйти), но факт должен быть виден: /auth/refresh теперь
+  // отдельно проверяет deletedAt, так что аккаунт всё равно не оживёт.
+  await revokeAllUserTokens(userId).catch((err) => {
+    console.error(
+      '[tombstone] revokeAllUserTokens failed for user',
+      userId,
+      '— сессии остались активными до истечения access-токена:',
+      err instanceof Error ? err.message : err,
+    );
+  });
 
   return { alreadyDeleted: false };
 }

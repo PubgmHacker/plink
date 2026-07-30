@@ -136,6 +136,9 @@ export function generateTOTPCode(secret: string, timestamp = Date.now()): string
 
 /** Проверка TOTP кода (с окном ±1 step для рассинхрона часов) */
 export function verifyTOTP(secret: string, code: string): boolean {
+  // timingSafeEqual бросает RangeError при разной длине буферов —
+  // код не из 6 цифр отклоняем до сравнения, иначе кривой ввод ронял бы запрос.
+  if (typeof code !== 'string' || !/^\d{6}$/.test(code)) return false;
   const now = Date.now();
   for (const offset of [-30000, 0, 30000]) {
     const expected = generateTOTPCode(secret, now + offset);
@@ -395,13 +398,32 @@ export async function processMessageStyle(
   return 'default';
 }
 
+/// ⚠️ АУДИТ 26.07.2026: функция делала ровно обратное задуманному.
+///
+/// Было: сначала вырезались теги, а ПОТОМ декодировались HTML-сущности:
+///     .replace(/<[^>]*>/g, '')                      // убрали теги
+///     .replace(/&lt;/g, '<').replace(/&gt;/g, '>')  // ...и вернули их обратно
+///
+/// То есть вход `&lt;script&gt;alert(1)&lt;/script&gt;` на выходе давал
+/// настоящий `<script>alert(1)</script>`. Санитайзер не защищал, а
+/// ВОССТАНАВЛИВАЛ вырезанную разметку. На самом бэкенде это не стреляло
+/// (ответы отдаются JSON'ом), но любой клиент, который рендерит чат как
+/// HTML, получал сохранённую XSS.
+///
+/// Стало: теги вырезаются, сущности НЕ раскодируются, а опасные символы
+/// экранируются. Текст остаётся читаемым, но перестаёт быть разметкой.
 function sanitizeText(text: string): string {
   if (!text || typeof text !== 'string') return '';
   let cleaned = text
+    // 1. Убираем разметку целиком.
     .replace(/<[^>]*>/g, '')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&').replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'").replace(/&#x2F;/g, '/');
+    // 2. Экранируем то, что осталось, чтобы текст нельзя было
+    //    интерпретировать как HTML ни на одном из клиентов.
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
   if (cleaned.length > 150) cleaned = cleaned.substring(0, 150);
   cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '');
   return cleaned.trim();

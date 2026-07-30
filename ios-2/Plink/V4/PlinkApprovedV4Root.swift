@@ -19,8 +19,10 @@ struct PlinkApprovedV4Root: View {
     @State private var liveThemeIndex: Int = UserDefaults.standard.integer(forKey: "plink.liveTheme")
     @State private var highContrast: Bool = PlinkAppearancePrefs.highContrast
 
-    // P0.2b: Unified WatchRoom presentation — single coordinator, single fullScreenCover
-    @State private var roomCoordinator = RoomPresentationCoordinator()
+    // Показ комнаты идёт через roomToPresent + .fullScreenCover ниже.
+    // Аудит 26.07.2026: @State roomCoordinator не читался ни разу (единственное
+    // упоминание во всём проекте — эта строка), вместе с ним удалён и мёртвый
+    // V5/PlinkRoomPresentation.swift.
     @State private var roomToPresent: Room?
 
     // P0: Real backend stores
@@ -32,6 +34,14 @@ struct PlinkApprovedV4Root: View {
     @State private var showCreateRoom = false
     @State private var showJoinByCode = false
     @State private var lastSharedRoomCode: String?
+
+    // Аудит 26.07.2026 P1: единственный консьюмер deep-link'ов (раньше
+    // pendingLink никто не читал — комната джойнилась на сервере, UI молчал).
+    @State private var pendingFriendInvite: V4FriendInvite?
+
+    // Аудит 26.07.2026 P2: жизненный цикл фоновых сервисов. Раньше
+    // stopUnreadPolling() не звали нигде — DM-опрос и presence-пинги жили вечно.
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment:.bottom){
@@ -81,9 +91,51 @@ struct PlinkApprovedV4Root: View {
         }
         .onChange(of: theme) { _, newTheme in
             UserDefaults.standard.set(newTheme.rawValue, forKey: "plink.v4ThemeName")
+            // Аудит 26.07.2026: выбор темы уезжает PUT /api/profile/appearance
+            // (кросс-девайс). Дедупликация и офлайн-деградация — внутри стора.
+            AppearanceStore.shared.syncV4Theme(
+                themeName: newTheme.rawValue,
+                liveIndex: UserDefaults.standard.integer(forKey: "plink.liveTheme")
+            )
+        }
+        // Аудит 26.07.2026 P2: в фоне гасим DM-опрос / realtime и presence-пинги,
+        // при возврате поднимаем и сразу подтягиваем свежие бейджи.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                guard APIClient.shared.authToken != nil else { return }
+                PresenceHeartbeat.start()
+                DMChatService.shared.startUnreadPolling()
+                Task { await DMChatService.shared.refreshUnread() }
+            case .background:
+                DMChatService.shared.stopUnreadPolling()
+                PresenceHeartbeat.stop()
+            default:
+                break
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .plinkLiveThemeChanged)) { n in
-            if let i = n.object as? Int { liveThemeIndex = i; if let l = PlinkPlusLiveTheme.resolve(i) { theme = l.closestStandardTheme } }
+            if let i = n.object as? Int {
+                liveThemeIndex = i
+                if let l = PlinkPlusLiveTheme.resolve(i) { theme = l.closestStandardTheme }
+                // Аудит 26.07.2026: смена/сброс живой темы тоже уезжает на
+                // сервер (onChange(of: theme) не сработает, если ближайшая
+                // статическая тема совпала с текущей). Имя темы берём из
+                // plink.v4ThemeName — он пишется ДО поста нотификации, а
+                // @State theme в этот момент может быть ещё старым (эхо
+                // гидрации иначе перетёрло бы серверный выбор).
+                AppearanceStore.shared.syncV4Theme(
+                    themeName: UserDefaults.standard.string(forKey: "plink.v4ThemeName") ?? theme.rawValue,
+                    liveIndex: i
+                )
+            }
+        }
+        // Аудит 26.07.2026: статическая тема, гидрированная с сервера при
+        // старте, — .plinkLiveThemeChanged(0) сам по себе тему не меняет.
+        .onReceive(NotificationCenter.default.publisher(for: .plinkV4ThemeRestored)) { n in
+            if let raw = n.object as? String, let restored = V4Theme(rawValue: raw) {
+                theme = restored
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .plinkAppearancePrefsChanged)) { _ in
             highContrast = PlinkAppearancePrefs.highContrast
@@ -156,6 +208,69 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
             Task { await roomsStore?.load() }
         }
+        // Аудит 26.07.2026 P1: deep links — комната открывается, заявка в друзья
+        // подтверждается алертом. @Published отдаёт текущее значение при подписке,
+        // так что ссылка, пришедшая до появления экрана, тоже обработается.
+        .onReceive(DeepLinkRouter.shared.$pendingLink) { link in
+            handleDeepLink(link)
+        }
+        .alert(
+            "Заявка в друзья",
+            isPresented: Binding(
+                get: { pendingFriendInvite != nil },
+                set: { if !$0 { pendingFriendInvite = nil } }
+            ),
+            presenting: pendingFriendInvite
+        ) { invite in
+            Button("Добавить") {
+                pendingFriendInvite = nil
+                Task { @MainActor in
+                    await FriendManager.shared.sendRequest(to: invite.userId, username: invite.username)
+                }
+            }
+            Button("Отмена", role: .cancel) { pendingFriendInvite = nil }
+        } message: { invite in
+            Text("Отправить заявку в друзья пользователю @\(invite.username)?")
+        }
+    }
+
+    // MARK: - Deep Links (Аудит 26.07.2026 P1)
+
+    @MainActor
+    private func handleDeepLink(_ link: DeepLinkType) {
+        switch link {
+        case .none:
+            return
+        case .room(let code):
+            DeepLinkRouter.shared.clear()
+            Task {
+                do {
+                    let joined = try await RoomService(api: APIClient.shared).joinRoom(code: code)
+                    await MainActor.run {
+                        HapticManager.roomJoined()
+                        roomToPresent = joined
+                        Task { await roomsStore?.load() }
+                    }
+                } catch {
+                    await MainActor.run { HapticManager.errorOccurred() }
+                }
+            }
+        case .friendInvite(let userId):
+            DeepLinkRouter.shared.clear()
+            Task {
+                let username = await Self.fetchUsername(userId: userId)
+                await MainActor.run {
+                    pendingFriendInvite = V4FriendInvite(userId: userId, username: username)
+                }
+            }
+        }
+    }
+
+    /// Имя пользователя для алерта-приглашения (фолбэк — «Пользователь»).
+    private static func fetchUsername(userId: String) async -> String {
+        struct UserDTO: Decodable { let username: String? }
+        let user: UserDTO? = try? await APIClient.shared.request("users/\(userId)")
+        return user?.username ?? "Пользователь"
     }
 
     /// Open a room from the rooms store (join first so presence/sync work multi-device).
@@ -179,112 +294,10 @@ struct PlinkApprovedV4Root: View {
     }
 
     /// Quick Room — one-tap create from first trending video.
-    private func quickCreateRoom() async {
-        guard let trending = searchStore.trending.first else { return }
-        guard KeychainHelper.read(for: "rave_auth_token") != nil else { return }
-        let videoId = trending.id
-        let mediaItem = MediaItem(
-            id: "https://www.youtube.com/embed/\(videoId)",
-            title: trending.title,
-            artist: nil,
-            thumbnailURL: trending.artworkURL?.absoluteString,
-            streamURL: "https://www.youtube.com/embed/\(videoId)",
-            duration: nil,
-            mediaType: .video,
-            source: .youtube,
-            videoId: videoId
-        )
-        let request = CreateRoomRequest(
-            name: "\(trending.title)",
-            maxParticipants: 4,
-            mediaItem: mediaItem,
-            privacy: .publicRoom,
-            password: nil,
-            hostName: AuthService.shared.currentUserValue?.username
-        )
-        do {
-            let api = APIClient.shared
-            let room = try await RoomService(api: api).createRoom(request)
-            await MainActor.run {
-                HapticManager.roomJoined()
-                PlinkAppDelegate.requestNotificationPermission()
-                UIPasteboard.general.string = "Код комнаты Plink: \(room.code)"
-                roomToPresent = room
-                Task { await roomsStore?.load() }
-            }
-        } catch {}
-    }
+    // Аудит 26.07.2026: здесь были quickCreateRoom() и вторая копия
+    // createRoomFromTrending() — обе без единого вызова (живая копия — в
+    // V4HomeViewLive). Удалены.
 
-    /// Create room from a specific trending video.
-    private func createRoomFromTrending(_ item: V4SearchResult) async {
-        guard KeychainHelper.read(for: "rave_auth_token") != nil else { return }
-        // Ensure APIClient.shared has the token (Keychain alone is not enough for RoomService)
-        if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
-        }
-        guard APIClient.shared.authToken != nil else {
-            await MainActor.run { HapticManager.errorOccurred() }
-            return
-        }
-
-        let videoId = item.id
-        // Use watch URL — backend + client both extract videoId reliably
-        let streamURL = "https://www.youtube.com/watch?v=\(videoId)"
-        let mediaItem = MediaItem(
-            id: videoId,
-            title: item.title,
-            artist: nil,
-            thumbnailURL: item.artworkURL?.absoluteString,
-            streamURL: streamURL,
-            duration: nil,
-            mediaType: .video,
-            source: .youtube,
-            videoId: videoId
-        )
-        let request = CreateRoomRequest(
-            name: String(item.title.prefix(80)),
-            maxParticipants: 10,
-            mediaItem: mediaItem,
-            privacy: .publicRoom,
-            password: nil,
-            hostName: AuthService.shared.currentUserValue?.username
-        )
-        do {
-            let api = APIClient.shared
-            var room = try await RoomService(api: api).createRoom(request)
-            // If server stripped mediaItem, keep the local one for playback
-            if room.mediaItem == nil {
-                room = Room(
-                    id: room.id,
-                    name: room.name,
-                    hostID: room.hostID,
-                    hostName: room.hostName,
-                    code: room.code,
-                    participants: room.participants,
-                    mediaItem: mediaItem,
-                    isActive: room.isActive,
-                    maxParticipants: room.maxParticipants,
-                    hostIsPremium: room.hostIsPremium,
-                    createdAt: room.createdAt,
-                    privacy: room.privacy,
-                    password: room.password
-                )
-            }
-            await MainActor.run {
-                HapticManager.roomJoined()
-                PlinkAppDelegate.requestNotificationPermission()
-                UIPasteboard.general.string = "Код комнаты Plink: \(room.code)"
-                // Present WatchRoom (also mirrored via .plinkRoomCreated for home subviews)
-                roomToPresent = room
-                NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
-                Task { await roomsStore?.load() }
-            }
-        } catch {
-            await MainActor.run {
-                HapticManager.errorOccurred()
-            }
-        }
-    }
 
     private func bootstrap() async {
         let api = APIClient.shared
@@ -292,7 +305,7 @@ struct PlinkApprovedV4Root: View {
         AuthService.shared.rebindSessionFromStorage()
         if api.authToken == nil {
             api.authToken = AuthService.shared.authToken
-                ?? KeychainHelper.read(for: "rave_auth_token")
+                ?? AuthTokenStore.shared.token
         }
         let rs = RoomService(api: api)
         // Shared FriendManager so friends list + open DM share avatar version updates
@@ -306,15 +319,20 @@ struct PlinkApprovedV4Root: View {
         // Server is authority for isPremium + ADMIN role (e.g. koslakandrej@gmail.com)
         if api.authToken != nil {
             do {
+                // Аудит 26.07.2026 (P2): здесь был второй вызов syncFromServer с
+                // expiry: nil. Теперь fetchCurrentUser() сам синхронизирует премиум
+                // с серверной датой premiumUntil, и дубль только затирал бы её.
                 let user = try await as_.fetchCurrentUser()
-                PremiumStatusManager.shared.syncFromServer(
-                    isPremium: user.isPremium,
-                    expiry: nil
-                )
                 profileStore?.applyUser(user)
             } catch {
                 Logger.api.warn("[bootstrap] fetchCurrentUser: \(error.localizedDescription)")
             }
+            // Аудит 26.07.2026: гидрация оформления с сервера — тема/бабл
+            // подтягиваются на iPhone без открытия экрана «Оформление»
+            // (смена устройства восстанавливает выбор). Заодно создаётся
+            // AppearanceStore.shared → AppearanceStore.live перестаёт быть
+            // nil, и откат платных тем при истечении Plink+ реально работает.
+            await AppearanceStore.shared.hydrateFromBackendAndApplyToV4()
             // Mark self online so friends list shows real presence
             PresenceHeartbeat.start()
             await PresenceHeartbeat.ping()
@@ -329,6 +347,14 @@ struct PlinkApprovedV4Root: View {
         await profileStore?.load()
         PlinkAvatarURL.bumpSessionBust()
     }
+}
+
+// MARK: - Friend Invite (deep link /u/<id>) — Аудит 26.07.2026 P1
+
+private struct V4FriendInvite: Identifiable {
+    let id = UUID()
+    let userId: String
+    let username: String
 }
 
 // MARK: - Liquid Glass Tab Bar (GPT-5.6 Post-V4)

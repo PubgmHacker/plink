@@ -1,0 +1,2 @@
+While reading /Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/Resources/Emojis/cute-faces/9848-inlovehearts.png pngcrush caught libpng error:
+** BUILD SUCCEEDED **

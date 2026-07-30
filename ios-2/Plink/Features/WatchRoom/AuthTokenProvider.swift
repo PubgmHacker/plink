@@ -27,7 +27,11 @@ public final class KeychainAuthTokenProvider: AuthTokenProvider {
     }
 
     public var currentToken: String? {
-        KeychainHelper.read(for: "rave_auth_token")
+        // Аудит 26.07.2026: читаем через единое хранилище. Прямое чтение
+        // "rave_auth_token" переставало работать после миграции ключа M39 —
+        // комната теряла токен, не получала realtime-тикет и медиа,
+        // и видео «не грузилось вообще».
+        AuthTokenStore.shared.token
     }
 
     public func refreshToken() async -> String? {
@@ -48,8 +52,10 @@ public final class KeychainAuthTokenProvider: AuthTokenProvider {
                 return currentToken  // Refresh failed — return current
             }
             let decoded = try JSONDecoder().decode(RefreshResponse.self, from: data)
-            // Save new token to Keychain
-            KeychainHelper.save(decoded.accessToken, for: "rave_auth_token")
+            // Пишем через AuthTokenStore: он обновляет оба ключа Keychain и
+            // сбрасывает свой кэш. Прямая запись только в легаси-ключ оставляла
+            // в памяти хранилища устаревший токен после обновления сессии.
+            AuthTokenStore.shared.save(decoded.accessToken)
             if let newRefresh = decoded.refreshToken {
                 KeychainHelper.save(newRefresh, for: "rave_refresh_token")
             }

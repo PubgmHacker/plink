@@ -1,6 +1,9 @@
 // PlinkTests/AdminTests.swift — PATCH 21: admin system tests
 //
-// Tests AdminModule enum + routing + authorization contract.
+// Tests AdminModule enum contract (V5/PlinkAdminRoot.swift).
+// Аудит 26.07.2026: тест был написан под мёртвую версию AdminModule
+// (blocklists/apiPrefix/owner/AdminModuleView) и не компилировался.
+// Переписан под живой enum.
 
 import XCTest
 @testable import Plink
@@ -16,8 +19,8 @@ final class AdminTests: XCTestCase {
 
     func testAdminModule_cases() {
         let expected: Set<String> = [
-            "users", "rooms", "moderation", "flags", "analytics",
-            "system", "audit", "broadcasts", "premium", "blocklists"
+            "overview", "users", "rooms", "moderation", "flags",
+            "analytics", "system", "audit", "broadcasts", "premium"
         ]
         let actual = Set(AdminModule.allCases.map(\.rawValue))
         XCTAssertEqual(actual, expected)
@@ -38,16 +41,16 @@ final class AdminTests: XCTestCase {
     }
 
     func testAdminModule_titles() {
+        XCTAssertEqual(AdminModule.overview.title, "Overview")
         XCTAssertEqual(AdminModule.users.title, "Users")
         XCTAssertEqual(AdminModule.rooms.title, "Rooms")
         XCTAssertEqual(AdminModule.moderation.title, "Moderation")
-        XCTAssertEqual(AdminModule.flags.title, "Flags")
+        XCTAssertEqual(AdminModule.flags.title, "Feature Flags")
         XCTAssertEqual(AdminModule.analytics.title, "Analytics")
         XCTAssertEqual(AdminModule.system.title, "System")
         XCTAssertEqual(AdminModule.audit.title, "Audit Log")
         XCTAssertEqual(AdminModule.broadcasts.title, "Broadcasts")
         XCTAssertEqual(AdminModule.premium.title, "Premium")
-        XCTAssertEqual(AdminModule.blocklists.title, "Blocklists")
     }
 
     // MARK: - Icons
@@ -58,36 +61,8 @@ final class AdminTests: XCTestCase {
         }
     }
 
-    // MARK: - API prefix
-
-    func testAdminModule_apiPrefix_correctFormat() {
-        for module in AdminModule.allCases {
-            XCTAssertEqual(module.apiPrefix, "/api/admin/\(module.rawValue)")
-        }
-    }
-
-    // MARK: - Owners
-
-    func testAdminModule_owner_nonEmpty() {
-        for module in AdminModule.allCases {
-            XCTAssertFalse(module.owner.isEmpty, "\(module) should have owner")
-        }
-    }
-
-    func testAdminModule_owners_mapped() {
-        XCTAssertEqual(AdminModule.users.owner, "auth-team")
-        XCTAssertEqual(AdminModule.rooms.owner, "navigation-team")
-        XCTAssertEqual(AdminModule.moderation.owner, "chat-team")
-        XCTAssertEqual(AdminModule.premium.owner, "billing-team")
-    }
-
-    // MARK: - AdminModuleView routing
-
-    func testAdminModuleView_routesToCorrectModule() {
-        // Verify AdminModuleView exists and accepts each module.
-        // Full view rendering test requires SwiftUI preview — we test enum.
-        for module in AdminModule.allCases {
-            _ = AdminModuleView(module: module)
-        }
+    func testAdminModule_icons_unique() {
+        let icons = AdminModule.allCases.map(\.icon)
+        XCTAssertEqual(icons.count, Set(icons).count, "icons must be unique per module")
     }
 }

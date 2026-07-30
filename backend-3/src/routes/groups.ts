@@ -30,9 +30,57 @@ async function requireMember(groupId: string, userId: string) {
   });
 }
 
+// Аудит 26.07.2026 P1: в группу нельзя добавлять несуществующих/удалённых
+// пользователей и пары с активной блокировкой (в любую сторону) относительно
+// добавляющего — иначе блокировка обходилась созданием группы с жертвой.
+async function filterAddableMemberIds(adderId: string, rawIds: string[]): Promise<string[]> {
+  const unique = [...new Set(rawIds.filter((id) => id && id !== adderId))];
+  if (unique.length === 0) return [];
+
+  let existing: Set<string>;
+  try {
+    const users = await prisma.user.findMany({
+      where: { id: { in: unique }, deletedAt: null } as any,
+      select: { id: true },
+    });
+    existing = new Set(users.map((u: { id: string }) => u.id));
+  } catch {
+    // deletedAt может отсутствовать до миграции — проверяем только существование
+    const users = await prisma.user.findMany({
+      where: { id: { in: unique } },
+      select: { id: true },
+    });
+    existing = new Set(users.map((u: { id: string }) => u.id));
+  }
+
+  const blockedPeers = new Set<string>();
+  try {
+    const blocks = await prisma.userBlock.findMany({
+      where: {
+        OR: [
+          { blockerID: adderId, blockedID: { in: unique } },
+          { blockedID: adderId, blockerID: { in: unique } },
+        ],
+      },
+      select: { blockerID: true, blockedID: true },
+    });
+    for (const b of blocks as { blockerID: string; blockedID: string }[]) {
+      blockedPeers.add(b.blockerID === adderId ? b.blockedID : b.blockerID);
+    }
+  } catch {
+    /* таблица блокировок может отсутствовать mid-migrate */
+  }
+
+  return unique.filter((id) => existing.has(id) && !blockedPeers.has(id));
+}
+
 export default async function groupRoutes(fastify) {
   // POST /api/groups — создать беседу
-  fastify.post('/groups', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit (создание групп не троттлилось вовсе)
+  fastify.post('/groups', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const { title, memberIds } = request.body ?? {};
     const cleanTitle = typeof title === 'string' ? title.trim().slice(0, MAX_TITLE) : '';
     if (!cleanTitle) {
@@ -45,10 +93,12 @@ export default async function groupRoutes(fastify) {
         code: 'CONTENT_BLOCKED',
       });
     }
-    const ids: string[] = Array.isArray(memberIds)
+    const rawIds: string[] = Array.isArray(memberIds)
       ? memberIds.filter((x: unknown) => typeof x === 'string').slice(0, MAX_MEMBERS - 1)
       : [];
     const me = request.user.id;
+    // Аудит 26.07.2026 P1: фильтруем несуществующих/удалённых и блокировки
+    const ids = await filterAddableMemberIds(me, rawIds);
     const group = await prisma.groupChat.create({
       data: {
         title: cleanTitle,
@@ -93,20 +143,24 @@ export default async function groupRoutes(fastify) {
     });
     const roleById = new Map(memberships.map((m) => [m.groupID, m.role]));
     // M17: unread-счётчики — сообщения после lastReadAt, не мои, не удалённые
-    const lastReadById = new Map(memberships.map((m) => [m.groupID, m.lastReadAt]));
-    const unreadById = new Map();
-    await Promise.all(groups.map(async (g) => {
-      const lastRead = lastReadById.get(g.id);
-      const unread = await prisma.groupMessage.count({
-        where: {
-          groupID: g.id,
-          deletedAt: null,
-          senderID: { not: request.user.id },
-          ...(lastRead ? { createdAt: { gt: lastRead } } : {}),
-        },
-      });
-      unreadById.set(g.id, unread);
-    }));
+    // Аудит 26.07.2026 P2: один groupBy вместо count на каждую беседу —
+    // список чатов поллится клиентом, 50 групп давали 50 запросов.
+    const unreadById = new Map<string, number>();
+    const unreadGrouped = await prisma.groupMessage.groupBy({
+      by: ['groupID'],
+      where: {
+        deletedAt: null,
+        senderID: { not: request.user.id },
+        OR: memberships.map((m) => ({
+          groupID: m.groupID,
+          ...(m.lastReadAt ? { createdAt: { gt: m.lastReadAt } } : {}),
+        })),
+      },
+      _count: { _all: true },
+    });
+    for (const row of unreadGrouped) {
+      unreadById.set(row.groupID, row._count._all);
+    }
     const result = groups
       .map((g) => {
         const last = g.messages[0] ?? null;
@@ -133,26 +187,38 @@ export default async function groupRoutes(fastify) {
     const member = await requireMember(groupId, request.user.id);
     if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
 
-    const after = typeof request.query?.after === 'string' ? new Date(request.query.after) : null;
-    const messages = await prisma.groupMessage.findMany({
-      where: {
-        groupID: groupId,
-        deletedAt: null,
-        ...(after && !Number.isNaN(after.getTime()) ? { createdAt: { gt: after } } : {}),
-      },
-      orderBy: { createdAt: 'asc' },
+    const parsed = typeof request.query?.after === 'string' ? new Date(request.query.after) : null;
+    const after = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+    const select = {
+      id: true, senderID: true, senderName: true, content: true,
+      mediaType: true, createdAt: true, reactions: true,
+    };
+    if (after) {
+      const messages = await prisma.groupMessage.findMany({
+        where: { groupID: groupId, deletedAt: null, createdAt: { gt: after } },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+        select,
+      });
+      return reply.send({ messages });
+    }
+    // Аудит 26.07.2026 P2: последние 100 берём desc+reverse — без отдельного
+    // count и без OFFSET-скана всей истории беседы.
+    const recent = await prisma.groupMessage.findMany({
+      where: { groupID: groupId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
       take: 100,
-      ...(after ? {} : { skip: Math.max(0, await prisma.groupMessage.count({ where: { groupID: groupId, deletedAt: null } }) - 100) }),
-      select: {
-        id: true, senderID: true, senderName: true, content: true,
-        mediaType: true, createdAt: true, reactions: true,
-      },
+      select,
     });
-    return reply.send({ messages });
+    return reply.send({ messages: recent.reverse() });
   });
 
   // M17: POST /api/groups/:id/read — отметить беседу прочитанной
-  fastify.post('/groups/:id/read', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+  fastify.post('/groups/:id/read', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const member = await requireMember(groupId, request.user.id);
     if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
@@ -165,7 +231,11 @@ export default async function groupRoutes(fastify) {
 
   // M17: DELETE /api/groups/:id/messages/:messageId — удалить сообщение (soft delete).
   // Своё — любой участник; чужое — owner/admin беседы.
-  fastify.delete('/groups/:id/messages/:messageId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  fastify.delete('/groups/:id/messages/:messageId', {
+    preHandler: [fastify.authenticate],
+    // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const messageId = request.params.messageId;
     const member = await requireMember(groupId, request.user.id);
@@ -184,7 +254,11 @@ export default async function groupRoutes(fastify) {
   });
 
   // M17: POST /api/groups/:id/messages/:messageId/react — переключить эмодзи-реакцию
-  fastify.post('/groups/:id/messages/:messageId/react', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit (как у DM-реакций)
+  fastify.post('/groups/:id/messages/:messageId/react', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const messageId = request.params.messageId;
     const me = request.user.id;
@@ -192,6 +266,48 @@ export default async function groupRoutes(fastify) {
     if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
     const emoji = typeof request.body?.emoji === 'string' ? request.body.emoji.trim().slice(0, 8) : '';
     if (!emoji) return reply.status(400).send({ error: 'emoji обязателен' });
+
+    // Аудит 26.07.2026 P2: тогл реакции — атомарный jsonb-UPDATE одним запросом.
+    // Раньше read-modify-write без транзакции: две одновременные реакции разных
+    // участников давали last-write-wins, одна молча исчезала.
+    try {
+      const rows = await prisma.$queryRaw<{ reactions: unknown }[]>`
+        UPDATE "GroupMessage"
+        SET "reactions" = CASE
+          WHEN COALESCE("reactions"::jsonb -> ${emoji}::text, '[]'::jsonb) @> to_jsonb(${me}::text)
+            THEN CASE
+              WHEN jsonb_array_length(COALESCE("reactions"::jsonb -> ${emoji}::text, '[]'::jsonb) - ${me}::text) = 0
+                THEN COALESCE("reactions"::jsonb, '{}'::jsonb) - ${emoji}::text
+              ELSE jsonb_set(
+                COALESCE("reactions"::jsonb, '{}'::jsonb),
+                ARRAY[${emoji}::text],
+                COALESCE("reactions"::jsonb -> ${emoji}::text, '[]'::jsonb) - ${me}::text)
+            END
+          ELSE jsonb_set(
+            COALESCE("reactions"::jsonb, '{}'::jsonb),
+            ARRAY[${emoji}::text],
+            COALESCE("reactions"::jsonb -> ${emoji}::text, '[]'::jsonb) || to_jsonb(${me}::text),
+            true)
+        END
+        WHERE "id" = ${messageId} AND "groupID" = ${groupId} AND "deletedAt" IS NULL
+        RETURNING "reactions"
+      `;
+      if (rows.length === 0) return reply.status(404).send({ error: 'Сообщение не найдено' });
+      const raw = rows[0].reactions;
+      // форма ответа как была: { emoji: [userIds] }
+      const reactions = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? {});
+      return reply.send({ ok: true, reactions });
+    } catch (e: any) {
+      // Ревью: транспортные/таймаутные ошибки могут прилететь ПОСЛЕ коммита
+      // UPDATE — повтор тогла в fallback молча отменил бы реакцию и отдал 200.
+      // Такие ошибки отдаём как 503, клиент повторит.
+      const code = typeof e?.code === 'string' ? e.code : '';
+      const transport = ['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028'].includes(code);
+      fastify.log?.error?.(`[groups] atomic react failed (${code || e?.name}): ${e?.message}`);
+      if (transport) return reply.status(503).send({ error: 'Не удалось поставить реакцию, попробуйте ещё раз' });
+      // Колонка ещё не jsonb / нестандартные данные — падаем на прежний путь
+    }
+
     const msg = await prisma.groupMessage.findUnique({
       where: { id: messageId },
       select: { groupID: true, reactions: true, deletedAt: true },
@@ -206,7 +322,11 @@ export default async function groupRoutes(fastify) {
   });
 
   // POST /api/groups/:id/messages — отправить текст/фото (с ИИ-модерацией)
-  fastify.post('/groups/:id/messages', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit — спам и заливка base64-фото не троттлились
+  fastify.post('/groups/:id/messages', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const me = request.user.id;
     const member = await requireMember(groupId, me);
@@ -310,16 +430,25 @@ export default async function groupRoutes(fastify) {
   });
 
   // POST /api/groups/:id/members — добавить участников (owner/admin)
-  fastify.post('/groups/:id/members', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit + фильтр несуществующих/удалённых/заблокированных
+  fastify.post('/groups/:id/members', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const member = await requireMember(groupId, request.user.id);
     if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
       return reply.status(403).send({ error: 'Только владелец может добавлять участников' });
     }
-    const ids: string[] = Array.isArray(request.body?.userIds)
+    const rawIds: string[] = Array.isArray(request.body?.userIds)
       ? request.body.userIds.filter((x: unknown) => typeof x === 'string')
       : [];
-    if (ids.length === 0) return reply.status(400).send({ error: 'userIds обязателен' });
+    if (rawIds.length === 0) return reply.status(400).send({ error: 'userIds обязателен' });
+    const ids = await filterAddableMemberIds(request.user.id, rawIds);
+    if (ids.length === 0) {
+      // 404, не раскрывая факт блокировки
+      return reply.status(404).send({ error: 'Пользователи не найдены' });
+    }
     const count = await prisma.groupMember.count({ where: { groupID: groupId } });
     if (count + ids.length > MAX_MEMBERS) {
       return reply.status(422).send({ error: `Максимум ${MAX_MEMBERS} участников` });
@@ -328,32 +457,56 @@ export default async function groupRoutes(fastify) {
       data: ids.map((id) => ({ groupID: groupId, userID: id, role: 'member' })),
       skipDuplicates: true,
     });
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, added: ids.length });
   });
 
   // POST /api/groups/:id/leave — выйти из беседы (владелец выходит — беседа остаётся, роль передаётся)
-  fastify.post('/groups/:id/leave', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+  fastify.post('/groups/:id/leave', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const me = request.user.id;
-    const member = await requireMember(groupId, me);
-    if (!member) return reply.status(404).send({ error: 'Вы не участник беседы' });
-    await prisma.groupMember.delete({ where: { id: member.id } });
-    const rest = await prisma.groupMember.findMany({
-      where: { groupID: groupId },
-      orderBy: { joinedAt: 'asc' },
-      take: 1,
+    // Аудит 26.07.2026 P2: выход + передача владения — одной транзакцией.
+    // Раньше четыре запроса вне транзакции: падение между шагами или два
+    // одновременных leave оставляли ownerID на вышедшем либо беседу без владельца.
+    // Ревью: удаление опустевшей беседы вынесено ЗА транзакцию и оставлено
+    // fail-soft, как было в baseline — каскад по GroupMessage (base64-фото в
+    // mediaData) может выбить таймаут транзакции, и тогда откатывалось бы даже
+    // удаление моей строки, т.е. выйти из беседы стало бы невозможно.
+    const left = await prisma.$transaction(async (tx) => {
+      const member = await tx.groupMember.findUnique({
+        where: { groupID_userID: { groupID: groupId, userID: me } },
+      });
+      if (!member) return null;
+      await tx.groupMember.deleteMany({ where: { id: member.id } });
+      const rest = await tx.groupMember.findMany({
+        // userID != me — на случай, если снимок ещё видит мою удалённую строку
+        where: { groupID: groupId, userID: { not: me } },
+        orderBy: { joinedAt: 'asc' },
+        take: 1,
+      });
+      if (rest.length > 0 && member.role === 'owner') {
+        await tx.groupMember.updateMany({ where: { id: rest[0].id }, data: { role: 'owner' } });
+        await tx.groupChat.updateMany({ where: { id: groupId }, data: { ownerID: rest[0].userID } });
+      }
+      return { empty: rest.length === 0 };
     });
-    if (rest.length === 0) {
+    if (!left) return reply.status(404).send({ error: 'Вы не участник беседы' });
+    if (left.empty) {
+      // Пустая беседа: не смогли удалить — беседа просто останется осиротевшей
       await prisma.groupChat.delete({ where: { id: groupId } }).catch(() => {});
-    } else if (member.role === 'owner') {
-      await prisma.groupMember.update({ where: { id: rest[0].id }, data: { role: 'owner' } });
-      await prisma.groupChat.update({ where: { id: groupId }, data: { ownerID: rest[0].userID } });
     }
     return reply.send({ ok: true });
   });
 
   // PATCH /api/groups/:id — переименовать (owner/admin, с модерацией)
-  fastify.patch('/groups/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+  fastify.patch('/groups/:id', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const groupId = request.params.id;
     const member = await requireMember(groupId, request.user.id);
     if (!member || (member.role !== 'owner' && member.role !== 'admin')) {

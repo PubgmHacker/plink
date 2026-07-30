@@ -1,4 +1,5 @@
 import { prisma } from '../config/db.js';
+import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -331,14 +332,27 @@ export default async function profileRoutes(fastify) {
 
   // PUT /api/profile/appearance
   // Phase 4: persists the user's appearance selection for cross-device restore.
-  fastify.put('/profile/appearance', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { appThemeID, bubbleStyleID, emojiPackID } = request.body;
+  // Аудит 26.07.2026 (7.5): rate limit + строгая zod-валидация — раньше можно было
+  // писать килобайты произвольного мусора в appearancePrefs без ограничений.
+  fastify.put('/profile/appearance', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    // Идентификаторы тем/стилей — только kebab-case slug'и до 64 символов.
+    const appearanceIdSchema = z.string().min(1).max(64).regex(/^[a-z0-9-]+$/);
+    const appearanceBodySchema = z.object({
+      appThemeID: appearanceIdSchema,
+      bubbleStyleID: appearanceIdSchema,
+      emojiPackID: appearanceIdSchema,
+    });
 
-    if (typeof appThemeID !== 'string' ||
-        typeof bubbleStyleID !== 'string' ||
-        typeof emojiPackID !== 'string') {
-      return reply.status(400).send({ error: 'appThemeID, bubbleStyleID, emojiPackID required' });
+    const parsed = appearanceBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Некорректные appThemeID/bubbleStyleID/emojiPackID: ожидаются строки 1-64 символа из [a-z0-9-]'
+      });
     }
+    const { appThemeID, bubbleStyleID, emojiPackID } = parsed.data;
 
     const prefs = JSON.stringify({ appThemeID, bubbleStyleID, emojiPackID });
 

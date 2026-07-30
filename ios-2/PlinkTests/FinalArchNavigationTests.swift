@@ -18,8 +18,8 @@ final class FinalArchNavigationTests: XCTestCase {
 
     func testAppSection_orderIsCanonical() {
         let order = AppSection.allCases.map(\.rawValue)
-        XCTAssertEqual(order, ["home", "rooms", "ai", "friends", "settings"],
-                       "Tab order must be: Главная, Комнаты, ИИ, Друзья, Настройки")
+        XCTAssertEqual(order, ["home", "rooms", "ai", "friends", "profile"],
+                       "Tab order must be: Главная, Комнаты, ИИ, Друзья, Профиль")
     }
 
     func testAppSection_titlesAreRussian() {
@@ -27,7 +27,7 @@ final class FinalArchNavigationTests: XCTestCase {
         XCTAssertEqual(AppSection.rooms.title, "Комнаты")
         XCTAssertEqual(AppSection.ai.title, "ИИ")
         XCTAssertEqual(AppSection.friends.title, "Друзья")
-        XCTAssertEqual(AppSection.settings.title, "Настройки")
+        XCTAssertEqual(AppSection.profile.title, "Профиль")
     }
 
     func testAppSection_symbolsAreValid() {
@@ -42,10 +42,10 @@ final class FinalArchNavigationTests: XCTestCase {
                        "Create must not be a tab")
     }
 
-    func testAppSection_noProfileTab() {
-        // Profile is under Settings, not a separate tab.
-        XCTAssertFalse(AppSection.allCases.contains { $0.rawValue == "profile" },
-                       "Profile must not be a tab")
+    func testAppSection_noSettingsTab() {
+        // Settings живут внутри вкладки «Профиль», отдельной вкладки нет.
+        XCTAssertFalse(AppSection.allCases.contains { $0.rawValue == "settings" },
+                       "Settings must not be a tab")
     }
 
     func testAppSection_noDiscoverTab() {
@@ -55,8 +55,10 @@ final class FinalArchNavigationTests: XCTestCase {
 
     // MARK: - Onboarding versioning
 
-    func testOnboardingVersion_currentIs2() {
-        XCTAssertEqual(OnboardingVersion.current, 2)
+    func testOnboardingVersion_currentIs3() {
+        // Версия онбординга растёт закономерно; живое значение — 3
+        // (Plink/Features/Onboarding2026/OnboardingVersion.swift).
+        XCTAssertEqual(OnboardingVersion.current, 3)
     }
 
     func testOnboardingStore_needsOnboarding_whenVersionIsZero() {
@@ -64,7 +66,7 @@ final class FinalArchNavigationTests: XCTestCase {
         // Clear any existing version
         UserDefaults.standard.removeObject(forKey: "plink_onboarding_version")
         XCTAssertTrue(store.needsCurrentOnboarding,
-                      "Version 0 < current 2 → needs onboarding")
+                      "Version 0 < current → needs onboarding")
     }
 
     func testOnboardingStore_doesNotNeedOnboarding_whenVersionIsCurrent() {

@@ -27,8 +27,24 @@ const SWIFT_HANDLED_TYPES = new Set([
   'participant.left',
   'error',
   'session.ready',
-  'role.changed',  // P1-64
   'server.draining',
+  // Аудит 26.07.2026: room.appearance.updated декодируется Swift
+  // (RealtimeEnvelope.swift, кейс roomAppearanceUpdated) — переведён из pending.
+  'room.appearance.updated',
+]);
+
+// Аудит 26.07.2026 P2: типы, которые бэкенд уже шлёт, а iOS-декодер ещё НЕ
+// разбирает. Держим отдельным списком, а не подмешиваем в SWIFT_HANDLED_TYPES:
+// список выше обязан оставаться честным зеркалом RealtimeEnvelope.swift.
+// Слать такие типы безопасно — RealtimeClient.handleIncoming ловит
+// DecodingError и лишь пишет lastError, сокет не рвётся.
+// Убрать отсюда, когда в RealtimeEnvelope.swift появится соответствующий case.
+const PENDING_IOS_DECODER_TYPES = new Set([
+  // Аудит 26.07.2026: role.changed заявлялся как handled (P1-64), но в
+  // RealtimeEnvelope.swift соответствующего case НЕТ — тест зеленел, утверждая
+  // ложное зеркало. Пока сервер это событие и не публикует (bumpEpoch/role.changed
+  // не вызываются из продакшен-кода), честное место — pending.
+  'role.changed',
 ]);
 
 describe('Backend ↔ iOS contract parity (P0-17 regression)', () => {
@@ -36,11 +52,19 @@ describe('Backend ↔ iOS contract parity (P0-17 regression)', () => {
     const backendTypes = new Set<string>(SERVER_MESSAGE_TYPES);
     const missingInSwift: string[] = [];
     for (const t of backendTypes) {
-      if (!SWIFT_HANDLED_TYPES.has(t)) {
+      if (!SWIFT_HANDLED_TYPES.has(t) && !PENDING_IOS_DECODER_TYPES.has(t)) {
         missingInSwift.push(t);
       }
     }
     expect(missingInSwift).toEqual([]);
+  });
+
+  it('pending-iOS types are real backend types (list cannot rot silently)', () => {
+    const backendTypes = new Set<string>(SERVER_MESSAGE_TYPES);
+    for (const t of PENDING_IOS_DECODER_TYPES) {
+      expect(backendTypes.has(t)).toBe(true);
+      expect(SWIFT_HANDLED_TYPES.has(t)).toBe(false);
+    }
   });
 
   it('Swift decoder does not handle types backend does not produce', () => {

@@ -119,17 +119,8 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertTrue(active.allSatisfy { $0.isActive })
     }
 
-    // MARK: - fetchPublicRooms
-
-    func testFetchPublicRooms_returnsOnlyPublicActive() async throws {
-        service.seedRoom(id: "pub1", name: "Public", isActive: true, privacy: .publicRoom)
-        service.seedRoom(id: "priv1", name: "Private", isActive: true, privacy: .privateRoom)
-        service.seedRoom(id: "pub2", name: "Public Inactive", isActive: false, privacy: .publicRoom)
-
-        let publicRooms = try await service.fetchPublicRooms()
-        XCTAssertEqual(publicRooms.count, 1)
-        XCTAssertEqual(publicRooms.first?.id, "pub1")
-    }
+    // Аудит 26.07.2026: тест fetchPublicRooms удалён вместе с методом —
+    // серверный роут /rooms/public мёртв.
 
     // MARK: - fetchMyRooms
 

@@ -82,16 +82,60 @@ return {1, encoded}
 // Lua: BUMP_EPOCH
 //   Called on host migration / explicit timeline reset. Returns the new epoch.
 //   KEYS[1] = room:<roomId>:state
-//   ARGV[1] = roomId
+//   ARGV[1] = effectiveAtServerMs (now)
+//
+// Аудит 26.07.2026 P2: скрипт считал epoch+1, но НЕ записывал состояние —
+// два подряд bump возвращали одно и то же число, а клиенты вообще не узнавали
+// о новой эпохе. Теперь новая эпоха персистится (seq = 0, таймлайн на паузе с
+// сохранённой позицией) и публикуется в room:<roomId>, как это делает
+// APPLY_COMMAND, — иначе механизм эпох существует только на бумаге.
+//
+// Ревью P2: positionMs нужно ДОВЕСТИ на прошедшее с момента последней команды
+// время (effectiveAtServerMs пишется как now). Иначе пауза «сохраняла» не
+// позицию, а устаревшее поле, и клиенты отматывали фильм назад на всё время
+// проигрывания. math.floor обязателен: RoomState.positionMs — целое.
+//
+// Комната без состояния ничего не пишет: первая же sync.command назначит
+// epoch 1 (gateway.currentEpoch → 1 по умолчанию).
 // ─────────────────────────────────────────────────────────────────────────────
 const BUMP_EPOCH = `
 local stateKey = KEYS[1]
 local previous = redis.call('GET', stateKey)
-local newEpoch = 1
-if previous then
-  local decoded = cjson.decode(previous)
-  newEpoch = tonumber(decoded.epoch) + 1
+if not previous then
+  return 1
 end
+local decoded = cjson.decode(previous)
+local newEpoch = tonumber(decoded.epoch) + 1
+local mediaId = decoded.mediaId
+if mediaId == nil then
+  mediaId = cjson.null
+end
+local now = tonumber(ARGV[1])
+local rate = tonumber(decoded.rate) or 1
+local pos = tonumber(decoded.positionMs) or 0
+if decoded.playing then
+  local elapsed = now - (tonumber(decoded.effectiveAtServerMs) or now)
+  if elapsed > 0 then
+    pos = pos + elapsed * rate
+  end
+end
+if pos < 0 then pos = 0 end
+pos = math.floor(pos)
+local state = {
+  protocolVersion = 2,
+  roomId = decoded.roomId,
+  epoch = newEpoch,
+  seq = 0,
+  mediaId = mediaId,
+  positionMs = pos,
+  playing = false,
+  rate = rate,
+  effectiveAtServerMs = now,
+  issuedBy = decoded.issuedBy
+}
+local encoded = cjson.encode(state)
+redis.call('SET', stateKey, encoded, 'EX', 86400)
+redis.call('PUBLISH', 'room:' .. decoded.roomId, encoded)
 return newEpoch
 `;
 
@@ -177,16 +221,23 @@ export class RoomStateStore {
 
   /**
    * Bump epoch on host migration or explicit timeline reset.
-   * Returns the new epoch. Caller then issues a sync.command with this epoch.
+   *
+   * Атомарно записывает новую эпоху (seq = 0, playing = false, медиа то же,
+   * позиция доведена на прошедшее с последней команды время — таймлайн
+   * встаёт на паузу ТАМ, где реально шло воспроизведение, а не откатывается
+   * к позиции последней команды) и публикует состояние в room:<roomId>, поэтому два
+   * подряд вызова дают РАЗНЫЕ эпохи, а подключённые клиенты сразу видят
+   * сброс таймлайна. Возвращает новую эпоху; для комнаты без состояния —
+   * 1 без записи (её назначит первая sync.command).
    */
   async bumpEpoch(roomId: string): Promise<number> {
     const result = (await this.redis.eval(
       BUMP_EPOCH,
       1,
       `room:${roomId}:state`,
-      roomId,
+      String(Date.now()),
     )) as number;
-    return result;
+    return Number(result);
   }
 
   /** Clear state (used on room teardown / explicit reset). */

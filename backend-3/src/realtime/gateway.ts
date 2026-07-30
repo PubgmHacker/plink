@@ -135,8 +135,17 @@ export class RealtimeGateway {
       // with bounded timeout — don't let Redis hang block local cleanup.
       if (presenceCountBumped && presenceBumpedFor) {
         const { roomId: prid, userId: puid, connectionId } = presenceBumpedFor;
+        let cleanupSettled = false;
         const distributedCleanup = (async () => {
-          const count = await this.decrementRoomPresence(prid, puid, connectionId).catch(() => -1);
+          const count = await this.decrementRoomPresence(prid, puid, connectionId).catch((err) => {
+            // Аудит 26.07.2026 P2: молчаливый catch скрывал недоступность Redis —
+            // participant.left не уходил, а в логах не было ни строки.
+            console.warn(
+              `[RealtimeGateway] presence decrement failed (room=${prid} user=${puid}):`,
+              (err as Error).message,
+            );
+            return -1;
+          });
           if (count === 0) {
             await this.eventBus
               .publish(prid, {
@@ -148,6 +157,7 @@ export class RealtimeGateway {
               })
               .catch(() => {});
           }
+          cleanupSettled = true;
         })();
         // Bounded timeout — if Redis is down, log and move on. Presence
         // lease will expire naturally (60s TTL).
@@ -155,6 +165,14 @@ export class RealtimeGateway {
           distributedCleanup,
           new Promise<void>((resolve) => setTimeout(resolve, 2000)),
         ]).catch(() => {});
+        // Аудит 26.07.2026 P2: раньше «брошенный на полпути» decrement
+        // проходил бесследно. Логируем: lease доживёт до истечения TTL,
+        // participant.left в этом случае не публикуется.
+        if (!cleanupSettled) {
+          console.warn(
+            `[RealtimeGateway] presence cleanup timed out after 2s (room=${prid} user=${puid}) — lease TTL will expire`,
+          );
+        }
       }
     };
     // P0-23: single 'close' listener for entire lifecycle. No replacement.
@@ -403,29 +421,61 @@ export class RealtimeGateway {
     return { count, connectionId };
   }
 
+  // Аудит 26.07.2026 P2: снятие lease было неатомарным (ZREM, потом ZCOUNT
+  // отдельными командами) — два одновременно закрывающихся сокета одного
+  // юзера могли ОБА увидеть count 0 и оба опубликовать participant.left.
+  // Теперь ровно один вызывающий получает 0: удаление, чистка просроченных,
+  // подсчёт и обновление room-index — внутри одного EVAL.
+  //   KEYS[1] = plink:presence:<roomId>:<userId>
+  //   KEYS[2] = plink:room:<roomId>:activeUsers
+  //   ARGV[1] = now (ms), ARGV[2] = connectionId ('' → снять все), ARGV[3] = userId
+  private static readonly DECREMENT_PRESENCE = `
+local key = KEYS[1]
+local indexKey = KEYS[2]
+local now = ARGV[1]
+local connectionId = ARGV[2]
+local userId = ARGV[3]
+if connectionId ~= '' then
+  redis.call('ZREM', key, connectionId)
+else
+  redis.call('DEL', key)
+end
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
+local count = redis.call('ZCOUNT', key, now, '+inf')
+if count == 0 then
+  redis.call('DEL', key)
+  redis.call('ZREM', indexKey, userId)
+  return 0
+end
+local remaining = redis.call('ZRANGEBYSCORE', key, now, '+inf', 'WITHSCORES')
+local maxExpiry = 0
+local maxExpiryRaw = nil
+for i = 2, #remaining, 2 do
+  local score = tonumber(remaining[i])
+  if score and score > maxExpiry then
+    maxExpiry = score
+    maxExpiryRaw = remaining[i]
+  end
+end
+if maxExpiryRaw then
+  redis.call('ZADD', indexKey, maxExpiryRaw, userId)
+end
+return count
+`;
+
   private async decrementRoomPresence(roomId: string, userId: string, connectionId?: string): Promise<number> {
     const key = RealtimeGateway.PRESENCE_LEASE_KEY(roomId, userId);
     const roomIndexKey = `plink:room:${roomId}:activeUsers`;
-    const now = Date.now();
-    if (connectionId) {
-      await this.deps.redis.zrem(key, connectionId);
-    } else {
-      await this.deps.redis.zremrangebyscore(key, '-inf', '+inf');
-    }
-    const count = await this.deps.redis.zcount(key, now, '+inf');
-    if (count === 0) {
-      await this.deps.redis.del(key);
-      // P0-56: remove from room index when no active connections
-      await this.deps.redis.zrem(roomIndexKey, userId);
-    } else {
-      // P0-56: update room index with latest expiry from remaining connections
-      const remaining = await this.deps.redis.zrange(key, now, '+inf', 'BYSCORE', 'WITHSCORES');
-      if (remaining.length >= 2) {
-        const maxExpiry = Math.max(...remaining.filter((_, i) => i % 2 === 1).map(Number));
-        await this.deps.redis.zadd(roomIndexKey, maxExpiry, userId);
-      }
-    }
-    return count;
+    const count = (await this.deps.redis.eval(
+      RealtimeGateway.DECREMENT_PRESENCE,
+      2,
+      key,
+      roomIndexKey,
+      String(Date.now()),
+      connectionId ?? '',
+      userId,
+    )) as number;
+    return Number(count);
   }
 
   // P0-24: refresh presence lease on heartbeat — called from Heartbeat class
@@ -450,29 +500,57 @@ export class RealtimeGateway {
   // subscription pair per room per replica, even under 100 concurrent joins.
   private roomRefs = new Map<string, number>();
   private roomRetainInFlight = new Map<string, Promise<void>>();
+  // Аудит 26.07.2026 P1: явный признак «подписка реально установлена».
+  // roomListeners заполняется ДО await внутри doRetainRoom, поэтому сам по
+  // себе он не доказывает завершённую Redis-подписку.
+  private readonly roomSubscribed = new Set<string>();
 
   private async retainRoom(roomId: string): Promise<void> {
     // GPT-5 BE-P0-02: increment ref count FIRST, before any async work.
     const currentRefs = this.roomRefs.get(roomId) ?? 0;
     this.roomRefs.set(roomId, currentRefs + 1);
 
-    // If already retained, nothing to do — just increment ref count.
-    if (currentRefs > 0) return;
+    // Аудит 26.07.2026 P1: быстрый выход только если подписка РЕАЛЬНО
+    // установлена. Раньше `currentRefs > 0` отпускал второй конкурентный
+    // join до завершения in-flight подписки (session.ready до fanout), а
+    // ошибка doRetainRoom навсегда отравляла refcount — комната на реплике
+    // оставалась без fanout до полного опустошения.
+    if (this.roomSubscribed.has(roomId)) return;
 
-    // If retain is in-flight, wait for it to complete.
-    const inFlight = this.roomRetainInFlight.get(roomId);
-    if (inFlight) {
-      await inFlight;
-      return;
+    let inFlight = this.roomRetainInFlight.get(roomId);
+    if (!inFlight) {
+      inFlight = this.doRetainRoom(roomId)
+        .then(() => {
+          this.roomSubscribed.add(roomId);
+        })
+        .catch((err) => {
+          // Откат частично созданных листенеров — следующий join повторит subscribe.
+          this.rollbackPartialRetain(roomId);
+          throw err;
+        })
+        .finally(() => {
+          this.roomRetainInFlight.delete(roomId);
+        });
+      this.roomRetainInFlight.set(roomId, inFlight);
     }
+    // Все конкурентные join ждут фактического завершения подписки; ошибка
+    // пробрасывается каждому — их сокеты закроются, finalize откатит refs.
+    await inFlight;
+  }
 
-    // Start a new retain operation.
-    const retainPromise = this.doRetainRoom(roomId);
-    this.roomRetainInFlight.set(roomId, retainPromise);
-    try {
-      await retainPromise;
-    } finally {
-      this.roomRetainInFlight.delete(roomId);
+  // Аудит 26.07.2026 P1: убрать листенеры, созданные упавшим doRetainRoom,
+  // чтобы повторный retain заново выполнил Redis SUBSCRIBE.
+  private rollbackPartialRetain(roomId: string): void {
+    this.roomSubscribed.delete(roomId);
+    const stateListener = this.roomListeners.get(roomId);
+    if (stateListener) {
+      this.roomListeners.delete(roomId);
+      void this.pubsub.unsubscribe(roomId, stateListener).catch(() => {});
+    }
+    const eventListener = this.roomEventListeners.get(roomId);
+    if (eventListener) {
+      this.roomEventListeners.delete(roomId);
+      void this.eventBus.unsubscribe(roomId, eventListener).catch(() => {});
     }
   }
 
@@ -494,7 +572,13 @@ export class RealtimeGateway {
 
     if (!this.roomEventListeners.has(roomId)) {
       const eventListener: RoomEventListener = (event) => {
-        const msg = this.eventToServerMessage(event);
+        // Аудит 26.07.2026 P1: кик — закрываем локальные сокеты кикнутого,
+        // а не броадкастим (отзыв доступа, presence чистит finalize).
+        if (event.kind === 'participant.kicked') {
+          this.closeKickedSockets(event.roomId, event.userId);
+          return;
+        }
+        const msg = eventToServerMessage(event);
         if (msg) this.registry.broadcastLocal(roomId, msg);
       };
       this.roomEventListeners.set(roomId, eventListener);
@@ -511,9 +595,10 @@ export class RealtimeGateway {
     }
 
     // Refs would hit 0 — wait for any in-flight retain first.
+    // Аудит 26.07.2026 P1: ошибка чужого in-flight retain не должна ронять release.
     const inFlight = this.roomRetainInFlight.get(roomId);
     if (inFlight) {
-      await inFlight;
+      await inFlight.catch(() => {});
     }
 
     // Re-check ref count after waiting (a concurrent retain may have incremented).
@@ -529,6 +614,8 @@ export class RealtimeGateway {
     // Double-check no local sockets remain.
     if (this.registry.getRoomSockets(roomId).length > 0) return;
 
+    // Аудит 26.07.2026 P1: снимаем признак установленной подписки при teardown
+    this.roomSubscribed.delete(roomId);
     const stateListener = this.roomListeners.get(roomId);
     if (stateListener) {
       this.roomListeners.delete(roomId);
@@ -545,39 +632,43 @@ export class RealtimeGateway {
     await this.eventBus.publish(event.roomId, event);
   }
 
-  private eventToServerMessage(event: RoomEvent): ServerMessage | null {
-    switch (event.kind) {
-      case 'participant.joined':
-        // P1-26: preserve original event timestampMs
-        return makeParticipantEvent('participant.joined', event.roomId, event.userId, event.username, event.timestampMs);
-      case 'participant.left':
-        return makeParticipantEvent('participant.left', event.roomId, event.userId, event.username, event.timestampMs);
-      case 'chat.broadcast':
-        return {
-          type: 'chat.broadcast',
-          protocolVersion: 2,
-          roomId: event.roomId,
-          messageId: event.messageId,
-          clientMessageId: event.clientMessageId ?? null,
-          senderId: event.senderId,
-          senderName: event.senderName,
-          text: event.text,
-          createdAtMs: event.createdAtMs,
-          mediaType: event.mediaType ?? null,
-          hasMedia: event.hasMedia ?? false,
-        };
-      case 'reaction.broadcast':
-        return {
-          type: 'reaction.broadcast',
-          protocolVersion: 2,
-          roomId: event.roomId,
-          userId: event.userId,
-          username: event.username,
-          emoji: event.emoji,
-          serverTimeMs: event.serverTimeMs,
-        };
-      default:
-        return null;
+  /**
+   * Аудит 26.07.2026 P2: живая доставка темы комнаты. rooms.ts после успешного
+   * сохранения appearance зовёт этот метод; событие уходит в RoomEventBus, и
+   * каждая реплика с сокетами комнаты сама рассылает room.appearance.updated
+   * своим клиентам (публикатор НЕ шлёт локально — иначе двойная доставка).
+   */
+  async publishRoomAppearance(event: Extract<RoomEvent, { kind: 'room.appearance.updated' }>): Promise<void> {
+    await this.eventBus.publish(event.roomId, event);
+  }
+
+  /**
+   * Аудит 26.07.2026 P1: отзыв WS-доступа при кике. rooms.ts раньше звал
+   * несуществующий broadcastToRoom (no-op за optional chaining) — сокет
+   * кикнутого оставался в ConnectionRegistry и продолжал получать
+   * chat.broadcast/sync.state. Публикуем типизированное событие через
+   * RoomEventBus; каждая реплика с сокетами комнаты закрывает локальные
+   * сокеты этого userId (код 4003), presence-lease чистит finalize по close.
+   */
+  async kickUser(roomId: string, userId: string, byUserId: string): Promise<void> {
+    await this.eventBus.publish(roomId, {
+      kind: 'participant.kicked',
+      roomId,
+      userId,
+      byUserId,
+      timestampMs: Date.now(),
+    });
+  }
+
+  // Аудит 26.07.2026 P1: закрыть локальные сокеты кикнутого пользователя
+  private closeKickedSockets(roomId: string, userId: string): void {
+    for (const s of this.registry.getRoomSockets(roomId)) {
+      if (s.userId !== userId) continue;
+      try {
+        s.close(4003, 'Kicked from room');
+      } catch {
+        /* noop */
+      }
     }
   }
 
@@ -670,6 +761,68 @@ export class RealtimeGateway {
       } catch {}
     }
     await Promise.allSettled([this.pubsub.close(), this.eventBus.close()]);
+  }
+}
+
+/**
+ * Событие шины → wire-сообщение протокола v2.
+ *
+ * Аудит 26.07.2026 P2: раньше это был приватный метод класса, и единственный
+ * способ его «проверить» был ручной копией в тесте — то есть тест зеленел даже
+ * когда реальный маппинг ломался. Функция чистая (никакого this), поэтому
+ * вынесена на уровень модуля и экспортируется: контрактные тесты гоняют
+ * НАСТОЯЩИЙ код и парсят его результат ServerMessageSchema.
+ */
+export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
+  switch (event.kind) {
+    case 'participant.joined':
+      // P1-26: preserve original event timestampMs
+      return makeParticipantEvent('participant.joined', event.roomId, event.userId, event.username, event.timestampMs);
+    case 'participant.left':
+      return makeParticipantEvent('participant.left', event.roomId, event.userId, event.username, event.timestampMs);
+    case 'chat.broadcast':
+      return {
+        type: 'chat.broadcast',
+        protocolVersion: 2,
+        roomId: event.roomId,
+        messageId: event.messageId,
+        clientMessageId: event.clientMessageId ?? null,
+        senderId: event.senderId,
+        senderName: event.senderName,
+        text: event.text,
+        createdAtMs: event.createdAtMs,
+        mediaType: event.mediaType ?? null,
+        hasMedia: event.hasMedia ?? false,
+      };
+    case 'reaction.broadcast':
+      return {
+        type: 'reaction.broadcast',
+        protocolVersion: 2,
+        roomId: event.roomId,
+        userId: event.userId,
+        username: event.username,
+        emoji: event.emoji,
+        serverTimeMs: event.serverTimeMs,
+      };
+    case 'room.appearance.updated':
+      // Аудит 26.07.2026 P2: живая тема комнаты. Событие приходит из шины на
+      // ВСЕ реплики, каждая разворачивает плоские поля в wire-формат v2 и
+      // отдаёт своим локальным сокетам — хост больше не единственный, кто
+      // видит новую тему до перезахода в комнату.
+      return {
+        type: 'room.appearance.updated',
+        protocolVersion: 2,
+        roomId: event.roomId,
+        appearance: {
+          themeId: event.themeId,
+          themeRevision: event.themeRevision,
+          intensity: event.intensity,
+          motionEnabled: event.motionEnabled,
+        },
+        serverTimeMs: event.serverTimeMs,
+      };
+    default:
+      return null;
   }
 }
 

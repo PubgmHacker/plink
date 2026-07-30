@@ -500,7 +500,9 @@ public final class RealtimeClient: NSObject {
     }
 
     private func sendClockProbe() {
-        send(.clockProbe(.init(clientSentMs: Date().timeIntervalSince1970 * 1000)))
+        // Аудит 26.07.2026 P0: сервер требует целое (zod .int()), Double с дробью
+        // отбивался SCHEMA_INVALID — клоксинк в проде не работал вообще.
+        send(.clockProbe(.init(clientSentMs: (Date().timeIntervalSince1970 * 1000).rounded())))
     }
 
     // MARK: - M12 offline outbound queue

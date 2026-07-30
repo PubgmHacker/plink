@@ -1,11 +1,14 @@
-// Plink/Features/Auth2026/RegistrationView2026.swift — §8 Final Unified
+// Plink/Features/Auth2026/RegistrationView2026.swift — Auth 2026 redesign
 //
-// Registration with clean background (no posters). Compact living backdrop only.
+// Регистрация в языке «кинозал»: бархат + луч проектора, компактный
+// «кадр в кадр», стеклянные капсулы-поля, teal-CTA, янтарные ошибки.
 
 import SwiftUI
 
 struct RegistrationView2026: View {
     @EnvironmentObject private var apiClient: APIClient
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var displayName = ""
     @State private var username = ""
     @State private var email = ""
@@ -17,148 +20,203 @@ struct RegistrationView2026: View {
     let onRegistered: () -> Void
     let onLogin: () -> Void
 
+    private var spring: Animation? {
+        reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86)
+    }
+
     private var canRegister: Bool {
-        !displayName.isEmpty &&
-        username.count >= 3 &&
+        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        usernameIssues.isEmpty &&
         email.contains("@") &&
-        password.count >= 6 &&
+        passwordIssues.isEmpty &&
         acceptsTerms
     }
 
+    /// Аудит 26.07.2026 P2: чек-лист и `canRegister` разъезжались — пункт
+    /// «МИНИМУМ 1 ЦИФРА» горел, а кнопка была активна. Требования сведены
+    /// к серверной zod-схеме (signupBody: password min 6, цифра не нужна).
     private var passwordIssues: [String] {
         var issues: [String] = []
-        if password.count < 6 { issues.append("Минимум 6 символов") }
-        if !password.contains(where: { $0.isNumber }) { issues.append("Минимум 1 цифра") }
+        if password.count < 6 { issues.append("МИНИМУМ 6 СИМВОЛОВ") }
+        return issues
+    }
+
+    /// Username по серверному правилу: `^[A-Za-z][A-Za-z0-9_]{4,31}$`.
+    /// Раньше клиент пускал 3 символа и точки — сервер отвечал 400 уже
+    /// после нажатия кнопки.
+    private var normalizedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "@", with: "")
+    }
+
+    private var usernameIssues: [String] {
+        let name = normalizedUsername
+        var issues: [String] = []
+        if name.count < 5 || name.count > 32 { issues.append("USERNAME: 5–32 СИМВОЛА") }
+        if let first = name.first, !(first.isASCII && first.isLetter) {
+            issues.append("USERNAME НАЧИНАЕТСЯ С БУКВЫ")
+        }
+        if name.contains(where: { !($0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_")) }) {
+            issues.append("USERNAME: A–Z, 0–9, _")
+        }
         return issues
     }
 
     var body: some View {
-        // PATCH: posters visible at top, but form has solid surface card
-        // so fields are readable. Best of both worlds.
         ZStack {
-            Cinema2026.background.ignoresSafeArea()
+            // ═══ Бархат зала + луч проектора ═══
+            ProjectorBeamBackground()
 
-            // Poster mosaic at top — same as login but shorter
-            VStack(spacing: 0) {
-                AnimatedPosterMosaic()
-                    .frame(height: 240)
-                    .clipShape(RoundedRectangle(cornerRadius: 0))
-
-                Spacer()
-            }
-
-            // Scrollable form with semi-opaque surface card
             ScrollView {
-                VStack(spacing: 14) {
-                    // Title overlaps poster bottom
-                    // Plink branding
-                    VStack(spacing: 4) {
-                        Text("Plink")
-                            .font(.system(size: 32, weight: .heavy))
-                            .foregroundStyle(Cinema2026.text)
-                        Text("Создать аккаунт")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(Cinema2026.secondary)
-                    }
-                    .padding(.top, 10)
-                    .shadow(color: Cinema2026.background.opacity(0.8), radius: 8)
+                VStack(spacing: 0) {
+                    // ── Герой: компактный «кадр в кадр» ──
+                    PlinkFrameMark(size: 56)
+                        .padding(.top, 36)
+                        .padding(.bottom, 16)
 
-                    // Form card — solid surface, readable
+                    Text("Создать аккаунт")
+                        .font(.system(size: 26, weight: .heavy))
+                        .tracking(-0.5)
+                        .foregroundStyle(PlinkTheatre.screen)
+                        .padding(.bottom, 8)
+
+                    AuthMonoTag(text: "НОВЫЙ БИЛЕТ · PLINK")
+                        .padding(.bottom, 28)
+
+                    // ── Поля ──
                     VStack(spacing: 12) {
-                        CompactAuthField(title: "Имя", text: $displayName, contentType: .name)
-                        CompactAuthField(title: "Username", text: $username, contentType: .username)
-                        CompactAuthField(title: "Email", text: $email, contentType: .emailAddress)
-                        CompactAuthField(title: "Пароль", text: $password, contentType: .newPassword, secure: true)
+                        CompactAuthField(
+                            title: "Имя",
+                            text: $displayName,
+                            icon: "person",
+                            contentType: .name,
+                            capitalization: .words
+                        )
+                        // Group — чтобы не выйти за 10 вьюх ViewBuilder'а VStack.
+                        Group {
+                            CompactAuthField(
+                                title: "Username",
+                                text: $username,
+                                icon: "at",
+                                contentType: .username
+                            )
 
-                        if !passwordIssues.isEmpty {
-                            VStack(alignment: .leading, spacing: 3) {
-                                ForEach(passwordIssues, id: \.self) { issue in
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "circle")
-                                            .font(.system(size: 8))
-                                        Text(issue)
-                                            .font(.system(size: 11))
+                            // Подсказку показываем и при пустом поле: username
+                            // обязателен, иначе кнопка неактивна без объяснений.
+                            if !usernameIssues.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(usernameIssues, id: \.self) { issue in
+                                        AuthMonoTag(text: issue)
                                     }
-                                    .foregroundStyle(Cinema2026.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 6)
+                                .transition(.opacity)
+                            }
+                        }
+
+                        CompactAuthField(
+                            title: "Email",
+                            text: $email,
+                            icon: "envelope",
+                            contentType: .emailAddress,
+                            keyboard: .emailAddress
+                        )
+                        CompactAuthField(
+                            title: "Пароль",
+                            text: $password,
+                            icon: "lock",
+                            contentType: .newPassword,
+                            secure: true,
+                            submitLabel: .done
+                        )
+
+                        if !password.isEmpty && !passwordIssues.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(passwordIssues, id: \.self) { issue in
+                                    AuthMonoTag(text: issue)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 6)
+                            .transition(.opacity)
                         }
 
                         Toggle(isOn: $acceptsTerms) {
                             Text("Принимаю Условия и Политику")
-                                .font(.caption)
-                                .foregroundStyle(Cinema2026.secondary)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(PlinkTheatre.muted)
+                        }
+                        .tint(PlinkTheatre.tealDeep)
+                        .padding(.horizontal, 6)
+                        .padding(.top, 4)
+                        .onChange(of: acceptsTerms) { _, _ in
+                            HapticManager.selection()
                         }
 
                         if let errorMessage {
-                            Text(errorMessage)
-                                .font(.caption)
-                                .foregroundStyle(Cinema2026.danger)
+                            AuthInlineNotice(text: errorMessage)
+                                .transition(.opacity)
                         }
 
+                        // ── Главная кнопка: сплошной teal ──
                         Button {
+                            HapticManager.impact(.medium)
                             Task { await register() }
                         } label: {
-                            HStack {
-                                if isLoading { ProgressView().tint(Cinema2026.background) }
-                                Text("Создать аккаунт")
-                                    .font(.system(size: 16, weight: .semibold))
+                            ZStack {
+                                if isLoading {
+                                    ProgressView()
+                                        .tint(PlinkTheatre.velvetDeep)
+                                } else {
+                                    Text("Создать аккаунт")
+                                }
                             }
-                            .foregroundStyle(Cinema2026.background)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: CompactPhoneMetrics.primaryButtonHeight)
-                            .background(
-                                (canRegister && !isLoading) ? Cinema2026.accent : Cinema2026.accent.opacity(0.4),
-                                in: RoundedRectangle(cornerRadius: 14)
-                            )
                         }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
+                        .buttonStyle(AuthPrimaryButtonStyle())
                         .disabled(!canRegister || isLoading)
+                        .padding(.top, 8)
                         .accessibilityLabel("Создать аккаунт")
 
-                        HStack(spacing: 4) {
-                            Text("Уже есть аккаунт?")
-                                .foregroundStyle(Cinema2026.secondary)
-                            Button("Войти", action: onLogin)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(Cinema2026.accent)
+                        // ── Вторичная: стеклянная ──
+                        Button {
+                            HapticManager.selection()
+                            onLogin()
+                        } label: {
+                            Text("У меня уже есть аккаунт")
                         }
-                        .font(.footnote)
+                        .buttonStyle(AuthProviderButtonStyle())
+                        // Пока идёт регистрация — уйти на вход нельзя,
+                        // иначе ответ приходит в уже закрытый экран.
+                        .disabled(isLoading)
 
                         LegalConsentFooter()
-                            .padding(.top, 4)
+                            .padding(.top, 10)
                     }
-                    .padding(18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Cinema2026.surface.opacity(0.96))
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 30)
+                    .padding(.bottom, 40)
                 }
-                .padding(.top, 180) // overlap poster mosaic
+                .frame(maxWidth: 430)
+                .padding(.horizontal, 28)
+                .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .foregroundStyle(Cinema2026.text)
+        .preferredColorScheme(.dark)
+        .animation(spring, value: passwordIssues)
+        .animation(spring, value: usernameIssues)
+        .animation(spring, value: errorMessage)
     }
 
     private func register() async {
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
-        // Always use shared AuthService so session is visible app-wide
+        // Всегда через общий AuthService — сессия видна всему приложению.
         let authService = AuthService.shared
-        // Prefer EnvironmentObject client if token plumbing differs
-        if APIClient.shared.authToken == nil {
-            // leave nil until signup returns token
-        }
 
-        let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "@", with: "")
+        let cleanUsername = normalizedUsername
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -168,19 +226,22 @@ struct RegistrationView2026: View {
         }
 
         do {
+            // cleanUsername уже прошёл проверку canRegister (серверное правило),
+            // поэтому подстановка из email больше не нужна — она давала
+            // невалидные имена вроде «ab» и 400 от сервера.
             _ = try await authService.signUp(
                 email: cleanEmail,
                 password: password,
-                username: cleanUsername.isEmpty ? cleanEmail.split(separator: "@").first.map(String.init) ?? "user" : cleanUsername
+                username: cleanUsername
             )
-            // Save display name after signup (optional, best-effort)
+            // Имя профиля — best-effort после регистрации.
             if !cleanName.isEmpty {
                 _ = try? await authService.updateProfile(displayName: cleanName)
             }
             if let token = authService.authToken {
                 APIClient.shared.authToken = token
             }
-            HapticManager.impact(.medium)
+            HapticManager.notification(.success)
             await MainActor.run {
                 onRegistered()
             }

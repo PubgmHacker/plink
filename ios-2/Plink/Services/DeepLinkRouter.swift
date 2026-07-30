@@ -16,6 +16,12 @@ import SwiftUI
 @MainActor
 final class DeepLinkRouter: ObservableObject {
 
+    /// Единственный экземпляр роутера на всё приложение.
+    /// (FIX: "Type 'DeepLinkRouter' has no member 'shared'" — PushNotificationService
+    /// и AppDelegate обрабатывают ссылки вне SwiftUI-иерархии, поэтому им нужен
+    /// доступ к тому же объекту, что и @EnvironmentObject в PlinkApp.)
+    static let shared = DeepLinkRouter()
+
     // MARK: - Published
 
     /// Текущий распознанный deep-link (управляет навигацией).
@@ -25,6 +31,8 @@ final class DeepLinkRouter: ObservableObject {
 
     static let domain = "plink.app"
     static let customScheme = "plink"
+    /// Схема старых ссылок, разосланных до ребрендинга.
+    static let legacyScheme = "raveclone"
 
     // MARK: - Parsing
 
@@ -37,9 +45,13 @@ final class DeepLinkRouter: ObservableObject {
             return parsePath(url.path, queryItems: components?.queryItems)
         }
 
-        // Custom scheme: raveclone://r/<code>  или  raveclone://u/<userId>
-        if url.scheme == Self.customScheme {
-            return parsePath(url.path, queryItems: components?.queryItems)
+        // Custom scheme: plink://r/<code> (плюс легаси raveclone://).
+        // В custom-scheme URL первый сегмент пути попадает в host
+        // (в plink://r/ABCDEF host = "r", path = "/ABCDEF"), поэтому склеиваем
+        // host + path перед разбором — иначе /u/<userId> терял сегмент "u".
+        if url.scheme == Self.customScheme || url.scheme == Self.legacyScheme {
+            let fullPath = (url.host ?? "") + url.path
+            return parsePath(fullPath, queryItems: components?.queryItems)
         }
 
         return .none
@@ -52,7 +64,9 @@ final class DeepLinkRouter: ObservableObject {
         guard let first = segments.first else { return .none }
 
         switch first {
-        case "r", "room":
+        // "join" — формат ссылок из старых share-текстов (https://plink.app/join/<code>),
+        // "room" — формат plink://room/<code>. Канонический — /r/<code>.
+        case "r", "room", "join":
             // /r/<code> или /r?code=<code>
             if segments.count >= 2 {
                 return .room(code: segments[1])

@@ -100,13 +100,53 @@ async function consumePendingAction(confirmationId: string, userId: string): Pro
   }
 }
 
+// P1 5.11: дневной лимит ИИ для бесплатного тарифа. Plink+ — без дневного
+// лимита (остаётся только общий 30/мин). Счётчик в памяти — как rlMap в
+// security.ts: сбрасывается при рестарте, для MVP этого достаточно.
+const AI_FREE_DAILY_LIMIT = 20;
+const aiDailyUsage = new Map<string, { count: number; day: string }>();
+
+function aiFreeQuotaExceeded(userId: string): boolean {
+  const day = new Date().toISOString().slice(0, 10);
+  const entry = aiDailyUsage.get(userId);
+  if (!entry || entry.day !== day) {
+    aiDailyUsage.set(userId, { count: 1, day });
+    return false;
+  }
+  if (entry.count >= AI_FREE_DAILY_LIMIT) return true;
+  entry.count++;
+  return false;
+}
+
+setInterval(() => {
+  const day = new Date().toISOString().slice(0, 10);
+  for (const [k, v] of aiDailyUsage) if (v.day !== day) aiDailyUsage.delete(k);
+}, 3600_000).unref?.();
+
 export default async function aiRoutes(fastify) {
-  
+
   // POST /api/ai/chat — universal AI assistant
   fastify.post('/ai/chat', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
   }, async (request, reply) => {
+    // P1 5.11: бесплатный тариф — AI_FREE_DAILY_LIMIT запросов в сутки.
+    {
+      const requester = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { isPremium: true, premiumUntil: true },
+      });
+      const now = new Date();
+      const premiumActive = !!requester?.isPremium
+        && (!requester.premiumUntil || requester.premiumUntil > now);
+      if (!premiumActive && aiFreeQuotaExceeded(request.user.id)) {
+        return reply.status(429).send({
+          error: 'Дневной лимит ИИ на бесплатном тарифе исчерпан. Plink+ снимает лимит.',
+          code: 'AI_DAILY_LIMIT',
+          limit: AI_FREE_DAILY_LIMIT,
+        });
+      }
+    }
     const body = (request.body ?? {}) as {
       messages?: Array<{ role?: string; content?: string }>;
       message?: string;
@@ -448,9 +488,18 @@ export default async function aiRoutes(fastify) {
   });
 }
 
+// Аудит 26.07.2026: у ai.ts был собственный генератор с полным алфавитом —
+// комната, созданная через ИИ, могла получить код с I/O/0/1, которые главный
+// генератор (rooms.ts) сознательно исключает, чтобы код диктовался голосом
+// без ошибок. Плюс Math.random() вместо crypto. Приведено к rooms.ts.
 function generateRoomCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(6);
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  return code;
 }
 
 function buildSystemPrompt(mode: string, context: any, user: any): string {

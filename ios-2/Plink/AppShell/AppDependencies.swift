@@ -11,7 +11,8 @@ final class AppDependencies {
     let authService: AuthService
     let roomService: RoomService
     let mediaService: MediaService
-    let discoveryService: DiscoveryService
+    // Аудит 26.07.2026: discoveryService удалён вместе с Features/Discovery —
+    // фейковый каталог заменён живыми V4-экранами в PlinkSidebarShell.
     let premiumStatusManager: PremiumStatusManager
     let friendManager: FriendManager?
     let dmChatService: DMChatService?
@@ -21,7 +22,6 @@ final class AppDependencies {
         authService: AuthService,
         roomService: RoomService,
         mediaService: MediaService? = nil,
-        discoveryService: DiscoveryService? = nil,
         premiumStatusManager: PremiumStatusManager? = nil,
         friendManager: FriendManager? = nil,
         dmChatService: DMChatService? = nil
@@ -30,7 +30,6 @@ final class AppDependencies {
         self.authService = authService
         self.roomService = roomService
         self.mediaService = mediaService ?? MediaService()
-        self.discoveryService = discoveryService ?? DiscoveryService(apiClient: apiClient, roomService: roomService)
         self.premiumStatusManager = premiumStatusManager ?? PremiumStatusManager.shared
         self.friendManager = friendManager
         self.dmChatService = dmChatService

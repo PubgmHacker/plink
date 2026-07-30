@@ -11,16 +11,25 @@ struct PlayerStage: View {
     @Binding var ui: WatchRoomUIState
     let variant: WatchRoomLayoutState.Variant
 
+    // Ревью P2: короткие всплески буферизации показывать нельзя — любой seek
+    // (жёсткая коррекция дрифта, ±10 с, перемотка хостом) на 200-800 мс
+    // выставляет isBuffering, и спиннер мигал бы посреди кадра. Показываем
+    // только когда буферизация держится дольше порога; скрываем мгновенно.
+    @State private var showBufferingChip = false
+    private static let bufferingChipDelayNs: UInt64 = 500_000_000
+
     var body: some View {
         ZStack {
             // GPT-5.6 §3: plain black background, nothing else
             Color.black
 
             // Player surface — never decorated
+            // P0-фикс аудита: в плеер идёт только mediaError — прочие lastError
+            // показываются тостами и не должны закрывать видео чёрным экраном.
             PlayerSurfaceView(
                 coordinator: model.coordinator,
-                roomError: model.lastError,
-                expectMedia: model.mediaSource != nil || model.lastError == nil
+                roomError: model.mediaError,
+                expectMedia: model.mediaSource != nil || model.mediaError == nil
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -45,9 +54,12 @@ struct PlayerStage: View {
             }
             // Soft buffering chip — only mid-playback, never blocks hit testing
             // and never shown for the whole prepare period.
-            if model.coordinator.isBuffering
+            // P2-фикс аудита: раньше здесь стояло ещё isPlaying == false, из-за
+            // чего оверлей не появлялся при ребуфере на ходу (YouTube state 3
+            // ставит isBuffering, но isPlaying не сбрасывает) — то есть именно
+            // в том случае, для которого чип и сделан.
+            if showBufferingChip
                 && hasSurface
-                && model.coordinator.isPlaying == false
                 && model.coordinator.isPreparing == false
             {
                 BufferingOverlay()
@@ -67,12 +79,26 @@ struct PlayerStage: View {
                 .allowsHitTesting(false)
                 .transition(.opacity)
 
-                PlayerTopChrome(model: model, variant: variant)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                PlayerTopChrome(
+                    model: model,
+                    variant: variant,
+                    // Панель темы презентует WatchRoomScreen — здесь только
+                    // запрос на открытие (хром гаснет по таймеру автоскрытия).
+                    onOpenAppearance: { ui.appearancePanelPresented = true }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
 
-                // Host sync control — ensures multi-device play/pause even when
-                // YouTube chrome events are missed (MVP reliability).
-                if model.isHost {
+                // M40: своя полноценная панель управления вместо родной панели
+                // YouTube — перемотка с буфером, время, ±10 с, скорость,
+                // качество, звук и полный экран. Раньше здесь была только
+                // кнопка play для хоста, а всё остальное рисовал YouTube.
+                //
+                // Показываем её только для встроенных провайдеров (YouTube и
+                // подобные). У родного AVPlayer свои системные контролы.
+                if model.coordinator.embeddedView != nil {
+                    PlinkPlayerControls(model: model, ui: $ui, variant: variant)
+                        .transition(.opacity)
+                } else if model.isHost {
                     PlayerCenterControl(model: model)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
@@ -80,6 +106,17 @@ struct PlayerStage: View {
             }
         }
         .clipped()
+        // Дебаунс спиннера буферизации: при isBuffering ждём порог и только
+        // потом показываем; на сброс флага задача перезапускается и гасит чип.
+        .task(id: model.coordinator.isBuffering) {
+            guard model.coordinator.isBuffering else {
+                showBufferingChip = false
+                return
+            }
+            try? await Task.sleep(nanoseconds: Self.bufferingChipDelayNs)
+            guard !Task.isCancelled else { return }
+            showBufferingChip = true
+        }
         .accessibilityElement(children: .contain)
         // FORBIDDEN: PlinkLivingBackground, glassCard, neonGlow, theme stroke,
         // theme shadow, theme corner radius. None of these appear here.

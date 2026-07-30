@@ -28,7 +28,7 @@ enum PresenceHeartbeat {
 
     static func ping() async {
         if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
+            APIClient.shared.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
         guard APIClient.shared.authToken != nil else { return }

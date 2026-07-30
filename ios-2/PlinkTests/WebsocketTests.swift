@@ -11,16 +11,17 @@ final class WebsocketTests: XCTestCase {
 
     // MARK: - RealtimeClientMessage encoding
 
+    // protocolVersion — константа в живом API (literal 2), в init не передаётся.
+    // effectiveAtServerMs назначает СЕРВЕР, в SyncCommand его нет вовсе.
+
     func testSyncCommand_encodesCorrectly() throws {
         let msg = RealtimeClientMessage.SyncCommand(
-            protocolVersion: 2,
             roomId: "room-123",
             actionId: "action-456",
             mediaId: nil,
             positionMs: 5000,
             playing: true,
-            rate: 1.0,
-            effectiveAtServerMs: 1_000_000
+            rate: 1.0
         )
         let data = try JSONEncoder().encode(RealtimeClientMessage.syncCommand(msg))
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -32,19 +33,20 @@ final class WebsocketTests: XCTestCase {
 
     func testChatSend_encodesCorrectly() throws {
         let msg = RealtimeClientMessage.ChatSend(
-            protocolVersion: 2,
             roomId: "room-123",
+            clientMessageId: "cmid-789",
             text: "Hello world"
         )
         let data = try JSONEncoder().encode(RealtimeClientMessage.chatSend(msg))
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(json?["type"] as? String, "chat.send")
+        XCTAssertEqual(json?["protocolVersion"] as? Int, 2)
+        XCTAssertEqual(json?["clientMessageId"] as? String, "cmid-789")
         XCTAssertEqual(json?["text"] as? String, "Hello world")
     }
 
     func testReactionSend_encodesCorrectly() throws {
         let msg = RealtimeClientMessage.ReactionSend(
-            protocolVersion: 2,
             roomId: "room-123",
             emoji: "❤️"
         )
@@ -92,13 +94,18 @@ final class WebsocketTests: XCTestCase {
 
     // MARK: - Message type discrimination
 
-    func testMessageTypes_areDistinct() {
-        XCTAssertNotEqual(RealtimeClientMessage.syncCommand(.init(
-            protocolVersion: 2, roomId: "r", actionId: "a", mediaId: nil,
-            positionMs: 0, playing: false, rate: 1.0, effectiveAtServerMs: 0
-        )), RealtimeClientMessage.chatSend(.init(
-            protocolVersion: 2, roomId: "r", text: "hi"
-        )))
+    func testMessageTypes_areDistinct() throws {
+        // RealtimeClientMessage не Equatable — сравниваем дискриминатор type в JSON.
+        let sync = RealtimeClientMessage.syncCommand(.init(
+            roomId: "r", actionId: "a", mediaId: nil,
+            positionMs: 0, playing: false, rate: 1.0
+        ))
+        let chat = RealtimeClientMessage.chatSend(.init(
+            roomId: "r", clientMessageId: "c", text: "hi"
+        ))
+        let syncJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(sync)) as? [String: Any]
+        let chatJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(chat)) as? [String: Any]
+        XCTAssertNotEqual(syncJSON?["type"] as? String, chatJSON?["type"] as? String)
     }
 
     // MARK: - RoomRole

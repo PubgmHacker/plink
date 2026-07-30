@@ -27,8 +27,14 @@ struct DMChatView: View {
     @State private var editTarget: DirectMessage?
     @State private var deleteTarget: DirectMessage?
     @FocusState private var isInputFocused: Bool
-    private let charLimit = 280
+    /// Аудит 26.07.2026 P2: серверный лимит 280 считается по wire-строке, куда
+    /// входит маркер стиля пузыря. Раньше UI обещал 280, а сервис молча срезал
+    /// хвост под маркер — считаем лимит там же, где его применяет отправка.
+    private var charLimit: Int { DMChatService.textLimit(forStyleID: editTarget?.bubbleStyle) }
     @State private var lastSendTime: Date = .distantPast
+    /// Аудит 26.07.2026 P1: id нижнего сообщения при последнем автоскролле —
+    /// защищает читателя истории от сброса вниз на каждый historyEpoch.
+    @State private var lastAutoScrollBottomID: String?
     @State private var wallpaper = PlinkChatWallpaperPrefs.current
     @State private var voiceRecorder = VoiceNoteRecorder()
     @State private var voiceError: String?
@@ -122,6 +128,31 @@ struct DMChatView: View {
                     }
                     ScrollView {
                         LazyVStack(spacing: 0) {
+                            // Аудит 26.07.2026 P1: пагинация — подгрузка страницы старше
+                            // (before = createdAt верхнего сообщения, ISO8601).
+                            if dmService.hasMoreHistory(for: friend.id), !messages.isEmpty {
+                                ProgressView()
+                                    .tint(.white.opacity(0.6))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    // id от верхнего сообщения: после prepend identity меняется
+                                    // и onAppear может сработать для следующей страницы
+                                    .id("dm-history-loader-\(messages.first?.id ?? "")")
+                                    .onAppear {
+                                        let anchorID = messages.first?.id
+                                        Task {
+                                            await dmService.loadOlderMessages(
+                                                friendId: friend.id,
+                                                friendName: liveFriend.displayTitle,
+                                                friendAvatarURL: liveFriend.avatarURL
+                                            )
+                                            // Держим прежний верх на месте после prepend
+                                            if let anchorID {
+                                                proxy.scrollTo(anchorID, anchor: .top)
+                                            }
+                                        }
+                                    }
+                            }
                             DMDayDivider(label: "Сегодня")
 
                             ForEach(Array(messages.enumerated()), id: \.element.id) { index, msg in
@@ -167,7 +198,9 @@ struct DMChatView: View {
                                         withAnimation { proxy.scrollTo(quotedId, anchor: .center) }
                                     },
                                     onEdit: { startEdit(msg) },
-                                    onDelete: { deleteTarget = msg }
+                                    onDelete: { deleteTarget = msg },
+                                    isFailed: dmService.failedMessageIDs.contains(msg.id),
+                                    onRetry: { dmService.retrySend(messageId: msg.id, friend: friend) }
                                 )
                                 .id(msg.id)
                                 .padding(.horizontal, 8)
@@ -188,14 +221,17 @@ struct DMChatView: View {
                                 }
                             }
                     )
+                    // Аудит 26.07.2026 P1: не дёргаем читателя вниз по глобальному
+                    // historyEpoch (isRead-флипы, реакции, loadHistory чужих чатов) —
+                    // скроллим только когда внизу ЭТОГО чата появилось новое сообщение.
                     .onChange(of: dmService.historyEpoch) { _, _ in
-                        DispatchQueue.main.async { scrollToBottom(proxy: proxy) }
-                    }
-                    .onChange(of: messages.count) { oldCount, newCount in
-                        guard newCount > oldCount else { return }
+                        let bottomID = messages.last?.id
+                        guard let bottomID, bottomID != lastAutoScrollBottomID else { return }
+                        lastAutoScrollBottomID = bottomID
                         DispatchQueue.main.async { scrollToBottom(proxy: proxy) }
                     }
                     .onAppear {
+                        lastAutoScrollBottomID = messages.last?.id
                         DispatchQueue.main.async {
                             scrollToBottom(proxy: proxy, animated: false)
                         }
@@ -410,10 +446,16 @@ struct DMChatView: View {
                 quiet: false
             )
             await dmService.loadPins(friendId: friend.id)
+            // Аудит 26.07.2026 P2: список друзей и закрепления не нужны каждые 5 с —
+            // это лишние 2 запроса на тик поверх истории и typing.
+            var tick = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled else { break }
-                await friendManager.loadFriends()
+                tick &+= 1
+                if tick % 4 == 0 {
+                    await friendManager.loadFriends()
+                }
                 // Quiet polling prevents full-list visual churn and reduces chat lag.
                 await dmService.loadHistory(
                     friendId: friend.id,
@@ -421,7 +463,9 @@ struct DMChatView: View {
                     friendAvatarURL: liveFriend.avatarURL,
                     quiet: true
                 )
-                await dmService.loadPins(friendId: friend.id)
+                if tick % 4 == 0 {
+                    await dmService.loadPins(friendId: friend.id)
+                }
                 await dmService.loadTyping(friendId: friend.id)
             }
         }
@@ -858,9 +902,10 @@ struct DMChatView: View {
 
     private var glassInputBar: some View {
         VStack(spacing: 0) {
-        // M16: баннер ИИ-модератора (мут за маты / отклонённое фото)
-        if let modMsg = dmService.errorMessage,
-           modMsg.contains("Мут") || modMsg.contains("замучены") || modMsg.contains("отклонено") {
+        // M16: баннер ИИ-модератора (мут за маты / отклонённое фото).
+        // Аудит 26.07.2026 P1: показываем ЛЮБУЮ ошибку сервиса — раньше фильтр по
+        // ключевым словам скрывал сетевые сбои, и отправка падала «молча».
+        if let modMsg = dmService.errorMessage {
             HStack(spacing: 8) {
                 Image(systemName: "shield.lefthalf.filled")
                     .font(.system(size: 12, weight: .bold))
@@ -1334,6 +1379,9 @@ private struct DMMessageRow: View {
     var onQuoteTap: (String) -> Void = { _ in }
     var onEdit: () -> Void = {}
     var onDelete: () -> Void = {}
+    // Аудит 26.07.2026 P1: маркер «не отправлено» + повтор отправки
+    var isFailed: Bool = false
+    var onRetry: () -> Void = {}
 
     var body: some View {
         GeometryReader { geo in
@@ -1361,7 +1409,9 @@ private struct DMMessageRow: View {
                 onToggleSelection: onToggleSelection,
                 onQuoteTap: onQuoteTap,
                 onEdit: onEdit,
-                onDelete: onDelete
+                onDelete: onDelete,
+                isFailed: isFailed,
+                onRetry: onRetry
             )
         }
         .frame(minHeight: 1)
@@ -1393,6 +1443,9 @@ private struct DMBubble: View {
     var onQuoteTap: (String) -> Void = { _ in }
     var onEdit: () -> Void = {}
     var onDelete: () -> Void = {}
+    // Аудит 26.07.2026 P1: маркер «не отправлено» + повтор отправки
+    var isFailed: Bool = false
+    var onRetry: () -> Void = {}
 
     /// Horizontal swipe offset (Telegram swipe-to-reply).
     @State private var dragOffset: CGFloat = 0
@@ -1550,7 +1603,7 @@ private struct DMBubble: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(Color.black.opacity(0.42)))
-                        if isOwn {
+                        if isOwn && !isFailed {
                             // Telegram ticks: one gray = sent, two blue = read
                             TelegramReadTicks(isRead: message.isRead)
                                 .padding(.horizontal, 5)
@@ -1558,6 +1611,28 @@ private struct DMBubble: View {
                                 .background(Capsule().fill(Color.black.opacity(0.42)))
                         }
                     }
+                    .padding(.horizontal, 2)
+                }
+
+                // Аудит 26.07.2026 P1: неотправленное сообщение — красный маркер
+                // с кнопкой «Повторить» (медиа не ретраим — исходных байтов нет).
+                if isFailed {
+                    let retryable = !message.isVoiceNote && !message.isPhotoMessage
+                    Button {
+                        if retryable { onRetry() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(retryable ? "Не отправлено · Повторить" : "Не отправлено")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.red.opacity(0.95))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.black.opacity(0.42)))
+                    }
+                    .buttonStyle(.plain)
                     .padding(.horizontal, 2)
                 }
             }

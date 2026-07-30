@@ -1,6 +1,8 @@
 // src/routes/rooms.ts — с Redis кэшем
 import crypto from 'node:crypto';
 import { hashRoomPassword, verifyRoomPassword, requireHost } from '../middleware/security.js';
+import { validateBody } from '../middleware/validate.js';
+import { roomCreateBody, roomJoinBody } from '../schemas/requests.js';
 import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
 import {
@@ -46,6 +48,39 @@ function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataU
     const isWebP = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
     if (!isJPEG && !isPNG && !isWebP) return null;
     return { mime, buffer, dataUrl: `data:${mime};base64,${match[3]}` };
+}
+
+// B6/Аудит 26.07.2026 P2: единая проверка ссылки на поток.
+// Раньше валидация была только в POST /rooms (инлайном), а POST /rooms/:id/queue
+// принимал streamURL как есть — любой `javascript:`, `file:` или внутренний
+// хост (169.254.169.254) попадал в очередь и рассылался клиентам на проигрывание.
+// Возвращает текст ошибки или null, если ссылка допустима.
+//
+// Границы проверки (ревью P2, честно): это денилист по СТРОКЕ hostname, а не
+// полноценная защита от SSRF. Не покрывает hex/decimal-формы IP
+// (http://0x7f000001, http://2130706433), IPv4-mapped IPv6 и любые DNS-имена,
+// резолвящиеся в приватную сеть (dns.lookup не делается). Сервер сам streamURL
+// не тянет, поэтому цель здесь — не пустить в клиенты явную дичь; полноценный
+// фильтр требует нормализации адреса + резолва и выносится отдельной задачей.
+function validateStreamURL(raw: string): string | null {
+    let parsed: URL;
+    try {
+        parsed = new URL(raw);
+    } catch {
+        return 'Invalid streamURL format.';
+    }
+    // Only allow http/https schemes
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return `Invalid URL scheme: ${parsed.protocol}. Only http/https allowed.`;
+    }
+    // Block localhost, private IPs, and metadata endpoints
+    const hostname = parsed.hostname.toLowerCase();
+    const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1', 'metadata.google.internal'];
+    const privateIpPattern = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/;
+    if (blockedHosts.includes(hostname) || privateIpPattern.test(hostname)) {
+        return 'URLs pointing to local or private networks are not allowed.';
+    }
+    return null;
 }
 
 // 🔧 FIX: mediaItem хранится в БД как JSON-строка (Prisma `String?` колонка).
@@ -106,6 +141,14 @@ export default async function roomRoutes(fastify, _options) {
         if (violatesContentPolicy(queueCheck)) {
             return reply.status(422).send({ error: 'Контент нарушает правила Plink', code: 'CONTENT_BLOCKED' });
         }
+        // Аудит 26.07.2026 P2: streamURL очереди проходит ту же SSRF-проверку,
+        // что и mediaItem.streamURL в POST /rooms — иначе `javascript:`/`file:`
+        // и внутренние адреса броадкастятся клиентам на проигрывание.
+        const queueStreamURL = typeof body.streamURL === 'string' ? body.streamURL.trim() : '';
+        if (queueStreamURL) {
+            const urlError = validateStreamURL(queueStreamURL);
+            if (urlError) return reply.status(400).send({ error: urlError });
+        }
         const qUser = await prisma.user.findUnique({
             where: { id: request.user.id },
             select: { username: true },
@@ -113,7 +156,7 @@ export default async function roomRoutes(fastify, _options) {
         const queue = await enqueueRoomMedia(roomId, {
             id: typeof body.id === 'string' ? body.id : crypto.randomUUID(),
             title,
-            streamURL: typeof body.streamURL === 'string' ? body.streamURL : '',
+            streamURL: queueStreamURL,
             source: typeof body.source === 'string' ? body.source : 'youtube',
             addedBy: qUser?.username ?? 'user',
         });
@@ -140,6 +183,27 @@ export default async function roomRoutes(fastify, _options) {
             where: { roomID: roomId, userID: request.user.id },
         });
         if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+        // Аудит 26.07.2026 P2: раньше любой участник мог вычистить чужую очередь.
+        // Убрать элемент может хост комнаты или тот, кто его поставил.
+        const [dRoom, dUser, currentQueue] = await Promise.all([
+            prisma.room.findUnique({ where: { id: roomId }, select: { hostID: true } }),
+            prisma.user.findUnique({ where: { id: request.user.id }, select: { username: true } }),
+            getRoomQueue(roomId),
+        ]);
+        const target = currentQueue.find((q) => q.id === itemId);
+        const isRoomHost = dRoom?.hostID === request.user.id;
+        // Ревью P2: проверка была fail-open — при пустой/непрочитанной очереди
+        // (деградация Redis) target === undefined и владение НЕ проверялось,
+        // а следующий за ней dequeue уже удалял чужой элемент. Не-хост теперь
+        // никогда не проходит мимо проверки: нет элемента — 404.
+        if (!isRoomHost) {
+            if (!target) {
+                return reply.status(404).send({ error: 'Элемент очереди не найден' });
+            }
+            if (target.addedBy !== dUser?.username) {
+                return reply.status(403).send({ error: 'Убрать элемент может хост или тот, кто его добавил' });
+            }
+        }
         const queue = await dequeueRoomMedia(roomId, itemId);
         try {
             await (fastify as any).gateway?.publishChatMessage?.({
@@ -165,6 +229,15 @@ export default async function roomRoutes(fastify, _options) {
             where: { roomID: roomId, userID: request.user.id },
         });
         if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+        // Аудит 26.07.2026 P2: «включить сейчас» — управление воспроизведением,
+        // поэтому только хост (клиент и так показывает кнопку лишь ему).
+        const pRoom = await prisma.room.findUnique({
+            where: { id: roomId },
+            select: { hostID: true },
+        });
+        if (pRoom?.hostID !== request.user.id) {
+            return reply.status(403).send({ error: 'Только хост может включить видео из очереди' });
+        }
         const queue = await promoteRoomMedia(roomId, itemId);
         const nowPlaying = queue.find((q) => q.id === itemId) ?? null;
         try {
@@ -184,7 +257,7 @@ export default async function roomRoutes(fastify, _options) {
 
     // POST /api/rooms — Создание комнаты
     fastify.post('/rooms', {
-        preHandler: [fastify.authenticate]
+        preHandler: [fastify.authenticate, validateBody(roomCreateBody)]
     }, async (request, reply) => {
         const { name, maxParticipants, mediaItem, privacy, password, hostName } = request.body;
 
@@ -243,23 +316,8 @@ export default async function roomRoutes(fastify, _options) {
 
         // B6: SSRF protection — validate mediaItem.streamURL if present
         if (mediaItem?.streamURL) {
-            const streamURL = String(mediaItem.streamURL);
-            try {
-                const parsed = new URL(streamURL);
-                // Only allow http/https schemes
-                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-                    return reply.status(400).send({ error: `Invalid URL scheme: ${parsed.protocol}. Only http/https allowed.` });
-                }
-                // Block localhost, private IPs, and metadata endpoints
-                const hostname = parsed.hostname.toLowerCase();
-                const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1', 'metadata.google.internal'];
-                const privateIpPattern = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/;
-                if (blockedHosts.includes(hostname) || privateIpPattern.test(hostname)) {
-                    return reply.status(400).send({ error: 'URLs pointing to local or private networks are not allowed.' });
-                }
-            } catch {
-                return reply.status(400).send({ error: 'Invalid streamURL format.' });
-            }
+            const urlError = validateStreamURL(String(mediaItem.streamURL));
+            if (urlError) return reply.status(400).send({ error: urlError });
         }
 
         // 🔧 SAFETY: simple create — no endedAt column (uses isActive: false
@@ -308,9 +366,24 @@ export default async function roomRoutes(fastify, _options) {
 
     // POST /api/rooms/join — Вход в комнату
     fastify.post('/rooms/join', {
-        preHandler: [fastify.authenticate]
+        preHandler: [fastify.authenticate, validateBody(roomJoinBody)],
+        // Аудит 26.07.2026: вход по коду не был ограничен по частоте.
+        // Пространство кодов — 32^6, и без лимита его можно перебирать,
+        // попадая в чужие приватные комнаты. Лимит считаем по пользователю,
+        // а не по IP: за одним адресом провайдера сидят тысячи людей.
+        config: {
+            rateLimit: {
+                max: 20,
+                timeWindow: '1 minute',
+                keyGenerator: (req: any) => req.user?.id ?? req.ip,
+            },
+        },
     }, async (request, reply) => {
-        const { code, password } = request.body;
+        const { code, password } = request.body ?? {};
+        // Раньше отсутствие code давало 500 на code.toUpperCase().
+        if (!code || typeof code !== 'string') {
+            return reply.status(400).send({ error: 'Код комнаты обязателен' });
+        }
 
         const room = await prisma.room.findFirst({
             where: { code: code.toUpperCase(), isActive: true }
@@ -319,9 +392,13 @@ export default async function roomRoutes(fastify, _options) {
         if (!room) return reply.status(404).send({ error: 'Комната не найдена' });
 
         if (room.password) {
-            if (!password) return reply.status(401).send({ error: 'Требуется пароль' });
+            // Аудит 26.07.2026 P0: здесь был 401 — клиент трактует 401 как смерть
+            // сессии (plinkSessionExpired), и опечатка в пароле комнаты выкидывала
+            // пользователя из аккаунта. 401 зарезервирован за аутентификацией,
+            // доменные отказы — 403.
+            if (!password) return reply.status(403).send({ error: 'Требуется пароль', code: 'ROOM_PASSWORD_REQUIRED' });
             const isValid = await verifyRoomPassword(password, room.password);
-            if (!isValid) return reply.status(401).send({ error: 'Неверный пароль' });
+            if (!isValid) return reply.status(403).send({ error: 'Неверный пароль', code: 'ROOM_PASSWORD_INVALID' });
         }
 
         // M15: privacy 'friends' — впускаем только друзей хоста (в любом направлении дружбы)
@@ -440,7 +517,13 @@ export default async function roomRoutes(fastify, _options) {
     // Host-only. Validates Plink+ for premium theme IDs, persists the
     // RoomAppearance JSON, broadcasts `room.appearance.updated` to all
     // participants via WebSocket. Non-hosts receive 403.
+    // Аудит 26.07.2026 P2: рейт-лимит обязателен. rate-limit зарегистрирован с
+    // global: false (app.ts), поэтому без config роут был безлимитным — а теперь
+    // один PATCH порождает фан-аут на ВСЕ сокеты комнаты на ВСЕХ репликах.
+    // Хост в цикле мог бы забить буферы зрителей и словить их эвикцию по
+    // backpressure (connectionRegistry.ts). Лимит как у соседних PATCH-роутов.
     fastify.patch('/rooms/:id/appearance', {
+        config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
         preHandler: [fastify.authenticate, requireHost(prisma)]
     }, async (request, reply) => {
         const { id } = request.params;
@@ -449,14 +532,44 @@ export default async function roomRoutes(fastify, _options) {
         if (typeof themeId !== 'string' || typeof intensity !== 'number') {
             return reply.status(400).send({ error: 'themeId and intensity required' });
         }
+        // Аудит 26.07.2026 P2: границы themeId/intensity совпадают с
+        // RoomAppearanceUpdatedSchema. Без этого в БД лёг бы вид, который
+        // потом не проходит валидацию шины — тема сохранена, но не доставлена.
+        if (themeId.length < 1 || themeId.length > 64 || !Number.isFinite(intensity)) {
+            return reply.status(400).send({ error: 'Invalid themeId or intensity' });
+        }
+
+        // P1 5.11: живые темы комнаты — фича Plink+. Бесплатная только
+        // дефолтная статика; клиентский каталог (PlinkAppearanceRegistry)
+        // помечает все roomLive-темы premium, сервер обязан это подтверждать.
+        const FREE_ROOM_THEME_IDS = new Set(['room-default-static']);
+        if (!FREE_ROOM_THEME_IDS.has(themeId)) {
+            const host = await prisma.user.findUnique({
+                where: { id: request.user.id },
+                select: { isPremium: true, premiumUntil: true },
+            });
+            const now = new Date();
+            const premiumActive = !!host?.isPremium
+                && (!host.premiumUntil || host.premiumUntil > now);
+            if (!premiumActive) {
+                return reply.status(403).send({
+                    error: 'Живые темы комнаты доступны в Plink+',
+                    code: 'PREMIUM_REQUIRED',
+                });
+            }
+        }
 
         // 44% intensity cap (V4 rule)
         const cappedIntensity = Math.min(Math.max(intensity, 0), 0.44);
+        const cappedRevision = typeof themeRevision === 'number' && Number.isInteger(themeRevision) && themeRevision >= 0
+            ? themeRevision
+            : 1;
+        const cappedMotion = typeof motionEnabled === 'boolean' ? motionEnabled : true;
         const appearance = JSON.stringify({
             themeId,
-            themeRevision: typeof themeRevision === 'number' ? themeRevision : 1,
+            themeRevision: cappedRevision,
             intensity: cappedIntensity,
-            motionEnabled: typeof motionEnabled === 'boolean' ? motionEnabled : true,
+            motionEnabled: cappedMotion,
             updatedAt: new Date().toISOString(),
             updatedBy: request.user.id,
         });
@@ -466,25 +579,65 @@ export default async function roomRoutes(fastify, _options) {
             data: { appearance }
         });
 
-        // Broadcast to all room participants via WebSocket (best-effort).
-        try {
-            const participants = await prisma.roomParticipant.findMany({
-                where: { roomID: id },
-                select: { userID: true }
-            });
-            for (const p of participants) {
-                // fastify.io is the Socket.IO server; we emit per-participant.
-                // (Group emit would be `fastify.io.to(roomId).emit(...)` if
-                // participants joined the Socket.IO room on connect.)
-                fastify.io?.to(`user:${p.userID}`).emit('room.appearance.updated', {
-                    roomId: id,
-                    appearance: JSON.parse(appearance)
-                });
+        // Аудит 26.07.2026 P2: здесь был «броадкаст» через fastify.io?.to(...).emit(...),
+        // но Socket.IO в проекте нет вообще (реалтайм — ws + RealtimeGateway), поэтому
+        // optional chaining превращало весь цикл по участникам в no-op: код делал вид,
+        // что доставляет тему, и грузил БД лишним findMany на каждый PATCH.
+        // Теперь доставка живая: после успешного сохранения публикуем типизированное
+        // событие в RoomEventBus, и КАЖДАЯ реплика с сокетами комнаты рассылает своим
+        // клиентам room.appearance.updated (contracts/realtime-v2.ts). Публикуем строго
+        // после update — иначе клиенты увидят тему, которой нет в БД.
+        // Клиент: iOS-декодер (Plink/Realtime/RealtimeEnvelope.swift) на неизвестный type
+        // бросает DecodingError, но RealtimeClient.handleIncoming ловит его и лишь пишет
+        // lastError — соединение живо, старые сборки просто игнорируют событие. Применение
+        // темы у зрителей включится, когда iOS добавит case и вызовет
+        // RoomAppearanceStore.applyServerUpdate.
+        // Доставка best-effort: упавший push не должен откатывать сохранённую тему.
+        // Аудит 26.07.2026 P2 (вторая волна): метод зовём БЕЗ `?.` — именно
+        // optional chaining на вызове когда-то превратило доставку в тихий no-op.
+        // Если метод пропадёт/переименуют, будет TypeError → warn в логе, а не
+        // молчаливая потеря события. Отсутствие самого gateway (WS выключен)
+        // тоже логируем явно.
+        const gateway = (fastify as any).gateway;
+        if (!gateway) {
+            request.log?.warn?.({ roomId: id }, 'gateway missing — appearance push skipped');
+        } else {
+            // Бюджет на публикацию, как у presence-cleanup в gateway.ts: ioredis
+            // с offline-очередью может держать команду весь reconnect-backoff,
+            // а 200 на PATCH не должен зависеть от живости Redis.
+            let published = false;
+            let timer: NodeJS.Timeout | undefined;
+            try {
+                const publish = (async () => {
+                    await gateway.publishRoomAppearance({
+                        kind: 'room.appearance.updated',
+                        roomId: id,
+                        themeId,
+                        themeRevision: cappedRevision,
+                        intensity: cappedIntensity,
+                        motionEnabled: cappedMotion,
+                        serverTimeMs: Date.now(),
+                    });
+                    published = true;
+                })();
+                // Таймаут РЕЗОЛВИТСЯ (не реджектится): реджект проигравшей ветки
+                // гонки стал бы unhandled rejection после того, как race уже осел.
+                await Promise.race([
+                    publish.catch((err) => {
+                        request.log?.warn?.({ err, roomId: id }, 'room.appearance.updated publish failed');
+                        published = true; // ошибка уже залогирована, второй warn не нужен
+                    }),
+                    new Promise<void>((resolve) => { timer = setTimeout(resolve, 2000); }),
+                ]);
+                if (!published) {
+                    request.log?.warn?.({ roomId: id }, 'room.appearance.updated publish timed out after 2000ms');
+                }
+            } catch (err) {
+                // Сюда попадает только синхронный бросок (например, метод исчез).
+                request.log?.warn?.({ err, roomId: id }, 'room.appearance.updated publish failed');
+            } finally {
+                if (timer) clearTimeout(timer);
             }
-        } catch (e: any) {
-            // WS broadcast failure is non-fatal — clients will pull fresh state
-            // on next room fetch.
-            console.warn('[rooms/:id/appearance] WS broadcast failed:', e?.message ?? String(e));
         }
 
         await logAudit({
@@ -654,17 +807,14 @@ export default async function roomRoutes(fastify, _options) {
         // History for kicked user
         await recordWatchHistory(prisma, userId, room);
 
-        // Best-effort WS notify (gateway may be null)
+        // Аудит 26.07.2026 P1: broadcastToRoom не существовал (no-op за
+        // optional chaining) — сокет кикнутого оставался в комнате и читал
+        // броадкасты. kickUser закрывает его WS на всех репликах через RoomEventBus.
         try {
             const gateway = (fastify as any).gateway;
-            if (gateway?.broadcastToRoom) {
-                await gateway.broadcastToRoom(id, {
-                    type: 'participant.kicked',
-                    payload: { userId, roomId: id, by: request.user.id },
-                });
-            }
+            await gateway?.kickUser?.(id, userId, request.user.id);
         } catch {
-            /* ignore */
+            /* ignore — best-effort, gateway может быть null */
         }
 
         // If nobody left after kick — soft-end
@@ -1115,7 +1265,8 @@ export default async function roomRoutes(fastify, _options) {
                 text: true,
                 createdAt: true,
                 mediaType: true,
-                mediaData: true,
+                // Аудит 26.07.2026 P1: mediaData (base64 до ~3MB на сообщение)
+                // НЕ тянем — ради Boolean hasMedia; 200 фото давали ~600MB RSS.
             },
         });
 
@@ -1140,6 +1291,17 @@ export default async function roomRoutes(fastify, _options) {
             : [];
         const senderMap = new Map(senders.map(s => [s.id, s.username]));
 
+        // Аудит 26.07.2026 P1: hasMedia без загрузки base64-тела — лёгкий
+        // запрос только id по кандидатам с mediaType.
+        const mediaCandidateIds = returnMessages.filter(m => m.mediaType).map(m => m.id);
+        const withMedia = mediaCandidateIds.length > 0
+            ? await prisma.chatMessage.findMany({
+                where: { id: { in: mediaCandidateIds }, mediaData: { not: null } },
+                select: { id: true },
+            })
+            : [];
+        const hasMediaSet = new Set(withMedia.map(m => m.id));
+
         reply.send({
             messages: returnMessages.map(m => ({
                 messageId: m.id,
@@ -1149,7 +1311,7 @@ export default async function roomRoutes(fastify, _options) {
                 text: m.text,
                 createdAtMs: m.createdAt.getTime(),
                 mediaType: m.mediaType ?? null,
-                hasMedia: Boolean(m.mediaType && m.mediaData),
+                hasMedia: Boolean(m.mediaType && hasMediaSet.has(m.id)),
             })),
             hasMore,
             nextCursor,  // P0-59: opaque cursor, not messageId
@@ -1185,9 +1347,21 @@ export default async function roomRoutes(fastify, _options) {
     }, 15_000).unref();
 }
 
+/// Аудит 26.07.2026: код комнаты генерировался через Math.random() —
+/// предсказуемый PRNG, не предназначенный для секретов. Для комнат
+/// с приватностью «по ссылке» этот код и есть единственный секрет,
+/// поэтому берём криптостойкий источник.
+///
+/// Дополнительно исключены символы, которые путают при чтении вслух
+/// и при вводе: 0/O и 1/I. Это заодно снижает число ошибочных попыток входа.
 function generateRoomCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = crypto.randomBytes(6);
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars[bytes[i] % chars.length];
+    }
+    return code;
 }
 
 async function getUserPremiumStatus(prisma, userId: string): Promise<boolean> {

@@ -50,7 +50,12 @@ final class DMRealtimeClient {
             scheduleReconnect()
             return
         }
-        guard let url = URL(string: PlinkConfig.wsURLString + "/user") else { return }
+        // Личный канал живёт на том же /ws, что и комнаты: сервер отличает его по
+        // билету с roomId "@me" (gateway.ts, ветка «User-level DM channel»), а
+        // отдельного маршрута /ws/user не существует. Найдено 26.07.2026 по логам
+        // прода: клиент бесконечно получал 404 и переподключался каждые 30 секунд,
+        // то есть realtime личных сообщений не работал никогда.
+        guard let url = URL(string: PlinkConfig.wsURLString) else { return }
         var request = URLRequest(url: url)
         request.setValue("plink.v2, plink.ticket.\(ticket)", forHTTPHeaderField: "Sec-WebSocket-Protocol")
         let socket = URLSession.shared.webSocketTask(with: request)
@@ -106,7 +111,7 @@ final class DMRealtimeClient {
     }
 
     private func fetchTicket() async -> String? {
-        guard let auth = KeychainHelper.read(for: "rave_auth_token"),
+        guard let auth = AuthTokenStore.shared.token,
               let url = URL(string: PlinkConfig.apiURLString + "/realtime/ticket") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"

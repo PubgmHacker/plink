@@ -77,7 +77,9 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
             defaults.set(user.displayName ?? user.username, forKey: "plink_current_display_name")
         }
 
-        self.authToken = KeychainHelper.read(for: Keys.authToken)
+        // Аудит 26.07.2026 (P1 5.10): единая точка чтения токена — AuthTokenStore
+        // (сам разбирается с легаси-ключом `rave_auth_token`).
+        self.authToken = AuthTokenStore.shared.token
         if let expiryStr = KeychainHelper.read(for: Keys.tokenExpiry),
            let expiry = TimeInterval(expiryStr) {
             self.tokenExpiry = expiry
@@ -132,19 +134,23 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
             avatarData: response.user.avatarData,
             isOnline: true,
             isPremium: response.user.isPremium ?? false,
+            premiumUntil: response.user.premiumUntil,
             role: response.user.role,
             createdAt: response.user.createdAt ?? Date()
         )
 
-        let expiry = Date().addingTimeInterval(86400).timeIntervalSince1970  // JWT ~24h
+        let expiry = response.expiryEpochSeconds
         await cacheToken(response.token, expiry: expiry, refreshToken: response.refreshToken)
         cacheUser(user)
         // 🔧 FIX M6: Sync premium status from server (authoritative source).
         // Local UserDefaults flag is now a hint, not authority.
+        // Дата: /auth/signin её не отдаёт → nil = «дату не трогаем»; настоящую
+        // принесёт fetchCurrentUser (/users/me) или refreshEntitlement ниже.
         PremiumStatusManager.shared.syncFromServer(
             isPremium: user.isPremium,
-            expiry: PremiumStatusManager.shared.subscriptionExpiry
+            expiry: user.premiumUntil
         )
+        refreshEntitlementExpiryIfPremium(serverIsPremium: user.isPremium)
         await registerFCMIfPresent()
         AnalyticsService.shared.login()
         return user
@@ -164,18 +170,21 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
             avatarData: response.user.avatarData,
             isOnline: true,
             isPremium: response.user.isPremium ?? false,
+            premiumUntil: response.user.premiumUntil,
             role: response.user.role,
             createdAt: response.user.createdAt ?? Date()
         )
 
-        let expiry = Date().addingTimeInterval(86400).timeIntervalSince1970
+        let expiry = response.expiryEpochSeconds
         await cacheToken(response.token, expiry: expiry, refreshToken: response.refreshToken)
         cacheUser(user)
         // 🔧 FIX M6: Sync premium status from server (authoritative source).
+        // /auth/signup дату не отдаёт → nil = «дату не трогаем».
         PremiumStatusManager.shared.syncFromServer(
             isPremium: user.isPremium,
-            expiry: PremiumStatusManager.shared.subscriptionExpiry
+            expiry: user.premiumUntil
         )
+        refreshEntitlementExpiryIfPremium(serverIsPremium: user.isPremium)
         await registerFCMIfPresent()
         AnalyticsService.shared.signUp()
         return user
@@ -242,6 +251,21 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     /// 🔧 FIX C3: Real refresh — POST /auth/refresh with the refresh token.
     /// 🔧 FIX AUTH BUG: Only signs out on explicit 401 (refresh token invalid).
     /// Other errors (404 endpoint missing, network error) just return nil.
+    // Аудит 26.07.2026 P0: одиночный (single-flight) рефреш для retry-on-401.
+    // Параллельные 401 не должны запускать два refresh: ротация с реюз-детектом
+    // на сервере расценила бы второй вызов как кражу токена и отозвала бы всё
+    // семейство — пользователь вылетел бы со всех устройств.
+    private var refreshInFlight: Task<String?, Never>?
+
+    func refreshSessionToken() async -> String? {
+        if let inflight = refreshInFlight { return await inflight.value }
+        let task = Task { await self.refreshJWT() }
+        refreshInFlight = task
+        let value = await task.value
+        refreshInFlight = nil
+        return value
+    }
+
     private func refreshJWT() async -> String? {
         guard let refreshToken else { return nil }
 
@@ -252,7 +276,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
                 method: .post,
                 body: RefreshBody(refreshToken: refreshToken)
             )
-            let expiry = Date().addingTimeInterval(86400).timeIntervalSince1970
+            let expiry = response.expiryEpochSeconds
             await cacheToken(response.token, expiry: expiry, refreshToken: response.refreshToken ?? refreshToken)
             return response.token
         } catch APIError.unauthorized {
@@ -275,11 +299,55 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
         api.authToken = token
 
         // 🔧 FIX C2: Persist to Keychain (was: defaults.set)
-        KeychainHelper.save(token, for: Keys.authToken)
+        // P1 5.10: прямой save в легаси-ключ убран — AuthTokenStore.save ниже
+        // пишет в оба ключа (plink_auth_token + rave_auth_token).
         KeychainHelper.save(String(expiry), for: Keys.tokenExpiry)
         if let refreshToken {
             KeychainHelper.save(refreshToken, for: Keys.refreshToken)
         }
+        // Аудит 26.07.2026: код M39 (ClockSync, StoreKitManager, ModerationService,
+        // PushNotificationService, AIStreamClient) читает токен через AuthTokenStore.
+        // Без этой строки у них был бы пустой токен до первой миграции, а кэш
+        // хранилища оставался бы устаревшим после повторного входа.
+        AuthTokenStore.shared.save(token)
+    }
+
+    // Аудит 26.07.2026: POST /auth/signout-others отзывает ВСЕ refresh-токены
+    // пользователя и выдаёт новую пару для текущего устройства. Раньше клиент
+    // игнорировал тело ответа (requestNoBody) — локальный refresh-токен
+    // оставался отозванным, и на следующем /auth/refresh это устройство тоже
+    // вылетало из аккаунта. cacheToken приватный, поэтому нужен внутренний
+    // метод, чтобы V5-мост (PlinkAuthBridge) мог сохранить переизданную пару.
+    func applyReissuedTokens(token: String, refreshToken: String?, accessExpiresAtMs: Double? = nil) async {
+        let expiry = (accessExpiresAtMs.map { $0 / 1000 })
+            ?? Date().addingTimeInterval(86400).timeIntervalSince1970
+        await cacheToken(token, expiry: expiry, refreshToken: refreshToken)
+    }
+
+    // MARK: - Premium entitlement
+
+    /// Аудит 26.07.2026 (P2): signIn/signUp передавали в syncFromServer эхо
+    /// локального `subscriptionExpiry` — серверная дата истечения не доходила
+    /// до клиента ни при одном входе (ответы /auth/* не содержат premiumUntil).
+    /// Авторитетную дату отдаёт `GET /api/billing/entitlements`; ходит туда
+    /// живой IAP-стек, поэтому просто дёргаем его после сохранения токена.
+    ///
+    /// Ревью 26.07.2026: запрос идёт ТОЛЬКО когда сервер подтвердил Plink+, и
+    /// в фоне. Две причины: (1) при `isPremium == false` офлайн-фолбэк
+    /// `StoreManager.refreshEntitlement` (локальные StoreKit-транзакции при
+    /// 5xx/обрыве сети) мог включить премиум аккаунту, которому сервер отказал
+    /// строкой выше; (2) вход не должен ждать биллинговый эндпоинт (у него нет
+    /// своего таймаута, дефолт URLSession — 60 с).
+    private func refreshEntitlementExpiryIfPremium(serverIsPremium: Bool) {
+        guard serverIsPremium else { return }
+        Task { await self.refreshEntitlementExpiry() }
+    }
+
+    private func refreshEntitlementExpiry() async {
+        if StoreManager.shared.apiBaseURL == nil {
+            StoreManager.shared.apiBaseURL = URL(string: PlinkConfig.baseURLString)
+        }
+        await StoreManager.shared.refreshEntitlement()
     }
 
     // MARK: - FCM Token
@@ -330,9 +398,20 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     }
 
     // 🔧 Pack v3: Fetch fresh user from server
+    ///
+    /// Аудит 26.07.2026 (P2): единственный ответ, где сервер сообщает
+    /// авторитетную дату окончания Plink+ (`premiumUntil` в select
+    /// profile.ts). Раньше она до `PremiumStatusManager` не доходила, и он
+    /// узнавал дату только от `/api/billing/entitlements`. Синхронизируем
+    /// здесь — новых сетевых запросов это не добавляет.
     func fetchCurrentUser() async throws -> User {
         let user: User = try await api.request("users/me", method: .get)
         cacheUser(user)
+        // nil (пожизненный Plink+ или поле не пришло) = «дату не трогать».
+        PremiumStatusManager.shared.syncFromServer(
+            isPremium: user.isPremium,
+            expiry: user.premiumUntil
+        )
         return user
     }
 
@@ -384,11 +463,12 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
             avatarData: response.user.avatarData,
             isOnline: true,
             isPremium: response.user.isPremium ?? true,
+            premiumUntil: response.user.premiumUntil,
             role: response.user.role,
             createdAt: response.user.createdAt ?? Date()
         )
 
-        let expiry = Date().addingTimeInterval(86400 * 7).timeIntervalSince1970
+        let expiry = response.expiryEpochSeconds
         await cacheToken(response.token, expiry: expiry, refreshToken: response.refreshToken)
         cacheUser(user)
         return user
@@ -413,6 +493,18 @@ struct AuthResponse: Codable, Sendable {
     let user: AuthUser
     /// 🔧 FIX C3: Server may also return a long-lived refresh token.
     let refreshToken: String?
+    /// Аудит 26.07.2026: сервер присылает точный срок жизни access-токена
+    /// (epoch в миллисекундах). Раньше клиент игнорировал поле и хардкодил
+    /// 24 часа при серверном TTL в 1 час.
+    let accessExpiresAt: Double?
+}
+
+extension AuthResponse {
+    /// Серверный срок в секундах epoch; фолбэк — прежние 24 часа.
+    var expiryEpochSeconds: TimeInterval {
+        if let ms = accessExpiresAt, ms > 0 { return ms / 1000 }
+        return Date().addingTimeInterval(86400).timeIntervalSince1970
+    }
 }
 
 struct AuthUser: Codable, Sendable {
@@ -423,6 +515,11 @@ struct AuthUser: Codable, Sendable {
     let avatarData: String?  // P0: base64 avatar support
     let isOnline: Bool?
     let isPremium: Bool?
+    /// Сегодня `/auth/signin` и `/auth/signup` дату не отдают (select в
+    /// auth.ts: id/username/email/role/isPremium) — поле всегда nil.
+    /// Объявлено ради forward-compat: как только бэкенд начнёт её слать,
+    /// дата дойдёт до PremiumStatusManager без правок клиента.
+    let premiumUntil: Date?
     let role: String?
     let createdAt: Date?
 }
@@ -434,9 +531,16 @@ extension AuthService {
     /// Synchronous local sign-out (no network call).
     /// Clears Keychain tokens + cached user immediately.
     func signOutLocally(postNotification: Bool = true) {
-        KeychainHelper.delete(for: Keys.authToken)
+        // P1 5.10: прямой delete легаси-ключа убран — clear() ниже удаляет оба.
         KeychainHelper.delete(for: Keys.tokenExpiry)
         KeychainHelper.delete(for: Keys.refreshToken)
+        // Аудит 26.07.2026: без этого после выхода оставались и второй ключ
+        // Keychain (`plink_auth_token`), и токен в памяти AuthTokenStore —
+        // покупки, модерация и пуши продолжали ходить с токеном вышедшего
+        // пользователя. clear() удаляет оба ключа и сбрасывает кэш.
+        AuthTokenStore.shared.clear()
+        // Событие было описано, но не вызывалось — без него не посчитать отток.
+        AnalyticsService.shared.logout()
         defaults.removeObject(forKey: Keys.savedUser)
         defaults.removeObject(forKey: "plink_current_user_id")
         defaults.removeObject(forKey: "plink_current_username")

@@ -8,7 +8,7 @@ final class AdminAPI {
     static let shared = AdminAPI()
     private init() {}
 
-    private var auth: String { KeychainHelper.read(for: "rave_auth_token") ?? "" }
+    private var auth: String { AuthTokenStore.shared.token ?? "" }
 
     func get<T: Decodable>(_ path: String) async throws -> T {
         let url = URL(string: PlinkConfig.apiURLString + path)!
@@ -33,6 +33,30 @@ final class AdminAPI {
             throw URLError(.badServerResponse)
         }
         return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// POST без разбора ответа — для действий, где важен только факт успеха
+    /// (бан, смена роли, закрытие комнаты, удаление сообщения, режим обслуживания).
+    ///
+    /// Аудит 26.07.2026: такие вызовы были написаны как
+    /// `post(...) as [String: Any]`, но `[String: Any]` не может соответствовать
+    /// `Decodable` (`Any` не Decodable) — отсюда 5 ошибок компиляции. Раньше это
+    /// ещё и заставляло декодировать тело, которое всё равно выбрасывалось:
+    /// пустой ответ 204 приводил бы к ложной ошибке. Теперь проверяется только
+    /// HTTP-статус, что и есть настоящее намерение вызова.
+    @discardableResult
+    func postIgnoringResponse(_ path: String, body: [String: Any]) async throws -> Bool {
+        let url = URL(string: PlinkConfig.apiURLString + path)!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer " + auth, forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+            throw URLError(.badServerResponse)
+        }
+        return true
     }
 }
 
@@ -402,11 +426,11 @@ struct AdminUsersView: View {
         loading = false
     }
     private func banUser(_ id: String, ban: Bool) async {
-        _ = try? await AdminAPI.shared.post("/admin/users/\(id)/" + (ban ? "ban" : "unban"), body: ["reason": "admin action"])
+        _ = try? await AdminAPI.shared.postIgnoringResponse("/admin/users/\(id)/" + (ban ? "ban" : "unban"), body: ["reason": "admin action"])
         await search()
     }
     private func setRole(_ id: String, role: String) async {
-        _ = try? await AdminAPI.shared.post("/admin/users/\(id)/role", body: ["role": role, "reason": "admin action"]) as [String: Any]
+        _ = try? await AdminAPI.shared.postIgnoringResponse("/admin/users/\(id)/role", body: ["role": role, "reason": "admin action"])
         await search()
     }
 }
@@ -457,7 +481,7 @@ struct AdminRoomsView: View {
         loading = false
     }
     private func closeRoom(_ id: String) async {
-        _ = try? await AdminAPI.shared.post("/admin/rooms/\(id)/close", body: [:]) as [String: Any]
+        _ = try? await AdminAPI.shared.postIgnoringResponse("/admin/rooms/\(id)/close", body: [:])
         await load()
     }
 }
@@ -498,7 +522,7 @@ struct AdminModerationView: View {
         loading = false
     }
     private func resolve(_ id: String) async {
-        _ = try? await AdminAPI.shared.post("/admin/moderation/messages/\(id)/delete", body: [:]) as [String: Any]
+        _ = try? await AdminAPI.shared.postIgnoringResponse("/admin/moderation/messages/\(id)/delete", body: [:])
         await load()
     }
 }
@@ -609,7 +633,7 @@ struct AdminSystemView: View {
             .buttonStyle(.plain)
             .confirmationDialog("Toggle maintenance mode?", isPresented: $showMaintenance) {
                 Button("Enable maintenance", role: .destructive) {
-                    Task { _ = try? await AdminAPI.shared.post("/admin/system/maintenance", body: ["enabled": true, "reason": "admin"]) as [String: Any] }
+                    Task { _ = try? await AdminAPI.shared.postIgnoringResponse("/admin/system/maintenance", body: ["enabled": true, "reason": "admin"]) }
                 }
                 Button("Cancel", role: .cancel) {}
             }

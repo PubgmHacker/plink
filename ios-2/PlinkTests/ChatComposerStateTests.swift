@@ -190,19 +190,21 @@ final class ChatComposerStateTests: XCTestCase {
                        "Single-codepoint emoji must advance cursor by 1 UTF16 unit")
     }
 
-    func testInsertAtCursor_regionalIndicatorEmojiAdvancesByTwoUTF16Units() {
+    func testInsertAtCursor_regionalIndicatorEmojiAdvancesByFourUTF16Units() {
         var state = ChatComposerState()
         state.text = "flag: "
         state.cursor = 6
 
-        // 🇺🇸 is U+1F1FA U+1F1F8 — 2 UTF16 units (a surrogate pair... actually
-        // two regional indicators, each in BMP, so 2 UTF16 units total)
+        // 🇺🇸 — это U+1F1FA U+1F1F8: региональные индикаторы лежат вне BMP,
+        // каждый кодируется суррогатной парой, т.е. 2 скаляра × 2 = 4 UTF-16
+        // юнита. Курсор обязан сдвинуться на фактическую UTF-16 длину
+        // вставки (как в UITextField/NSTextView): 6 + 4 = 10.
         let inserted = state.insertAtCursor("🇺🇸")
 
         XCTAssertEqual(inserted, "🇺🇸")
         XCTAssertEqual(state.text, "flag: 🇺🇸")
-        XCTAssertEqual(state.cursor, 8,
-                       "Regional indicator pair must advance cursor by 2 UTF16 units")
+        XCTAssertEqual(state.cursor, 10,
+                       "Regional indicator pair must advance cursor by 4 UTF16 units (two surrogate pairs)")
     }
 
     // MARK: - insertAtCursor length cap

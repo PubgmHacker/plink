@@ -8,59 +8,19 @@ import UIKit
 #endif
 import Foundation
 
-struct V4HomeView: View {
-    let theme: V4Theme
-    let openRoom: () -> Void
-    @State private var query = ""
-    // M31: sticky search bar поверх контента
-    private var stickySearchBar: some View {
-        Button {
-            showUnifiedSearch = true
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                Text(L.string(.homeVideoPlaceholder)).foregroundStyle(V4.muted)
-                Spacer()
-            }
-            .font(.system(size: 13))
-            .padding(.horizontal, 13)
-            .frame(height: 44)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15))
-            .overlay(RoundedRectangle(cornerRadius: 15).stroke(V4.line))
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 19)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
-    }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                HStack { V4Avatar(letter: "П", theme: theme); Spacer(); V4RoundButton(symbol: "○") }
-                    .padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
-                V4Heading(eyebrow: "СУББОТНИЙ ВЕЧЕР", title: "С кем смотрим?")
-                    .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,19).padding(.bottom,18)
-                HStack(spacing:9) {
-                    Image(systemName:"magnifyingglass")
-                    TextField("Видео, сервис или комната", text:$query).foregroundStyle(V4.ink)
-                }.font(.system(size:13)).foregroundStyle(V4.muted).padding(.horizontal,13).frame(height:48)
-                 .background(V4.searchBG).clipShape(RoundedRectangle(cornerRadius:16)).overlay(RoundedRectangle(cornerRadius:16).stroke(V4.line))
-                 .padding(.horizontal,19).padding(.bottom,18)
-                V4Hero(title:"Afterglow", meta:"5 друзей уже смотрят. Подключайся сразу.", button:"Смотреть вместе", height:300, theme:theme, action:openRoom)
-                    .padding(.horizontal,13).padding(.bottom,28)
-                HStack { Text(L.string(.homeNowTogether)).font(.system(size:18.24,weight:.bold)); Spacer(); Text(L.string(.homeAll)).font(.system(size:12.16)).foregroundStyle(V4.accent) }
-                    .padding(.horizontal,19).padding(.bottom,12)
-                ScrollView(.horizontal,showsIndicators:false) { HStack(spacing:11) {
-                    V4MediaCard(title:"Кино без спойлеров",meta:"5 друзей · LIVE")
-                    V4MediaCard(title:"Смешное на YouTube",meta:"3 друга · 12 мин")
-                }.padding(.horizontal,19) }
-            }.padding(.bottom,92)
-        }.foregroundStyle(V4.ink)
-    }
-}
-
-
+// Аудит 26.07.2026: здесь была структура `V4HomeView` — макетный вариант
+// главного экрана с ЗАХАРДКОЖЕННЫМИ демо-данными: герой «Afterglow»,
+// «5 друзей уже смотрят», карточки «Кино без спойлеров · 5 друзей · LIVE»
+// и аватар с буквой «П» вместо имени пользователя.
+//
+// Проверка по всему проекту показала НОЛЬ мест использования: экран нигде
+// не открывался, приложение работает через `V4HomeViewLive` с настоящими
+// данными. То есть пользователи выдуманных друзей не видели.
+//
+// Структура удалена, потому что оставлять её было ловушкой: любой, кто
+// подключил бы её по ошибке (имена различаются одним словом «Live»),
+// показал бы людям несуществующие комнаты. Доверие после такого
+// не восстанавливается, а польза от макета — нулевая, он есть в истории git.
 
 // MARK: - AutoScrollCarousel — continuous slow auto-scrolling horizontal carousel
 struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
@@ -165,6 +125,32 @@ struct V4HomeViewLive: View {
     @State private var isRefreshing = false            // M30
     @State private var previewItem: V4SearchResult?    // M34: превью перед созданием комнаты
 
+    // M31: sticky search bar поверх контента
+    // Аудит 26.07.2026: при разделении файла из PlinkV4PixelPerfect это свойство
+    // ошибочно осталось в V4HomeView, хотя ссылается на showUnifiedSearch и
+    // используется в body именно этой структуры (.safeAreaInset ниже).
+    // Возвращено на место — чинит обе ошибки «cannot find ... in scope».
+    private var stickySearchBar: some View {
+        Button {
+            showUnifiedSearch = true
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                Text(L.string(.homeVideoPlaceholder)).foregroundStyle(V4.muted)
+                Spacer()
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 13)
+            .frame(height: 44)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15))
+            .overlay(RoundedRectangle(cornerRadius: 15).stroke(V4.line))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 19)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+
     // M30: динамическое приветствие по времени суток
     private var timeOfDayGreeting: String {
         let h = Calendar.current.component(.hour, from: Date())
@@ -224,7 +210,7 @@ struct V4HomeViewLive: View {
                                     .font(.system(size: 12, weight: homeFilter == f ? .bold : .medium))
                                     .foregroundStyle(homeFilter == f ? .white : V4.muted)
                                     .padding(.horizontal, 14).padding(.vertical, 7)
-                                    .background(homeFilter == f ? Cinema2026.accent : V4.cardBG.opacity(0.5), in: Capsule())
+                                    .background(homeFilter == f ? activeAccent : V4.cardBG.opacity(0.5), in: Capsule())
                             }.buttonStyle(.plain)
                         }
                     }.padding(.horizontal, 19)
@@ -832,7 +818,7 @@ struct V4HomeViewLive: View {
     /// Общий путь создания комнаты из готового MediaItem (история / watchlist).
     private func createRoom(from mediaItem: MediaItem, title: String) async {
         if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
+            APIClient.shared.authToken = AuthTokenStore.shared.token
         }
         guard APIClient.shared.authToken != nil else {
             await MainActor.run { HapticManager.errorOccurred() }
@@ -871,7 +857,7 @@ struct V4HomeViewLive: View {
         AnalyticsService.shared.track("room_create_from_trending")  // M35: funnel
         // Ensure API client has token (Keychain alone is not enough for RoomService)
         if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = KeychainHelper.read(for: "rave_auth_token")
+            APIClient.shared.authToken = AuthTokenStore.shared.token
         }
         guard APIClient.shared.authToken != nil else {
             await MainActor.run {

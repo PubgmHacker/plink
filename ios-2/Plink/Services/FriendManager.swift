@@ -1,6 +1,14 @@
 import Foundation
 import Combine
 
+// MARK: - Pin sync result (Аудит 26.07.2026 P2)
+/// Итог закрепления чата: сервер подтвердил / локальный лимит / сервер не ответил.
+enum FriendPinResult: Sendable {
+    case synced
+    case limitReached
+    case syncFailed
+}
+
 // MARK: - Friend Manager v3 (Real API + search/request/accept)
 /// HTTP → /api/friends/*
 @MainActor
@@ -27,6 +35,11 @@ final class FriendManager: ObservableObject {
     /// friendId → last activity we observed (DM message time) — max with server lastSeen.
     private var localActivityAt: [String: Date] = [:]
 
+    /// friendId → желаемое состояние пина, не доехавшее до сервера (Аудит 26.07.2026 P2).
+    private var pendingPinSync: [String: Bool] = FriendManager.loadPendingPinSync()
+    /// Досылка пинов уже идёт (loadFriends зовут сразу несколько живых циклов).
+    private var isReconcilingPins = false
+
     init(api: APIClient) {
         self.api = api
         NotificationCenter.default.addObserver(
@@ -38,6 +51,17 @@ final class FriendManager: ObservableObject {
             let at = (note.userInfo?["at"] as? Date) ?? Date()
             Task { @MainActor in
                 self?.noteActivity(friendId: id, at: at)
+            }
+        }
+        // Ревью 26.07.2026: смена аккаунта на устройстве не должна оставлять
+        // офлайн-снимок друзей и очередь пинов прошлого пользователя.
+        NotificationCenter.default.addObserver(
+            forName: .plinkSignedOut,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.purgeLocalFriendCaches()
             }
         }
     }
@@ -120,7 +144,7 @@ final class FriendManager: ObservableObject {
 
     private func ensureToken() {
         if api.authToken == nil {
-            api.authToken = KeychainHelper.read(for: "rave_auth_token")
+            api.authToken = AuthTokenStore.shared.token
                 ?? AuthService.shared.authToken
         }
     }
@@ -163,8 +187,16 @@ final class FriendManager: ObservableObject {
                     }
                 }
             }
-            friends = next
-            FriendPinStore.shared.mergeFromServer(friends)
+            // Аудит 26.07.2026 P2: публикуем только при фактическом изменении —
+            // поллинг иначе гнал перерисовку всего списка на каждом тике.
+            if next != friends {
+                friends = next
+            }
+            saveCachedFriends(next)
+            FriendPinStore.shared.mergeFromServer(next)
+            // Аудит 26.07.2026 P2: досылаем пины, не доехавшие до сервера, и
+            // сверяем локальное состояние с серверными isPinned/pinOrder.
+            await reconcilePendingPins(server: next)
             if anyAvatarChange {
                 avatarEpoch &+= 1
                 // Session bust already posted inside noteAvatar when version flips;
@@ -174,16 +206,87 @@ final class FriendManager: ObservableObject {
             Logger.api.info("Friends loaded")
         } catch {
             Logger.api.warn("Friends load failed")
+            // Ревью 26.07.2026: без сети список друзей оставался пустым, а вместе с
+            // ним пустел и весь список чатов (офлайн-кэш DM было негде отрисовать).
+            // Поднимаем последний снимок с погашенным presence.
+            if Self.isTransportError(error), friends.isEmpty,
+               let cached = loadCachedFriends(), !cached.isEmpty {
+                friends = cached
+            }
         }
     }
 
+    // MARK: - Офлайн-снимок списка друзей (Ревью 26.07.2026)
+
+    private static let friendsCacheKeyPrefix = "plink.friends.cache.v1."
+
+    /// Кэш обязан быть привязан к аккаунту: иначе после смены пользователя на
+    /// устройстве офлайн-список показал бы друзей предыдущего.
+    private static func currentUserID() -> String? {
+        if let id = UserDefaults.standard.string(forKey: "plink_current_user_id"), !id.isEmpty {
+            return id
+        }
+        return UserDefaults.standard.data(forKey: "rave_saved_user")
+            .flatMap { User.decodeCached($0) }?.id
+    }
+
+    private static func friendsCacheKey() -> String? {
+        currentUserID().map { friendsCacheKeyPrefix + $0 }
+    }
+
+    private func saveCachedFriends(_ list: [Friend]) {
+        guard let key = Self.friendsCacheKey() else { return }
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    private func loadCachedFriends() -> [Friend]? {
+        guard let key = Self.friendsCacheKey(),
+              let data = UserDefaults.standard.data(forKey: key),
+              let list = try? JSONDecoder().decode([Friend].self, from: data) else { return nil }
+        // presence из кэша врать не должен — «в сети» гасим, остаётся «был(а) …».
+        return list.map {
+            Friend(
+                id: $0.id,
+                username: $0.username,
+                avatarURL: $0.avatarURL,
+                isOnline: false,
+                friendsSince: $0.friendsSince,
+                displayName: $0.displayName,
+                lastSeenAt: $0.lastSeenAt,
+                isPinned: $0.isPinned,
+                pinOrder: $0.pinOrder,
+                avatarVersion: $0.avatarVersion,
+                isDeleted: $0.isDeleted
+            )
+        }
+    }
+
+    /// Выход из аккаунта уносит офлайн-снимки друзей и очередь пинов.
+    private func purgeLocalFriendCaches() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix(Self.friendsCacheKeyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.removeObject(forKey: Self.pendingPinSyncKey)
+        pendingPinSync = [:]
+        friends = []
+        incomingRequests = []
+        outgoingRequests = []
+        searchResults = []
+        localActivityAt = [:]
+    }
+
     /// Pin / unpin friend (Telegram). Updates local store immediately, syncs server.
+    /// Аудит 26.07.2026 P2: раньше возвращали true даже когда сервер не ответил —
+    /// UI врал «закреплено», а на втором устройстве пина не было.
     @discardableResult
-    func setPinned(friendId: String, pinned: Bool) async -> Bool {
+    func setPinned(friendId: String, pinned: Bool) async -> FriendPinResult {
         if pinned {
             guard FriendPinStore.shared.pin(friendId) else {
                 errorMessage = "Максимум 10 закреплений"
-                return false
+                return .limitReached
             }
         } else {
             FriendPinStore.shared.unpin(friendId)
@@ -197,11 +300,117 @@ final class FriendManager: ObservableObject {
                 method: .post,
                 body: Body(pin: pinned)
             )
-            return true
+            if pendingPinSync.removeValue(forKey: friendId) != nil { savePendingPinSync() }
+            return .synced
         } catch {
-            // Local pin already applied — list still works offline
-            Logger.api.warn("Friend pin sync failed")
+            // Ревью 26.07.2026: в очередь ставим только транспортные ошибки. Раньше
+            // сюда попадал и 400 PIN_LIMIT (серверный лимит 10) — reconcilePendingPins
+            // повторял такой POST при каждом loadFriends бесконечно.
+            if Self.isTransportError(error) {
+                pendingPinSync[friendId] = pinned
+                savePendingPinSync()
+                Logger.api.warn("Friend pin sync failed")
+                return .syncFailed
+            }
+            if pendingPinSync.removeValue(forKey: friendId) != nil { savePendingPinSync() }
+            // Сервер отказал окончательно — откатываем локальное закрепление.
+            if pinned { FriendPinStore.shared.unpin(friendId) }
+            if let apiError = error as? APIError,
+               case .serverError(let status, _) = apiError, status == 400 {
+                errorMessage = "Максимум 10 закреплений"
+                return .limitReached
+            }
+            Logger.api.warn("Friend pin rejected by server")
+            return .syncFailed
+        }
+    }
+
+    /// Ошибку стоит повторять только когда сервер её не видел (сеть/5xx).
+    private static func isTransportError(_ error: Error) -> Bool {
+        if error is URLError { return true }
+        guard let apiError = error as? APIError else { return false }
+        switch apiError {
+        case .networkError, .invalidResponse:
             return true
+        case .serverError(let status, _):
+            return status >= 500
+        default:
+            return false
+        }
+    }
+
+    // MARK: - Отложенная синхронизация пинов (Аудит 26.07.2026 P2)
+
+    private static let pendingPinSyncKey = "plink.friend_pins.pendingSync.v1"
+
+    private static func loadPendingPinSync() -> [String: Bool] {
+        (UserDefaults.standard.dictionary(forKey: pendingPinSyncKey) as? [String: Bool]) ?? [:]
+    }
+
+    private func savePendingPinSync() {
+        UserDefaults.standard.set(pendingPinSync, forKey: Self.pendingPinSyncKey)
+    }
+
+    /// Досылка расхождений пинов + сверка с серверными флагами.
+    private func reconcilePendingPins(server: [Friend]) async {
+        // Ревью 26.07.2026: мутируем живой словарь (а не снимок) и не запускаем
+        // второй проход поверх первого — иначе намерение, добавленное во время
+        // await, затиралось устаревшей копией, а параллельные проходы слали дубли.
+        guard !isReconcilingPins, !pendingPinSync.isEmpty else { return }
+        isReconcilingPins = true
+        defer { isReconcilingPins = false }
+        var changed = false
+        defer { if changed { savePendingPinSync() } }
+        struct Body: Encodable { let pin: Bool }
+        struct Resp: Decodable { let success: Bool?; let isPinned: Bool? }
+        let byId = Dictionary(server.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for (friendId, wanted) in pendingPinSync {
+            guard let serverFriend = byId[friendId] else {
+                // Дружбы больше нет — досылать некуда
+                if pendingPinSync[friendId] == wanted {
+                    pendingPinSync.removeValue(forKey: friendId)
+                    changed = true
+                }
+                continue
+            }
+            if serverFriend.isPinned == wanted {
+                if pendingPinSync[friendId] == wanted {
+                    pendingPinSync.removeValue(forKey: friendId)
+                    changed = true
+                }
+                continue
+            }
+            // mergeFromServer мог откатить локальный пин под серверный флаг —
+            // возвращаем желаемое состояние до повторной отправки.
+            if wanted, !FriendPinStore.shared.isPinned(friendId) {
+                _ = FriendPinStore.shared.pin(friendId)
+            } else if !wanted, FriendPinStore.shared.isPinned(friendId) {
+                FriendPinStore.shared.unpin(friendId)
+            }
+            do {
+                let _: Resp = try await api.request(
+                    "friends/\(friendId)/pin",
+                    method: .post,
+                    body: Body(pin: wanted)
+                )
+                if pendingPinSync[friendId] == wanted {
+                    pendingPinSync.removeValue(forKey: friendId)
+                    changed = true
+                }
+            } catch {
+                if !Self.isTransportError(error) {
+                    // Сервер отказал (лимит/не друзья) — вечно повторять нельзя.
+                    if pendingPinSync[friendId] == wanted {
+                        pendingPinSync.removeValue(forKey: friendId)
+                        changed = true
+                    }
+                    if wanted { FriendPinStore.shared.unpin(friendId) }
+                    Logger.api.warn("Friend pin resync rejected")
+                    continue
+                }
+                Logger.api.warn("Friend pin resync failed")
+                break // сеть недоступна — повторим при следующем loadFriends
+            }
         }
     }
 

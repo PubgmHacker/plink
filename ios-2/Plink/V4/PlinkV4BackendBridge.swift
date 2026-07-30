@@ -83,7 +83,7 @@ final class V4SearchStore {
         guard let url = URL(string: "\(apiBase)/api/media/trending?regionCode=RU&maxResults=20") else { return }
         do {
             var req = URLRequest(url: url)
-            if let token = KeychainHelper.read(for: "rave_auth_token") {
+            if let token = AuthTokenStore.shared.token {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             let (data, _) = try await URLSession.shared.data(for: req)
@@ -109,7 +109,7 @@ final class V4SearchStore {
         guard let url = URL(string: "\(apiBase)/api/media/search?q=\(encoded)&limit=20") else { return }
         do {
             var req = URLRequest(url: url)
-            if let token = KeychainHelper.read(for: "rave_auth_token") {
+            if let token = AuthTokenStore.shared.token {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             let (data, _) = try await URLSession.shared.data(for: req)
@@ -262,7 +262,7 @@ final class V4AIStore {
             var req = URLRequest(url: URL(string: "\(apiBase)/api/ai/chat")!)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if let token = KeychainHelper.read(for: "rave_auth_token") {
+            if let token = AuthTokenStore.shared.token {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             // Send full conversation history — not just the latest message.
@@ -307,7 +307,7 @@ final class V4AIStore {
             var req = URLRequest(url: URL(string: "\(apiBase)/api/ai/confirm-action")!)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if let token = KeychainHelper.read(for: "rave_auth_token") {
+            if let token = AuthTokenStore.shared.token {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             let body: [String: Any] = [
@@ -364,6 +364,8 @@ final class V4ProfileStore {
     /// Instant local preview (survives dismiss before AsyncImage refetch)
     private(set) var localAvatarImage: UIImage?
     private(set) var isPremium: Bool = false
+    /// Серверная дата окончания Plink+ (`User.premiumUntil` из /users/me).
+    /// nil = пожизненный доступ либо сервер дату не сообщил.
     private(set) var premiumUntil: Date?
     private(set) var isAdmin: Bool = false
     private(set) var selectedTheme: V4Theme = .electric
@@ -407,10 +409,14 @@ final class V4ProfileStore {
         email = user.email
         isPremium = user.isPremium
         isAdmin = user.isAdmin
+        // Аудит 26.07.2026 (P2): раньше сюда уходило собственное поле
+        // `premiumUntil`, которое никто никогда не заполнял → всегда nil.
+        // Теперь дату приносит сам ответ сервера.
+        premiumUntil = user.premiumUntil
         // Authoritative premium from server (clears sticky local Plink+ on free devices)
         PremiumStatusManager.shared.syncFromServer(
             isPremium: user.isPremium,
-            expiry: user.isPremium ? premiumUntil : nil
+            expiry: user.isPremium ? user.premiumUntil : nil
         )
         if let raw = user.avatarURL, !raw.isEmpty {
             avatarURL = Self.cacheBustedURL(from: raw)
@@ -452,6 +458,10 @@ final class V4ProfileStore {
                 coverURL: u.coverURL,
                 isOnline: u.isOnline,
                 isPremium: u.isPremium,
+                // Копия пользователя ради аватара не должна терять серверную
+                // дату Plink+ — иначе кэш профиля забывает её до следующего
+                // /users/me.
+                premiumUntil: u.premiumUntil,
                 role: u.role,
                 createdAt: u.createdAt
             )
@@ -483,4 +493,93 @@ final class V4ProfileStore {
         components.queryItems = items
         return components.url
     }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Перенесено 26.07.2026 из Views/Home/YouTubeSearchView.swift:
+// экранная часть того файла мертва (0 вызовов), но эти DTO декодирует
+// живой мост ниже. Перенос сделан ДО удаления файла.
+// ─────────────────────────────────────────────────────────────
+
+struct YouTubeVideoSummary: Decodable, Identifiable, Sendable {
+    let id: String
+    let title: String
+    let channel: String
+    let thumbnailURL: String?
+    // Brain Phase 3: backend may send `durationSeconds` (new) or `duration` (legacy).
+    // Decode either; prefer durationSeconds when present.
+    let durationSeconds: Int?
+    let duration: Int?
+    let url: String?
+    let embeddable: Bool?
+    let privacyStatus: String?
+    let liveBroadcastContent: String?
+
+    // Back-compat: when backend omits these, default to safe values.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // `id` may be missing if backend returns videoId only — fall back to videoId.
+        self.id = try c.decodeIfPresent(String.self, forKey: .id)
+            ?? c.decodeIfPresent(String.self, forKey: .videoId)
+            ?? ""
+        self.title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        // `channel` may be missing — fall back to channelTitle.
+        self.channel = try c.decodeIfPresent(String.self, forKey: .channel)
+            ?? c.decodeIfPresent(String.self, forKey: .channelTitle)
+            ?? ""
+        self.thumbnailURL = try c.decodeIfPresent(String.self, forKey: .thumbnailURL)
+        self.durationSeconds = try c.decodeIfPresent(Int.self, forKey: .durationSeconds)
+        self.duration = try c.decodeIfPresent(Int.self, forKey: .duration)
+        self.url = try c.decodeIfPresent(String.self, forKey: .url)
+        self.embeddable = try c.decodeIfPresent(Bool.self, forKey: .embeddable)
+        self.privacyStatus = try c.decodeIfPresent(String.self, forKey: .privacyStatus)
+        self.liveBroadcastContent = try c.decodeIfPresent(String.self, forKey: .liveBroadcastContent)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, videoId, title, channel, channelTitle
+        case thumbnailURL, duration, durationSeconds
+        case url, embeddable, privacyStatus, liveBroadcastContent
+    }
+
+    // Convenience accessors
+    var videoId: String { id }
+    var channelTitle: String { channel }
+    var resolvedDurationSeconds: Int? { durationSeconds ?? duration }
+    var thumbnailURLString: String? { thumbnailURL }
+    var resolvedLiveBroadcastContent: String { liveBroadcastContent ?? "none" }
+    var resolvedEmbeddable: Bool? { embeddable }
+
+    // Brain Revision 3: row states based on embeddable field.
+    //   - true → selectable (green checkmark when selected)
+    //   - false → disabled, "Нельзя встроить" label, lock icon, 50% opacity
+    //   - nil → selectable but with "Проверим при запуске" hint (amber dot)
+    var embeddableState: EmbeddableState {
+        if let embeddable {
+            return embeddable ? .embeddable : .notEmbeddable
+        }
+        return .unknown
+    }
+
+    enum EmbeddableState {
+        case embeddable      // embeddable == true  → selectable, no badge
+        case notEmbeddable   // embeddable == false → disabled, "Нельзя встроить"
+        case unknown         // embeddable == nil   → selectable, "Проверим при запуске"
+    }
+
+    var isEmbeddable: Bool { embeddable != false }
+
+    var isLive: Bool { resolvedLiveBroadcastContent == "live" }
+
+    var durationText: String? {
+        guard let seconds = resolvedDurationSeconds, seconds > 0 else { return nil }
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
+
+struct YouTubeSearchResponse: Decodable, Sendable {
+    let results: [YouTubeVideoSummary]
 }

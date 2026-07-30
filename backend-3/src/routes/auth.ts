@@ -1,16 +1,30 @@
 // src/routes/auth.ts — Pack 1.1: правильные rate limits
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { prisma } from '../config/db.js';
 import { issueTokenPair, verifyRefreshToken, revokeAllUserTokens } from '../utils/tokens.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
 import { alertWarning } from '../utils/alerting.js';
 import { ensurePrivilegedRole } from '../utils/privilegedUsers.js';
+import { verifyTOTP } from '../middleware/security.js';
+import { decryptSecret } from '../utils/secretBox.js';
+import { validateBody } from '../middleware/validate.js';
+import { signupBody, signinBody, refreshBody, adminVerifyBody } from '../schemas/requests.js';
+
+// Сравнение строк за постоянное время; разная длина → false без исключения.
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 export default async function authRoutes(fastify) {
 
   // POST /api/auth/signup — 5 регистраций за 20 минут
   // 🔧 FIX: wrapped in try/catch — same 500-protection as signin.
   fastify.post('/auth/signup', {
+    preHandler: [validateBody(signupBody)],
     config: {
       rateLimit: { max: 5, timeWindow: '20 minutes' }
     }
@@ -31,6 +45,15 @@ export default async function authRoutes(fastify) {
         return reply.status(400).send({
           error: 'Username must be 5-32 characters, start with a letter, and contain only letters, numbers, and underscores'
         });
+      }
+
+      // Аудит 26.07.2026 (P2): префикс `deleted_` зарезервирован под
+      // tombstone-аккаунты (services/accountTombstone.ts). По нему signin и
+      // refresh отличают удалённый аккаунт, а UI рисует «Удалённый аккаунт»,
+      // поэтому регистрировать такой ник нельзя: иначе живой пользователь
+      // сразу окажется заблокирован, а чужой профиль — подделан.
+      if (username.toLowerCase().startsWith('deleted_')) {
+        return reply.status(400).send({ error: 'This username prefix is reserved' });
       }
 
       // Case-insensitive uniqueness check
@@ -85,6 +108,7 @@ export default async function authRoutes(fastify) {
   // generic error handler returned 500 with no useful context. Now we log
   // the actual prisma error message so future schema drift is debuggable.
   fastify.post('/auth/signin', {
+    preHandler: [validateBody(signinBody)],
     config: {
       rateLimit: { max: 10, timeWindow: '5 minutes' }
     }
@@ -184,7 +208,7 @@ export default async function authRoutes(fastify) {
   //   3. User calls /auth/admin-verify with 2FA code → gets mfaVerified=true token.
   //   4. Token allows /api/admin/* access for 10 minutes.
   fastify.post('/auth/admin-verify', {
-    preHandler: [fastify.authenticate],
+    preHandler: [fastify.authenticate, validateBody(adminVerifyBody)],
     config: { rateLimit: { max: 5, timeWindow: '10 minutes' } }
   }, async (request, reply) => {
     const { email, code } = request.body;
@@ -198,20 +222,49 @@ export default async function authRoutes(fastify) {
       return reply.status(401).send({ error: 'Authentication required for admin step-up' });
     }
 
-    // 2FA code verification (single-use would be ideal; for now static code).
-    const ADMIN_CODE = 'ADM873IN7';
-    if (code !== ADMIN_CODE) {
-      return reply.status(401).send({ error: 'Invalid admin code' });
-    }
-
     // GPT-5.6 SOL: load user from DB and verify they ALREADY have ADMIN/FOUNDER role.
     // This endpoint does NOT grant ADMIN — it only verifies 2FA for existing admins.
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
-      select: { id: true, username: true, email: true, role: true, isPremium: true },
+      select: {
+        id: true, username: true, email: true, role: true, isPremium: true,
+        twofaEnabled: true, twofaSecret: true,
+      },
     });
     if (!user) {
       return reply.status(404).send({ error: 'User not found' });
+    }
+
+    // Аудит 26.07.2026 (P1 5.8): статичный код ADM873IN7 удалён из исходников.
+    // Порядок проверки:
+    //   1) у пользователя включён TOTP (twofaEnabled + twofaSecret) — проверяем его;
+    //      секрет расшифровывается, если зашифрован ключом TWOFA_ENC_KEY;
+    //   2) иначе — код из окружения ADMIN_STEPUP_CODE (временный мост, пока
+    //      у админов нет TOTP-энролмента); сравнение за постоянное время;
+    //   3) нет ни того, ни другого — шаг-ап невозможен.
+    let codeOk = false;
+    let stepupMethod = 'env_code';
+    if (user.twofaEnabled && user.twofaSecret) {
+      stepupMethod = 'totp';
+      const secret = decryptSecret(user.twofaSecret);
+      codeOk = !!secret && verifyTOTP(secret, String(code));
+    } else {
+      const envCode = process.env.ADMIN_STEPUP_CODE;
+      if (!envCode) {
+        return reply.status(503).send({
+          error: 'Admin step-up is not configured. Set ADMIN_STEPUP_CODE or enroll TOTP.',
+        });
+      }
+      codeOk = timingSafeEqualStr(String(code), envCode);
+    }
+    if (!codeOk) {
+      await logAudit({
+        userId: user.id,
+        action: 'admin.verify_denied',
+        ip: request.ip,
+        metadata: { reason: 'bad_code', method: stepupMethod },
+      });
+      return reply.status(401).send({ error: 'Invalid admin code' });
     }
 
     // GPT-5.6 SOL: reject if user is not already ADMIN or FOUNDER.
@@ -236,7 +289,7 @@ export default async function authRoutes(fastify) {
       userId: user.id,
       action: 'admin.verified',
       ip: request.ip,
-      metadata: { role: user.role, method: '2fa_code' },
+      metadata: { role: user.role, method: stepupMethod },
     });
 
     // Issue token with mfaVerified=true (admin step-up complete).
@@ -258,6 +311,7 @@ export default async function authRoutes(fastify) {
   // POST /api/auth/refresh — 60 в минуту (часто, т.к. каждый запуск приложения)
   // 🔧 FIX: wrapped in try/catch — same 500-protection as signin/signup.
   fastify.post('/auth/refresh', {
+    preHandler: [validateBody(refreshBody)],
     config: {
       rateLimit: { max: 60, timeWindow: '1 minute' }
     }
@@ -276,11 +330,37 @@ export default async function authRoutes(fastify) {
 
       const user = await prisma.user.findUnique({
         where: { id: verified.userId },
-        select: { id: true, username: true, email: true, role: true, isPremium: true, bannedUntil: true }
+        select: {
+          id: true, username: true, email: true, role: true, isPremium: true,
+          bannedUntil: true,
+          // Аудит 26.07.2026 (P2): deletedAt раньше не выбирался и не
+          // проверялся. tombstoneAccount отзывает токены best-effort
+          // (`.catch(() => {})`), поэтому при сбое отзыва удалённый аккаунт
+          // продолжал бесконечно обновлять сессию через /auth/refresh.
+          deletedAt: true,
+        }
       });
       if (!user) return reply.status(401).send({ error: 'User not found' });
       if (user.bannedUntil && user.bannedUntil > new Date()) {
         return reply.status(403).send({ error: 'Account banned' });
+      }
+      // Тот же критерий, что и в /auth/signin: soft-delete (Telegram tombstone).
+      //
+      // Ревью 26.07.2026: отзываем ВСЕ сессии только когда стоит deletedAt —
+      // то есть аккаунт действительно погашен. Одного префикса `deleted_` для
+      // этого недостаточно: он проверяется в signup/check-username, но НЕ в
+      // PATCH /api/users/me (routes/profile.ts), поэтому живой пользователь
+      // может переименоваться в `deleted_foo` — и массовый отзыв превратил бы
+      // его аккаунт в кирпич без пути восстановления. Префикс по-прежнему
+      // блокирует refresh (страховка на случай fallback-ветки
+      // services/accountTombstone.ts, которая не выставляет deletedAt), но
+      // уже выданные токены остаются валидными до истечения.
+      if ((user as any).deletedAt) {
+        await revokeAllUserTokens(user.id).catch(() => {});
+        return reply.status(401).send({ error: 'Account deleted', code: 'ACCOUNT_DELETED' });
+      }
+      if (String(user.username || '').startsWith('deleted_')) {
+        return reply.status(401).send({ error: 'Account deleted', code: 'ACCOUNT_DELETED' });
       }
 
       const tokens = await issueTokenPair(fastify, user.id, user.username, { role: user.role });
@@ -291,11 +371,13 @@ export default async function authRoutes(fastify) {
         ip: request.ip,
       });
 
+      // deletedAt выбран только для проверки выше — форму ответа не меняем.
+      const { deletedAt: _deletedAt, ...safeUser } = user as any;
       reply.send({
         token: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         accessExpiresAt: tokens.accessExpiresAt,
-        user,
+        user: safeUser,
       });
     } catch (err: any) {
       console.error('[auth/refresh] FATAL:', err?.message || err);
@@ -351,6 +433,11 @@ export default async function authRoutes(fastify) {
   }, async (request, reply) => {
     const username = String(request.query?.username ?? '').trim();
     if (username.length < 3) {
+      return reply.send({ available: false });
+    }
+    // Тот же зарезервированный префикс, что и в /auth/signup — иначе клиент
+    // показал бы «ник свободен», а регистрация вернула бы 400.
+    if (username.toLowerCase().startsWith('deleted_')) {
       return reply.send({ available: false });
     }
     const existing = await prisma.user.findFirst({

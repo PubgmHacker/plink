@@ -211,6 +211,9 @@ struct DetectedVideo: Equatable {
     let embedURL: String       // URL that can be used in our player
     let originalURL: String    // original page URL
     let service: VideoService
+    /// Постер видео, если сервис его отдал (FIX: "Value of type 'DetectedVideo'
+    /// has no member 'thumbnailURL'" в RoomCreationView.setupStep).
+    var thumbnailURL: String? = nil
 }
 
 // MARK: - Service Auth Wall

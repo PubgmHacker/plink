@@ -220,10 +220,11 @@ final class SessionSyncGate {
     // MARK: - Sign out other devices
 
     func signOutOthers() async {
-        struct EmptyBody: Codable, Sendable {}
-        try? await APIClient.shared.requestNoBody(
-            "auth/signout-others", method: .post, body: EmptyBody()
-        )
+        // Аудит 26.07.2026: идём через AuthService.signOutOtherSessions()
+        // (PlinkAuthBridge) — он сохраняет переизданную пару токенов из ответа
+        // сервера. Прямой requestNoBody терял новую пару, и текущее устройство
+        // разлогинивалось на следующем /auth/refresh.
+        try? await AuthService.shared.signOutOtherSessions()
         await tick()
     }
 }

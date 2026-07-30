@@ -95,3 +95,157 @@ struct RoomInviteSheet: View {
         return UIImage(cgImage: cg)
     }
 }
+
+// MARK: - P0 5.3: экран пустой комнаты
+//
+// Самая слабая точка воронки: создал комнату — ты один, чёрный экран,
+// приглашение спрятано за тапом и иконкой в верхней панели. Этот оверлей
+// показывается, когда в комнате один участник и нет контента: крупная
+// кнопка «Позвать друга», друзья онлайн в один тап, подсказка про соло-старт.
+// (Живёт в этом файле, а не отдельным: новые .swift не попадают в сборку
+// без xcodegen generate — см. project.yml.)
+
+struct RoomEmptyStateView: View {
+    let model: WatchRoomModel
+    @ObservedObject private var friendManager = FriendManager.shared
+    @State private var showInvite = false
+    @State private var invitedIds: Set<String> = []
+
+    private var accent: Color { PlinkRoomAccent.current }
+
+    private var onlineFriends: [Friend] {
+        friendManager.friends.filter { $0.isOnline && !$0.deleted }
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer(minLength: 0)
+
+            Image(systemName: "person.3.fill")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(accent)
+                .frame(width: 84, height: 84)
+                .background(accent.opacity(0.12), in: Circle())
+                .overlay(Circle().stroke(accent.opacity(0.25), lineWidth: 1))
+
+            VStack(spacing: 6) {
+                Text("Ты в комнате один")
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(Cinema2026.text)
+                Text("Позови друзей — смотреть вместе веселее")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Cinema2026.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                HapticManager.impact(.light)
+                showInvite = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.badge.plus")
+                    Text("Позвать друга")
+                }
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .frame(height: CompactPhoneMetrics.primaryButtonHeight)
+                .background(accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+
+            if !onlineFriends.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("СЕЙЧАС В СЕТИ")
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(1.6)
+                        .foregroundStyle(Cinema2026.secondary)
+                        .padding(.horizontal, 8)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(onlineFriends.prefix(12)) { friend in
+                                onlineFriendChip(friend)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                    }
+                }
+            }
+
+            Text("Можно начать и одному — выбери видео,\nа друзья подтянутся по коду \(model.displayRoomCode)")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Cinema2026.secondary.opacity(0.85))
+                .multilineTextAlignment(.center)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 26)
+        .frame(maxWidth: 420)
+        .task {
+            await friendManager.loadFriends()
+        }
+        .sheet(isPresented: $showInvite) {
+            RoomInviteSheet(model: model)
+        }
+    }
+
+    private func onlineFriendChip(_ friend: Friend) -> some View {
+        let isInvited = invitedIds.contains(friend.id)
+        return Button {
+            guard !isInvited else { return }
+            HapticManager.impact(.medium)
+            invitedIds.insert(friend.id)
+            Task {
+                await RoomInviteService.shared.sendInvite(
+                    to: friend,
+                    roomCode: model.displayRoomCode,
+                    roomId: model.shareRoomId
+                )
+            }
+        } label: {
+            VStack(spacing: 6) {
+                ZStack(alignment: .bottomTrailing) {
+                    friendAvatar(friend)
+                    Circle()
+                        .fill(Color(red: 0.3, green: 0.9, blue: 0.55))
+                        .frame(width: 11, height: 11)
+                        .overlay(Circle().stroke(Cinema2026.background, lineWidth: 2))
+                }
+                Text(isInvited ? "Приглашён ✓" : friend.displayTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isInvited ? accent : Cinema2026.text)
+                    .lineLimit(1)
+                    .frame(maxWidth: 64)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isInvited
+            ? "\(friend.displayTitle): приглашение отправлено"
+            : "Пригласить \(friend.displayTitle)")
+    }
+
+    @ViewBuilder
+    private func friendAvatar(_ friend: Friend) -> some View {
+        if let urlString = friend.avatarURL, let url = URL(string: urlString) {
+            AsyncImage(url: url) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                initialsCircle(friend)
+            }
+            .frame(width: 52, height: 52)
+            .clipShape(Circle())
+        } else {
+            initialsCircle(friend)
+        }
+    }
+
+    private func initialsCircle(_ friend: Friend) -> some View {
+        Text(friend.initials)
+            .font(.system(size: 19, weight: .bold))
+            .foregroundStyle(accent)
+            .frame(width: 52, height: 52)
+            .background(accent.opacity(0.14), in: Circle())
+    }
+}

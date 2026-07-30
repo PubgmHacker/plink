@@ -466,7 +466,12 @@ export default async function mediaRoutes(fastify, _options) {
       "child-src *; " +
       "frame-ancestors *;");
 
-    const html = youtubePlayerHTML(id);
+    // M40: ?chrome=plink (по умолчанию) — контролы рисует приложение;
+    //      ?chrome=youtube — родная панель YouTube (запасной путь).
+    const chromeParam = (request.query as any)?.chrome;
+    const chrome = chromeParam === 'youtube' ? 'youtube' : 'plink';
+
+    const html = youtubePlayerHTML(id, chrome);
     return reply.send(html);
   });
 

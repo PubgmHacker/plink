@@ -2,6 +2,8 @@
 // Endpoints: export data, delete account, see what we store
 import { prisma } from '../config/db.js';
 import { revokeAllUserTokens } from '../utils/tokens.js';
+import { invalidateUserSnapshot } from '../middleware/auth.js';
+import { DELETED_DISPLAY_NAME } from '../services/accountTombstone.js';
 import { logAudit } from '../utils/audit.js';
 import bcrypt from 'bcryptjs';
 
@@ -54,8 +56,18 @@ export default async function gdprRoutes(fastify) {
     
     if (!userData) return reply.status(404).send({ error: 'User not found' });
     
-    // Удалить пароль из экспорта
-    const { password, ...safeData } = userData as any;
+    // ── Аудит 26.07.2026 (P2): из экспорта убираем ВСЕ секреты ───────────
+    // Раньше отбрасывался только `password`, а findUnique возвращает все
+    // скалярные колонки User — в скачиваемый JSON попадали TOTP-секрет,
+    // резервные коды 2FA и push-токен устройства. Файл экспорта пересылают
+    // и хранят как попало, поэтому это фактическая утечка второго фактора.
+    const {
+      password,
+      twofaSecret,
+      twofaBackupCodes,
+      fcmToken,
+      ...safeData
+    } = userData as any;
     
     await logAudit({
       userId,
@@ -147,6 +159,10 @@ export default async function gdprRoutes(fastify) {
     // as deleted, but cannot message. PII stripped + sessions revoked.
     const { tombstoneAccount } = await import('../services/accountTombstone.js');
     await tombstoneAccount(userId);
+    // Ревью 26.07.2026: middleware/auth.ts кэширует снапшот пользователя на
+    // 30 с, поэтому без сброса кэша удалённый аккаунт продолжал бы ходить по
+    // /api/* тем же access-токеном (deletedAt в кэше ещё null).
+    invalidateUserSnapshot(userId);
 
     reply.send({
       deleted: true,
@@ -179,15 +195,50 @@ export default async function gdprRoutes(fastify) {
     if (!valid) return reply.status(401).send({ error: 'Invalid password' });
     
     // Анонимизация
+    //
+    // Аудит 26.07.2026 (P2): вместе с PII гасим и СЕССИЮ. Раньше хендлер
+    // менял username/email на `deleted_*` (после чего /auth/signin вход уже
+    // не пускает), но не отзывал токены и не ставил deletedAt — выданный
+    // access-токен продолжал работать, а /auth/refresh спокойно выдавал
+    // новые пары. То есть «анонимизированный» аккаунт оставался полностью
+    // рабочим до ручного логаута.
+    //
+    // deletedAt ставим намеренно: этот эндпоинт и так делает аккаунт
+    // невосстановимым (вход по `deleted_`-логину заблокирован), а
+    // middleware/auth.ts блокирует запросы только по deletedAt/bannedUntil.
+    // purgeAt при этом не выставляется, поэтому фоновая чистка
+    // (account.ts purgeExpiredAccounts) строку НЕ удалит — FK на сообщения
+    // и участников комнат остаются целыми.
+    //
+    // Ревью 26.07.2026: раньше здесь гасился только avatarURL, а САМА
+    // фотография лежит в колонке avatarData (base64 в БД) и отдаётся
+    // GET /api/users/:id/avatar вообще без авторизации — то есть после
+    // «анонимизации» лицо пользователя оставалось публично доступным.
+    // Заодно остались настоящее имя (displayName), обложка и секреты 2FA.
+    // Набор полей выровнен с services/accountTombstone.ts.
     await prisma.user.update({
       where: { id: userId },
       data: {
         username: `deleted_user_${userId.slice(0, 8)}`,
         email: `deleted_${userId.slice(0, 8)}@plink.app`,
+        displayName: DELETED_DISPLAY_NAME,
         avatarURL: null,
+        avatarData: null,
+        coverURL: null,
         fcmToken: null,
-      }
+        twofaSecret: null,
+        twofaEnabled: false,
+        twofaBackupCodes: null,
+        appearancePrefs: null,
+        deletedAt: new Date(),
+      } as any
     });
+
+    // Обрываем все сессии: refresh-токены отзываем, кэш снапшота сбрасываем,
+    // чтобы 30-секундный TTL в middleware/auth.ts не пропустил ещё пачку
+    // запросов по уже анонимизированному аккаунту.
+    await revokeAllUserTokens(userId);
+    invalidateUserSnapshot(userId);
     
     // Удалить сообщения (или заменить на "[deleted]")
     await prisma.chatMessage.updateMany({

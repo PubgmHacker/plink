@@ -6,28 +6,8 @@ import PhotosUI
 import UIKit
 import Foundation
 
-struct V4RoomsView: View {
-    let theme: V4Theme
-    let openRoom: () -> Void
-    var body: some View {
-        ScrollView(showsIndicators:false) {
-            VStack(spacing:0) {
-                HStack(alignment:.top) {
-                    V4Heading(eyebrow:"ОБЗОР",title:"Комнаты")
-                    Spacer(); V4RoundButton(symbol:"⌕")
-                }.padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
-                V4Hero(title:"Ночной клуб",meta:"12 зрителей · открытая комната",button:"Войти",height:235,theme:theme,action:openRoom)
-                    .padding(.horizontal,13).padding(.bottom,28)
-                ScrollView(.horizontal,showsIndicators:false) { HStack(spacing:11) {
-                    V4MediaCard(title:"Музыкальные открытия",meta:"8 участников")
-                    V4MediaCard(title:"Научпоп без скуки",meta:"6 участников")
-                }.padding(.horizontal,19) }
-            }.padding(.bottom,92)
-        }.foregroundStyle(V4.ink)
-    }
-}
-
-
+// Аудит 26.07.2026: здесь был статический макет с захардкоженными данными
+// (0 инстанцирований по всему проекту) — удалён, живой экран ниже.
 
 struct V4RoomsViewLive: View {
     let theme: V4Theme
@@ -116,7 +96,7 @@ struct V4RoomsViewLive: View {
                                     .font(.system(size: 12, weight: roomFilter == f ? .bold : .medium))
                                     .foregroundStyle(roomFilter == f ? .white : V4.muted)
                                     .padding(.horizontal, 14).padding(.vertical, 7)
-                                    .background(roomFilter == f ? Cinema2026.accent : V4.cardBG.opacity(0.5), in: Capsule())
+                                    .background(roomFilter == f ? theme.accentColor : V4.cardBG.opacity(0.5), in: Capsule())
                             }.buttonStyle(.plain)
                         }
                     }.padding(.horizontal, 18)
