@@ -72,7 +72,7 @@ struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
             .frame(width: geo.size.width, height: nil, alignment: .leading)
             .clipped()
         }
-        .frame(height: 220)
+        .frame(height: 256)
         .onAppear { startAutoScroll() }
         .onDisappear { displayLink?.invalidate() }
     }
@@ -114,8 +114,8 @@ struct V4HomeViewLive: View {
     var openRoomsTab: (() -> Void)? = nil
     @ObservedObject private var historyMgr = WatchHistoryManager.shared
     @ObservedObject private var watchlist = WatchlistService.shared
-    @State private var query = ""
     @State private var showUnifiedSearch = false
+    @State private var showReleaseNotes = false
     @State private var showInbox = false
     // M17: живые бейджи непрочитанного для колокольчика
     @ObservedObject private var dmInbox = DMChatService.shared
@@ -125,30 +125,58 @@ struct V4HomeViewLive: View {
     @State private var isRefreshing = false            // M30
     @State private var previewItem: V4SearchResult?    // M34: превью перед созданием комнаты
 
-    // M31: sticky search bar поверх контента
-    // Аудит 26.07.2026: при разделении файла из PlinkV4PixelPerfect это свойство
-    // ошибочно осталось в V4HomeView, хотя ссылается на showUnifiedSearch и
-    // используется в body именно этой структуры (.safeAreaInset ниже).
-    // Возвращено на место — чинит обе ошибки «cannot find ... in scope».
-    private var stickySearchBar: some View {
+    // Discovery is an intentional action inside the content hierarchy. A sticky
+    // search field at the top made Home feel like a utility screen and pushed the
+    // social/product thesis below the fold.
+    private var discoveryEntry: some View {
         Button {
+            HapticManager.impact(.light)
             showUnifiedSearch = true
         } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                Text(L.string(.homeVideoPlaceholder)).foregroundStyle(V4.muted)
-                Spacer()
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(activeAccent.opacity(0.14))
+                    Image(systemName: "play.rectangle.on.rectangle.fill")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(activeAccent)
+                }
+                .frame(width: 48, height: 48)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Что будем смотреть?")
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(V4.ink)
+                    Text("YouTube, Twitch, ссылка или код комнаты")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(activeBtnText)
+                    .frame(width: 38, height: 38)
+                    .background(activeAccent, in: Circle())
             }
-            .font(.system(size: 13))
-            .padding(.horizontal, 13)
-            .frame(height: 44)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15))
-            .overlay(RoundedRectangle(cornerRadius: 15).stroke(V4.line))
+            .padding(14)
+            .background(
+                LinearGradient(
+                    colors: [V4.surface.opacity(0.94), activeAccent.opacity(0.08)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(activeAccent.opacity(0.16), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 19)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
+        .accessibilityLabel("Найти видео, сервис или комнату")
     }
 
     // M30: динамическое приветствие по времени суток
@@ -197,9 +225,13 @@ struct V4HomeViewLive: View {
                         .presentationDragIndicator(.visible)
                 }
                 V4Heading(eyebrow: timeOfDayGreeting, title: "С кем смотрим?")
-                    .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,19).padding(.bottom,14)
+                    .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,19).padding(.bottom,18)
 
-                // M30/M31: фильтр-пилюли
+                discoveryEntry
+                    .padding(.horizontal, 19)
+                    .padding(.bottom, 20)
+
+                // Home filters describe content after the product action is clear.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(HomeFilter.allCases, id: \.self) { f in
@@ -263,79 +295,8 @@ struct V4HomeViewLive: View {
                     .padding(.bottom, 22)
                 }
 
-                // AUDIT: Quick Room — premium liquid glass button
-                if !searchStore.trending.isEmpty {
-                    Button {
-                        HapticManager.impact(.medium)
-                        if let first = searchStore.trending.first {
-                            Task { await createRoomFromTrending(first) }
-                        }
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 16, weight: .bold))
-                            Text(L.string(.homeQuickRoom))
-                                .font(.system(size: 15, weight: .bold))
-                            Spacer()
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 12, weight: .bold))
-                        }
-                        .foregroundStyle(activeBtnText)
-                        .padding(.horizontal, 18)
-                        .frame(height: 50)
-                        .background(
-                            ZStack {
-                                LinearGradient(
-                                    colors: [activeAccent.opacity(0.9), activeSecondary.opacity(0.7)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                                LinearGradient(
-                                    colors: [.white.opacity(0.2), .clear],
-                                    startPoint: .top,
-                                    endPoint: .center
-                                )
-                            }
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                .stroke(.white.opacity(0.15), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .shadow(color: activeAccent.opacity(0.3), radius: 12, y: 6)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 19)
-                    .padding(.bottom, 10)
-
-                    // M12: запланировать совместный сеанс с напоминанием
-                    Button {
-                        HapticManager.impact(.light)
-                        showScheduleSheet = true
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "calendar.badge.clock")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text(L.string(.homeScheduleSession))
-                                .font(.system(size: 14, weight: .semibold))
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                        .foregroundStyle(V4.ink.opacity(0.85))
-                        .padding(.horizontal, 18)
-                        .frame(height: 44)
-                        .background(V4.cardBG.opacity(0.5))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .stroke(.white.opacity(0.08), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 19)
-                    .padding(.bottom, 18)
-                }
+                // Updates live in a dedicated sheet. They must not interrupt the
+                // content feed or appear as a permanent promotional card on Home.
 
                 // M14: «Продолжить просмотр» — вернуться к недосмотренному
                 if let resumeItem = resumeCandidate {
@@ -369,6 +330,14 @@ struct V4HomeViewLive: View {
                         }
                     }.padding(.horizontal,19) }
                     .padding(.bottom, 8)
+                }
+
+                // Release notes / onboarding belongs in a dedicated surface, not as
+                // a generic bottom appendage after recommendations.
+                if showReleaseNotes {
+                    releaseNotesCard
+                        .padding(.horizontal, 19)
+                        .padding(.bottom, 18)
                 }
 
                 // "Смотрят сейчас" — poster-based cards: video thumbnail + viewer count + host
@@ -451,7 +420,6 @@ struct V4HomeViewLive: View {
                 }
             }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
-        .safeAreaInset(edge: .top) { stickySearchBar }
         .refreshable {
             isRefreshing = true
             await searchStore.loadTrending()
@@ -474,6 +442,10 @@ struct V4HomeViewLive: View {
         }
         .sheet(isPresented: $showScheduleSheet) {
             ScheduleSessionSheet()
+                .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showReleaseNotes) {
+            ReleaseNotesSheet()
                 .preferredColorScheme(.dark)
         }
     }
@@ -502,68 +474,85 @@ struct V4HomeViewLive: View {
         actionTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(
+        Button(action: action) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [activeAccent, activeSecondary],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    Image(systemName: icon)
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(activeBtnText)
+                }
+                .frame(width: 58, height: 58)
+                .shadow(color: activeAccent.opacity(0.34), radius: 18, y: 10)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(V4.ink)
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 6)
+
+                Text(actionTitle)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(activeBtnText)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .background(
                         LinearGradient(
                             colors: [activeAccent, activeSecondary],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
-                        )
+                        ),
+                        in: Capsule()
                     )
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(activeBtnText)
+                    .shadow(color: activeAccent.opacity(0.28), radius: 12, y: 6)
             }
-            .frame(width: 58, height: 58)
-            .shadow(color: activeAccent.opacity(0.28), radius: 16, y: 8)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title)
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(V4.ink)
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(V4.muted)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 6)
-
-            Button(actionTitle, action: action)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(activeBtnText)
-                .padding(.horizontal, 15)
-                .frame(minHeight: 44)
-                .background(
-                    LinearGradient(
-                        colors: [activeAccent, activeSecondary],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    in: Capsule()
-                )
-                .shadow(color: activeAccent.opacity(0.24), radius: 12, y: 6)
+            .frame(maxWidth: .infinity)
+            .padding(18)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.black.opacity(0.72), V4.surface.opacity(0.92)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    RadialGradient(
+                        colors: [activeAccent.opacity(0.22), .clear],
+                        center: .topLeading,
+                        startRadius: 8,
+                        endRadius: 240
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [activeAccent.opacity(0.30), .white.opacity(0.06), activeSecondary.opacity(0.18)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
         }
-        .frame(maxWidth: .infinity)
-        .padding(18)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(V4.surface.opacity(0.84))
-                LinearGradient(
-                    colors: [activeAccent.opacity(0.12), .clear, activeSecondary.opacity(0.07)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(activeAccent.opacity(0.18), lineWidth: 1)
-        )
+        .buttonStyle(.plain)
     }
 
     /// Cinematic live-room tile. The room is presented as a social scene rather
@@ -577,11 +566,11 @@ struct V4HomeViewLive: View {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     roomArtwork(room)
-                        .frame(height: 210)
+                        .frame(height: 220)
                         .clipped()
 
                     LinearGradient(
-                        colors: [.black.opacity(0.48), .clear, .black.opacity(0.72)],
+                        colors: [.black.opacity(0.24), .clear, .black.opacity(0.82)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -635,9 +624,9 @@ struct V4HomeViewLive: View {
                 HStack(spacing: 11) {
                     roomParticipantStack(room)
 
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(room.name)
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(V4.ink)
                             .lineLimit(1)
                         Text("Хост · \(room.hostName)")
@@ -653,26 +642,41 @@ struct V4HomeViewLive: View {
                         .foregroundStyle(activeBtnText)
                         .frame(width: 40, height: 40)
                         .background(activeAccent, in: Circle())
-                        .shadow(color: activeAccent.opacity(0.28), radius: 10)
+                        .shadow(color: activeAccent.opacity(0.32), radius: 12, y: 6)
                 }
-                .padding(14)
-                .background(V4.surface.opacity(0.94))
+                .padding(15)
+                .background(
+                    LinearGradient(
+                        colors: [V4.surface.opacity(0.96), Color.black.opacity(0.55)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
             }
-            .frame(width: 306, height: 306)
-            .background(V4.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .frame(width: 320, height: 324)
+            .background(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.76), V4.surface.opacity(0.96)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
                     .stroke(
                         LinearGradient(
-                            colors: [.white.opacity(0.18), activeAccent.opacity(0.14), .white.opacity(0.04)],
+                            colors: [activeAccent.opacity(0.38), .white.opacity(0.10), activeSecondary.opacity(0.22)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
                         lineWidth: 1
                     )
             )
-            .shadow(color: .black.opacity(0.34), radius: 22, y: 14)
+            .shadow(color: .black.opacity(0.46), radius: 28, y: 16)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(room.mediaItem?.title ?? room.name), хост \(room.hostName), \(room.participantCount) участников")
@@ -765,6 +769,129 @@ struct V4HomeViewLive: View {
             Text(String(name.prefix(1)).uppercased())
                 .font(.system(size: 12, weight: .black))
                 .foregroundStyle(.white)
+        }
+    }
+
+    private var releaseNotesCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [activeAccent.opacity(0.28), activeSecondary.opacity(0.18)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(activeAccent)
+                }
+                .frame(width: 56, height: 56)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Новое в Plink")
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundStyle(V4.ink)
+                    Text("Что нового после обновления")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(V4.muted)
+                }
+
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                releaseNoteRow(icon: "sparkles", title: "Умные подсказки ИИ", subtitle: "Ассистент предлагает контекстно, без лишнего шума")
+                releaseNoteRow(icon: "qrcode.viewfinder", title: "Вход по коду", subtitle: "Шесть символов — и ты внутри, без поиска и ссылок")
+                releaseNoteRow(icon: "clock.arrow.circlepath", title: "История просмотров", subtitle: "Что вы смотрели вместе — теперь собрано в профиле")
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [V4.surface.opacity(0.96), Color.black.opacity(0.64)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(activeAccent.opacity(0.16), lineWidth: 1)
+        )
+    }
+
+    private func releaseNoteRow(icon: String, title: String, subtitle: String) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .fill(activeAccent.opacity(0.12))
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(activeAccent)
+            }
+            .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(V4.ink)
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(V4.muted)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(V4.cardBG.opacity(0.34), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+
+    private struct ReleaseNotesSheet: View {
+        var body: some View {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Новое в Plink")
+                            .font(.system(size: 28, weight: .black))
+                        VStack(alignment: .leading, spacing: 12) {
+                            note(icon: "sparkles", title: "Умные подсказки ИИ", subtitle: "Ассистент теперь предлагает, что посмотреть, когда уместно.")
+                            note(icon: "qrcode.viewfinder", title: "Вход по коду", subtitle: "Шестизначный код — быстрый способ войти в комнату.")
+                            note(icon: "clock.arrow.circlepath", title: "История просмотров", subtitle: "Что вы смотрели вместе теперь видно в профиле и истории.")
+                        }
+                        .padding(.top, 4)
+                    }
+                    .padding(20)
+                }
+                .navigationTitle("Новое в Plink")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+
+        @ViewBuilder
+        private func note(icon: String, title: String, subtitle: String) -> some View {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.14))
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.system(size: 16, weight: .bold))
+                    Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 

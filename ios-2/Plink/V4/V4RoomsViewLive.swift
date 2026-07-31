@@ -19,6 +19,7 @@ struct V4RoomsViewLive: View {
     // M32: поиск + фильтр
     @State private var searchQuery = ""
     @State private var roomFilter: RoomFilter = .all
+    @State private var searchExpanded = false
 
     enum RoomFilter: String, CaseIterable {
         case all      = "Все"
@@ -29,66 +30,91 @@ struct V4RoomsViewLive: View {
     var body: some View {
         ScrollView(showsIndicators:false) {
             VStack(spacing:0) {
-                HStack(alignment:.top) {
-                    V4Heading(eyebrow:"ОБЗОР",title:"Комнаты")
+                HStack(alignment:.center, spacing: 10) {
+                    V4Heading(eyebrow:"ВМЕСТЕ СЕЙЧАС",title:"Комнаты")
                         .accessibilityIdentifier("screen.rooms")
                     Spacer()
                     Button {
                         HapticManager.selection()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                            searchExpanded.toggle()
+                            if !searchExpanded { searchQuery = "" }
+                        }
+                    } label: {
+                        Image(systemName: searchExpanded ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(V4.ink)
+                            .frame(width: 44, height: 44)
+                            .background(V4.roundBG, in: Circle())
+                            .overlay(Circle().stroke(V4.line))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(searchExpanded ? "Закрыть поиск" : "Найти комнату")
+                    Button {
+                        HapticManager.selection()
                         joinByCode?()
                     } label: {
-                        // Join-by-code — NOT person.badge.plus (that’s “add friend”)
-                        HStack(spacing:4) {
-                            Image(systemName: "qrcode")
-                                .font(.system(size:13, weight:.bold))
-                            Text("Код")
-                                .font(.system(size:11, weight:.heavy))
-                        }
-                        .foregroundStyle(theme.buttonTextColor)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .background(theme.accentColor, in: Capsule())
-                        .contentShape(Rectangle())
+                        Image(systemName: "qrcode.viewfinder")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(V4.ink)
+                            .frame(width: 44, height: 44)
+                            .background(V4.roundBG, in: Circle())
+                            .overlay(Circle().stroke(V4.line))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Войти по коду комнаты")
-                    .padding(.trailing, 8)
                     Button {
-                        HapticManager.selection()
+                        HapticManager.impact(.medium)
                         createRoom?()
                     } label: {
-                        Image(systemName:"plus.circle.fill")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(theme.accentColor)
+                        Image(systemName:"plus")
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundStyle(theme.buttonTextColor)
                             .frame(width: 44, height: 44)
+                            .background(theme.accentColor, in: Circle())
+                            .shadow(color: theme.accentColor.opacity(0.3), radius: 12, y: 6)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Создать комнату")
                 }.padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
 
-                // M32: поиск комнат
-                HStack(spacing: 9) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(V4.muted).font(.system(size:14))
-                    TextField("Поиск комнат...", text: $searchQuery)
-                        .foregroundStyle(V4.ink)
-                        .font(.system(size:13))
-                    if !searchQuery.isEmpty {
-                        Button { searchQuery = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(V4.muted)
-                                .frame(width: 44, height: 44)
+                if searchExpanded {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(theme.accentColor)
+                            .font(.system(size:14, weight: .semibold))
+                        TextField("Название комнаты или хост", text: $searchQuery)
+                            .foregroundStyle(V4.ink)
+                            .font(.system(size:14, weight: .medium))
+                        if !searchQuery.isEmpty {
+                            Button { searchQuery = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(V4.muted)
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Очистить поиск")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Очистить поиск")
                     }
+                    .padding(.leading, 16)
+                    .padding(.trailing, 4)
+                    .frame(minHeight: 50)
+                    .background(
+                        LinearGradient(
+                            colors: [V4.surface.opacity(0.96), theme.accentColor.opacity(0.07)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(theme.accentColor.opacity(0.18), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                .padding(.horizontal, 13)
-                .frame(minHeight: 44)
-                .background(V4.searchBG)
-                .clipShape(RoundedRectangle(cornerRadius: 13))
-                .overlay(RoundedRectangle(cornerRadius: 13).stroke(V4.line))
-                .padding(.horizontal, 18)
-                .padding(.bottom, 10)
 
                 // M32: фильтр-пилюли
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -116,8 +142,9 @@ struct V4RoomsViewLive: View {
                             .overlay { ProgressView().tint(theme.accentColor) }
                     case .loaded:
                         if let hero = rs.heroRoom {
-                            V4Hero(title: hero.name, meta: "\(hero.participantCount) зрителей · открытая комната", button:"Войти",height:235,theme:theme,action:openRoom)
-                                .padding(.horizontal,13).padding(.bottom,28)
+                            roomFeatureCard(hero)
+                                .padding(.horizontal, 18)
+                                .padding(.bottom, 26)
                         }
                         // M32/M33: поиск + фильтр (в т.ч. по друзьям) + обложки
                         let friendNames: Set<String> = Set(FriendManager.shared.friends.map { $0.username.lowercased() })
@@ -157,11 +184,7 @@ struct V4RoomsViewLive: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 11) {
                                     ForEach(filteredRail) { room in
-                                        V4MediaCard(
-                                            title: room.name,
-                                            meta: "\(room.participantCount) участников",
-                                            thumbnailURL: room.mediaItem?.thumbnailURL
-                                        )
+                                        roomRailCard(room)
                                     }
                                 }.padding(.horizontal, 19)
                             }
@@ -208,6 +231,185 @@ struct V4RoomsViewLive: View {
             }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
         .refreshable { await roomsStore?.load() }
+    }
+
+    private func roomFeatureCard(_ room: Room) -> some View {
+        Button {
+            HapticManager.impact(.medium)
+            openRoom()
+        } label: {
+            ZStack(alignment: .bottomLeading) {
+                roomArtwork(room)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 268)
+                    .clipped()
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.22), .black.opacity(0.94)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        if room.isActive {
+                            HStack(spacing: 6) {
+                                Circle().fill(.white).frame(width: 5, height: 5)
+                                Text("LIVE")
+                            }
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
+                            .background(V4.danger, in: Capsule())
+                        }
+                        Text("\(room.participantCount) смотрят")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(theme.buttonTextColor)
+                            .frame(width: 40, height: 40)
+                            .background(theme.accentColor, in: Circle())
+                    }
+
+                    Spacer(minLength: 30)
+
+                    Text(room.mediaItem?.title ?? room.name)
+                        .font(.system(size: 25, weight: .black))
+                        .tracking(-0.55)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle.fill")
+                        Text("\(room.name) · \(room.hostName)")
+                            .lineLimit(1)
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.74))
+                }
+                .padding(18)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [theme.accentColor.opacity(0.34), .white.opacity(0.10), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.42), radius: 28, y: 16)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func roomRailCard(_ room: Room) -> some View {
+        Button {
+            HapticManager.impact(.light)
+            openRoom()
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack(alignment: .topLeading) {
+                    roomArtwork(room)
+                        .frame(width: 238, height: 148)
+                        .clipped()
+                    LinearGradient(
+                        colors: [.black.opacity(0.44), .clear, .black.opacity(0.58)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    HStack(spacing: 6) {
+                        if room.isActive {
+                            Circle().fill(V4.danger).frame(width: 7, height: 7)
+                        }
+                        Text(room.isActive ? "Сейчас" : "Комната")
+                    }
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .frame(height: 26)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(12)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                Text(room.mediaItem?.title ?? room.name)
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(V4.ink)
+                    .lineLimit(2)
+                HStack(spacing: 5) {
+                    Image(systemName: "person.2.fill")
+                    Text("\(room.participantCount)")
+                    Text("·")
+                    Text(room.hostName).lineLimit(1)
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(V4.muted)
+            }
+            .padding(9)
+            .frame(width: 256, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [V4.surface.opacity(0.92), theme.accentColor.opacity(0.055)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 25, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(theme.accentColor.opacity(0.13), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func roomArtwork(_ room: Room) -> some View {
+        if let raw = room.mediaItem?.thumbnailURL, let url = URL(string: raw) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                default: roomArtworkFallback(room)
+                }
+            }
+        } else {
+            roomArtworkFallback(room)
+        }
+    }
+
+    private func roomArtworkFallback(_ room: Room) -> some View {
+        let seed = abs(room.id.hashValue)
+        let hue = Double(seed % 70) + 225
+        return ZStack {
+            LinearGradient(
+                colors: [
+                    Color.oklch(0.58, 0.22, hue),
+                    Color.oklch(0.26, 0.14, hue + 35),
+                    Color.oklch(0.07, 0.03, 250)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Circle()
+                .fill(.white.opacity(0.11))
+                .frame(width: 190, height: 190)
+                .blur(radius: 10)
+                .offset(x: 110, y: -64)
+            Image(systemName: "play.fill")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(.white.opacity(0.72))
+                .shadow(color: .black.opacity(0.34), radius: 18)
+        }
     }
 }
 

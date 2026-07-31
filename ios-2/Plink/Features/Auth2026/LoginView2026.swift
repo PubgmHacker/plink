@@ -1,7 +1,6 @@
 //  Plink/Features/Auth2026/LoginView2026.swift
-//  Auth 2026 redesign — «кинозал»: бархат + луч проектора, герой
-//  «кадр в кадр», стеклянные капсулы-поля, сплошная teal-кнопка.
-//  Один фирменный элемент на экран — луч проектора над логотипом.
+//  Auth 2026 redesign — a private screening room: cobalt projection,
+//  synchronized-frame mark, restrained glass controls and one electric CTA.
 
 import SwiftUI
 
@@ -67,8 +66,8 @@ struct LoginView2026: View {
             ScrollView {
                 VStack(spacing: 0) {
                     hero
-                        .padding(.top, 38)
-                        .padding(.bottom, 26)
+                        .padding(.top, 28)
+                        .padding(.bottom, 22)
 
                     modeSegment
                         .padding(.bottom, 22)
@@ -107,28 +106,29 @@ struct LoginView2026: View {
 
     private var hero: some View {
         VStack(spacing: 0) {
-            PlinkFrameMark(size: 88)
-                .padding(.bottom, 22)
+            PlinkFrameMark(size: 94)
+                .padding(.bottom, 20)
 
             Text("PLINK")
-                .font(.system(size: 38, weight: .black, design: .rounded))
-                .tracking(6.4)
+                .font(.system(size: 40, weight: .black, design: .rounded))
+                .tracking(7.2)
                 .foregroundStyle(PlinkTheatre.screen)
-                .shadow(color: PlinkTheatre.tealDeep.opacity(0.18), radius: 18)
-                .padding(.bottom, 14)
+                .shadow(color: PlinkTheatre.tealDeep.opacity(0.24), radius: 22)
+                .padding(.bottom, 12)
 
-            Text("Твой экран. Твои люди. Один момент.")
-                .font(.system(size: 18, weight: .semibold))
+            Text("Смотрите в одном ритме.")
+                .font(.system(size: 20, weight: .bold))
+                .tracking(-0.35)
                 .foregroundStyle(PlinkTheatre.screen)
                 .multilineTextAlignment(.center)
 
-            Text("Видео, комнаты и реакции идут синхронно — где бы вы ни были.")
+            Text("Один экран для видео, голосов и реакций — даже когда вы далеко.")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(PlinkTheatre.muted)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
-                .padding(.top, 8)
-                .frame(maxWidth: 320)
+                .padding(.top, 7)
+                .frame(maxWidth: 310)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 10)
@@ -161,15 +161,15 @@ struct LoginView2026: View {
         } label: {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(selected ? PlinkTheatre.teal : PlinkTheatre.muted)
+                .foregroundStyle(selected ? PlinkTheatre.tealDeep : PlinkTheatre.muted)
                 .frame(maxWidth: .infinity)
                 .frame(height: 38)
                 .background {
                     if selected {
                         Capsule()
-                            .fill(PlinkTheatre.teal.opacity(0.14))
+                            .fill(PlinkTheatre.tealDeep.opacity(0.18))
                             .overlay(
-                                Capsule().strokeBorder(PlinkTheatre.teal.opacity(0.45), lineWidth: 1)
+                                Capsule().strokeBorder(PlinkTheatre.tealDeep.opacity(0.55), lineWidth: 1)
                             )
                             .matchedGeometryEffect(id: "authSegment", in: segmentNamespace)
                     }
@@ -279,7 +279,7 @@ struct LoginView2026: View {
         }
     }
 
-    // MARK: - Главная кнопка: сплошной teal со свечением
+    // MARK: - Primary action: saturated cobalt, not the previous pale mint
 
     private var primaryButton: some View {
         Button {
