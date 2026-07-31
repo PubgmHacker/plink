@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { motion, useReducedMotion, AnimatePresence } from "framer-motion";
+import { useEffect, useState, useRef } from "react";
+import { motion, useReducedMotion, AnimatePresence, useMotionValue, useSpring, useTransform, useMotionValueEvent } from "framer-motion";
 import { APP_STORE_URL } from "@/lib/constants";
 
 // -- Types ------------------------------------------------------------------
@@ -22,6 +22,19 @@ interface Particle {
   emoji: string;
   deviceId: string;
 }
+
+// -- Static data (module level, stable references) ---------------------------
+const DEVICES: DeviceState[] = [
+  { id: "iphone-main", x: 5, y: 15, width: 280, height: 560, rotation: -4, zIndex: 40, isPrimary: true },
+  { id: "iphone-side", x: 62, y: 8, width: 200, height: 400, rotation: 6, zIndex: 30 },
+  { id: "iphone-back", x: 28, y: 45, width: 170, height: 340, rotation: -12, zIndex: 20 },
+  { id: "ipad", x: 68, y: 48, width: 340, height: 240, rotation: 2, zIndex: 10 },
+];
+const DEVICE_IDS = DEVICES.map((d) => d.id);
+const PROGRESS_MAX = 100;
+const PROGRESS_STEP = 0.1;
+const SYNC_DELAY_MS = 150;
+const PARTICLE_LIFE_MS = 3000;
 
 // -- Constants ----------------------------------------------------------------
 const EMOJIS = ["😂", "🔥", "😮", "👏", "💀", "❤️", "😱", "🤯"];
