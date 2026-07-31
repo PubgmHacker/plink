@@ -98,7 +98,7 @@ function DeviceFrame({
   progress,
   prefersReducedMotion,
 }: DeviceFrameProps) {
-  const isPrimary = device.isPrimary ?? false;
+  const isPrimary = "isPrimary" in device && (device as { isPrimary?: boolean }).isPrimary;
   const multX = isPrimary ? -15 : -8;
   const multY = isPrimary ? -10 : -5;
   const x = useTransform(smoothX, (v) => v * multX);

@@ -3,6 +3,9 @@
   "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile" },
   "deploy": {
     "startCommand": "./start.sh",
-    "restartPolicyType": "ON_FAILURE"
+    "healthcheckPath": "/health/ready",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
   }
 }

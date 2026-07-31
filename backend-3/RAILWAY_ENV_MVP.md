@@ -138,13 +138,24 @@ Do not set test-only `API_BASE`, `WS_BASE`, `E2E`, or `APP_VERSION` in productio
 
 ## 5. Deploy and verify
 
-1. Railway backend service → Settings → source repository, root directory `backend-3`.
-2. Build command: `npm ci && npm run build && npx prisma migrate deploy`.
-3. Start command: `node dist/server.js` (not `dist/app.js`).
-4. Deploy.
-5. Check `https://<backend>/health` returns 200.
-6. Run a staging E2E against the deployed URL before pointing iOS at it.
-7. Set the iOS production backend URL in the non-secret client configuration. This URL is public configuration, not a secret.
+1. Railway backend service → Settings → source repository, root directory **`backend-3`**. A blank repository root will not find this service's Dockerfile.
+2. Builder: Dockerfile. Keep the checked-in `railway.json`; remove dashboard build/start overrides so there is one source of truth.
+3. `start.sh` applies the pinned Prisma migrations and then starts `node dist/server.js`. A migration error intentionally fails the deployment instead of booting against a mismatched schema.
+4. Attach PostgreSQL and Redis, then provide every required production variable from sections 1–2 before deploying.
+5. Railway readiness path is `/health/ready`; `/health/live` only proves that the process is alive.
+6. Deploy and confirm `/health/ready` returns 200.
+7. Run a staging E2E against the deployed URL before pointing iOS at it.
+8. Set the iOS production backend URL in the non-secret client configuration. This URL is public configuration, not a secret.
+
+### If Railway previously failed on migration `20260712000000_billing_admin_v2`
+
+The old migration used the non-PostgreSQL type `DATETIME(3)`. The checked-in SQL now uses `TIMESTAMP(3)`, but Prisma may have recorded the earlier attempt as failed.
+
+1. Inspect the deployment log for `P3009` or `P3018` and inspect `_prisma_migrations` in the attached PostgreSQL database.
+2. Confirm whether the migration's tables/columns were partially created before changing migration state.
+3. If it failed and its partial DDL has been safely rolled back/removed, run the pinned CLI once against that database:
+   `./node_modules/.bin/prisma migrate resolve --rolled-back 20260712000000_billing_admin_v2`
+4. Redeploy. Do **not** mark the migration applied unless the production schema fully matches it.
 
 ## Security notes
 

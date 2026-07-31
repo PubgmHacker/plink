@@ -58,7 +58,9 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 # Самопроверка при этом зеленела: она проверяет только отклонение подделки.
 COPY --from=builder /app/certs ./certs
 
-RUN chmod +x start.sh
+# Production dependencies include the pinned Prisma CLI used by start.sh.
+# Keeping it in the image avoids an unpinned network download during boot.
+RUN test -x node_modules/.bin/prisma && chmod +x start.sh
 
 # Аудит 26.07.2026: не под root — базовый node-образ содержит пользователя node.
 RUN chown -R node:node /app
@@ -66,5 +68,5 @@ USER node
 
 EXPOSE 8080
 
-# start.sh runs prisma generate + migrate deploy + node dist/server.js
+# start.sh runs the pinned migration CLI and then node dist/server.js
 CMD ["./start.sh"]

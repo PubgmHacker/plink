@@ -4,8 +4,8 @@
 -- Subscription: add App Store Server API V2 fields
 ALTER TABLE "Subscription" ADD COLUMN "originalTransactionId" TEXT;
 ALTER TABLE "Subscription" ADD COLUMN "environment" TEXT;
-ALTER TABLE "Subscription" ADD COLUMN "revokedAt" DATETIME(3);
-ALTER TABLE "Subscription" ADD COLUMN "lastVerifiedAt" DATETIME(3);
+ALTER TABLE "Subscription" ADD COLUMN "revokedAt" TIMESTAMP(3);
+ALTER TABLE "Subscription" ADD COLUMN "lastVerifiedAt" TIMESTAMP(3);
 
 CREATE INDEX "Subscription_userID_isActive_idx" ON "Subscription"("userID", "isActive");
 CREATE INDEX "Subscription_originalTransactionId_idx" ON "Subscription"("originalTransactionId");
@@ -19,10 +19,10 @@ CREATE TABLE "TransactionRecord" (
     "productId" TEXT NOT NULL,
     "environment" TEXT NOT NULL,
     "jws" TEXT NOT NULL,
-    "expiresAt" DATETIME(3),
-    "revocationDate" DATETIME(3),
-    "verifiedAt" DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "createdAt" DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP(3),
+    "revocationDate" TIMESTAMP(3),
+    "verifiedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "TransactionRecord_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "TransactionRecord_transactionId_key" UNIQUE ("transactionId")
@@ -38,7 +38,7 @@ ALTER TABLE "TransactionRecord" ADD CONSTRAINT "TransactionRecord_userId_fkey"
 
 -- Report: add moderation fields
 ALTER TABLE "Report" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'pending';
-ALTER TABLE "Report" ADD COLUMN "resolvedAt" DATETIME(3);
+ALTER TABLE "Report" ADD COLUMN "resolvedAt" TIMESTAMP(3);
 ALTER TABLE "Report" ADD COLUMN "resolvedBy" TEXT;
 
 CREATE INDEX "Report_status_createdAt_idx" ON "Report"("status", "createdAt");
