@@ -393,13 +393,24 @@ struct V4HomeViewLive: View {
                 .foregroundStyle(V4.ink)
                 .padding(.horizontal,19).padding(.top,32).padding(.bottom,14)
 
-                VStack(spacing:10) {
+                Group {
                     if let rs = roomsStore {
                         switch rs.state {
                         case .loading, .idle:
-                            ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 14) {
+                                    ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
+                                }
+                                .padding(.horizontal, 19)
+                            }
                         case .loaded where !rs.rooms.isEmpty:
-                            ForEach(rs.rooms.prefix(5)) { room in watchingNowCard(room) }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 14) {
+                                    ForEach(rs.rooms.prefix(8)) { room in watchingNowCard(room) }
+                                }
+                                .padding(.horizontal, 19)
+                            }
+                            .scrollTargetBehavior(.viewAligned)
                         case .failed:
                             compactRoomsState(
                                 icon: "wifi.exclamationmark",
@@ -407,6 +418,7 @@ struct V4HomeViewLive: View {
                                 subtitle: "Проверь соединение и повтори",
                                 actionTitle: "Повторить"
                             ) { Task { await roomsStore?.load() } }
+                            .padding(.horizontal, 19)
                         case .loaded, .empty:
                             compactRoomsState(
                                 icon: "person.3.sequence.fill",
@@ -414,12 +426,18 @@ struct V4HomeViewLive: View {
                                 subtitle: "Найди видео или создай комнату — друзья смогут присоединиться",
                                 actionTitle: "Найти видео"
                             ) { showUnifiedSearch = true }
+                            .padding(.horizontal, 19)
                         }
                     } else {
-                        ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 14) {
+                                ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
+                            }
+                            .padding(.horizontal, 19)
+                        }
                     }
                 }
-                .padding(.horizontal,19)
+                .frame(height: 334)
 
                 // M31: друзья смотрят + новинки недели
                 if homeFilter == .all || homeFilter == .friends {
@@ -461,20 +479,19 @@ struct V4HomeViewLive: View {
     }
 
     private var watchingNowSkeleton: some View {
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(V4.cardBG)
-                .frame(width: 108, height: 64)
-            VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4).fill(V4.cardBG).frame(width: 160, height: 13)
-                RoundedRectangle(cornerRadius: 3).fill(V4.cardBG.opacity(0.6)).frame(width: 90, height: 10)
-            }
-            Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(V4.cardBG.opacity(0.82))
+                .frame(height: 170)
+                .overlay(alignment: .topLeading) {
+                    Capsule().fill(V4.raised.opacity(0.9)).frame(width: 70, height: 24).padding(14)
+                }
+            RoundedRectangle(cornerRadius: 5).fill(V4.cardBG).frame(width: 190, height: 16)
+            RoundedRectangle(cornerRadius: 4).fill(V4.cardBG.opacity(0.6)).frame(width: 126, height: 11)
         }
-        .padding(12)
-        .frame(minHeight: 88)
-        .background(V4.cardBG.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(10)
+        .frame(width: 306, height: 308, alignment: .topLeading)
+        .background(V4.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .accessibilityLabel("Загрузка активных комнат")
     }
 
@@ -507,105 +524,205 @@ struct V4HomeViewLive: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// Create room from a specific trending video — used by hero + quick room.
+    /// Cinematic live-room tile. The room is presented as a social scene rather
+    /// than a settings row: media first, people second, metadata last.
     @ViewBuilder
     private func watchingNowCard(_ room: Room) -> some View {
         Button {
             HapticManager.impact(.light)
             NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
         } label: {
-            ZStack(alignment: .bottomLeading) {
-                // Full-bleed 16:9 media establishes the room before metadata.
-                if let thumbStr = room.mediaItem?.thumbnailURL, let url = URL(string: thumbStr) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        default:
-                            roomArtworkFallback
-                        }
-                    }
-                } else {
-                    roomArtworkFallback
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .topLeading) {
+                    roomArtwork(room)
+                        .frame(height: 210)
+                        .clipped()
 
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.16), .black.opacity(0.94)],
-                    startPoint: UnitPoint(x: 0.5, y: 0.18),
-                    endPoint: .bottom
-                )
+                    LinearGradient(
+                        colors: [.black.opacity(0.48), .clear, .black.opacity(0.72)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 7) {
                         if room.isActive {
-                            HStack(spacing: 5) {
+                            HStack(spacing: 6) {
                                 Circle().fill(.white).frame(width: 5, height: 5)
                                 Text(L.string(.homeLive))
                             }
                             .font(.system(size: 10, weight: .black))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 9)
-                            .frame(height: 26)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
                             .background(V4.danger, in: Capsule())
+                            .shadow(color: V4.danger.opacity(0.42), radius: 10)
                         }
 
-                        Text("\(room.participantCount)/\(room.maxParticipants)")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 9)
-                            .frame(height: 26)
-                            .background(.black.opacity(0.48), in: Capsule())
-                            .overlay(Capsule().stroke(.white.opacity(0.16)))
+                        roomPrivacyBadge(room)
                         Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 12, weight: .black))
-                            .foregroundStyle(.black)
-                            .frame(width: 34, height: 34)
-                            .background(.white, in: Circle())
-                    }
 
-                    Spacer(minLength: 22)
-
-                    Text(room.mediaItem?.title ?? room.name)
-                        .font(.system(size: 20, weight: .heavy))
+                        HStack(spacing: 5) {
+                            Image(systemName: "person.2.fill")
+                            Text("\(room.participantCount)")
+                        }
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-
-                    HStack(spacing: 7) {
-                        Image(systemName: "person.crop.circle.fill")
-                        Text("\(L.string(.homeHostLabel)) \(room.hostName)")
-                            .lineLimit(1)
-                        Spacer()
-                        Text("Войти")
-                            .fontWeight(.bold)
+                        .padding(.horizontal, 9)
+                        .frame(height: 28)
+                        .background(.ultraThinMaterial, in: Capsule())
                     }
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.78))
+                    .padding(14)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Spacer()
+                        Text(room.mediaItem?.title ?? room.name)
+                            .font(.system(size: 21, weight: .heavy))
+                            .tracking(-0.35)
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        if let artist = room.mediaItem?.artist, !artist.isEmpty {
+                            Text(artist)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.72))
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(16)
                 }
-                .padding(16)
+
+                HStack(spacing: 11) {
+                    roomParticipantStack(room)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(room.name)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(V4.ink)
+                            .lineLimit(1)
+                        Text("Хост · \(room.hostName)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(activeBtnText)
+                        .frame(width: 40, height: 40)
+                        .background(activeAccent, in: Circle())
+                        .shadow(color: activeAccent.opacity(0.28), radius: 10)
+                }
+                .padding(14)
+                .background(V4.surface.opacity(0.94))
             }
-            .frame(height: 198)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .frame(width: 306, height: 306)
+            .background(V4.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.18), activeAccent.opacity(0.14), .white.opacity(0.04)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             )
-            .shadow(color: .black.opacity(0.30), radius: 18, y: 10)
+            .shadow(color: .black.opacity(0.34), radius: 22, y: 14)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(room.mediaItem?.title ?? room.name), хост \(room.hostName), \(room.participantCount) участников")
+        .accessibilityHint("Открыть комнату")
     }
 
-    private var roomArtworkFallback: some View {
-        ZStack {
+    @ViewBuilder
+    private func roomArtwork(_ room: Room) -> some View {
+        if let thumbStr = room.mediaItem?.thumbnailURL, let url = URL(string: thumbStr) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    roomArtworkFallback(room)
+                }
+            }
+        } else {
+            roomArtworkFallback(room)
+        }
+    }
+
+    private func roomArtworkFallback(_ room: Room) -> some View {
+        let seed = abs(room.id.hashValue)
+        let angle = Double(seed % 240) + 80
+        return ZStack {
             LinearGradient(
-                colors: [theme.accentColor.opacity(0.42), theme.secondaryAccent.opacity(0.18), .black],
+                colors: [
+                    Color.oklch(0.54, 0.15, angle),
+                    Color.oklch(0.22, 0.10, angle + 42),
+                    Color.oklch(0.07, 0.025, 215),
+                ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            Image(systemName: "play.rectangle.fill")
-                .font(.system(size: 42, weight: .light))
-                .foregroundStyle(.white.opacity(0.68))
+            Circle()
+                .fill(Color.white.opacity(0.11))
+                .frame(width: 170, height: 170)
+                .blur(radius: 10)
+                .offset(x: 118, y: -54)
+            Image(systemName: room.mediaItem == nil ? "rectangle.stack.badge.play.fill" : "play.fill")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.white.opacity(0.72))
+                .shadow(color: .black.opacity(0.36), radius: 20)
+        }
+    }
+
+    @ViewBuilder
+    private func roomPrivacyBadge(_ room: Room) -> some View {
+        if room.privacy != .publicRoom || room.isLocked {
+            Image(systemName: room.isLocked ? "lock.fill" : room.privacy.icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.88))
+                .frame(width: 28, height: 28)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+    }
+
+    private func roomParticipantStack(_ room: Room) -> some View {
+        HStack(spacing: -8) {
+            ForEach(Array(room.participants.prefix(3).enumerated()), id: \.element.id) { index, participant in
+                Group {
+                    if let url = PlinkAvatarURL.resolve(userId: participant.id, stored: participant.avatarURL) {
+                        AsyncImage(url: url) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            roomAvatarFallback(participant.username, index: index)
+                        }
+                    } else {
+                        roomAvatarFallback(participant.username, index: index)
+                    }
+                }
+                .frame(width: 34, height: 34)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(V4.surface, lineWidth: 2))
+            }
+            if room.participants.isEmpty {
+                roomAvatarFallback(room.hostName, index: 0)
+                    .frame(width: 34, height: 34)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(V4.surface, lineWidth: 2))
+            }
+        }
+    }
+
+    private func roomAvatarFallback(_ name: String, index: Int) -> some View {
+        let palette: [Color] = [activeAccent, activeSecondary, V4.danger]
+        return ZStack {
+            palette[index % palette.count]
+            Text(String(name.prefix(1)).uppercased())
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(.white)
         }
     }
 
