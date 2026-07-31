@@ -330,10 +330,8 @@ internal struct PersonalDataView: View {
     var body: some View {
         SettingsScaffold(
             title: "Личные данные",
-            subtitle: "Профиль, статистика и идентификатор аккаунта"
+            subtitle: "Имя, никнейм и идентификатор аккаунта"
         ) {
-            V4MyStatsCard()
-
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Профиль")
                 SettingsCard {

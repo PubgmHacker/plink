@@ -193,30 +193,92 @@ struct PlinkPlayFrame: Shape {
 
 /// Логотип: два play-кадра слоями — «кадр в кадр».
 struct PlinkFrameMark: View {
-    /// Высота переднего кадра (пропорции 62×70, как на сплэше/лендинге).
+    /// Height of the optical frame. The enclosing "screen" gives the mark a
+    /// silhouette that remains recognizable at App Icon and compact sizes.
     var size: CGFloat = 70
 
     var body: some View {
-        let width = size * 0.886
-        let echo = size * 0.115
-        let radius = size * 0.13
+        let width = size * 1.12
+        let radius = size * 0.27
+        let inset = size * 0.22
 
         ZStack {
-            // Эхо-кадр: смещённый задний слой. Раньше он был ЗАЛИТ белым на 35% и
-            // на чёрном фоне читался как грязная серая тень, а не как второй кадр.
-            // Контур той же формы даёт нужное «кадр в кадр» и не пачкает бренд.
-            PlinkPlayFrame(cornerRadius: radius)
-                .stroke(PlinkTheatre.screen.opacity(0.28), lineWidth: max(1, size * 0.026))
-                .frame(width: width, height: size)
-                .offset(x: echo, y: echo)
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.025)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.55), Color.white.opacity(0.10)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: max(1, size * 0.018)
+                        )
+                )
 
-            // Передний кадр: фирменный teal-градиент с мягким свечением.
-            PlinkPlayFrame(cornerRadius: radius)
-                .fill(PlinkTheatre.tealGradient)
-                .frame(width: width, height: size)
-                .shadow(color: PlinkTheatre.teal.opacity(0.45), radius: size * 0.31, y: size * 0.086)
+            // Projected frame: a second, offset outline gives Plink its shared-
+            // screen idea without looking like a generic standalone play icon.
+            RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous)
+                .trim(from: 0.04, to: 0.80)
+                .stroke(PlinkTheatre.tealDeep.opacity(0.74), style: StrokeStyle(lineWidth: max(1.5, size * 0.026), lineCap: .round))
+                .padding(size * 0.10)
+                .offset(x: size * 0.055, y: size * 0.045)
+                .blur(radius: size * 0.015)
+
+            PlinkPlayFrame(cornerRadius: size * 0.09)
+                .fill(PlinkTheatre.ignitionGradient)
+                .frame(width: size * 0.42, height: size * 0.49)
+                .offset(x: size * 0.025)
+                .shadow(color: PlinkTheatre.tealDeep.opacity(0.38), radius: size * 0.18)
+
+            Ellipse()
+                .fill(Color.white.opacity(0.34))
+                .frame(width: size * 0.36, height: size * 0.08)
+                .blur(radius: size * 0.035)
+                .offset(x: -size * 0.16, y: -size * 0.25)
         }
-        .frame(width: width + echo, height: size + echo)
+        .frame(width: width, height: size)
+        .padding(inset * 0.12)
+        .shadow(color: .black.opacity(0.48), radius: size * 0.22, y: size * 0.12)
         .accessibilityHidden(true)
     }
 }
+
+/// App-icon artwork: the mark fills the square and reads at small sizes.
+/// No iOS-style rounded mask is drawn into the bitmap; the system owns it.
+struct AppIconBrandArtwork: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(hex: 0x101B25), Color(hex: 0x05070A), Color.black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [PlinkTheatre.tealDeep.opacity(0.35), .clear],
+                center: UnitPoint(x: 0.34, y: 0.23),
+                startRadius: 0,
+                endRadius: 430
+            )
+            RoundedRectangle(cornerRadius: 235, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 12)
+                .padding(82)
+            PlinkFrameMark(size: 430)
+        }
+        .frame(width: 1024, height: 1024)
+    }
+}
+
+#if DEBUG
+#Preview("Plink App Icon") {
+    AppIconBrandArtwork()
+        .frame(width: 320, height: 320)
+}
+#endif

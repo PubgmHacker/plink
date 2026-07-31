@@ -6,8 +6,9 @@ import PhotosUI
 import UIKit
 import Foundation
 
-/// Compact stats card matching V4 surfaces (no palette/theme redesign).
-/// Visible under avatar on **Профиль** tab — always shows numbers (0 if empty/API fail).
+/// Profile activity presentation. It is intentionally rendered as part of the
+/// identity header, never inside settings: activity describes the person, not
+/// application configuration.
 struct V4MyStatsCard: View {
     @State private var profile: UserSocialProfile?
     @State private var loadError: String?
@@ -93,11 +94,8 @@ struct V4MyStatsCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(.top, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(V4.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(V4.accent.opacity(0.25), lineWidth: 1))
         .task { await reload() }
     }
 
@@ -121,8 +119,14 @@ struct V4MyStatsCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(V4.raised.opacity(0.65))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(
+            LinearGradient(
+                colors: [V4.raised.opacity(0.78), V4.raised.opacity(0.42)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title): \(value)")
     }
@@ -151,8 +155,9 @@ struct V4ProfileViewLive: View {
     var body: some View {
         ScrollView(showsIndicators:false) {
             VStack(spacing:0) {
-                // ── Header: avatar + name + username + badges ──
-                HStack(spacing: 12) {
+                // ── Identity header: avatar, name, badges and activity belong together ──
+                VStack(spacing: 16) {
+                    HStack(spacing: 12) {
                     Button { showAvatarPicker = true } label: {
                         Group {
                             // Prefer local JPEG (instant + survives cache bugs)
@@ -245,16 +250,31 @@ struct V4ProfileViewLive: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Редактировать профиль")
+                    }
+
+                    V4MyStatsCard()
                 }
+                .padding(16)
+                .background(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(V4.surface.opacity(0.82))
+                        LinearGradient(
+                            colors: [V4.accent.opacity(0.14), .clear, V4.raised.opacity(0.24)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    }
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(V4.accent.opacity(0.22), lineWidth: 1)
+                )
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
-                .padding(.bottom, 20)
+                .padding(.bottom, 18)
                 .accessibilityIdentifier("screen.profile")
-
-                // M32: карточка статистики
-                V4MyStatsCard()
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 8)
 
                 // M32: история просмотров
                 groupTitle("История просмотров")

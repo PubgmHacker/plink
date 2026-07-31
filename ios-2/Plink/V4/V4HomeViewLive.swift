@@ -72,7 +72,7 @@ struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
             .frame(width: geo.size.width, height: nil, alignment: .leading)
             .clipped()
         }
-        .frame(height: 200)
+        .frame(height: 220)
         .onAppear { startAutoScroll() }
         .onDisappear { displayLink?.invalidate() }
     }
@@ -375,9 +375,9 @@ struct V4HomeViewLive: View {
                 HStack(spacing:8) {
                     Circle().fill(V4.danger).frame(width:8,height:8)
                         .shadow(color: V4.danger.opacity(0.6), radius: 4)
-                    Text(L.string(.homeWatchingNow).uppercased())
-                        .font(.system(size:13,weight:.heavy))
-                        .tracking(1.4)
+                    Text(L.string(.homeWatchingNow))
+                        .font(.system(size:22,weight:.heavy))
+                        .tracking(-0.4)
                     Spacer()
                     // M14: «Все» ведёт на вкладку «Комнаты» — больше не тупик
                     Button {
@@ -390,7 +390,7 @@ struct V4HomeViewLive: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .foregroundStyle(V4.danger)
+                .foregroundStyle(V4.ink)
                 .padding(.horizontal,19).padding(.top,32).padding(.bottom,14)
 
                 VStack(spacing:10) {
@@ -514,90 +514,99 @@ struct V4HomeViewLive: View {
             HapticManager.impact(.light)
             NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
         } label: {
-            HStack(spacing: 12) {
-                // Poster thumbnail — 16:9 with rounded corners + LIVE badge
-                ZStack(alignment: .bottomLeading) {
-                    if let thumbStr = room.mediaItem?.thumbnailURL, let url = URL(string: thumbStr) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable().aspectRatio(contentMode: .fill)
-                            default:
-                                ZStack {
-                                    Rectangle().fill(theme.accentColor.opacity(0.15))
-                                    Image(systemName: "play.rectangle.fill")
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(theme.accentColor.opacity(0.7))
-                                }
-                            }
-                        }
-                    } else {
-                        ZStack {
-                            Rectangle().fill(theme.accentColor.opacity(0.15))
-                            Image(systemName: "play.rectangle.fill")
-                                .font(.system(size: 22))
-                                .foregroundStyle(theme.accentColor.opacity(0.7))
+            ZStack(alignment: .bottomLeading) {
+                // Full-bleed 16:9 media establishes the room before metadata.
+                if let thumbStr = room.mediaItem?.thumbnailURL, let url = URL(string: thumbStr) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        default:
+                            roomArtworkFallback
                         }
                     }
-                    if room.isActive {
-                        Text(L.string(.homeLive))
-                            .font(.system(size: 9, weight: .black))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(V4.danger, in: Capsule())
-                            .padding(6)
-                    }
+                } else {
+                    roomArtworkFallback
                 }
-                .frame(width: 108, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(V4.line, lineWidth: 0.5)
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.16), .black.opacity(0.94)],
+                    startPoint: UnitPoint(x: 0.5, y: 0.18),
+                    endPoint: .bottom
                 )
 
-                // Room info column
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(room.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(V4.ink)
-                        .lineLimit(2)
-                    Text("\(L.string(.homeHostLabel)) \(room.hostName)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(V4.muted)
-                        .lineLimit(1)
-                    HStack(spacing: 6) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "person.2.fill")
-                                .font(.system(size: 9, weight: .bold))
-                            Text("\(room.participantCount)")
-                                .font(.system(size: 11, weight: .bold))
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        if room.isActive {
+                            HStack(spacing: 5) {
+                                Circle().fill(.white).frame(width: 5, height: 5)
+                                Text(L.string(.homeLive))
+                            }
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .frame(height: 26)
+                            .background(V4.danger, in: Capsule())
                         }
-                        .foregroundStyle(theme.buttonTextColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(theme.accentColor.opacity(0.85), in: Capsule())
+
                         Text("\(room.participantCount)/\(room.maxParticipants)")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(V4.muted)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .frame(height: 26)
+                            .background(.black.opacity(0.48), in: Capsule())
+                            .overlay(Capsule().stroke(.white.opacity(0.16)))
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .black))
+                            .foregroundStyle(.black)
+                            .frame(width: 34, height: 34)
+                            .background(.white, in: Circle())
                     }
+
+                    Spacer(minLength: 22)
+
+                    Text(room.mediaItem?.title ?? room.name)
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    HStack(spacing: 7) {
+                        Image(systemName: "person.crop.circle.fill")
+                        Text("\(L.string(.homeHostLabel)) \(room.hostName)")
+                            .lineLimit(1)
+                        Spacer()
+                        Text("Войти")
+                            .fontWeight(.bold)
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.78))
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(V4.muted)
+                .padding(16)
             }
-            .padding(12)
-            .frame(minHeight: 88)
-            .background(V4.cardBG.opacity(0.6))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(height: 198)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(room.isActive ? V4.danger.opacity(0.25) : V4.accent.opacity(0.08),
-                            lineWidth: room.isActive ? 1 : 0.5)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
             )
+            .shadow(color: .black.opacity(0.30), radius: 18, y: 10)
         }
         .buttonStyle(.plain)
+    }
+
+    private var roomArtworkFallback: some View {
+        ZStack {
+            LinearGradient(
+                colors: [theme.accentColor.opacity(0.42), theme.secondaryAccent.opacity(0.18), .black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "play.rectangle.fill")
+                .font(.system(size: 42, weight: .light))
+                .foregroundStyle(.white.opacity(0.68))
+        }
     }
 
     /// Promotional banner for hero carousel
@@ -710,30 +719,56 @@ struct V4HomeViewLive: View {
         }
     }
 
-    /// Smaller card for Рекомендации
+    /// Compact cinematic card for recommendations.
     private func recommendationCard(_ item: V4SearchResult) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .bottomTrailing) {
-                if let url = item.artworkURL {
-                    AsyncImage(url: url) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 10).fill(V4.cardBG)
+        Button {
+            HapticManager.impact(.light)
+            previewItem = item
+        } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                ZStack(alignment: .bottomTrailing) {
+                    if let url = item.artworkURL {
+                        AsyncImage(url: url) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            RoundedRectangle(cornerRadius: 12).fill(V4.cardBG)
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 12).fill(V4.cardBG)
                     }
-                } else {
-                    RoundedRectangle(cornerRadius: 10).fill(V4.cardBG)
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.55)],
+                        startPoint: .center,
+                        endPoint: .bottom
+                    )
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(.black)
+                        .frame(width: 32, height: 32)
+                        .background(.white, in: Circle())
+                        .padding(9)
                 }
-                RoundedRectangle(cornerRadius: 10).fill(theme.accentColor.opacity(0.03))
-            }
-            .frame(width: 170, height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: 180, height: 108)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            Text(item.title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(V4.ink)
-                .lineLimit(2)
-                .frame(width: 170, alignment: .leading)
+                Text(item.title)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(V4.ink)
+                    .lineLimit(2)
+                    .frame(width: 180, alignment: .leading)
+
+                Text(item.subtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(V4.muted)
+                    .lineLimit(1)
+                    .frame(width: 180, alignment: .leading)
+            }
+            .frame(width: 196, alignment: .leading)
+            .padding(8)
+            .background(V4.cardBG.opacity(0.52), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(V4.line))
         }
+        .buttonStyle(.plain)
     }
 
     /// Create room from a trending video — posts .plinkRoomCreated so

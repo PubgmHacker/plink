@@ -67,8 +67,8 @@ struct LoginView2026: View {
             ScrollView {
                 VStack(spacing: 0) {
                     hero
-                        .padding(.top, 56)
-                        .padding(.bottom, 34)
+                        .padding(.top, 38)
+                        .padding(.bottom, 26)
 
                     modeSegment
                         .padding(.bottom, 22)
@@ -107,23 +107,28 @@ struct LoginView2026: View {
 
     private var hero: some View {
         VStack(spacing: 0) {
-            PlinkFrameMark(size: 76)
-                .padding(.bottom, 20)
+            PlinkFrameMark(size: 88)
+                .padding(.bottom, 22)
 
-            Text("Plink")
-                .font(.system(size: 40, weight: .heavy))
-                .tracking(-1.2)
+            Text("PLINK")
+                .font(.system(size: 38, weight: .black, design: .rounded))
+                .tracking(6.4)
                 .foregroundStyle(PlinkTheatre.screen)
-                .shadow(color: PlinkTheatre.teal.opacity(0.22), radius: 18)
-                .padding(.bottom, 12)
+                .shadow(color: PlinkTheatre.tealDeep.opacity(0.18), radius: 18)
+                .padding(.bottom, 14)
 
-            VStack(spacing: 2) {
-                Text("Смотрим вместе.")
-                    .foregroundStyle(PlinkTheatre.screen)
-                Text("Кадр в кадр.")
-                    .foregroundStyle(PlinkTheatre.teal)
-            }
-            .font(.system(size: 21, weight: .semibold))
+            Text("Твой экран. Твои люди. Один момент.")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(PlinkTheatre.screen)
+                .multilineTextAlignment(.center)
+
+            Text("Видео, комнаты и реакции идут синхронно — где бы вы ни были.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PlinkTheatre.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .padding(.top, 8)
+                .frame(maxWidth: 320)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 10)
@@ -173,6 +178,7 @@ struct LoginView2026: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityIdentifier(signUp ? "auth.mode.signup" : "auth.mode.signin")
     }
 
     // MARK: - Поля: стеклянные капсулы
@@ -293,6 +299,7 @@ struct LoginView2026: View {
         .disabled(!canSubmit)
         .opacity(appeared ? 1 : 0)
         .accessibilityLabel(isSignUp ? "Создать аккаунт" : "Войти")
+        .accessibilityIdentifier("auth.primary")
     }
 
     // MARK: - Auth Logic
