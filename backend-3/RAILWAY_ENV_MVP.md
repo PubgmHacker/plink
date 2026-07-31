@@ -138,8 +138,8 @@ Do not set test-only `API_BASE`, `WS_BASE`, `E2E`, or `APP_VERSION` in productio
 
 ## 5. Deploy and verify
 
-1. Railway backend service → Settings → source repository, root directory **`backend-3`**. A blank repository root will not find this service's Dockerfile.
-2. Builder: Dockerfile. Keep the checked-in `railway.json`; remove dashboard build/start overrides so there is one source of truth.
+1. Railway backend service → Settings → source repository. This repository now supports the current monorepo-root setup through `/railway.json`; it points explicitly to `backend-3/Dockerfile` and starts `backend-3/start.sh`.
+2. Keep **Root Directory blank** for this checked-in configuration. Builder: Dockerfile. Remove dashboard build/start overrides so `/railway.json` remains the single source of truth. If you instead set Root Directory to `backend-3`, also change the service config path to `/backend-3/railway.json`.
 3. `start.sh` applies the pinned Prisma migrations and then starts `node dist/server.js`. A migration error intentionally fails the deployment instead of booting against a mismatched schema.
 4. Attach PostgreSQL and Redis, then provide every required production variable from sections 1–2 before deploying.
 5. Railway readiness path is `/health/ready`; `/health/live` only proves that the process is alive.

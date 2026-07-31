@@ -1,3 +1,5 @@
+# Railway builds this monorepo from its repository root. Paths are therefore
+# explicit instead of assuming backend-3 is already the build context.
 FROM node:20-slim AS builder
 
 # OpenSSL required by Prisma.
@@ -6,10 +8,10 @@ RUN apt-get update -y && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package*.json ./
+COPY backend-3/package*.json ./
 # Install ALL deps (including dev) — needed for tsc build.
-RUN npm ci || npm install
-COPY . .
+RUN npm ci
+COPY backend-3/ .
 
 # Prove which sources are in the image (helps debug stale Railway logs)
 RUN node -e "const p=require('./package.json'); console.log('[builder] plink-server@'+p.version+' build='+p.scripts.build)"
@@ -44,8 +46,8 @@ RUN apt-get update -y && apt-get install -y \
 WORKDIR /app
 
 # Copy only production deps + built dist/
-COPY package*.json ./
-RUN npm ci --omit=dev || npm install --omit=dev
+COPY backend-3/package*.json ./
+RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 # Self-hosted webfonts served by routes/web.ts (strict CSP forbids font CDNs).
