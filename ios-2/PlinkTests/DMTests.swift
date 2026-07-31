@@ -59,8 +59,9 @@ final class DMTests: XCTestCase {
             role: "USER",
             createdAt: Date()
         )
-        let data = try? JSONEncoder().encode(user)
-        UserDefaults.standard.set(data, forKey: "rave_saved_user")
+        // Production login always writes this lightweight authority key.
+        // Testing through it avoids coupling isOwnMessage to cache date formats.
+        UserDefaults.standard.set(user.id, forKey: "plink_current_user_id")
 
         let dm = DirectMessage(
             id: "msg-1",
@@ -77,6 +78,7 @@ final class DMTests: XCTestCase {
 
         // Cleanup.
         UserDefaults.standard.removeObject(forKey: "rave_saved_user")
+        UserDefaults.standard.removeObject(forKey: "plink_current_user_id")
     }
 
     func testDirectMessage_timeString_nonEmpty() {

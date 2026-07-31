@@ -31,6 +31,7 @@ struct V4RoomsViewLive: View {
             VStack(spacing:0) {
                 HStack(alignment:.top) {
                     V4Heading(eyebrow:"ОБЗОР",title:"Комнаты")
+                        .accessibilityIdentifier("screen.rooms")
                     Spacer()
                     Button {
                         HapticManager.selection()
@@ -44,8 +45,8 @@ struct V4RoomsViewLive: View {
                                 .font(.system(size:11, weight:.heavy))
                         }
                         .foregroundStyle(V4.accentInk)
-                        .padding(.horizontal, 8)
-                        .frame(height: 32)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 44)
                         .background(V4.accent, in: Capsule())
                         .contentShape(Rectangle())
                     }
@@ -59,6 +60,7 @@ struct V4RoomsViewLive: View {
                         Image(systemName:"plus.circle.fill")
                             .font(.system(size: 28, weight: .semibold))
                             .foregroundStyle(V4.accent)
+                            .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Создать комнату")
@@ -72,12 +74,16 @@ struct V4RoomsViewLive: View {
                         .font(.system(size:13))
                     if !searchQuery.isEmpty {
                         Button { searchQuery = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(V4.muted)
-                        }.buttonStyle(.plain)
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(V4.muted)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Очистить поиск")
                     }
                 }
                 .padding(.horizontal, 13)
-                .frame(height: 42)
+                .frame(minHeight: 44)
                 .background(V4.searchBG)
                 .clipShape(RoundedRectangle(cornerRadius: 13))
                 .overlay(RoundedRectangle(cornerRadius: 13).stroke(V4.line))
@@ -94,8 +100,9 @@ struct V4RoomsViewLive: View {
                             } label: {
                                 Text(f.rawValue)
                                     .font(.system(size: 12, weight: roomFilter == f ? .bold : .medium))
-                                    .foregroundStyle(roomFilter == f ? .white : V4.muted)
-                                    .padding(.horizontal, 14).padding(.vertical, 7)
+                                    .foregroundStyle(roomFilter == f ? V4.accentInk : V4.muted)
+                                    .padding(.horizontal, 14)
+                                    .frame(minHeight: 44)
                                     .background(roomFilter == f ? theme.accentColor : V4.cardBG.opacity(0.5), in: Capsule())
                             }.buttonStyle(.plain)
                         }
@@ -124,16 +131,28 @@ struct V4RoomsViewLive: View {
                             }
                             return matchesSearch && matchesFilter
                         }
-                        if filteredRail.isEmpty && (!searchQuery.isEmpty || roomFilter != .all) {
-                            HStack {
-                                Spacer()
-                                VStack(spacing: 8) {
-                                    Image(systemName: "magnifyingglass").font(.title2).foregroundStyle(V4.muted)
-                                    Text("Ничего не найдено")
-                                        .font(.subheadline).foregroundStyle(V4.muted)
+                        if filteredRail.isEmpty && rs.heroRoom == nil {
+                            VStack(spacing: 10) {
+                                Image(systemName: searchQuery.isEmpty && roomFilter == .all ? "person.3.sequence.fill" : "magnifyingglass")
+                                    .font(.title2)
+                                    .foregroundStyle(V4.muted)
+                                Text(searchQuery.isEmpty && roomFilter == .all ? "Пока нет активных комнат" : "Ничего не найдено")
+                                    .font(.headline)
+                                Text(searchQuery.isEmpty && roomFilter == .all ? "Создай первую комнату или войди по коду друга" : "Измени запрос или выбери другой фильтр")
+                                    .font(.subheadline)
+                                    .foregroundStyle(V4.muted)
+                                    .multilineTextAlignment(.center)
+                                if searchQuery.isEmpty && roomFilter == .all {
+                                    Button("Создать комнату") { createRoom?() }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(V4.accent)
+                                        .foregroundStyle(V4.accentInk)
+                                        .frame(minHeight: 44)
                                 }
-                                Spacer()
-                            }.padding(.vertical, 40)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 40)
                         } else {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 11) {
@@ -163,9 +182,9 @@ struct V4RoomsViewLive: View {
                                     Text("Создать комнату")
                                 }
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.black)
+                                .foregroundStyle(V4.accentInk)
                                 .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
+                                .frame(minHeight: 44)
                                 .background(V4.accent)
                                 .clipShape(Capsule())
                             }
@@ -174,7 +193,11 @@ struct V4RoomsViewLive: View {
                         VStack(spacing:12) {
                             Image(systemName:"exclamationmark.triangle").font(.largeTitle).foregroundStyle(V4.amber)
                             Text(error).font(.subheadline).foregroundStyle(V4.muted)
-                            Button("Повторить") { Task { await roomsStore?.load() } }.foregroundStyle(V4.accent)
+                            Button("Повторить") { Task { await roomsStore?.load() } }
+                                .buttonStyle(.borderedProminent)
+                                .tint(V4.accent)
+                                .foregroundStyle(V4.accentInk)
+                                .frame(minHeight: 44)
                         }.padding(.top,60)
                     case .idle:
                         Color.clear.frame(height:100)
@@ -182,7 +205,7 @@ struct V4RoomsViewLive: View {
                 } else {
                     ProgressView().tint(V4.accent).padding(.top,60)
                 }
-            }.padding(.bottom,92)
+            }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
         .refreshable { await roomsStore?.load() }
     }

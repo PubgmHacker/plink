@@ -144,6 +144,15 @@ export function assertProductionInvariants(): void {
         `Rotate immediately and set JWT_SECRET to a >=32-char random string.`,
     );
   }
+  if (
+    weakSecrets.has(config.JWT_REFRESH_SECRET) ||
+    config.JWT_REFRESH_SECRET.length < 32 ||
+    config.JWT_REFRESH_SECRET === config.JWT_SECRET
+  ) {
+    throw new Error(
+      'FATAL: JWT_REFRESH_SECRET must be a distinct >=32-char random secret in production.',
+    );
+  }
   if (config.CORS_ORIGIN === '*') {
     throw new Error(
       'FATAL: CORS_ORIGIN="*" with credentials is forbidden in production. ' +
@@ -155,12 +164,5 @@ export function assertProductionInvariants(): void {
   }
 }
 
-// ── Production fail-fast: never boot with dev secrets ──────────────────────
-if (config.isProduction) {
-  if (
-    config.JWT_SECRET === 'dev-secret-change-me' ||
-    config.JWT_REFRESH_SECRET === 'dev-refresh-secret-change-me'
-  ) {
-    throw new Error('[config] JWT_SECRET / JWT_REFRESH_SECRET must be set in production');
-  }
-}
+// Production invariants are executed from app bootstrap after config is loaded.
+// Keep the checks centralized in assertProductionInvariants().

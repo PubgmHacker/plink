@@ -223,7 +223,27 @@ final class FunnelSmokeUITests: XCTestCase {
         sleep(1)
         saveShot(app, "ui_03_home")
 
-        // ── Шаг 5: создать комнату ───────────────────────────────────────
+        // ── Шаг 5: полный visual walk по пяти вкладкам ────────────────
+        let tabChecks: [(id: String, marker: XCUIElement, shot: String)] = [
+            ("tab.0", app.descendants(matching: .any)["screen.home"], "ui_tab_home"),
+            ("tab.1", app.descendants(matching: .any)["screen.rooms"], "ui_tab_rooms"),
+            ("tab.2", app.descendants(matching: .any)["screen.friends"], "ui_tab_friends"),
+            ("tab.3", app.descendants(matching: .any)["screen.ai"], "ui_tab_ai"),
+            ("tab.4", app.descendants(matching: .any)["screen.profile"], "ui_tab_profile"),
+        ]
+        for check in tabChecks {
+            let tabButton = app.buttons[check.id]
+            XCTAssertTrue(tabButton.waitForExistence(timeout: 5), "Не найдена вкладка \(check.id)")
+            forceTap(tabButton)
+            XCTAssertTrue(check.marker.waitForExistence(timeout: 10), "Вкладка \(check.id) не показала ожидаемый контент")
+            saveShot(app, check.shot)
+        }
+
+        // Возвращаемся на Главную перед следующим действием.
+        forceTap(app.buttons["tab.0"])
+        sleep(1)
+
+        // ── Шаг 6: создать комнату ───────────────────────────────────────
         // Ищем кнопку создания комнаты по типовым лейблам.
         let createRoom = app.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] 'Создать комнату' OR label CONTAINS[c] 'Новая комната' OR label CONTAINS[c] 'Смотреть' OR identifier == 'home.createRoom'")

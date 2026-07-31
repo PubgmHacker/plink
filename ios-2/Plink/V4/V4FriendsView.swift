@@ -123,6 +123,7 @@ struct V4FriendsViewLive: View {
         // No NavigationStack — keep living theme visible
         VStack(spacing: 0) {
             header
+                .accessibilityIdentifier("screen.friends")
                 .padding(.horizontal, 18)
                 .padding(.top, 10)
                 .padding(.bottom, 10)
@@ -735,10 +736,16 @@ struct V4FriendsViewLive: View {
                             ProgressView().tint(V4.accent)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 36)
+                                .accessibilityLabel("Загрузка друзей")
                         }
                     case .failed(let err):
                         sectionCard {
-                            emptyInside(icon: "wifi.exclamationmark", title: "Не загрузилось", subtitle: err)
+                            emptyInside(
+                                icon: "wifi.exclamationmark",
+                                title: "Не удалось загрузить друзей",
+                                subtitle: err,
+                                cta: "Повторить"
+                            ) { Task { await store?.load() } }
                         }
                     case .idle:
                         Color.clear.frame(height: 1)

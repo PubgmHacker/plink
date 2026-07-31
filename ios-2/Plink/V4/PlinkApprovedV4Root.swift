@@ -81,6 +81,10 @@ struct PlinkApprovedV4Root: View {
                 theme: theme,
                 friendsUnread: DMChatService.shared.totalUnread
             )
+            // Единый контракт нижней навигации: контент всех вкладок имеет
+            // одинаковый резерв под floating tab bar + home indicator.
+            // Раньше экраны вручную гадали 90/92/100 pt и расходились.
+            .padding(.bottom, 2)
             if appearance { V4AppearanceView(theme:$theme,presented:$appearance).zIndex(25).transition(.opacity) }
         }.preferredColorScheme(.dark).tint(V4.accent)
         .task {
@@ -395,7 +399,9 @@ struct PlinkLiquidTabBar: View {
             )
             .frame(height: 72)
             .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+            // ZStack уже учитывает bottom safe area. Дополнительные 8 pt
+            // создавали риск наложения material на home indicator.
+            .padding(.bottom, 2)
             .accessibilityElement(children: .contain)
     }
 
@@ -436,9 +442,13 @@ struct PlinkLiquidTabBar: View {
                                 .matchedGeometryEffect(id: "selected-tab", in: selectionNS)
                         }
                     }
+                    .padding(.vertical, 8)
                     .contentShape(Rectangle())
+                    .accessibilityIdentifier("tab.\(index).content")
                 }
                 .buttonStyle(.plain)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("tab.\(index)")
                 .accessibilityLabel(items[index].1)
                 .accessibilityAddTraits(selection == index ? .isSelected : [])
             }
@@ -457,7 +467,7 @@ struct NotificationInboxButton: View {
             Image(systemName: unreadCount > 0 ? "bell.fill" : "bell")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(V4.ink)
-                .frame(width: 43, height: 43)
+                .frame(width: 44, height: 44)
                 .background(V4.roundBG)
                 .clipShape(Circle())
                 .overlay(

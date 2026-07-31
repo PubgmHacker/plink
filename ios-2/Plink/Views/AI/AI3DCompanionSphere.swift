@@ -22,9 +22,9 @@ struct AISpherePalette {
         switch state {
         case .idle:
             return AISpherePalette(
-                core: UIColor(red: 0.55, green: 0.95, blue: 0.98, alpha: 1),
-                mid: UIColor(red: 0.18, green: 0.78, blue: 0.92, alpha: 1),
-                rim: UIColor(red: 0.08, green: 0.35, blue: 0.55, alpha: 1),
+                core: UIColor(red: 0.30, green: 0.93, blue: 0.90, alpha: 1),
+                mid: UIColor(red: 0.04, green: 0.48, blue: 0.72, alpha: 1),
+                rim: UIColor(red: 0.16, green: 0.08, blue: 0.42, alpha: 1),
                 glow: Color(red: 0.18, green: 0.85, blue: 0.95),
                 particle: UIColor(red: 0.6, green: 0.95, blue: 1, alpha: 0.9),
                 pulseSpeed: 0.9,
@@ -89,6 +89,7 @@ struct AI3DCompanionSphere: View {
     var state: AIOrbState = .idle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     private var palette: AISpherePalette {
         AISpherePalette.forState(state, themeAccent: theme.accentColor)
@@ -124,7 +125,7 @@ struct AI3DCompanionSphere: View {
             // Real SceneKit sphere
             AISceneSphereRepresentable(
                 palette: palette,
-                reduceMotion: reduceMotion,
+                reduceMotion: reduceMotion || scenePhase != .active,
                 state: state
             )
             .frame(width: size, height: size)
@@ -132,22 +133,37 @@ struct AI3DCompanionSphere: View {
             .shadow(color: palette.glow.opacity(0.55), radius: glow * 0.45)
             .shadow(color: palette.glow.opacity(0.25), radius: glow)
 
-            // Specular glass highlight (2D overlay for “liquid glass”)
-            Circle()
+            // Два блика вместо плоской белой «наклейки»: широкий мягкий
+            // key-light и маленький резкий specular дают читаемый объём.
+            Ellipse()
                 .fill(
                     LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.55),
-                            Color.white.opacity(0.12),
-                            .clear,
-                        ],
+                        colors: [Color.white.opacity(0.62), Color.white.opacity(0.08), .clear],
                         startPoint: .topLeading,
-                        endPoint: .center
+                        endPoint: .bottomTrailing
                     )
                 )
-                .frame(width: size * 0.72, height: size * 0.72)
-                .offset(x: -size * 0.06, y: -size * 0.1)
-                .blur(radius: 1.5)
+                .frame(width: size * 0.62, height: size * 0.34)
+                .rotationEffect(.degrees(-24))
+                .offset(x: -size * 0.13, y: -size * 0.20)
+                .blur(radius: 4)
+                .blendMode(.screen)
+                .allowsHitTesting(false)
+
+            Circle()
+                .fill(Color.white.opacity(0.72))
+                .frame(width: size * 0.10, height: size * 0.10)
+                .offset(x: -size * 0.23, y: -size * 0.25)
+                .blur(radius: 2)
+                .blendMode(.screen)
+                .allowsHitTesting(false)
+
+            // Нижняя внутренняя каустика отделяет стеклянную оболочку от ядра.
+            Ellipse()
+                .stroke(palette.glow.opacity(0.44), lineWidth: max(1, size * 0.012))
+                .frame(width: size * 0.60, height: size * 0.23)
+                .offset(y: size * 0.23)
+                .blur(radius: 3)
                 .allowsHitTesting(false)
 
             // State ring
@@ -170,7 +186,9 @@ struct AI3DCompanionSphere: View {
                 .opacity(state == .idle ? 0.45 : 0.9)
         }
         .frame(width: size * 1.4, height: size * 1.4)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
     }
 
     private var pulseScale: CGFloat {
@@ -189,13 +207,15 @@ struct AI3DCompanionSphere: View {
         0
     }
 
-    private var accessibilityLabel: String {
+    private var accessibilityLabel: String { "Plink AI" }
+
+    private var accessibilityValue: String {
         switch state {
-        case .idle: return "Plink AI, готов"
-        case .listening: return "Plink AI, слушает"
-        case .thinking: return "Plink AI, думает"
-        case .speaking: return "Plink AI, отвечает"
-        case .error: return "Plink AI, ошибка"
+        case .idle: return "Готов"
+        case .listening: return "Слушает"
+        case .thinking: return "Думает"
+        case .speaking: return "Отвечает"
+        case .error: return "Ошибка"
         }
     }
 }
@@ -222,6 +242,11 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {
+        // Reduce Motion / inactive scene: stop the continuous SceneKit loop,
+        // not only node actions. A one-shot render preserves the poster frame.
+        uiView.preferredFramesPerSecond = reduceMotion ? 24 : 60
+        uiView.isPlaying = !reduceMotion
+        if reduceMotion { uiView.setNeedsDisplay() }
         context.coordinator.apply(palette: palette, reduceMotion: reduceMotion, state: state, animated: true)
     }
 
@@ -264,14 +289,14 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
 
         // Core sphere — glass / metal hybrid
         let sphere = SCNSphere(radius: 1.0)
-        sphere.segmentCount = 64
+        sphere.segmentCount = 96
         let mat = SCNMaterial()
         mat.lightingModel = .physicallyBased
-        mat.metalness.contents = 0.55
-        mat.roughness.contents = 0.18
-        mat.diffuse.contents = UIColor(red: 0.2, green: 0.75, blue: 0.9, alpha: 1)
-        mat.emission.contents = UIColor(red: 0.1, green: 0.5, blue: 0.7, alpha: 1)
-        mat.transparent.contents = UIColor(white: 1, alpha: 0.92)
+        mat.metalness.contents = 0.24
+        mat.roughness.contents = 0.10
+        mat.diffuse.contents = UIColor(red: 0.06, green: 0.42, blue: 0.68, alpha: 1)
+        mat.emission.contents = UIColor(red: 0.02, green: 0.22, blue: 0.38, alpha: 1)
+        mat.transparent.contents = UIColor(white: 1, alpha: 0.84)
         mat.transparencyMode = .dualLayer
         mat.fresnelExponent = 1.8
         mat.isDoubleSided = false
@@ -282,12 +307,12 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
         scene.rootNode.addChildNode(sphereNode)
 
         // Inner energy core (smaller)
-        let inner = SCNSphere(radius: 0.55)
-        inner.segmentCount = 48
+        let inner = SCNSphere(radius: 0.52)
+        inner.segmentCount = 72
         let innerMat = SCNMaterial()
         innerMat.lightingModel = .constant
-        innerMat.diffuse.contents = UIColor.white
-        innerMat.emission.contents = UIColor(red: 0.6, green: 0.95, blue: 1, alpha: 1)
+        innerMat.diffuse.contents = UIColor(red: 0.08, green: 0.55, blue: 0.72, alpha: 1)
+        innerMat.emission.contents = UIColor(red: 0.05, green: 0.46, blue: 0.62, alpha: 1)
         inner.materials = [innerMat]
         let innerNode = SCNNode(geometry: inner)
         innerNode.name = "inner"
@@ -297,13 +322,14 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
         let particleNode = SCNNode()
         particleNode.name = "particles"
         let system = SCNParticleSystem()
-        system.birthRate = 28
-        system.particleLifeSpan = 2.2
-        system.particleSize = 0.035
+        system.birthRate = 14
+        system.particleLifeSpan = 2.8
+        system.particleSize = 0.018
+        system.particleSizeVariation = 0.012
         system.particleColor = UIColor.cyan
-        system.emitterShape = SCNSphere(radius: 1.05)
-        system.spreadingAngle = 360
-        system.particleVelocity = 0.08
+        system.emitterShape = SCNSphere(radius: 0.94)
+        system.spreadingAngle = 150
+        system.particleVelocity = 0.035
         system.blendMode = .additive
         system.isLocal = true
         particleNode.addParticleSystem(system)
@@ -314,8 +340,9 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
         shell.segmentCount = 48
         let shellMat = SCNMaterial()
         shellMat.lightingModel = .constant
-        shellMat.diffuse.contents = UIColor(white: 1, alpha: 0.08)
-        shellMat.transparent.contents = UIColor(white: 1, alpha: 0.15)
+        shellMat.diffuse.contents = UIColor(white: 1, alpha: 0.05)
+        shellMat.emission.contents = UIColor(red: 0.10, green: 0.58, blue: 0.78, alpha: 0.10)
+        shellMat.transparent.contents = UIColor(white: 1, alpha: 0.22)
         shellMat.transparencyMode = .dualLayer
         shellMat.writesToDepthBuffer = false
         shell.materials = [shellMat]
@@ -342,19 +369,22 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
             SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
             mat.diffuse.contents = palette.mid
-            mat.emission.contents = palette.core.withAlphaComponent(0.85)
-            mat.metalness.contents = state == .thinking ? 0.75 : 0.5
-            mat.roughness.contents = state == .listening ? 0.12 : 0.2
+            // Сильная белая emission превращала орб в пересвеченный диск.
+            // Rim сохраняет цвет и глубину, а core остаётся во внутреннем ядре.
+            mat.emission.contents = palette.rim.withAlphaComponent(state == .idle ? 0.28 : 0.42)
+            mat.metalness.contents = state == .thinking ? 0.34 : 0.22
+            mat.roughness.contents = state == .listening ? 0.07 : 0.11
 
             if let inner = core.childNode(withName: "inner", recursively: false),
                let im = inner.geometry?.firstMaterial {
-                im.emission.contents = palette.core
-                im.diffuse.contents = palette.core
+                im.emission.contents = palette.mid.withAlphaComponent(0.72)
+                im.diffuse.contents = palette.core.withAlphaComponent(0.82)
             }
 
             if let shell = scene.rootNode.childNode(withName: "shell", recursively: false),
                let sm = shell.geometry?.firstMaterial {
-                sm.diffuse.contents = palette.mid.withAlphaComponent(0.12)
+                sm.diffuse.contents = palette.mid.withAlphaComponent(0.08)
+                sm.emission.contents = palette.rim.withAlphaComponent(state == .idle ? 0.12 : 0.22)
             }
 
             if let particles = scene.rootNode.childNode(withName: "particles", recursively: false),
@@ -362,20 +392,20 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
                 sys.particleColor = palette.particle
                 switch state {
                 case .idle:
-                    sys.birthRate = reduceMotion ? 8 : 22
-                    sys.particleVelocity = 0.06
+                    sys.birthRate = reduceMotion ? 3 : 10
+                    sys.particleVelocity = 0.025
                 case .listening:
-                    sys.birthRate = reduceMotion ? 14 : 48
-                    sys.particleVelocity = 0.12
+                    sys.birthRate = reduceMotion ? 5 : 22
+                    sys.particleVelocity = 0.055
                 case .thinking:
-                    sys.birthRate = reduceMotion ? 18 : 70
-                    sys.particleVelocity = 0.18
+                    sys.birthRate = reduceMotion ? 7 : 32
+                    sys.particleVelocity = 0.08
                 case .speaking:
-                    sys.birthRate = reduceMotion ? 16 : 55
-                    sys.particleVelocity = 0.14
+                    sys.birthRate = reduceMotion ? 6 : 26
+                    sys.particleVelocity = 0.065
                 case .error:
-                    sys.birthRate = 12
-                    sys.particleVelocity = 0.05
+                    sys.birthRate = reduceMotion ? 3 : 8
+                    sys.particleVelocity = 0.02
                 }
             }
 
@@ -400,7 +430,8 @@ private struct AISceneSphereRepresentable: UIViewRepresentable {
             // Tint key light toward palette
             for node in scene.rootNode.childNodes where node.light != nil {
                 if node.light?.type == .omni {
-                    node.light?.color = palette.mid
+                    // Сохраняем нейтральный key-light, тонируем только fill.
+                    node.light?.color = node.position.x < 0 ? UIColor.white : palette.mid
                 }
             }
 

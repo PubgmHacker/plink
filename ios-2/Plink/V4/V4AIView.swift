@@ -66,7 +66,7 @@ struct V4AIViewLive: View {
                         Image(systemName: "trash")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(V4.muted)
-                            .frame(width: 30, height: 30)
+                            .frame(width: 44, height: 44)
                             .background(V4.raised, in: Circle())
                     }
                     .buttonStyle(.plain)
@@ -81,8 +81,8 @@ struct V4AIViewLive: View {
                     }
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(V4.accentInk)
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 44)
                     .background(V4.accent)
                     .clipShape(Capsule())
                 }
@@ -90,6 +90,7 @@ struct V4AIViewLive: View {
             }
             .frame(height:61)
             .padding(.horizontal,17)
+            .accessibilityIdentifier("screen.ai")
 
             // 3D AI sphere zone — collapses when keyboard is visible
             ZStack(alignment:.bottom) {
@@ -211,7 +212,7 @@ struct V4AIViewLive: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(orbState == .listening ? V4.accentInk : V4.ink)
                 }
-                .frame(width:42,height:42)
+                .frame(width:44,height:44)
                 .background(orbState == .listening ? V4.accent : V4.raised)
                 .clipShape(RoundedRectangle(cornerRadius:14))
                 .accessibilityLabel("Голосовой ввод")
@@ -231,10 +232,11 @@ struct V4AIViewLive: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(V4.accentInk)
                 }
-                .frame(width:42,height:42)
+                .frame(width:44,height:44)
                 .background(V4.accent)
                 .clipShape(RoundedRectangle(cornerRadius:14))
                 .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityLabel("Отправить сообщение")
             }
             .padding(8)
             .frame(minHeight:62)
@@ -281,8 +283,8 @@ struct V4AIViewLive: View {
             Text(label)
                 .font(.system(size:11.52, weight: .semibold))
                 .foregroundStyle(V4.ink)
-                .padding(.horizontal,11)
-                .frame(height:36)
+                .padding(.horizontal,12)
+                .frame(minHeight:44)
                 .background(V4.surface.opacity(0.55))
                 .clipShape(RoundedRectangle(cornerRadius:12))
                 .overlay(RoundedRectangle(cornerRadius:12).stroke(V4.line))
@@ -341,8 +343,8 @@ struct AIActionButton: View {
                     }
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(V4.accentInk)
-                    .padding(.horizontal, 12)
-                    .frame(height: 32)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
                     .background(V4.accent)
                     .clipShape(Capsule())
                 }
@@ -355,8 +357,8 @@ struct AIActionButton: View {
                     Text(LocalizationManager.shared.string(.aiCancel))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(V4.muted)
-                        .padding(.horizontal, 12)
-                        .frame(height: 32)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
                         .background(V4.surface)
                         .clipShape(Capsule())
                 }

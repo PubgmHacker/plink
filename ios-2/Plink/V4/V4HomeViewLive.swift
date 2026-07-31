@@ -187,6 +187,7 @@ struct V4HomeViewLive: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
                 HStack { V4Avatar(letter: avatarLetter, theme: theme, isPremium: PremiumStatusManager.shared.isPremium, imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)); Spacer(); NotificationInboxButton(unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal, action: { showInbox = true }) }
+                    .accessibilityIdentifier("screen.home")
                     .padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
                 .sheet(isPresented: $showInbox) {
                     // M17: живой центр уведомлений вместо заглушки
@@ -208,8 +209,9 @@ struct V4HomeViewLive: View {
                             } label: {
                                 Text(f.rawValue)
                                     .font(.system(size: 12, weight: homeFilter == f ? .bold : .medium))
-                                    .foregroundStyle(homeFilter == f ? .white : V4.muted)
-                                    .padding(.horizontal, 14).padding(.vertical, 7)
+                                    .foregroundStyle(homeFilter == f ? activeBtnText : V4.muted)
+                                    .padding(.horizontal, 14)
+                                    .frame(minHeight: 44)
                                     .background(homeFilter == f ? activeAccent : V4.cardBG.opacity(0.5), in: Capsule())
                             }.buttonStyle(.plain)
                         }
@@ -392,34 +394,29 @@ struct V4HomeViewLive: View {
                 .padding(.horizontal,19).padding(.top,32).padding(.bottom,14)
 
                 VStack(spacing:10) {
-                    if let rs = roomsStore, case .loaded = rs.state, !rs.rooms.isEmpty {
-                        ForEach(rs.rooms.prefix(5)) { room in
-                            watchingNowCard(room)
+                    if let rs = roomsStore {
+                        switch rs.state {
+                        case .loading, .idle:
+                            ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
+                        case .loaded where !rs.rooms.isEmpty:
+                            ForEach(rs.rooms.prefix(5)) { room in watchingNowCard(room) }
+                        case .failed:
+                            compactRoomsState(
+                                icon: "wifi.exclamationmark",
+                                title: "Не удалось загрузить комнаты",
+                                subtitle: "Проверь соединение и повтори",
+                                actionTitle: "Повторить"
+                            ) { Task { await roomsStore?.load() } }
+                        case .loaded, .empty:
+                            compactRoomsState(
+                                icon: "person.3.sequence.fill",
+                                title: "Пока тихо",
+                                subtitle: "Найди видео или создай комнату — друзья смогут присоединиться",
+                                actionTitle: "Найти видео"
+                            ) { showUnifiedSearch = true }
                         }
                     } else {
-                        // Placeholder cards — show even when no active rooms
-                        ForEach(0..<2, id: \.self) { _ in
-                            HStack(spacing:12) {
-                                RoundedRectangle(cornerRadius:8)
-                                    .fill(V4.cardBG)
-                                    .frame(width:108,height:64)
-                                    .overlay(
-                                        Image(systemName:"film")
-                                            .font(.system(size:18))
-                                            .foregroundStyle(V4.muted)
-                                    )
-                                VStack(alignment:.leading,spacing:4) {
-                                    RoundedRectangle(cornerRadius:4).fill(V4.cardBG).frame(width:160,height:13)
-                                    RoundedRectangle(cornerRadius:3).fill(V4.cardBG.opacity(0.6)).frame(width:90,height:10)
-                                    RoundedRectangle(cornerRadius:3).fill(V4.cardBG.opacity(0.4)).frame(width:60,height:9)
-                                }
-                                Spacer()
-                            }
-                            .padding(12)
-                            .frame(minHeight:88)
-                            .background(V4.cardBG.opacity(0.3))
-                            .clipShape(RoundedRectangle(cornerRadius:14,style:.continuous))
-                        }
+                        ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
                     }
                 }
                 .padding(.horizontal,19)
@@ -434,7 +431,7 @@ struct V4HomeViewLive: View {
                     NewThisWeekSection(theme: theme)
                         .padding(.bottom, 10)
                 }
-            }.padding(.bottom,92)
+            }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
         .safeAreaInset(edge: .top) { stickySearchBar }
         .refreshable {
@@ -461,6 +458,53 @@ struct V4HomeViewLive: View {
             ScheduleSessionSheet()
                 .preferredColorScheme(.dark)
         }
+    }
+
+    private var watchingNowSkeleton: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(V4.cardBG)
+                .frame(width: 108, height: 64)
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4).fill(V4.cardBG).frame(width: 160, height: 13)
+                RoundedRectangle(cornerRadius: 3).fill(V4.cardBG.opacity(0.6)).frame(width: 90, height: 10)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .frame(minHeight: 88)
+        .background(V4.cardBG.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityLabel("Загрузка активных комнат")
+    }
+
+    private func compactRoomsState(
+        icon: String,
+        title: String,
+        subtitle: String,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(V4.muted)
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+            Text(subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(V4.muted)
+                .multilineTextAlignment(.center)
+            Button(actionTitle, action: action)
+                .buttonStyle(.borderedProminent)
+                .tint(activeAccent)
+                .foregroundStyle(activeBtnText)
+                .frame(minHeight: 44)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(V4.cardBG.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     /// Create room from a specific trending video — used by hero + quick room.

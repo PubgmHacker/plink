@@ -28,6 +28,7 @@ struct V4MyStatsCard: View {
                 Spacer()
                 if isLoading {
                     ProgressView().tint(V4.accent).scaleEffect(0.8)
+                        .accessibilityLabel("Загрузка статистики")
                 } else {
                     Button {
                         Task { await reload() }
@@ -35,16 +36,20 @@ struct V4MyStatsCard: View {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(V4.muted)
+                            .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Обновить статистику")
                 }
             }
 
-            let hours = profile?.watchHoursText ?? "0 мин"
-            let films = profile.map { "\($0.filmsWatched)" } ?? "0"
-            let friends = profile.map { "\($0.friendsCount)" } ?? "0"
-            let rooms = profile.map { "\($0.roomsCreated)" } ?? "0"
+            // Ошибка сети не должна маскироваться под реальные нули.
+            // Пока данных нет, показываем «—»; ноль показывается только когда
+            // сервер действительно вернул 0.
+            let hours = profile?.watchHoursText ?? "—"
+            let films = profile.map { "\($0.filmsWatched)" } ?? "—"
+            let friends = profile.map { "\($0.friendsCount)" } ?? "—"
+            let rooms = profile.map { "\($0.roomsCreated)" } ?? "—"
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 v4Stat("Часы в Plink", hours)
@@ -77,9 +82,15 @@ struct V4MyStatsCard: View {
             }
 
             if let loadError {
-                Text(loadError)
-                    .font(.system(size: 11))
-                    .foregroundStyle(V4.danger)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(loadError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(V4.danger)
+                    Button("Повторить") { Task { await reload() } }
+                        .buttonStyle(.bordered)
+                        .tint(V4.accent)
+                        .frame(minHeight: 44)
+                }
             }
         }
         .padding(16)
@@ -97,11 +108,7 @@ struct V4MyStatsCard: View {
             profile = try await SocialProfileService.fetchMe()
             loadError = nil
         } catch {
-            // Still show zeros so the block is never "missing"
-            loadError = "Не удалось обновить — показаны нули"
-            if profile == nil {
-                // Keep empty state numbers visible
-            }
+            loadError = "Не удалось загрузить статистику. Проверь соединение и повтори."
         }
     }
 
@@ -234,6 +241,7 @@ struct V4ProfileViewLive: View {
                         Image(systemName:"pencil.circle.fill")
                             .font(.system(size: 28))
                             .foregroundStyle(V4.accent)
+                            .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Редактировать профиль")
@@ -241,6 +249,7 @@ struct V4ProfileViewLive: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
                 .padding(.bottom, 20)
+                .accessibilityIdentifier("screen.profile")
 
                 // M32: карточка статистики
                 V4MyStatsCard()
@@ -300,7 +309,7 @@ struct V4ProfileViewLive: View {
                     }
                     .buttonStyle(.plain)
                 }.groupStyle()
-            }.padding(.bottom,92)
+            }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
         .sheet(isPresented: $showPersonalData, onDismiss: {
             // Reload name/avatar after «Личные данные» save
