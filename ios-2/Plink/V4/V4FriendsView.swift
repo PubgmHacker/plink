@@ -230,7 +230,7 @@ struct V4FriendsViewLive: View {
         }
         .sheet(isPresented: $showAddFriend) {
             if let store {
-                AddFriendSheet(store: store) { message in
+                AddFriendSheet(store: store, theme: theme) { message in
                     // Delay slightly so toast appears after sheet dismisses
                     Task { @MainActor in
                         await store.load()
@@ -390,7 +390,7 @@ struct V4FriendsViewLive: View {
                         .lineLimit(2)
                     Text("Код \(invite.roomCode)")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(V4.accent)
+                        .foregroundStyle(theme.accentColor)
                 }
                 Spacer(minLength: 4)
             }
@@ -412,10 +412,10 @@ struct V4FriendsViewLive: View {
                 } label: {
                     Text(LocalizationManager.shared.string(.frAccept))
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(V4.accentInk)
+                        .foregroundStyle(theme.buttonTextColor)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
-                        .background(V4.accent, in: RoundedRectangle(cornerRadius: 12))
+                        .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
 
@@ -462,25 +462,25 @@ struct V4FriendsViewLive: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
-                                .background(V4.accent, in: Capsule())
+                                .background(theme.accentColor, in: Capsule())
                         }
                         if seg == .friends, let n = store?.friends.count, n > 0 {
                             Text("\(n)")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(segment == seg ? V4.accentInk.opacity(0.8) : V4.muted)
+                                .foregroundStyle(segment == seg ? theme.buttonTextColor.opacity(0.8) : V4.muted)
                         }
                         if seg == .rooms, !recentRooms.isEmpty {
                             Text("\(recentRooms.count)")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(segment == seg ? V4.accentInk.opacity(0.8) : V4.muted)
+                                .foregroundStyle(segment == seg ? theme.buttonTextColor.opacity(0.8) : V4.muted)
                         }
                     }
-                    .foregroundStyle(segment == seg ? V4.accentInk : V4.ink.opacity(0.75))
+                    .foregroundStyle(segment == seg ? theme.buttonTextColor : V4.ink.opacity(0.75))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(
                         Capsule(style: .continuous)
-                            .fill(segment == seg ? V4.accent : V4.surface.opacity(0.45))
+                            .fill(segment == seg ? theme.accentColor : V4.surface.opacity(0.45))
                     )
                     .overlay(
                         Capsule(style: .continuous)
@@ -521,7 +521,7 @@ struct V4FriendsViewLive: View {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: requestBadge > 0 ? "person.badge.clock.fill" : "tray.full")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(requestBadge > 0 ? V4.accent : V4.ink)
+                        .foregroundStyle(requestBadge > 0 ? theme.accentColor : V4.ink)
                         .frame(width: 40, height: 40)
                         .background(V4.surface.opacity(0.5))
                         .clipShape(Circle())
@@ -530,10 +530,10 @@ struct V4FriendsViewLive: View {
                     if requestBadge > 0 {
                         Text(requestBadge > 9 ? "9+" : "\(requestBadge)")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(V4.accentInk)
+                            .foregroundStyle(theme.buttonTextColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(V4.accent, in: Capsule())
+                            .background(theme.accentColor, in: Capsule())
                             .offset(x: 4, y: -2)
                     }
                 }
@@ -548,7 +548,7 @@ struct V4FriendsViewLive: View {
             } label: {
                 Image(systemName: "person.badge.plus")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(V4.accent)
+                    .foregroundStyle(theme.accentColor)
                     .frame(width: 40, height: 40)
                     .background(V4.surface.opacity(0.5))
                     .clipShape(Circle())
@@ -565,9 +565,9 @@ struct V4FriendsViewLive: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(V4.accent)
+                .foregroundStyle(theme.accentColor)
                 .frame(width: 28, height: 28)
-                .background(V4.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(theme.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             Text(title)
                 .font(.system(size: 18, weight: .bold))
@@ -589,7 +589,7 @@ struct V4FriendsViewLive: View {
                 Button(action: action) {
                     Text(actionTitle)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(V4.accent)
+                        .foregroundStyle(theme.accentColor)
                 }
                 .buttonStyle(.plain)
             }
@@ -614,7 +614,7 @@ struct V4FriendsViewLive: View {
         VStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 30))
-                .foregroundStyle(V4.accent.opacity(0.85))
+                .foregroundStyle(theme.accentColor.opacity(0.85))
             Text(title)
                 .font(.system(size: 16, weight: .semibold))
             Text(subtitle)
@@ -626,10 +626,10 @@ struct V4FriendsViewLive: View {
                 Button(action: action) {
                     Text(cta)
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(V4.accentInk)
+                        .foregroundStyle(theme.buttonTextColor)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(V4.accent, in: Capsule())
+                        .background(theme.accentColor, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 2)
@@ -733,7 +733,7 @@ struct V4FriendsViewLive: View {
                     switch s.state {
                     case .loading:
                         sectionCard {
-                            ProgressView().tint(V4.accent)
+                            ProgressView().tint(theme.accentColor)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 36)
                                 .accessibilityLabel("Загрузка друзей")
@@ -765,7 +765,7 @@ struct V4FriendsViewLive: View {
                                         ShareLink(item: inviteURL) {
                                             Label(LocalizationManager.shared.string(.frInviteLink), systemImage: "square.and.arrow.up")
                                                 .font(.system(size: 13.5, weight: .semibold))
-                                                .foregroundStyle(V4.accent)
+                                                .foregroundStyle(theme.accentColor)
                                                 .padding(.vertical, 8)
                                         }
                                     }
@@ -790,7 +790,7 @@ struct V4FriendsViewLive: View {
                     }
                 } else {
                     sectionCard {
-                        ProgressView().tint(V4.accent)
+                        ProgressView().tint(theme.accentColor)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 36)
                     }
@@ -917,10 +917,10 @@ struct V4FriendsViewLive: View {
                     } label: {
                         Image(systemName: "film.fill")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(V4.accentInk)
+                            .foregroundStyle(theme.buttonTextColor)
                             .frame(maxWidth: .infinity)
                             .frame(height: 34)
-                            .background(V4.accent, in: Capsule())
+                            .background(theme.accentColor, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Смотреть вместе с \(friend.displayTitle)")
@@ -1014,11 +1014,11 @@ struct V4FriendsViewLive: View {
                     Image(systemName: "plus")
                 }
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(V4.accent)
+                .foregroundStyle(theme.accentColor)
                 .padding(.horizontal, 14)
                 .frame(height: 44)
-                .background(V4.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(V4.accent.opacity(0.35)))
+                .background(theme.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.accentColor.opacity(0.35)))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Создать групповую беседу")
@@ -1074,13 +1074,13 @@ struct V4FriendsViewLive: View {
                     ZStack {
                         Circle()
                             .fill(LinearGradient(
-                                colors: [V4.accent.opacity(0.85), V4.accent.opacity(0.42)],
+                                colors: [theme.accentColor.opacity(0.85), theme.accentColor.opacity(0.42)],
                                 startPoint: .topLeading, endPoint: .bottomTrailing
                             ))
                             .frame(width: 48, height: 48)
                         Image(systemName: "person.3.fill")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(V4.accentInk)
+                            .foregroundStyle(theme.buttonTextColor)
                     }
                     // 👥 group marker
                     Circle().fill(V4.surface)
@@ -1088,7 +1088,7 @@ struct V4FriendsViewLive: View {
                         .overlay {
                             Image(systemName: muted ? "bell.slash.fill" : "person.3.fill")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(muted ? .orange : V4.accent)
+                                .foregroundStyle(muted ? .orange : theme.accentColor)
                         }
                         .offset(x: 2, y: 2)
                 }
@@ -1102,7 +1102,7 @@ struct V4FriendsViewLive: View {
                         if let lastAt = group.lastMessageDate {
                             Text(Self.chatListTime(lastAt))
                                 .font(.system(size: 12, weight: unread > 0 ? .semibold : .regular))
-                                .foregroundStyle(unread > 0 ? V4.accent : V4.muted)
+                                .foregroundStyle(unread > 0 ? theme.accentColor : V4.muted)
                         }
                     }
                     HStack(spacing: 6) {
@@ -1127,7 +1127,7 @@ struct V4FriendsViewLive: View {
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(muted ? Color.gray : V4.accent, in: Capsule())
+                                .background(muted ? Color.gray : theme.accentColor, in: Capsule())
                         }
                     }
                 }
@@ -1137,7 +1137,7 @@ struct V4FriendsViewLive: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(unread > 0 && !muted ? V4.accent.opacity(0.05) : Color.clear)
+        .background(unread > 0 && !muted ? theme.accentColor.opacity(0.05) : Color.clear)
         .overlay(alignment: .bottom) {
             Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 74)
         }
@@ -1188,7 +1188,7 @@ struct V4FriendsViewLive: View {
 
             sectionCard {
                 if recentLoading && recentRooms.isEmpty {
-                    ProgressView().tint(V4.accent)
+                    ProgressView().tint(theme.accentColor)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 36)
                 } else if recentRooms.isEmpty {
@@ -1239,7 +1239,7 @@ struct V4FriendsViewLive: View {
                             if pinned {
                                 Image(systemName: "pin.fill")
                                     .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(V4.accent)
+                                    .foregroundStyle(theme.accentColor)
                             }
                             Text(friend.displayTitle)
                                 .font(.system(size: 15.5, weight: unread > 0 ? .heavy : .semibold))
@@ -1249,7 +1249,7 @@ struct V4FriendsViewLive: View {
                             if let lastAt {
                                 Text(Self.chatListTime(lastAt))
                                     .font(.system(size: 12, weight: unread > 0 ? .semibold : .regular))
-                                    .foregroundStyle(unread > 0 ? V4.accent : V4.muted)
+                                    .foregroundStyle(unread > 0 ? theme.accentColor : V4.muted)
                             }
                         }
                         HStack(spacing: 6) {
@@ -1275,7 +1275,7 @@ struct V4FriendsViewLive: View {
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(V4.accent, in: Capsule())
+                                    .background(theme.accentColor, in: Capsule())
                             }
                         }
                     }
@@ -1293,17 +1293,17 @@ struct V4FriendsViewLive: View {
             } label: {
                 Image(systemName: "film.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(V4.accent)
+                    .foregroundStyle(theme.accentColor)
                     .frame(width: 34, height: 34)
-                    .background(V4.accent.opacity(0.14), in: Circle())
-                    .overlay(Circle().stroke(V4.accent.opacity(0.28), lineWidth: 0.8))
+                    .background(theme.accentColor.opacity(0.14), in: Circle())
+                    .overlay(Circle().stroke(theme.accentColor.opacity(0.28), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Смотреть вместе с \(friend.displayTitle)")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(unread > 0 ? V4.accent.opacity(0.05) : Color.clear)
+        .background(unread > 0 ? theme.accentColor.opacity(0.05) : Color.clear)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(V4.line.opacity(0.45))
@@ -1431,7 +1431,7 @@ struct V4FriendsViewLive: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [V4.accent.opacity(0.4), Color.purple.opacity(0.35), V4.raised],
+                                colors: [theme.accentColor.opacity(0.4), Color.purple.opacity(0.35), V4.raised],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -1445,13 +1445,13 @@ struct V4FriendsViewLive: View {
                             default:
                                 Image(systemName: "play.rectangle.fill")
                                     .font(.system(size: 20))
-                                    .foregroundStyle(V4.accent)
+                                    .foregroundStyle(theme.accentColor)
                             }
                         }
                     } else {
                         Image(systemName: "play.rectangle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(V4.accent)
+                            .foregroundStyle(theme.accentColor)
                     }
                 }
                 .frame(width: 64, height: 64)
@@ -1606,7 +1606,7 @@ private struct FriendRequestsSheet: View {
                             VStack(spacing: 12) {
                                 Image(systemName: "tray")
                                     .font(.system(size: 36))
-                                    .foregroundStyle(V4.accent)
+                                    .foregroundStyle(theme.accentColor)
                                 Text(LocalizationManager.shared.string(.frNoRequests))
                                     .font(.headline)
                                     .foregroundStyle(V4.ink)
@@ -1623,7 +1623,7 @@ private struct FriendRequestsSheet: View {
                                 Text(LocalizationManager.shared.string(.frIncoming))
                                     .font(.system(size: 11, weight: .heavy))
                                     .tracking(0.9)
-                                    .foregroundStyle(V4.accent)
+                                    .foregroundStyle(theme.accentColor)
                                     .padding(.horizontal, 18)
 
                                 VStack(spacing: 0) {
@@ -1713,10 +1713,10 @@ private struct FriendRequestsSheet: View {
             } label: {
                 Text(LocalizationManager.shared.string(.frAccept))
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(V4.accentInk)
+                    .foregroundStyle(theme.buttonTextColor)
                     .padding(.horizontal, 10)
                     .frame(height: 34)
-                    .background(V4.accent, in: RoundedRectangle(cornerRadius: 10))
+                    .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
 
@@ -1749,6 +1749,7 @@ private struct FriendRequestsSheet: View {
 
 private struct AddFriendSheet: View {
     let store: V4FriendsStore
+    let theme: V4Theme
     var onDone: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -1784,13 +1785,13 @@ private struct AddFriendSheet: View {
                             Task { await sendByUsername() }
                         } label: {
                             if isSending {
-                                ProgressView().tint(V4.accentInk).frame(width: 48, height: 48)
+                                ProgressView().tint(theme.buttonTextColor).frame(width: 48, height: 48)
                             } else {
                                 Image(systemName: "paperplane.fill")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(V4.accentInk)
+                                    .foregroundStyle(theme.buttonTextColor)
                                     .frame(width: 48, height: 48)
-                                    .background(V4.accent, in: RoundedRectangle(cornerRadius: 12))
+                                    .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 12))
                             }
                         }
                         .buttonStyle(.plain)
@@ -1851,7 +1852,7 @@ private struct AddFriendSheet: View {
                                                 if let img = phase.image {
                                                     img.resizable().scaledToFill()
                                                 } else {
-                                                    Circle().fill(V4.accent.opacity(0.25))
+                                                    Circle().fill(theme.accentColor.opacity(0.25))
                                                         .overlay(
                                                             Text(String(user.username.prefix(1)).uppercased())
                                                                 .font(.system(size: 15, weight: .bold))
@@ -1860,7 +1861,7 @@ private struct AddFriendSheet: View {
                                                 }
                                             }
                                         } else {
-                                            Circle().fill(V4.accent.opacity(0.25))
+                                            Circle().fill(theme.accentColor.opacity(0.25))
                                                 .overlay(
                                                     Text(String(user.username.prefix(1)).uppercased())
                                                         .font(.system(size: 15, weight: .bold))
@@ -1889,10 +1890,10 @@ private struct AddFriendSheet: View {
                                         } label: {
                                             Text(LocalizationManager.shared.string(.frAdd))
                                                 .font(.system(size: 13, weight: .bold))
-                                                .foregroundStyle(V4.accentInk)
+                                                .foregroundStyle(theme.buttonTextColor)
                                                 .padding(.horizontal, 12)
                                                 .frame(height: 34)
-                                                .background(V4.accent, in: Capsule())
+                                                .background(theme.accentColor, in: Capsule())
                                         }
                                         .buttonStyle(.plain)
                                     }

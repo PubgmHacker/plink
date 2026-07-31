@@ -10,6 +10,7 @@ import Foundation
 /// identity header, never inside settings: activity describes the person, not
 /// application configuration.
 struct V4MyStatsCard: View {
+    let theme: V4Theme
     @State private var profile: UserSocialProfile?
     @State private var loadError: String?
     @State private var isLoading = true
@@ -21,14 +22,14 @@ struct V4MyStatsCard: View {
                     Text(LocalizationManager.shared.string(.vpMyStats))
                         .font(.system(size: 11, weight: .heavy))
                         .tracking(0.8)
-                        .foregroundStyle(V4.accent)
+                        .foregroundStyle(theme.accentColor)
                     Text(LocalizationManager.shared.string(.vpActivity))
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(V4.ink)
                 }
                 Spacer()
                 if isLoading {
-                    ProgressView().tint(V4.accent).scaleEffect(0.8)
+                    ProgressView().tint(theme.accentColor).scaleEffect(0.8)
                         .accessibilityLabel("Загрузка статистики")
                 } else {
                     Button {
@@ -89,7 +90,7 @@ struct V4MyStatsCard: View {
                         .foregroundStyle(V4.danger)
                     Button("Повторить") { Task { await reload() } }
                         .buttonStyle(.bordered)
-                        .tint(V4.accent)
+                        .tint(theme.accentColor)
                         .frame(minHeight: 44)
                 }
             }
@@ -180,7 +181,7 @@ struct V4ProfileViewLive: View {
                         }
                         .frame(width: 64, height: 64)
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(V4.accent.opacity(0.5), lineWidth: 2))
+                        .overlay(Circle().stroke(theme.accentColor.opacity(0.5), lineWidth: 2))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Сменить аватар")
@@ -205,7 +206,7 @@ struct V4ProfileViewLive: View {
                                     Text("Поделиться профилем")
                                 }
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(V4.accent)
+                                .foregroundStyle(theme.accentColor)
                             }
                             .padding(.top, 2)
                         }
@@ -245,14 +246,14 @@ struct V4ProfileViewLive: View {
                     } label: {
                         Image(systemName:"pencil.circle.fill")
                             .font(.system(size: 28))
-                            .foregroundStyle(V4.accent)
+                            .foregroundStyle(theme.accentColor)
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Редактировать профиль")
                     }
 
-                    V4MyStatsCard()
+                    V4MyStatsCard(theme: theme)
                 }
                 .padding(16)
                 .background(
@@ -260,7 +261,7 @@ struct V4ProfileViewLive: View {
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
                             .fill(V4.surface.opacity(0.82))
                         LinearGradient(
-                            colors: [V4.accent.opacity(0.14), .clear, V4.raised.opacity(0.24)],
+                            colors: [theme.accentColor.opacity(0.14), .clear, V4.raised.opacity(0.24)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -269,7 +270,7 @@ struct V4ProfileViewLive: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(V4.accent.opacity(0.22), lineWidth: 1)
+                        .stroke(theme.accentColor.opacity(0.22), lineWidth: 1)
                 )
                 .padding(.horizontal, 18)
                 .padding(.top, 12)

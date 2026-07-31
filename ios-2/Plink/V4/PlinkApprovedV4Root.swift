@@ -86,7 +86,7 @@ struct PlinkApprovedV4Root: View {
             // Раньше экраны вручную гадали 90/92/100 pt и расходились.
             .padding(.bottom, 2)
             if appearance { V4AppearanceView(theme:$theme,presented:$appearance).zIndex(25).transition(.opacity) }
-        }.preferredColorScheme(.dark).tint(V4.accent)
+        }.preferredColorScheme(.dark).tint(currentAccent)
         .task {
             if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { theme = live.closestStandardTheme }
             // M14: комната читает акцент активной темы — единый стиль без прыжка дизайнов
@@ -303,6 +303,10 @@ struct PlinkApprovedV4Root: View {
     // V4HomeViewLive). Удалены.
 
 
+    private var currentAccent: Color {
+        PlinkPlusLiveTheme.resolve(liveThemeIndex)?.accentColor ?? theme.accentColor
+    }
+
     private func bootstrap() async {
         let api = APIClient.shared
         // Hydrate shared session first — fixes empty currentUser after ISO8601 cache
@@ -478,10 +482,10 @@ struct NotificationInboxButton: View {
                     if unreadCount > 0 {
                         Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(V4.accentInk)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 4)
                             .frame(minWidth: 17, minHeight: 17)
-                            .background(V4.accent)
+                            .background(Color.accentColor)
                             .clipShape(Capsule())
                             .offset(x: 4, y: -4)
                     }

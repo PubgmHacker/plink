@@ -80,10 +80,10 @@ struct V4AIViewLive: View {
                         Text(LocalizationManager.shared.string(.roomLabel))
                     }
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(V4.accentInk)
+                    .foregroundStyle(theme.buttonTextColor)
                     .padding(.horizontal, 12)
                     .frame(minHeight: 44)
-                    .background(V4.accent)
+                    .background(theme.accentColor)
                     .clipShape(Capsule())
                 }
                 .accessibilityLabel("Создать комнату вручную")
@@ -157,7 +157,7 @@ struct V4AIViewLive: View {
                                     Text(msg.text)
                                         .font(.system(size:13.28))
                                         .padding(.vertical,11).padding(.horizontal,13)
-                                        .background(V4.accent.opacity(0.15))
+                                        .background(theme.accentColor.opacity(0.15))
                                         .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
                                         .id(msg.id)
                                 }
@@ -210,10 +210,10 @@ struct V4AIViewLive: View {
                 } label: {
                     Image(systemName: orbState == .listening ? "mic.fill" : "mic")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(orbState == .listening ? V4.accentInk : V4.ink)
+                        .foregroundStyle(orbState == .listening ? theme.buttonTextColor : V4.ink)
                 }
                 .frame(width:44,height:44)
-                .background(orbState == .listening ? V4.accent : V4.raised)
+                .background(orbState == .listening ? theme.accentColor : V4.raised)
                 .clipShape(RoundedRectangle(cornerRadius:14))
                 .accessibilityLabel("Голосовой ввод")
 
@@ -230,10 +230,10 @@ struct V4AIViewLive: View {
                 } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(V4.accentInk)
+                        .foregroundStyle(theme.buttonTextColor)
                 }
                 .frame(width:44,height:44)
-                .background(V4.accent)
+                .background(theme.accentColor)
                 .clipShape(RoundedRectangle(cornerRadius:14))
                 .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)
                 .accessibilityLabel("Отправить сообщение")
@@ -266,7 +266,7 @@ struct V4AIViewLive: View {
 
     private var headerStateColor: Color {
         switch orbState {
-        case .idle: return V4.accent
+        case .idle: return theme.accentColor
         case .listening: return Color(red: 0.45, green: 0.55, blue: 1.0)
         case .thinking: return Color(red: 0.85, green: 0.4, blue: 1.0)
         case .speaking: return Color(red: 0.25, green: 0.9, blue: 0.7)
@@ -335,17 +335,17 @@ struct AIActionButton: View {
                 } label: {
                     HStack(spacing: 4) {
                         if loading {
-                            ProgressView().tint(V4.accentInk)
+                            ProgressView().tint(.white)
                         } else {
                             Image(systemName: "checkmark.circle.fill")
                         }
                         Text(LocalizationManager.shared.string(.rcCreate))
                     }
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(V4.accentInk)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 44)
-                    .background(V4.accent)
+                    .background(Color.accentColor)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)

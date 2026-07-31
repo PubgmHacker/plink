@@ -59,8 +59,11 @@ enum V4 {
     static let line = Color.oklch(0.88, 0.01, 190, alpha: 0.13)
     static let surface = Color.oklch(0.17, 0.018, 190)
     static let raised = Color.oklch(0.22, 0.02, 190)
-    static let accent = Color.oklch(0.78, 0.12, 174)
-    static let accentInk = Color.oklch(0.17, 0.04, 174)
+    // Product fallback only. The previous pale mint (#55D6BE-like) made
+    // primary actions look generic and washed out. Use a saturated electric
+    // blue when a screen has no explicit theme context.
+    static let accent = Color.oklch(0.64, 0.23, 255)
+    static let accentInk = Color.white
     static let amber = Color.oklch(0.79, 0.14, 78)
     static let danger = Color.oklch(0.65, 0.18, 25)
     static let roundBG = Color.oklch(0.15, 0.016, 190, alpha: 0.86)
@@ -80,11 +83,12 @@ enum V4Theme: String, CaseIterable, Identifiable {
     var name: String { rawValue.capitalized }
     var colors: (Color, Color, Color, Color) {
         switch self {
-        case .electric: return (.oklch(0.09,0.02,255), .oklch(0.60,0.22,258), .oklch(0.72,0.18,210), .oklch(0.62,0.20,270))
-        case .ember: return (.oklch(0.10,0.025,45), .oklch(0.63,0.24,35), .oklch(0.75,0.20,78), .oklch(0.65,0.22,28))
-        case .violet: return (.oklch(0.09,0.025,285), .oklch(0.58,0.24,285), .oklch(0.62,0.25,325), .oklch(0.72,0.18,310))
-        case .plink: return (.oklch(0.09,0.02,190), .oklch(0.64,0.18,185), .oklch(0.50,0.22,258), .oklch(0.65,0.18,326))
-        case .bloom: return (.oklch(0.10,0.03,320), .oklch(0.61,0.26,330), .oklch(0.62,0.26,15), .oklch(0.71,0.20,350))
+        case .electric: return (.oklch(0.09,0.025,255), .oklch(0.64,0.24,255), .oklch(0.73,0.17,220), .oklch(0.59,0.25,275))
+        case .ember: return (.oklch(0.10,0.025,45), .oklch(0.68,0.22,42), .oklch(0.79,0.18,76), .oklch(0.62,0.24,26))
+        case .violet: return (.oklch(0.09,0.025,285), .oklch(0.63,0.25,292), .oklch(0.67,0.25,326), .oklch(0.75,0.18,310))
+        // Signature Plink palette: vivid cyan-blue, not pale turquoise.
+        case .plink: return (.oklch(0.085,0.025,240), .oklch(0.66,0.22,235), .oklch(0.59,0.25,258), .oklch(0.69,0.19,215))
+        case .bloom: return (.oklch(0.10,0.03,320), .oklch(0.65,0.26,334), .oklch(0.66,0.25,15), .oklch(0.74,0.20,350))
         }
     }
     /// Primary accent color — used by AI orb glow, buttons, etc.

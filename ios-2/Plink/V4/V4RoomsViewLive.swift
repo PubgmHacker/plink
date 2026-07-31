@@ -44,10 +44,10 @@ struct V4RoomsViewLive: View {
                             Text("Код")
                                 .font(.system(size:11, weight:.heavy))
                         }
-                        .foregroundStyle(V4.accentInk)
+                        .foregroundStyle(theme.buttonTextColor)
                         .padding(.horizontal, 12)
                         .frame(minHeight: 44)
-                        .background(V4.accent, in: Capsule())
+                        .background(theme.accentColor, in: Capsule())
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -59,7 +59,7 @@ struct V4RoomsViewLive: View {
                     } label: {
                         Image(systemName:"plus.circle.fill")
                             .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(V4.accent)
+                            .foregroundStyle(theme.accentColor)
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
@@ -100,7 +100,7 @@ struct V4RoomsViewLive: View {
                             } label: {
                                 Text(f.rawValue)
                                     .font(.system(size: 12, weight: roomFilter == f ? .bold : .medium))
-                                    .foregroundStyle(roomFilter == f ? V4.accentInk : V4.muted)
+                                    .foregroundStyle(roomFilter == f ? theme.buttonTextColor : V4.muted)
                                     .padding(.horizontal, 14)
                                     .frame(minHeight: 44)
                                     .background(roomFilter == f ? theme.accentColor : V4.cardBG.opacity(0.5), in: Capsule())
@@ -113,7 +113,7 @@ struct V4RoomsViewLive: View {
                     switch rs.state {
                     case .loading:
                         RoundedRectangle(cornerRadius: 29).fill(V4.cardBG).frame(height: 235).padding(.horizontal,13).padding(.bottom,28)
-                            .overlay { ProgressView().tint(V4.accent) }
+                            .overlay { ProgressView().tint(theme.accentColor) }
                     case .loaded:
                         if let hero = rs.heroRoom {
                             V4Hero(title: hero.name, meta: "\(hero.participantCount) зрителей · открытая комната", button:"Войти",height:235,theme:theme,action:openRoom)
@@ -145,8 +145,8 @@ struct V4RoomsViewLive: View {
                                 if searchQuery.isEmpty && roomFilter == .all {
                                     Button("Создать комнату") { createRoom?() }
                                         .buttonStyle(.borderedProminent)
-                                        .tint(V4.accent)
-                                        .foregroundStyle(V4.accentInk)
+                                        .tint(theme.accentColor)
+                                        .foregroundStyle(theme.buttonTextColor)
                                         .frame(minHeight: 44)
                                 }
                             }
@@ -170,7 +170,7 @@ struct V4RoomsViewLive: View {
                         VStack(spacing:16) {
                             Image(systemName:"plus.app.fill")
                                 .font(.system(size: 48, weight: .semibold))
-                                .foregroundStyle(V4.accent)
+                                .foregroundStyle(theme.accentColor)
                             Text("Нет активных комнат").font(.headline)
                             Text("Создай свою комнату и пригласи друзей смотреть вместе").font(.subheadline).foregroundStyle(V4.muted)
                                 .multilineTextAlignment(.center)
@@ -182,10 +182,10 @@ struct V4RoomsViewLive: View {
                                     Text("Создать комнату")
                                 }
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(V4.accentInk)
+                                .foregroundStyle(theme.buttonTextColor)
                                 .padding(.horizontal, 20)
                                 .frame(minHeight: 44)
-                                .background(V4.accent)
+                                .background(theme.accentColor)
                                 .clipShape(Capsule())
                             }
                         }.padding(.top,60).padding(.horizontal,24)
@@ -195,15 +195,15 @@ struct V4RoomsViewLive: View {
                             Text(error).font(.subheadline).foregroundStyle(V4.muted)
                             Button("Повторить") { Task { await roomsStore?.load() } }
                                 .buttonStyle(.borderedProminent)
-                                .tint(V4.accent)
-                                .foregroundStyle(V4.accentInk)
+                                .tint(theme.accentColor)
+                                .foregroundStyle(theme.buttonTextColor)
                                 .frame(minHeight: 44)
                         }.padding(.top,60)
                     case .idle:
                         Color.clear.frame(height:100)
                     }
                 } else {
-                    ProgressView().tint(V4.accent).padding(.top,60)
+                    ProgressView().tint(theme.accentColor).padding(.top,60)
                 }
             }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)

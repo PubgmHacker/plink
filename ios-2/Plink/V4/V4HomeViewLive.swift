@@ -385,8 +385,8 @@ struct V4HomeViewLive: View {
                         openRoomsTab?()
                     } label: {
                         Text(L.string(.homeAll))
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(V4.accent)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(activeAccent)
                     }
                     .buttonStyle(.plain)
                 }
@@ -502,26 +502,68 @@ struct V4HomeViewLive: View {
         actionTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(V4.muted)
-            Text(title)
-                .font(.system(size: 15, weight: .bold))
-            Text(subtitle)
-                .font(.system(size: 12))
-                .foregroundStyle(V4.muted)
-                .multilineTextAlignment(.center)
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [activeAccent, activeSecondary],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(activeBtnText)
+            }
+            .frame(width: 58, height: 58)
+            .shadow(color: activeAccent.opacity(0.28), radius: 16, y: 8)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(V4.ink)
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(V4.muted)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 6)
+
             Button(actionTitle, action: action)
-                .buttonStyle(.borderedProminent)
-                .tint(activeAccent)
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(activeBtnText)
+                .padding(.horizontal, 15)
                 .frame(minHeight: 44)
+                .background(
+                    LinearGradient(
+                        colors: [activeAccent, activeSecondary],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    in: Capsule()
+                )
+                .shadow(color: activeAccent.opacity(0.24), radius: 12, y: 6)
         }
         .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(V4.cardBG.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(18)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(V4.surface.opacity(0.84))
+                LinearGradient(
+                    colors: [activeAccent.opacity(0.12), .clear, activeSecondary.opacity(0.07)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(activeAccent.opacity(0.18), lineWidth: 1)
+        )
     }
 
     /// Cinematic live-room tile. The room is presented as a social scene rather
