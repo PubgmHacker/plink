@@ -112,7 +112,10 @@ describe.runIf(process.env.E2E === '1')('E2E happy path (M13)', () => {
         mediaItem: {
           id: 'dQw4w9WgXcQ',
           title: 'E2E Video',
-          streamURL: `${API_BASE}/api/media/youtube-player?id=dQw4w9WgXcQ`,
+          // Аудит 30.07.2026: было `${API_BASE}/api/media/youtube-player?...` — при запуске
+          // против localhost это резалось SSRF-guard'ом (и правильно).
+          // Реальный клиент шлёт публичный YouTube-URL (V4HomeViewLive.swift:871).
+          streamURL: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
           mediaType: 'video',
           source: 'youtube',
           videoId: 'dQw4w9WgXcQ',

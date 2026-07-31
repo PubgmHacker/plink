@@ -144,6 +144,24 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: PlinkTests
 
+  # Аудит 30.07.2026: UI-смоук воронки (регистрация → главный экран →
+  # комната) против живого локального бэкенда. Скриншоты пишутся в /tmp
+  # (файл-флаг, как у MarketingShots). Запуск: -only-testing:PlinkUITests
+  PlinkUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PlinkUITests
+    dependencies:
+      - target: Plink
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.syncwatch.plink.uitests
+        DEVELOPMENT_TEAM: "2QAMUC4Z4P"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Plink
+
   # M13: home-screen widget — «Ближайший сеанс» (WidgetKit)
   PlinkWidget:
     type: app-extension

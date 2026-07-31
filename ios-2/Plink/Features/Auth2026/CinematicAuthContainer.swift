@@ -125,6 +125,14 @@ struct CompactAuthField: View {
 
     @FocusState private var focused: Bool
 
+    /// UI-тесты (аудит 30.07.2026): системный шит «Надёжный пароль?»
+    /// от .newPassword перехватывает ввод в симуляторе и делает воронку
+    /// непроходимой для XCUITest. Флаг выключает ТОЛЬКО autofill-подсказку,
+    /// поведение для реальных пользователей не меняется.
+    private var uiTestMode: Bool {
+        ProcessInfo.processInfo.arguments.contains("-plink.uitest")
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             if let icon {
@@ -143,7 +151,7 @@ struct CompactAuthField: View {
                         .autocorrectionDisabled()
                 }
             }
-            .textContentType(contentType)
+            .textContentType(uiTestMode ? nil : contentType)
             .submitLabel(submitLabel)
             .onSubmit { onSubmit?() }
             .focused($focused)

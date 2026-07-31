@@ -26,18 +26,19 @@ const API_BASE = process.env.API_BASE || 'http://localhost:8080';
 const WS_BASE = process.env.WS_BASE || 'ws://localhost:8080';
 
 let redis: Redis;
+// Аудит 30.07.2026: redisOk обязан вычисляться на top-level (await до
+// describe), а НЕ в beforeAll — describe.skipIf читает его на этапе сбора
+// тестов, когда beforeAll ещё не выполнялся. Из-за этого все 7 тестов
+// скипались ВСЕГДА, даже с живым Redis (подтверждено запуском).
 let redisOk = false;
-
-beforeAll(async () => {
-  try {
-    redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true });
-    await redis.connect();
-    await redis.ping();
-    redisOk = true;
-  } catch {
-    redisOk = false;
-  }
-});
+try {
+  redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true, connectTimeout: 2000 });
+  await redis.connect();
+  await redis.ping();
+  redisOk = true;
+} catch {
+  redisOk = false;
+}
 
 afterAll(async () => {
   if (redis) await redis.quit().catch(() => {});
