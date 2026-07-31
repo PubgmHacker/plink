@@ -43,7 +43,6 @@ export default function HowItWorks() {
       aria-label="Как это работает"
     >
       <div className="container-main">
-        {/* Section header — left aligned, asymmetric */}
         <div className="mb-16 lg:mb-24">
           <span className="section-label mb-4 block">Просто как один-два-три</span>
           <h2 className="text-display max-w-2xl text-3xl text-text-primary sm:text-4xl lg:text-5xl">

@@ -49,7 +49,7 @@ export default function Navigation() {
             <li key={link.href}>
               <a
                 href={link.href}
-                className="text-sm font-medium text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                className="text-sm font-medium text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent inline-block px-2 py-2"
               >
                 {link.label}
               </a>

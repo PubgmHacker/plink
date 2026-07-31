@@ -615,7 +615,7 @@ enum L10n {
         .pwRestore: [.russian: "Восстановить покупку", .english: "Restore purchase", .chinese: "恢复购买"],
         .pwCancelAnytime: [.russian: "Отмена в любой момент в настройках Apple ID", .english: "Cancel anytime in Apple ID settings", .chinese: "可随时在 Apple ID 设置中取消"],
         .sbVideoFound: [.russian: "Видео найдено!", .english: "Video found!", .chinese: "找到视频！"],
-        .sbHostAccount: [.russian: "Для этого сервиса host использует свой аккаунт подписки. Plink не предоставляет контент — мы только синхронизируем просмотр.", .english: "The host uses their own subscription for this service. Plink doesn’t provide content — we only sync playback.", .chinese: "该平台由房主使用自己的订阅账号。Plink 不提供内容，仅同步播放。"],
+        .sbHostAccount: [.russian: "Владелец комнаты использует свою подписку на этот сервис. Plink не предоставляет контент — мы только синхронизируем просмотр.", .english: "The host uses their own subscription for this service. Plink doesn’t provide content — we only sync playback.", .chinese: "该平台由房主使用自己的订阅账号。Plink 不提供内容，仅同步播放。"],
         .sbSignedIn: [.russian: "Я вошёл, продолжить", .english: "I’ve signed in, continue", .chinese: "已登录，继续"],
         .apTitle: [.russian: "Оформление", .english: "Appearance", .chinese: "外观"],
         .apSub: [.russian: "Выбери, как выглядит Plink. Темы и эффекты сохраняются между устройствами.", .english: "Choose how Plink looks. Themes and effects sync across devices.", .chinese: "选择 Plink 的外观。主题和效果会在设备间同步。"],
@@ -1339,7 +1339,7 @@ enum L10n {
             .chinese: "举报已发送"
         ],
         .blockHost: [
-            .russian: "Заблокировать хоста?",
+            .russian: "Заблокировать владельца комнаты?",
             .english: "Block host?",
             .chinese: "拉黑房主？"
         ],
@@ -1349,12 +1349,12 @@ enum L10n {
             .chinese: "拉黑"
         ],
         .blockHostMessage: [
-            .russian: "Комнаты от этого хоста больше не будут отображаться.",
+            .russian: "Комнаты этого владельца больше не будут отображаться.",
             .english: "Rooms from this host will no longer be shown.",
             .chinese: "此房主的房间将不再显示。"
         ],
         .blockHostDone: [
-            .russian: "Хост заблокирован",
+            .russian: "Владелец комнаты заблокирован",
             .english: "Host blocked",
             .chinese: "房主已拉黑"
         ],
@@ -1818,7 +1818,7 @@ enum L10n {
             .chinese: "直播"
         ],
         .homeHostLabel: [
-            .russian: "Хост:",
+            .russian: "Владелец:",
             .english: "Host:",
             .chinese: "主持人："
         ],

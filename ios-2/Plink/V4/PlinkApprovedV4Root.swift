@@ -66,7 +66,7 @@ struct PlinkApprovedV4Root: View {
                 // ZStack with opacity — keeps all tabs alive, no recreation lag
                 V4HomeViewLive(theme:theme, searchStore:searchStore, roomsStore:roomsStore, openRoom:{ openFirstRoom() }, liveThemeIndex:liveThemeIndex, openRoomsTab:{ tab = 1 })
                     .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
-                V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ openFirstRoom() }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
+                V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
                     .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
                 V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
                     .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
@@ -277,24 +277,21 @@ struct PlinkApprovedV4Root: View {
         return user?.username ?? "Пользователь"
     }
 
-    /// Open a room from the rooms store (join first so presence/sync work multi-device).
-    private func openFirstRoom() {
-        guard let rs = roomsStore else { return }
-        let candidate = rs.heroRoom ?? rs.railRooms.first
-        guard let room = candidate else { return }
+    /// Open the exact room the person selected, then join it for live presence.
+    private func openRoom(_ room: Room) {
         Task {
             do {
                 let joined = try await RoomService(api: APIClient.shared).joinRoom(code: room.code)
-                await MainActor.run {
-                    roomToPresent = joined
-                }
+                await MainActor.run { roomToPresent = joined }
             } catch {
-                // Fall back to presenting list snapshot if already a member / network blip
-                await MainActor.run {
-                    roomToPresent = room
-                }
+                await MainActor.run { roomToPresent = room }
             }
         }
+    }
+
+    private func openFirstRoom() {
+        guard let room = roomsStore?.heroRoom ?? roomsStore?.railRooms.first else { return }
+        openRoom(room)
     }
 
     /// Quick Room — one-tap create from first trending video.

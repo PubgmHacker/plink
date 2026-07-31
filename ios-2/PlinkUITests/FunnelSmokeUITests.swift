@@ -109,21 +109,23 @@ final class FunnelSmokeUITests: XCTestCase {
 
         // ── Шаг 1: auth ИЛИ уже залогинен (Keychain переживает переустановку,
         // поймано прогоном: тест ждал регистрацию, а открылась «Главная») ──
+        let openRegistration = app.buttons["auth.openRegistration"]
         let usernameField = app.textFields.matching(
-            NSPredicate(format: "placeholderValue CONTAINS[c] 'Имя' OR placeholderValue CONTAINS[c] 'username'")
+            NSPredicate(format: "placeholderValue CONTAINS[c] 'пользователя' OR placeholderValue CONTAINS[c] 'username'")
         ).firstMatch
         let homeMarker = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] 'С кем смотрим'")
+            NSPredicate(format: "label CONTAINS[c] 'Что посмотрим'")
         ).firstMatch
         var alreadyLoggedIn = false
         for _ in 0..<15 {
             if homeMarker.exists { alreadyLoggedIn = true; break }
-            if usernameField.exists { break }
+            if openRegistration.exists || usernameField.exists { break }
             sleep(1)
         }
         saveShot(app, "ui_01_auth")
 
         if !alreadyLoggedIn {
+        if openRegistration.waitForExistence(timeout: 5) { openRegistration.tap() }
         XCTAssertTrue(usernameField.waitForExistence(timeout: 5), "Поле имени пользователя не появилось")
 
         // ── Шаг 2: заполняем форму ───────────────────────────────────────
@@ -158,18 +160,16 @@ final class FunnelSmokeUITests: XCTestCase {
 
         // Чекбокс условий — с проверкой результата и ретраем: один тап
         // мог не срабатывать (поймано прогоном: тогл off → кнопка disabled).
-        let toggle = app.switches.firstMatch
-        if toggle.waitForExistence(timeout: 3) {
-            // SwiftUI Toggle в XCUITest — внешний Switch с ВЛОЖЕННЫМ Switch;
-            // тап по внешнему (лейблу/координатам) не переключает —
-            // подтверждено двумя живыми прогонами. Тапаем вложенный.
-            let knob = toggle.switches.firstMatch
-            for _ in 0..<4 {
-                if (toggle.value as? String) == "1" { break }
-                if knob.exists { knob.tap() } else { forceTap(toggle) }
-                usleep(700_000)
+        let consent = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Принять условия'")
+        ).firstMatch
+        if consent.waitForExistence(timeout: 3) {
+            for _ in 0..<3 {
+                if (consent.value as? String) == "Принято" { break }
+                consent.tap()
+                usleep(500_000)
             }
-            XCTAssertEqual(toggle.value as? String, "1", "Тогл «Принимаю Условия» не включился за 3 тапа")
+            XCTAssertEqual(consent.value as? String, "Принято", "Согласие с правилами не включилось")
         }
         saveShot(app, "ui_02_filled")
 

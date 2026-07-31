@@ -1497,7 +1497,7 @@ struct V4FriendsViewLive: View {
                     }
 
                     if !room.hostName.isEmpty, room.hostName != "Unknown" {
-                        Text("Хост: \(room.hostName)")
+                        Text("Владелец: \(room.hostName)")
                             .font(.system(size: 11))
                             .foregroundStyle(V4.muted.opacity(0.85))
                     }

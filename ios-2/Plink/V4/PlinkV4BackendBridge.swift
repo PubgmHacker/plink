@@ -38,8 +38,24 @@ final class V4RoomsStore {
         } catch is CancellationError {
             return
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(Self.userFacingLoadError(error))
         }
+    }
+
+    private static func userFacingLoadError(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                return "Нет подключения к интернету"
+            case .timedOut:
+                return "Загрузка заняла слишком много времени"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return "Не удалось подключиться к Plink"
+            default:
+                return "Не удалось загрузить комнаты"
+            }
+        }
+        return "Не удалось загрузить комнаты"
     }
 
     func loadMyRooms() async {

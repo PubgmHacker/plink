@@ -12,20 +12,13 @@ import Foundation
 struct V4RoomsViewLive: View {
     let theme: V4Theme
     var roomsStore: V4RoomsStore?
-    let openRoom: () -> Void
-    var createRoom: (() -> Void)? = nil
-    var joinByCode: (() -> Void)? = nil
+    let openRoom: (Room) -> Void
+    let createRoom: () -> Void
+    let joinByCode: () -> Void
 
-    // M32: поиск + фильтр
+    // Rooms has one job: enter an existing room or start a new one.
     @State private var searchQuery = ""
-    @State private var roomFilter: RoomFilter = .all
     @State private var searchExpanded = false
-
-    enum RoomFilter: String, CaseIterable {
-        case all      = "Все"
-        case active   = "Сейчас"
-        case friends  = "Друзья"
-    }
 
     var body: some View {
         ScrollView(showsIndicators:false) {
@@ -52,7 +45,7 @@ struct V4RoomsViewLive: View {
                     .accessibilityLabel(searchExpanded ? "Закрыть поиск" : "Найти комнату")
                     Button {
                         HapticManager.selection()
-                        joinByCode?()
+                        joinByCode()
                     } label: {
                         Image(systemName: "qrcode.viewfinder")
                             .font(.system(size: 16, weight: .bold))
@@ -65,7 +58,7 @@ struct V4RoomsViewLive: View {
                     .accessibilityLabel("Войти по коду комнаты")
                     Button {
                         HapticManager.impact(.medium)
-                        createRoom?()
+                        createRoom()
                     } label: {
                         Image(systemName:"plus")
                             .font(.system(size: 16, weight: .black))
@@ -83,7 +76,7 @@ struct V4RoomsViewLive: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(theme.accentColor)
                             .font(.system(size:14, weight: .semibold))
-                        TextField("Название комнаты или хост", text: $searchQuery)
+                        TextField("Название комнаты или владелец", text: $searchQuery)
                             .foregroundStyle(V4.ink)
                             .font(.system(size:14, weight: .medium))
                         if !searchQuery.isEmpty {
@@ -116,61 +109,35 @@ struct V4RoomsViewLive: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // M32: фильтр-пилюли
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(RoomFilter.allCases, id: \.self) { f in
-                            Button {
-                                HapticManager.selection()
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) { roomFilter = f }
-                            } label: {
-                                Text(f.rawValue)
-                                    .font(.system(size: 12, weight: roomFilter == f ? .bold : .medium))
-                                    .foregroundStyle(roomFilter == f ? theme.buttonTextColor : V4.muted)
-                                    .padding(.horizontal, 14)
-                                    .frame(minHeight: 44)
-                                    .background(roomFilter == f ? theme.accentColor : V4.cardBG.opacity(0.5), in: Capsule())
-                            }.buttonStyle(.plain)
-                        }
-                    }.padding(.horizontal, 18)
-                }.padding(.bottom, 12)
-
                 if let rs = roomsStore {
                     switch rs.state {
                     case .loading:
                         RoundedRectangle(cornerRadius: 29).fill(V4.cardBG).frame(height: 235).padding(.horizontal,13).padding(.bottom,28)
                             .overlay { ProgressView().tint(theme.accentColor) }
                     case .loaded:
-                        if let hero = rs.heroRoom {
-                            roomFeatureCard(hero)
-                                .padding(.horizontal, 18)
-                                .padding(.bottom, 26)
+                        let filteredRooms = rs.rooms.filter { room in
+                            searchQuery.isEmpty ||
+                            room.name.localizedCaseInsensitiveContains(searchQuery) ||
+                            room.hostName.localizedCaseInsensitiveContains(searchQuery) ||
+                            (room.mediaItem?.title.localizedCaseInsensitiveContains(searchQuery) ?? false)
                         }
-                        // M32/M33: поиск + фильтр (в т.ч. по друзьям) + обложки
-                        let friendNames: Set<String> = Set(FriendManager.shared.friends.map { $0.username.lowercased() })
-                        let filteredRail: [Room] = rs.railRooms.filter { room in
-                            let matchesSearch = searchQuery.isEmpty || room.name.localizedCaseInsensitiveContains(searchQuery)
-                            let matchesFilter: Bool
-                            switch roomFilter {
-                            case .all: matchesFilter = true
-                            case .active: matchesFilter = room.isActive
-                            case .friends: matchesFilter = friendNames.contains(room.hostName.lowercased())
-                            }
-                            return matchesSearch && matchesFilter
-                        }
-                        if filteredRail.isEmpty && rs.heroRoom == nil {
+                        let featuredRoom: Room? = searchQuery.isEmpty
+                            ? (rs.heroRoom ?? filteredRooms.first)
+                            : filteredRooms.first
+                        let filteredRail = filteredRooms.filter { $0.id != featuredRoom?.id }
+                        if filteredRooms.isEmpty {
                             VStack(spacing: 10) {
-                                Image(systemName: searchQuery.isEmpty && roomFilter == .all ? "person.3.sequence.fill" : "magnifyingglass")
+                                Image(systemName: searchQuery.isEmpty ? "person.3.sequence.fill" : "magnifyingglass")
                                     .font(.title2)
                                     .foregroundStyle(V4.muted)
-                                Text(searchQuery.isEmpty && roomFilter == .all ? "Пока нет активных комнат" : "Ничего не найдено")
+                                Text(searchQuery.isEmpty ? "Пока нет активных комнат" : "Ничего не найдено")
                                     .font(.headline)
-                                Text(searchQuery.isEmpty && roomFilter == .all ? "Создай первую комнату или войди по коду друга" : "Измени запрос или выбери другой фильтр")
+                                Text(searchQuery.isEmpty ? "Создай первую комнату или войди по коду друга" : "Проверь название комнаты или имя владельца")
                                     .font(.subheadline)
                                     .foregroundStyle(V4.muted)
                                     .multilineTextAlignment(.center)
-                                if searchQuery.isEmpty && roomFilter == .all {
-                                    Button("Создать комнату") { createRoom?() }
+                                if searchQuery.isEmpty {
+                                    Button("Создать комнату") { createRoom() }
                                         .buttonStyle(.borderedProminent)
                                         .tint(theme.accentColor)
                                         .foregroundStyle(theme.buttonTextColor)
@@ -181,12 +148,19 @@ struct V4RoomsViewLive: View {
                             .padding(.horizontal, 24)
                             .padding(.vertical, 40)
                         } else {
+                            if let featuredRoom {
+                                roomFeatureCard(featuredRoom)
+                                    .padding(.horizontal, 18)
+                                    .padding(.bottom, 26)
+                            }
+                            if !filteredRail.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 11) {
                                     ForEach(filteredRail) { room in
                                         roomRailCard(room)
                                     }
                                 }.padding(.horizontal, 19)
+                            }
                             }
                         }
                     case .empty:
@@ -198,7 +172,7 @@ struct V4RoomsViewLive: View {
                             Text("Создай свою комнату и пригласи друзей смотреть вместе").font(.subheadline).foregroundStyle(V4.muted)
                                 .multilineTextAlignment(.center)
                             Button {
-                                createRoom?()
+                                createRoom()
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "plus")
@@ -236,7 +210,7 @@ struct V4RoomsViewLive: View {
     private func roomFeatureCard(_ room: Room) -> some View {
         Button {
             HapticManager.impact(.medium)
-            openRoom()
+            openRoom(room)
         } label: {
             ZStack(alignment: .bottomLeading) {
                 roomArtwork(room)
@@ -287,7 +261,7 @@ struct V4RoomsViewLive: View {
 
                     HStack(spacing: 8) {
                         Image(systemName: "person.crop.circle.fill")
-                        Text("\(room.name) · \(room.hostName)")
+                        Text("\(room.name) · Владелец: \(room.hostName)")
                             .lineLimit(1)
                     }
                     .font(.system(size: 12, weight: .semibold))
@@ -315,7 +289,7 @@ struct V4RoomsViewLive: View {
     private func roomRailCard(_ room: Room) -> some View {
         Button {
             HapticManager.impact(.light)
-            openRoom()
+            openRoom(room)
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 ZStack(alignment: .topLeading) {

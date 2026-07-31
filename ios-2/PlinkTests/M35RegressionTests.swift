@@ -5,13 +5,8 @@ import XCTest
 
 final class M35RegressionTests: XCTestCase {
 
-    // M30: фильтры главной — порядок и названия пилюль
-    func testHomeFilterCases() {
-        XCTAssertEqual(
-            HomeFilter.allCases.map(\.rawValue),
-            ["Всё", "Популярное", "Смотрят", "Друзья"]
-        )
-    }
+    // Home no longer duplicates Rooms filters. Discovery is a content feed;
+    // room filtering and management belong to the Rooms destination.
 
     // M32: прогресс истории просмотров ограничен 1.0
     func testWatchHistoryProgressClamped() {

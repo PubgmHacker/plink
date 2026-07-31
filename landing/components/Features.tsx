@@ -50,9 +50,6 @@ export default function Features() {
       className="relative py-section-md lg:py-section-lg"
       aria-label="Возможности"
     >
-      {/* Subtle bg */}
-      <div className="absolute inset-0 bg-surface/30" />
-
       <div className="container-main relative">
         {/* Header — not centered */}
         <div className="mb-20 grid gap-8 lg:grid-cols-12 lg:items-end">

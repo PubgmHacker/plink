@@ -70,7 +70,7 @@ export default function Footer() {
                 <li key={link.label}>
                   <a
                     href={link.href}
-                    className="text-sm text-text-secondary transition-colors hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent"
+                    className="text-sm text-text-secondary transition-colors hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent inline-block py-2"
                   >
                     {link.label}
                   </a>

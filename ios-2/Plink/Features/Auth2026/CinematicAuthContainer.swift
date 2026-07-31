@@ -56,13 +56,7 @@ struct CinematicAuthContainer<Content: View>: View {
 
 // MARK: - Стили кнопок
 
-/// Главная кнопка: единственное цветное пятно чёрно-белого шелла.
-///
-/// Решение владельца 26.07.2026: обёртка приложения монохромная (как маркетинг
-/// Rave/Hearo), но кнопка «пуск» получает каплю цвета — тот же градиент
-/// белый → teal, что на play-кадре иконки, чтобы вход и иконка читались как одна
-/// вещь. Тёмный текст остаётся контрастным на обоих концах градиента
-/// (#070809 на #FFFFFF ≈ 20:1, на #19E0C0 ≈ 12:1).
+/// Main action: a restrained cobalt surface with fixed geometry.
 struct AuthPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -70,15 +64,25 @@ struct AuthPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 16, weight: .bold))
-            .foregroundStyle(PlinkTheatre.velvetDeep)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .frame(height: CompactPhoneMetrics.primaryButtonHeight)
-            .background(PlinkTheatre.ignitionGradient, in: Capsule())
-            .overlay(Capsule().strokeBorder(PlinkTheatre.tealBright.opacity(0.55), lineWidth: 1))
+            .frame(height: 56)
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 0.04, green: 0.48, blue: 1.0), Color(red: 0.10, green: 0.27, blue: 0.93)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+            )
             .shadow(
-                color: PlinkTheatre.tealDeep.opacity(configuration.isPressed ? 0.16 : 0.34),
-                radius: configuration.isPressed ? 8 : 20,
-                y: 6
+                color: Color(red: 0.04, green: 0.39, blue: 1).opacity(configuration.isPressed ? 0.14 : 0.30),
+                radius: configuration.isPressed ? 8 : 18,
+                y: 8
             )
             .opacity(isEnabled ? 1 : 0.45)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
@@ -98,9 +102,12 @@ struct AuthProviderButtonStyle: ButtonStyle {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(PlinkTheatre.screen)
             .frame(maxWidth: .infinity)
-            .frame(height: CompactPhoneMetrics.primaryButtonHeight)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(PlinkTheatre.hairline, lineWidth: 1))
+            .frame(height: 56)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+            )
             .opacity(configuration.isPressed ? 0.82 : 1)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .animation(
@@ -138,7 +145,7 @@ struct CompactAuthField: View {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(focused ? PlinkTheatre.teal : PlinkTheatre.muted)
+                    .foregroundStyle(focused ? PlinkTheatre.tealDeep : PlinkTheatre.muted)
                     .frame(width: 18)
             }
             Group {
@@ -156,18 +163,19 @@ struct CompactAuthField: View {
             .onSubmit { onSubmit?() }
             .focused($focused)
             .foregroundStyle(PlinkTheatre.screen)
-            .tint(PlinkTheatre.teal)
+            .tint(PlinkTheatre.tealDeep)
         }
         .padding(.horizontal, 18)
-        .frame(height: 52)
-        .background(.ultraThinMaterial, in: Capsule())
+        .frame(height: 56)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
-            Capsule().strokeBorder(
-                focused ? PlinkTheatre.teal.opacity(0.75) : PlinkTheatre.hairline,
-                lineWidth: focused ? 1.2 : 1
-            )
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(
+                    focused ? PlinkTheatre.tealDeep.opacity(0.78) : PlinkTheatre.hairline,
+                    lineWidth: focused ? 1.3 : 1
+                )
         )
-        .shadow(color: PlinkTheatre.teal.opacity(focused ? 0.16 : 0), radius: 12)
+        .shadow(color: PlinkTheatre.tealDeep.opacity(focused ? 0.15 : 0), radius: 12)
         .animation(.easeOut(duration: 0.18), value: focused)
         .accessibilityLabel(title)
     }

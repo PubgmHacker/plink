@@ -97,13 +97,6 @@ struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
 // MARK: - Live Screen Variants (P0: Real backend data)
 
 // M30: фильтры главной
-enum HomeFilter: String, CaseIterable {
-    case all = "Всё"
-    case popular = "Популярное"
-    case watching = "Смотрят"
-    case friends = "Друзья"
-}
-
 struct V4HomeViewLive: View {
     let theme: V4Theme
     @Bindable var searchStore: V4SearchStore
@@ -121,8 +114,7 @@ struct V4HomeViewLive: View {
     @ObservedObject private var dmInbox = DMChatService.shared
     @ObservedObject private var groupInbox = GroupChatService.shared
     @State private var showScheduleSheet = false  // M12: планирование сеансов
-    @State private var homeFilter: HomeFilter = .all  // M30
-    @State private var isRefreshing = false            // M30
+    @State private var isRefreshing = false
     @State private var previewItem: V4SearchResult?    // M34: превью перед созданием комнаты
 
     // Discovery is an intentional action inside the content hierarchy. A sticky
@@ -224,31 +216,12 @@ struct V4HomeViewLive: View {
                         .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
                 }
-                V4Heading(eyebrow: timeOfDayGreeting, title: "С кем смотрим?")
+                V4Heading(eyebrow: timeOfDayGreeting, title: "Что посмотрим?")
                     .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,19).padding(.bottom,18)
 
                 discoveryEntry
                     .padding(.horizontal, 19)
                     .padding(.bottom, 20)
-
-                // Home filters describe content after the product action is clear.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(HomeFilter.allCases, id: \.self) { f in
-                            Button {
-                                HapticManager.selection()
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) { homeFilter = f }
-                            } label: {
-                                Text(f.rawValue)
-                                    .font(.system(size: 12, weight: homeFilter == f ? .bold : .medium))
-                                    .foregroundStyle(homeFilter == f ? activeBtnText : V4.muted)
-                                    .padding(.horizontal, 14)
-                                    .frame(minHeight: 44)
-                                    .background(homeFilter == f ? activeAccent : V4.cardBG.opacity(0.5), in: Capsule())
-                            }.buttonStyle(.plain)
-                        }
-                    }.padding(.horizontal, 19)
-                }.padding(.bottom, 16)
 
                 // M20: skeleton пока trending не загружен; M31: fallback если пусто
                 if searchStore.trending.isEmpty {
@@ -262,7 +235,7 @@ struct V4HomeViewLive: View {
                 }
 
                 // Hero — only live trending rooms/videos (no promo video banners)
-                if !searchStore.trending.isEmpty && (homeFilter == .all || homeFilter == .popular) {
+                if !searchStore.trending.isEmpty {
                     TabView {
                         ForEach(searchStore.trending.prefix(5)) { item in
                             V4Hero(
@@ -286,7 +259,7 @@ struct V4HomeViewLive: View {
                 }
 
                 // "Популярное" — auto-scrolling carousel, bigger posters
-                if !searchStore.trending.isEmpty && (homeFilter == .all || homeFilter == .popular) {
+                if !searchStore.trending.isEmpty {
                     HStack { Text(L.string(.homePopular)).font(.system(size:24,weight:.heavy)).foregroundStyle(V4.ink); Spacer() }
                         .padding(.horizontal,19).padding(.bottom,14)
                     AutoScrollCarousel(items: Array(searchStore.trending.prefix(10)), cardWidth: 250) { item in
@@ -321,7 +294,7 @@ struct V4HomeViewLive: View {
                 }
 
                 // Рекомендации — bigger cards, more prominent
-                if searchStore.trending.count > 5 && (homeFilter == .all || homeFilter == .popular) {
+                if searchStore.trending.count > 5 {
                     HStack { Text(L.string(.homeRecommendations)).font(.system(size:22,weight:.heavy)).foregroundStyle(V4.ink); Spacer() }
                         .padding(.horizontal,19).padding(.bottom,12)
                     ScrollView(.horizontal,showsIndicators:false) { HStack(spacing:12) {
@@ -340,7 +313,8 @@ struct V4HomeViewLive: View {
                         .padding(.bottom, 18)
                 }
 
-                // "Смотрят сейчас" — poster-based cards: video thumbnail + viewer count + host
+                // Live rooms are a concise preview on Home. Room discovery,
+                // filtering, codes and creation belong to the Rooms tab.
                 HStack(spacing:8) {
                     Circle().fill(V4.danger).frame(width:8,height:8)
                         .shadow(color: V4.danger.opacity(0.6), radius: 4)
@@ -408,16 +382,9 @@ struct V4HomeViewLive: View {
                 }
                 .frame(height: 334)
 
-                // M31: друзья смотрят + новинки недели
-                if homeFilter == .all || homeFilter == .friends {
-                    FriendsWatchingSection(theme: theme, openRoom: { openRoomsTab?() })
-                        .padding(.top, 10)
-                        .padding(.bottom, 18)
-                }
-                if homeFilter == .all {
-                    NewThisWeekSection(theme: theme)
-                        .padding(.bottom, 10)
-                }
+                // Home remains a content feed. Social room management stays in Rooms.
+                NewThisWeekSection(theme: theme)
+                    .padding(.bottom, 10)
             }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
         .refreshable {
@@ -566,7 +533,7 @@ struct V4HomeViewLive: View {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     roomArtwork(room)
-                        .frame(height: 220)
+                        .frame(height: 190)
                         .clipped()
 
                     LinearGradient(
@@ -629,7 +596,7 @@ struct V4HomeViewLive: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(V4.ink)
                             .lineLimit(1)
-                        Text("Хост · \(room.hostName)")
+                        Text("Владелец · \(room.hostName)")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(V4.muted)
                             .lineLimit(1)
@@ -653,7 +620,7 @@ struct V4HomeViewLive: View {
                     )
                 )
             }
-            .frame(width: 320, height: 324)
+            .frame(width: 292, height: 294)
             .background(
                 RoundedRectangle(cornerRadius: 30, style: .continuous)
                     .fill(
@@ -679,7 +646,7 @@ struct V4HomeViewLive: View {
             .shadow(color: .black.opacity(0.46), radius: 28, y: 16)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(room.mediaItem?.title ?? room.name), хост \(room.hostName), \(room.participantCount) участников")
+        .accessibilityLabel("\(room.mediaItem?.title ?? room.name), владелец комнаты \(room.hostName), \(room.participantCount) участников")
         .accessibilityHint("Открыть комнату")
     }
 

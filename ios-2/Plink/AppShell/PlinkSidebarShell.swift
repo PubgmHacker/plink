@@ -126,7 +126,7 @@ struct PlinkSidebarShell: View {
             V4RoomsViewLive(
                 theme: theme,
                 roomsStore: roomsStore,
-                openRoom: { openFirstRoom() },
+                openRoom: { room in openRoom(room) },
                 createRoom: { createPresented = true },
                 joinByCode: { showJoinByCode = true }
             )
@@ -198,18 +198,19 @@ struct PlinkSidebarShell: View {
         PlinkAvatarURL.bumpSessionBust()
     }
 
-    /// Открывает hero/первую комнату (джойн — чтобы presence/sync работали).
-    private func openFirstRoom() {
-        guard let rs = roomsStore else { return }
-        guard let room = rs.heroRoom ?? rs.railRooms.first else { return }
+    private func openRoom(_ room: Room) {
         Task {
             do {
                 let joined = try await RoomService(api: dependencies.apiClient).joinRoom(code: room.code)
                 await MainActor.run { roomToPresent = joined }
             } catch {
-                // Уже участник / сетевой сбой — показываем снапшот из списка
                 await MainActor.run { roomToPresent = room }
             }
         }
+    }
+
+    private func openFirstRoom() {
+        guard let room = roomsStore?.heroRoom ?? roomsStore?.railRooms.first else { return }
+        openRoom(room)
     }
 }

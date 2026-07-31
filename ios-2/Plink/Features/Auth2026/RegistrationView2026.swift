@@ -1,14 +1,9 @@
-// Plink/Features/Auth2026/RegistrationView2026.swift — Auth 2026 redesign
-//
-// Регистрация в языке «кинозал»: бархат + луч проектора, компактный
-// «кадр в кадр», стеклянные капсулы-поля, teal-CTA, янтарные ошибки.
+// Plink/Features/Auth2026/RegistrationView2026.swift
+// Focused account creation: one route, plain-language validation, one consent.
 
 import SwiftUI
 
 struct RegistrationView2026: View {
-    @EnvironmentObject private var apiClient: APIClient
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     @State private var displayName = ""
     @State private var username = ""
     @State private var email = ""
@@ -20,99 +15,63 @@ struct RegistrationView2026: View {
     let onRegistered: () -> Void
     let onLogin: () -> Void
 
-    private var spring: Animation? {
-        reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86)
-    }
-
-    private var canRegister: Bool {
-        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        usernameIssues.isEmpty &&
-        email.contains("@") &&
-        passwordIssues.isEmpty &&
-        acceptsTerms
-    }
-
-    /// Аудит 26.07.2026 P2: чек-лист и `canRegister` разъезжались — пункт
-    /// «МИНИМУМ 1 ЦИФРА» горел, а кнопка была активна. Требования сведены
-    /// к серверной zod-схеме (signupBody: password min 6, цифра не нужна).
-    private var passwordIssues: [String] {
-        var issues: [String] = []
-        if password.count < 6 { issues.append("МИНИМУМ 6 СИМВОЛОВ") }
-        return issues
-    }
-
-    /// Username по серверному правилу: `^[A-Za-z][A-Za-z0-9_]{4,31}$`.
-    /// Раньше клиент пускал 3 символа и точки — сервер отвечал 400 уже
-    /// после нажатия кнопки.
-    private var normalizedUsername: String {
+    private var cleanUsername: String {
         username.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "@", with: "")
     }
 
-    private var usernameIssues: [String] {
-        let name = normalizedUsername
-        var issues: [String] = []
-        if name.count < 5 || name.count > 32 { issues.append("USERNAME: 5–32 СИМВОЛА") }
-        if let first = name.first, !(first.isASCII && first.isLetter) {
-            issues.append("USERNAME НАЧИНАЕТСЯ С БУКВЫ")
-        }
-        if name.contains(where: { !($0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_")) }) {
-            issues.append("USERNAME: A–Z, 0–9, _")
-        }
-        return issues
+    private var usernameIsValid: Bool {
+        cleanUsername.count >= 5 && cleanUsername.count <= 32 &&
+        cleanUsername.first.map { $0.isASCII && $0.isLetter } == true &&
+        cleanUsername.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+    }
+
+    private var canRegister: Bool {
+        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        usernameIsValid &&
+        email.trimmingCharacters(in: .whitespacesAndNewlines).contains("@") &&
+        password.count >= 6 &&
+        acceptsTerms &&
+        !isLoading
     }
 
     var body: some View {
-        ZStack {
-            // ═══ Бархат зала + луч проектора ═══
-            ProjectorBeamBackground()
+        ZStack(alignment: .topLeading) {
+            registrationBackdrop
 
             ScrollView {
                 VStack(spacing: 0) {
-                    // ── Герой: компактный «кадр в кадр» ──
-                    PlinkFrameMark(size: 56)
-                        .padding(.top, 36)
-                        .padding(.bottom, 16)
+                    header
+                        .padding(.top, 64)
+                        .padding(.bottom, 32)
 
-                    Text("Создать аккаунт")
-                        .font(.system(size: 26, weight: .heavy))
-                        .tracking(-0.5)
-                        .foregroundStyle(PlinkTheatre.screen)
-                        .padding(.bottom, 8)
+                    VStack(spacing: 13) {
+                        if let errorMessage {
+                            AuthInlineNotice(text: errorMessage)
+                                .transition(.opacity)
+                        }
 
-                    AuthMonoTag(text: "НОВЫЙ БИЛЕТ · PLINK")
-                        .padding(.bottom, 28)
-
-                    // ── Поля ──
-                    VStack(spacing: 12) {
                         CompactAuthField(
-                            title: "Имя",
+                            title: "Как вас называть",
                             text: $displayName,
                             icon: "person",
                             contentType: .name,
                             capitalization: .words
                         )
-                        // Group — чтобы не выйти за 10 вьюх ViewBuilder'а VStack.
-                        Group {
-                            CompactAuthField(
-                                title: "Username",
-                                text: $username,
-                                icon: "at",
-                                contentType: .username
-                            )
 
-                            // Подсказку показываем и при пустом поле: username
-                            // обязателен, иначе кнопка неактивна без объяснений.
-                            if !usernameIssues.isEmpty {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(usernameIssues, id: \.self) { issue in
-                                        AuthMonoTag(text: issue)
-                                    }
-                                }
+                        CompactAuthField(
+                            title: "Имя пользователя",
+                            text: $username,
+                            icon: "at",
+                            contentType: .username
+                        )
+
+                        if !username.isEmpty && !usernameIsValid {
+                            Text("5–32 символа, первая — буква; можно использовать A–Z, 0–9 и _")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(PlinkTheatre.amber)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 6)
-                                .transition(.opacity)
-                            }
+                                .padding(.horizontal, 6)
                         }
 
                         CompactAuthField(
@@ -122,119 +81,156 @@ struct RegistrationView2026: View {
                             contentType: .emailAddress,
                             keyboard: .emailAddress
                         )
+
                         CompactAuthField(
-                            title: "Пароль",
+                            title: "Пароль — не меньше 6 символов",
                             text: $password,
                             icon: "lock",
                             contentType: .newPassword,
                             secure: true,
-                            submitLabel: .done
+                            submitLabel: .done,
+                            onSubmit: {
+                                if canRegister { Task { await register() } }
+                            }
                         )
 
-                        if !password.isEmpty && !passwordIssues.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(passwordIssues, id: \.self) { issue in
-                                    AuthMonoTag(text: issue)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 6)
-                            .transition(.opacity)
-                        }
+                        consent
+                            .padding(.top, 2)
 
-                        Toggle(isOn: $acceptsTerms) {
-                            Text("Принимаю Условия и Политику")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(PlinkTheatre.muted)
-                        }
-                        .tint(PlinkTheatre.tealDeep)
-                        .padding(.horizontal, 6)
-                        .padding(.top, 4)
-                        .onChange(of: acceptsTerms) { _, _ in
-                            HapticManager.selection()
-                        }
-
-                        if let errorMessage {
-                            AuthInlineNotice(text: errorMessage)
-                                .transition(.opacity)
-                        }
-
-                        // ── Главная кнопка: сплошной teal ──
                         Button {
                             HapticManager.impact(.medium)
                             Task { await register() }
                         } label: {
                             ZStack {
                                 if isLoading {
-                                    ProgressView()
-                                        .tint(PlinkTheatre.velvetDeep)
+                                    ProgressView().tint(.white)
                                 } else {
                                     Text("Создать аккаунт")
                                 }
                             }
                         }
                         .buttonStyle(AuthPrimaryButtonStyle())
-                        .disabled(!canRegister || isLoading)
-                        .padding(.top, 8)
-                        .accessibilityLabel("Создать аккаунт")
+                        .disabled(!canRegister)
+                        .padding(.top, 6)
+                        .accessibilityIdentifier("auth.register")
 
-                        // ── Вторичная: стеклянная ──
-                        Button {
+                        Button("Уже есть аккаунт? Войти") {
                             HapticManager.selection()
                             onLogin()
-                        } label: {
-                            Text("У меня уже есть аккаунт")
                         }
                         .buttonStyle(AuthProviderButtonStyle())
-                        // Пока идёт регистрация — уйти на вход нельзя,
-                        // иначе ответ приходит в уже закрытый экран.
                         .disabled(isLoading)
-
-                        LegalConsentFooter()
-                            .padding(.top, 10)
                     }
+                    .frame(maxWidth: 410)
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 40)
                 }
-                .frame(maxWidth: 430)
-                .padding(.horizontal, 28)
                 .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
+
+            Button {
+                HapticManager.selection()
+                onLogin()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().stroke(PlinkTheatre.hairline))
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 18)
+            .padding(.top, 12)
+            .accessibilityLabel("Вернуться ко входу")
         }
         .preferredColorScheme(.dark)
-        .animation(spring, value: passwordIssues)
-        .animation(spring, value: usernameIssues)
-        .animation(spring, value: errorMessage)
+    }
+
+    private var registrationBackdrop: some View {
+        ZStack {
+            Color(red: 0.018, green: 0.025, blue: 0.045)
+            RadialGradient(
+                colors: [Color(red: 0.08, green: 0.29, blue: 0.78).opacity(0.52), .clear],
+                center: UnitPoint(x: 0.08, y: 0.0),
+                startRadius: 0,
+                endRadius: 520
+            )
+            LinearGradient(colors: [.clear, .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var header: some View {
+        VStack(spacing: 0) {
+            PlinkFrameMark(size: 66)
+                .padding(.bottom, 18)
+            Text("Присоединяйтесь к просмотру")
+                .font(.system(size: 28, weight: .black))
+                .tracking(-0.8)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+            Text("Создайте профиль — это займёт меньше минуты.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PlinkTheatre.muted)
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var consent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                acceptsTerms.toggle()
+                HapticManager.selection()
+            } label: {
+                Image(systemName: acceptsTerms ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(acceptsTerms ? PlinkTheatre.tealDeep : PlinkTheatre.muted)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Принять условия и политику конфиденциальности")
+            .accessibilityValue(acceptsTerms ? "Принято" : "Не принято")
+            .accessibilityAddTraits(acceptsTerms ? [.isSelected] : [])
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Я принимаю правила Plink")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Link("Условия", destination: URL(string: "https://plink.app/terms")!)
+                    Text("и")
+                    Link("Политику конфиденциальности", destination: URL(string: "https://plink.app/privacy")!)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(PlinkTheatre.muted)
+                .tint(PlinkTheatre.tealDeep)
+            }
+            .padding(.top, 5)
+            Spacer(minLength: 0)
+        }
     }
 
     private func register() async {
         guard !isLoading else { return }
+        guard canRegister else {
+            errorMessage = "Проверьте поля и примите правила Plink"
+            HapticManager.errorOccurred()
+            return
+        }
+
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
-        // Всегда через общий AuthService — сессия видна всему приложению.
-        let authService = AuthService.shared
-
-        let cleanUsername = normalizedUsername
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard canRegister else {
-            errorMessage = "Заполни все поля и прими условия"
-            return
-        }
-
         do {
-            // cleanUsername уже прошёл проверку canRegister (серверное правило),
-            // поэтому подстановка из email больше не нужна — она давала
-            // невалидные имена вроде «ab» и 400 от сервера.
-            _ = try await authService.signUp(
-                email: cleanEmail,
-                password: password,
-                username: cleanUsername
-            )
-            // Имя профиля — best-effort после регистрации.
+            let authService = AuthService.shared
+            _ = try await authService.signUp(email: cleanEmail, password: password, username: cleanUsername)
             if !cleanName.isEmpty {
                 _ = try? await authService.updateProfile(displayName: cleanName)
             }
@@ -242,14 +238,10 @@ struct RegistrationView2026: View {
                 APIClient.shared.authToken = token
             }
             HapticManager.notification(.success)
-            await MainActor.run {
-                onRegistered()
-            }
+            onRegistered()
         } catch {
-            errorMessage = error.localizedDescription.isEmpty
-                ? "Ошибка регистрации. Попробуйте другой username или email."
-                : error.localizedDescription
             HapticManager.errorOccurred()
+            errorMessage = AuthErrorCopy.message(for: error)
         }
     }
 }
