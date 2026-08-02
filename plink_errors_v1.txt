@@ -1,4 +1,0 @@
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V4/V4HomeViewLive.swift:18:13: error: cannot find 'showUnifiedSearch' in scope
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V4/V4HomeViewLive.swift:453:38: error: cannot find 'stickySearchBar' in scope
-** BUILD FAILED **
-The following build commands failed:
