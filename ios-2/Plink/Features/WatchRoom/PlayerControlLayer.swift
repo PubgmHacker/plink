@@ -10,6 +10,7 @@
 //   - PlayerLoadingView   (initial buffer spinner)
 //   - BufferingOverlay    (mid-playback rebuffer)
 //   - SyncHealthPill      (drift indicator)
+//   - RoomVoiceButton     (микрофон в комнате — функция Плинк+)
 //
 // Professional sizing:
 //   - Chrome buttons: 36pt (was 32pt) — meets 36pt min touch target.
@@ -419,6 +420,11 @@ struct PlinkPlayerControls: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel((embedded?.isMuted ?? false) ? "Включить звук" : "Выключить звук")
 
+                // Микрофон комнаты — функция Плинк+ (02.08.2026).
+                // В личных сообщениях голос бесплатен и живёт в другом экране —
+                // этот компонент намеренно только для комнаты.
+                RoomVoiceButton(model: model, ui: $ui)
+
                 // Полный экран
                 Button {
                     HapticManager.impact(.medium)
@@ -501,6 +507,146 @@ struct PlinkPlayerControls: View {
         default: return raw
         }
     }
+}
+
+// MARK: - Микрофон в комнате — пэйволл Плинк+ (02.08.2026)
+//
+// Решение продукта: голос и видеочат В КОМНАТЕ — платные, голос в ЛИЧНЫХ
+// СООБЩЕНИЯХ — бесплатный для всех. Поэтому замок рисуется только здесь,
+// в панели комнаты, и никогда — на экране переписки.
+//
+// Право решает СЕРВЕР, а не клиент. Локальный isPremium используется только
+// для внешнего вида замка: показать замок или нет — косметика, а пустить ли
+// в эфир — решает POST /rtc/token. Поэтому тап всегда идёт на сервер,
+// даже если клиент думает, что подписки нет — иначе человек с только что
+// оформленной подпиской упирался бы в старый кэш.
+
+struct RoomVoiceButton: View {
+    let model: WatchRoomModel
+    @Binding var ui: WatchRoomUIState
+
+    @ObservedObject private var premium = PremiumStatusManager.shared
+    @State private var isRequesting = false
+    @State private var micLive = false
+
+    private var showsLock: Bool { !premium.isPremium && !micLive }
+
+    var body: some View {
+        Button {
+            guard !isRequesting else { return }
+            HapticManager.impact(.light)
+            Task { await handleTap() }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: micLive ? "mic.fill" : "mic.slash.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(micLive ? PlinkRoomAccent.current : .white)
+                    .frame(width: 32, height: 32)
+                    .plinkGlass(.overlay, in: Circle())
+
+                if showsLock {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 8, weight: .black))
+                        .foregroundStyle(.black)
+                        .padding(3)
+                        .background(PlinkRoomAccent.current, in: Circle())
+                        .offset(x: 3, y: -3)
+                }
+
+                if isRequesting {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                        .frame(width: 32, height: 32)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isRequesting)
+        .accessibilityLabel(showsLock
+            ? "Микрофон в комнате — функция Плинк плюс"
+            : (micLive ? "Выключить микрофон" : "Включить микрофон"))
+    }
+
+    @MainActor
+    private func handleTap() async {
+        // Выключение не требует ни подписки, ни сети.
+        if micLive {
+            micLive = false
+            return
+        }
+
+        let roomId = model.shareRoomId
+        guard !roomId.isEmpty else {
+            ui.activeToast = RoomToast(kind: .info, text: "Комната ещё не готова, попробуйте через секунду")
+            return
+        }
+
+        isRequesting = true
+        defer { isRequesting = false }
+
+        do {
+            let _: RTCTokenResponse = try await APIClient.shared.request(
+                "rtc/token",
+                method: .post,
+                body: RTCTokenRequest(roomId: roomId)
+            )
+
+            // Право есть. Разрешение на микрофон спрашиваем ТОЛЬКО здесь — после
+            // того как сервер подтвердил доступ. Спрашивать системное разрешение
+            // у человека, которому сейчас покажут экран покупки — верный способ
+            // получить отказ навсегда: повторно iOS его не покажет.
+            let granted = await PlinkPermissions.requestMicrophoneIfNeeded()
+            guard granted else {
+                ui.activeToast = RoomToast(kind: .info, text: "Разрешите доступ к микрофону в настройках")
+                return
+            }
+
+            micLive = true
+            AnalyticsService.shared.voiceChatStarted()
+            ui.activeToast = RoomToast(kind: .info, text: "Микрофон включён")
+        } catch APIError.subscriptionRequired {
+            // 402 — штатный путь обычного пользователя. Открываем экран покупки
+            // через штатную нотификацию: её уже слушает WatchRoomContainer и держит
+            // шит выше хрома плеера. Собственный .sheet здесь умирал бы вместе
+            // с автоскрытием контролов через несколько секунд.
+            AnalyticsService.shared.track("paywall_view", parameters: [
+                "source": "mic_room",
+                "feature": "room_rtc",
+            ])
+            NotificationCenter.default.post(
+                name: .showPlinkPlusPaywall,
+                object: nil,
+                userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
+            )
+        } catch APIError.unavailable(let reason, let message) {
+            // 503 — функция ещё не включена (нет ключей LiveKit). Это не ошибка
+            // и НЕ повод продавать подписку: подписчик должен увидеть честное
+            // «скоро», а не молчаливый отказ.
+            let text = reason == "not_configured"
+                ? "Голос в комнате скоро появится"
+                : message
+            ui.activeToast = RoomToast(kind: .info, text: text)
+        } catch {
+            ui.activeToast = RoomToast(kind: .info, text: "Не удалось включить микрофон")
+        }
+    }
+}
+
+/// Тело запроса POST /api/rtc/token.
+struct RTCTokenRequest: Encodable {
+    let roomId: String
+}
+
+/// Ответ POST /api/rtc/token. Поля url/roomName опциональные намеренно:
+/// контракт будет расширяться при реальном включении LiveKit, и жёсткий
+/// декодер ломал бы клиент на первом же новом поле.
+struct RTCTokenResponse: Decodable {
+    let token: String
+    let url: String?
+    let roomName: String?
+    let identity: String?
+    let expiresInSec: Int?
 }
 
 // MARK: - Sync health pill
