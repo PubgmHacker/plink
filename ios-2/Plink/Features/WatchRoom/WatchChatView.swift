@@ -122,7 +122,7 @@ struct WatchChatView: View {
                         }
                         .foregroundStyle(Cinema2026.text)
                         .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .plinkGlass(.overlay, in: Circle())
                         .overlay(Circle().stroke(.white.opacity(0.1), lineWidth: 0.5))
                         .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
                     }

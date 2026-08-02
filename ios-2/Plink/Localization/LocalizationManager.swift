@@ -524,6 +524,7 @@ enum L10n {
         case plusBenefitCapacity20 = "plus.benefitCapacity20"
         case plusBenefitVideoFilters = "plus.benefitVideoFilters"
         case plusBenefitCineBubbles = "plus.benefitCineBubbles"
+        case plusBenefitVoiceChat = "plus.benefitVoiceChat"
 
     }
 

@@ -61,7 +61,7 @@ struct PlayerTopChrome: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(model.moderationBarVisible ? PlinkRoomAccent.current : Color.white.opacity(0.85))
                             .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .plinkGlass(.overlay, in: Circle())
                             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
@@ -81,7 +81,7 @@ struct PlayerTopChrome: View {
                                     : Color.white.opacity(0.85)
                             )
                             .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .plinkGlass(.overlay, in: Circle())
                             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
@@ -97,7 +97,7 @@ struct PlayerTopChrome: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(PlinkRoomAccent.current)
                         .frame(width: 36, height: 36)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .plinkGlass(.overlay, in: Circle())
                         .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
@@ -132,7 +132,7 @@ struct PlayerCenterControl: View {
                 .foregroundStyle(.white)
                 .offset(x: model.coordinator.isPlaying ? 0 : 1.5)
                 .frame(width: 64, height: 64)
-                .background(.ultraThinMaterial, in: Circle())
+                .plinkGlass(.overlay, in: Circle())
                 .overlay(
                     // M14: акцент выбранной V4-темы продолжается в комнате
                     Circle().stroke(PlinkRoomAccent.current.opacity(0.65), lineWidth: 1.2)
@@ -158,7 +158,7 @@ struct PlayerChromeButton: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Cinema2026.text)
                 .frame(width: 36, height: 36)
-                .background(.ultraThinMaterial, in: Circle())
+                .plinkGlass(.overlay, in: Circle())
                 .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
@@ -181,7 +181,7 @@ struct PlayerLoadingView: View {
                 .foregroundStyle(Cinema2026.secondary)
         }
         .padding(20)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .plinkGlass(.overlay, cornerRadius: 14)
     }
 }
 
@@ -191,7 +191,7 @@ struct BufferingOverlay: View {
             .tint(.white)
             .scaleEffect(0.95)
             .padding(18)
-            .background(.ultraThinMaterial, in: Circle())
+            .plinkGlass(.overlay, in: Circle())
             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
     }
 }
@@ -252,7 +252,7 @@ struct PlinkPlayerControls: View {
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 20).padding(.vertical, 12)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .plinkGlass(.overlay, in: Capsule(style: .continuous))
                     .transition(.scale.combined(with: .opacity))
                     .allowsHitTesting(false)
             }
@@ -300,7 +300,7 @@ struct PlinkPlayerControls: View {
                     .foregroundStyle(.white)
                     .offset(x: model.coordinator.isPlaying ? 0 : 2)
                     .frame(width: 68, height: 68)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .plinkGlass(.overlay, in: Circle())
                     .overlay(Circle().stroke(PlinkRoomAccent.current.opacity(0.65), lineWidth: 1.2))
                     .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
             }
@@ -326,7 +326,7 @@ struct PlinkPlayerControls: View {
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: size, height: size)
-                .background(.ultraThinMaterial, in: Circle())
+                .plinkGlass(.overlay, in: Circle())
         }
         .buttonStyle(.plain)
     }
@@ -414,7 +414,7 @@ struct PlinkPlayerControls: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .plinkGlass(.overlay, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel((embedded?.isMuted ?? false) ? "Включить звук" : "Выключить звук")
@@ -434,7 +434,7 @@ struct PlinkPlayerControls: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .plinkGlass(.overlay, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(variant == .landscape ? "Выйти из полного экрана" : "Полный экран")
@@ -456,7 +456,7 @@ struct PlinkPlayerControls: View {
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
+        .plinkGlass(.overlay, in: Capsule(style: .continuous))
     }
 
     // MARK: Вспомогательное
@@ -540,7 +540,7 @@ struct SyncHealthPill: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(.ultraThinMaterial, in: Capsule())
+        .plinkGlass(.overlay, in: Capsule(style: .continuous))
         .overlay(Capsule().stroke(.white.opacity(0.06), lineWidth: 0.5))
     }
 }

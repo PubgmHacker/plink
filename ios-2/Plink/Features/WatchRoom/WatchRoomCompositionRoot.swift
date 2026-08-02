@@ -432,14 +432,18 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
     }
 
     public func fetchMessages(roomId: String, after: String?) async throws -> ChatCatchupResponse {
-        var components = URLComponents(url: baseURL.appendingPathComponent("api/rooms/\(roomId)/messages"), resolvingAgainstBaseURL: false)!
+        guard let baseURL = URL(string: "\(PlinkConfig.baseURLString)/api/rooms/\(roomId)/messages"),
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw APIError.invalidResponse
+        }
         var items = [URLQueryItem(name: "limit", value: "100")]
         if let after = after {
             items.append(URLQueryItem(name: "cursor", value: after))
         }
         components.queryItems = items
 
-        let (data, _) = try await makeAuthenticatedRequest(url: components.url!)
+        guard let url = components.url else { throw APIError.invalidResponse }
+        let (data, _) = try await makeAuthenticatedRequest(url: url)
         let decoded = try JSONDecoder().decode(MessagesResponse.self, from: data)
         return ChatCatchupResponse(
             messages: decoded.messages.map { m in

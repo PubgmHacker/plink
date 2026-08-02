@@ -109,7 +109,7 @@ struct RoomPollCard: View {
             }
         }
         .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .plinkGlass(.overlay, cornerRadius: 16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(.white.opacity(0.15), lineWidth: 0.5)

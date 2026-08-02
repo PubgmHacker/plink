@@ -10,7 +10,7 @@ export default function FAQ() {
   return (
     <section
       id="faq"
-      className="relative py-section-md lg:py-section-lg"
+      className="relative py-24 lg:py-32"
       aria-label="Частые вопросы"
     >
       <div className="container-main">

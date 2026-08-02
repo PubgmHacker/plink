@@ -18,26 +18,26 @@ export default function Pricing() {
   };
 
   const current = PRICING[period];
-  const savings = period === "yearly" ? 598 : 0;
 
   return (
     <section
       id="pricing"
-      className="relative py-section-md lg:py-section-lg"
+      className="relative border-t border-surface-2 py-24 lg:py-32"
       aria-label="Тарифы"
     >
       <div className="container-main">
         {/* Header */}
-        <div className="mb-16 text-center">
-          <span className="section-label mb-4 block">Просто и честно</span>
+        <div className="mb-16">
+          <span className="section-label mb-4 block">Тарифы</span>
           <h2 className="text-display text-3xl text-text-primary sm:text-4xl lg:text-5xl">
-            Бесплатно — по-настоящему.<br />
-            <span className="text-accent">Плюс — по желанию.</span>
+            Смотрите бесплатно.
+            <br />
+            Плюс — за персонализацию.
           </h2>
         </div>
 
         {/* Toggle */}
-        <div className="mb-12 flex justify-center">
+        <div className="mb-12 flex">
           <div className="relative inline-flex rounded-xl border border-surface-2 bg-surface p-1">
             <motion.div
               layout
@@ -122,12 +122,9 @@ export default function Pricing() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.1, ease: [0.32, 0.72, 0, 1] }}
-            className="relative rounded-3xl border-2 border-accent bg-surface p-8 lg:p-10"
+            className="relative rounded-3xl border border-surface-2 bg-surface p-8 lg:p-10"
           >
-            {/* Badge */}
-            <div className="absolute -top-4 left-8 rounded-full bg-accent px-4 py-1.5 text-xs font-bold text-bg">
-              Рекомендуем
-            </div>
+            <div className="absolute inset-x-0 top-0 h-px bg-accent" aria-hidden="true" />
 
             <h3 className="text-display text-xl font-semibold text-text-primary">Plink+</h3>
             <p className="mt-2 text-text-secondary">Живые темы, премиальные реакции, кастомизация</p>
@@ -143,7 +140,7 @@ export default function Pricing() {
                   transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
                   className="flex items-baseline gap-2"
                 >
-                  <span className="text-display text-5xl font-bold text-accent">
+                  <span className="font-mono text-5xl font-medium text-accent">
                     {current.price.toLocaleString("ru-RU")}
                   </span>
                   <span className="text-lg text-text-secondary">₽/{current.period}</span>
@@ -159,7 +156,7 @@ export default function Pricing() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="text-sm text-text-muted"
+                  className="text-sm text-[#B0B7B3]"
                 >
                   {period === "yearly" ? (
                     <>
@@ -181,7 +178,6 @@ export default function Pricing() {
                 "Живые темы оформления комнат",
                 "Премиальные реакции",
                 "Кастомные темы приложения",
-                "Приоритетная поддержка",
               ].map((item, i) => (
                 <li key={i} className="flex items-center gap-3 text-sm text-text-primary">
                   <svg
@@ -209,7 +205,7 @@ export default function Pricing() {
               Оформить Plink+
             </a>
 
-            <p className="mt-4 text-center text-xs text-text-muted">
+            <p className="mt-4 text-center text-xs text-[#B0B7B3]">
               Подписка оформляется в приложении через App Store.
               Автопродление. Отмена — Настройки → Apple ID → Подписки.
             </p>

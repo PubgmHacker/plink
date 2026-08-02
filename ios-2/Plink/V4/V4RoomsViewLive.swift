@@ -242,7 +242,7 @@ struct V4RoomsViewLive: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
                             .frame(height: 28)
-                            .background(.ultraThinMaterial, in: Capsule())
+                            .plinkGlass(.control, in: Capsule(style: .continuous))
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 13, weight: .black))
@@ -311,7 +311,7 @@ struct V4RoomsViewLive: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 9)
                     .frame(height: 26)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .plinkGlass(.control, in: Capsule(style: .continuous))
                     .padding(12)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))

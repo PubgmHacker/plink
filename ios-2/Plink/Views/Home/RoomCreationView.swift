@@ -85,7 +85,7 @@ struct RoomCreationView: View {
                                 .foregroundStyle(Cinema2026.text)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
-                                .background(.ultraThinMaterial, in: Capsule())
+                                .plinkGlass(.control, in: Capsule(style: .continuous))
                             }
                             .buttonStyle(.plain)
                             Spacer()

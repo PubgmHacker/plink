@@ -7,7 +7,7 @@ import { APP_STORE_URL } from "@/lib/constants";
 const links = [
   { href: "#how-it-works", label: "Как работает" },
   { href: "#features", label: "Возможности" },
-  { href: "#platforms", label: "Платформы" },
+  { href: "#ecosystem", label: "Экосистема" },
   { href: "#pricing", label: "Тарифы" },
   { href: "#faq", label: "FAQ" },
 ];

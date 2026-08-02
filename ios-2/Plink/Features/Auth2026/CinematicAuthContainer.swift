@@ -103,7 +103,7 @@ struct AuthProviderButtonStyle: ButtonStyle {
             .foregroundStyle(PlinkTheatre.screen)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .plinkGlass(.control, cornerRadius: 18)
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
@@ -167,7 +167,7 @@ struct CompactAuthField: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 56)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .plinkGlass(.control, cornerRadius: 18)
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(

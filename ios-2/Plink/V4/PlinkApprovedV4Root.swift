@@ -389,21 +389,19 @@ struct PlinkLiquidTabBar: View {
     private var friendsBadge: Int { max(friendsUnread, dmService.totalUnread) }
 
     var body: some View {
-        content
-            .padding(6)
-            .background(.ultraThinMaterial)
-            
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(V4.line, lineWidth: 0.75)
-            )
-            .frame(height: 72)
-            .padding(.horizontal, 12)
-            // ZStack уже учитывает bottom safe area. Дополнительные 8 pt
-            // создавали риск наложения material на home indicator.
-            .padding(.bottom, 2)
-            .accessibilityElement(children: .contain)
+        // Контейнер нужен, чтобы пилюля выделения на iOS 26 перетекала между
+        // вкладками как единая масса стекла, а не гасла и зажигалась заново.
+        PlinkGlassGroup(spacing: 16) {
+            content
+                .padding(.horizontal, 6)
+                .frame(height: 64)
+                .plinkGlass(.navigation, in: Capsule(style: .continuous))
+        }
+        .padding(.horizontal, 14)
+        // ZStack уже учитывает bottom safe area. Дополнительные 8 pt
+        // создавали риск наложения material на home indicator.
+        .padding(.bottom, 2)
+        .accessibilityElement(children: .contain)
     }
 
     private var content: some View {
@@ -415,37 +413,7 @@ struct PlinkLiquidTabBar: View {
                         selection = index
                     }
                 } label: {
-                    VStack(spacing: 3) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: items[index].0)
-                                .font(.system(size: 18, weight: .semibold))
-                            // M25: Tab 2 = Друзья — unread DM badge
-                            if index == 2, friendsBadge > 0 {
-                                Text(friendsBadge > 9 ? "9+" : "\(friendsBadge)")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.red, in: Capsule())
-                                    .offset(x: 10, y: -6)
-                            }
-                        }
-                        Text(items[index].1)
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(selection == index ? activeSecondary : V4.muted)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background {
-                        if selection == index {
-                            Capsule(style: .continuous)
-                                .fill(activeSecondary.opacity(0.15))
-                                .matchedGeometryEffect(id: "selected-tab", in: selectionNS)
-                        }
-                    }
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                    .accessibilityIdentifier("tab.\(index).content")
+                    tabLabel(index)
                 }
                 .buttonStyle(.plain)
                 .frame(minWidth: 44, minHeight: 44)
@@ -454,6 +422,55 @@ struct PlinkLiquidTabBar: View {
                 .accessibilityAddTraits(selection == index ? .isSelected : [])
             }
         }
+    }
+
+    @ViewBuilder
+    private func tabLabel(_ index: Int) -> some View {
+        let isSelected = selection == index
+
+        VStack(spacing: 3) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: items[index].0)
+                    .font(.system(size: 17, weight: .semibold))
+                    // Иконка выбранной вкладки слегка крупнее — вес выделения
+                    // распределён между размером, цветом и подложкой, а не
+                    // держится на одной заливке.
+                    .scaleEffect(isSelected ? 1.06 : 1)
+                // M25: Tab 2 = Друзья — unread DM badge
+                if index == 2, friendsBadge > 0 {
+                    Text(friendsBadge > 9 ? "9+" : "\(friendsBadge)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.red, in: Capsule())
+                        .offset(x: 10, y: -6)
+                }
+            }
+            Text(items[index].1)
+                .font(.system(size: 9.5, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(isSelected ? activeSecondary : V4.muted)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            if isSelected {
+                selectionPill
+            }
+        }
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .accessibilityIdentifier("tab.\(index).content")
+    }
+
+    private var selectionPill: some View {
+        Capsule(style: .continuous)
+            .fill(activeSecondary.opacity(0.16))
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(activeSecondary.opacity(0.30), lineWidth: 1)
+            }
+            .matchedGeometryEffect(id: "selected-tab", in: selectionNS)
     }
 }
 

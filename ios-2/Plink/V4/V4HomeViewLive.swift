@@ -206,7 +206,17 @@ struct V4HomeViewLive: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                HStack { V4Avatar(letter: avatarLetter, theme: theme, isPremium: PremiumStatusManager.shared.isPremium, imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)); Spacer(); NotificationInboxButton(unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal, action: { showInbox = true }) }
+                HStack { V4Avatar(letter: avatarLetter, theme: theme, isPremium: PremiumStatusManager.shared.isPremium, imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)); Spacer();
+                    Button { showReleaseNotes = true } label: {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(activeAccent)
+                            .frame(width: 40, height: 40)
+                            .background(activeAccent.opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Новое в Plink")
+                    NotificationInboxButton(unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal, action: { showInbox = true }) }
                     .accessibilityIdentifier("screen.home")
                     .padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
                 .sheet(isPresented: $showInbox) {
@@ -305,14 +315,6 @@ struct V4HomeViewLive: View {
                     .padding(.bottom, 8)
                 }
 
-                // Release notes / onboarding belongs in a dedicated surface, not as
-                // a generic bottom appendage after recommendations.
-                if showReleaseNotes {
-                    releaseNotesCard
-                        .padding(.horizontal, 19)
-                        .padding(.bottom, 18)
-                }
-
                 // Live rooms are a concise preview on Home. Room discovery,
                 // filtering, codes and creation belong to the Rooms tab.
                 HStack(spacing:8) {
@@ -382,9 +384,7 @@ struct V4HomeViewLive: View {
                 }
                 .frame(height: 334)
 
-                // Home remains a content feed. Social room management stays in Rooms.
-                NewThisWeekSection(theme: theme)
-                    .padding(.bottom, 10)
+                // Новое в Plink открывается отдельным окном через кнопку в шапке.
             }.padding(.bottom,96)
         }.foregroundStyle(V4.ink)
         .refreshable {
@@ -567,7 +567,7 @@ struct V4HomeViewLive: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 9)
                         .frame(height: 28)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .plinkGlass(.control, in: Capsule(style: .continuous))
                     }
                     .padding(14)
 
@@ -698,7 +698,7 @@ struct V4HomeViewLive: View {
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.88))
                 .frame(width: 28, height: 28)
-                .background(.ultraThinMaterial, in: Circle())
+                .plinkGlass(.control, in: Circle())
         }
     }
 

@@ -92,7 +92,7 @@ struct RoomModerationBar: View {
             }
         }
         .padding(14)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .plinkGlass(.overlay, cornerRadius: 20)
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(accent.opacity(0.35), lineWidth: 1)

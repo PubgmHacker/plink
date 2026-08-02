@@ -51,27 +51,8 @@ struct PremiumButtonStyle: ButtonStyle {
     var glowColor: Color = Cinema2026.accent
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 17, weight: .bold))
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(
-                LinearGradient(
-                    colors: [glowColor, glowColor.opacity(0.78)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(
-                color: glowColor.opacity(configuration.isPressed ? 0.15 : 0.35),
-                radius: configuration.isPressed ? 6 : 12,
-                x: 0,
-                y: configuration.isPressed ? 2 : 6
-            )
-            .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+        PlinkProminentButtonStyle(tint: glowColor, height: 54, cornerRadius: 18)
+            .makeBody(configuration: configuration)
     }
 }
 
@@ -120,18 +101,8 @@ struct LivingHomeStateOverlay: View {
 // MARK: - CinematicPrimaryButtonStyle (used by PlinkPlusPaywall)
 struct CinematicPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(
-                LinearGradient(colors: [Cinema2026.accent, Cinema2026.accent.opacity(0.8)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+        PlinkProminentButtonStyle(tint: Cinema2026.accent, height: 52, cornerRadius: 18)
+            .makeBody(configuration: configuration)
     }
 }
 
@@ -264,14 +235,17 @@ struct ConditionalBreathing: ViewModifier {
 }
 
 struct GlassButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 15, weight: .semibold)).foregroundStyle(Cinema2026.text)
             .padding(.horizontal, 20).padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(configuration.isPressed ? 0.12 : 0.08)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .plinkGlass(.control, cornerRadius: 14, interactive: true)
+            .opacity(configuration.isPressed ? 0.86 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1.0)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.72),
+                       value: configuration.isPressed)
     }
 }
 

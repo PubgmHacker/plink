@@ -33,7 +33,7 @@ struct RoomToastView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
+        .plinkGlass(.overlay, in: Capsule(style: .continuous))
         .overlay(Capsule().stroke(colorForKind.opacity(0.3), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
         .padding(.top, 8)
@@ -417,7 +417,7 @@ struct RutubeFallbackToast: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .plinkGlass(.overlay, cornerRadius: 14)
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Cinema2026.amber.opacity(0.3), lineWidth: 0.5)

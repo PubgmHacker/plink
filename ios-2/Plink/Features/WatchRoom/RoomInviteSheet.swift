@@ -68,7 +68,7 @@ struct RoomInviteSheet: View {
                     .foregroundStyle(Cinema2026.text)
                     .frame(maxWidth: .infinity)
                     .frame(height: 46)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .plinkGlass(.overlay, cornerRadius: 14)
                 }
                 .buttonStyle(.plain)
             }

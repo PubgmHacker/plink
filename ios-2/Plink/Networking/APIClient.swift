@@ -171,7 +171,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             // 🔧 FIX H11: Handle 204 No Content (empty body) gracefully
             if data.isEmpty {
                 if let empty = T.self as? EmptyDecodable.Type {
-                    return empty.emptyValue() as! T
+                    return empty.emptyValue() as? T ?? EmptyResponse() as! T
                 }
                 // If T is Optional, decode returns nil — wrap in try?
                 if T.self == EmptyResponse.self {

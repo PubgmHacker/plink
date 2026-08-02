@@ -12,6 +12,9 @@ enum PlinkConfig {
            !override.isEmpty {
             return override
         }
+        if ProcessInfo.processInfo.arguments.contains("-plink.uitest") {
+            return "http://localhost:8080"
+        }
         return "https://plink-backend-production-ef31.up.railway.app"
     }
 

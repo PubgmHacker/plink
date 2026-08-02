@@ -139,7 +139,7 @@ struct WatchRoomScreen: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .plinkGlass(.overlay, in: Capsule(style: .continuous))
                     .padding(.top, 54)
                     Spacer()
                 }
@@ -181,7 +181,7 @@ struct WatchRoomScreen: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .plinkGlass(.overlay, in: Capsule(style: .continuous))
                     .padding(.bottom, 120)
                 }
                 .zIndex(490)
@@ -217,7 +217,7 @@ struct WatchRoomScreen: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .plinkGlass(.overlay, in: Circle())
                     .overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 0.5))
             }
             .buttonStyle(.plain)
@@ -253,7 +253,7 @@ struct WatchRoomScreen: View {
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .plinkGlass(.overlay, in: Circle())
                         .overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)

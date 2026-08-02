@@ -76,7 +76,7 @@ struct LandscapeWatchLayout: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(Cinema2026.text)
                             .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .plinkGlass(.overlay, in: Circle())
                             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                             .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
                     }

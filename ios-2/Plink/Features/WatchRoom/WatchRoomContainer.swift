@@ -19,7 +19,9 @@ struct WatchRoomContainer: View {
     @State private var model: WatchRoomModel?
     /// Ensures REST leave even if user dismisses cover without tapping X.
     @State private var didSendLeave = false
-
+    /// Paywall presentation state
+    @State private var paywallTrigger: PlinkPlusPaywall.Trigger?
+    
     var body: some View {
         Group {
             if let model {
@@ -60,6 +62,14 @@ struct WatchRoomContainer: View {
             didSendLeave = true
             Task {
                 try? await RoomService(api: APIClient.shared).leaveRoom(roomID: room.id)
+            }
+        }
+        .sheet(item: $paywallTrigger) { trigger in
+            PlinkPlusPaywall(trigger: trigger)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showPlinkPlusPaywall)) { notification in
+            if let trigger = notification.userInfo?["trigger"] as? PlinkPlusPaywall.Trigger {
+                paywallTrigger = trigger
             }
         }
     }

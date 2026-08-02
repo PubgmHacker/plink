@@ -68,7 +68,7 @@ export default function TermsPage() {
       </main>
 
       <footer className="border-t border-surface-2 py-8">
-        <div className="container-main text-center text-sm text-text-muted">
+        <div className="container-main text-center text-sm text-[#B0B7B3]">
           © {new Date().getFullYear()} Plink. Все права защищены.
         </div>
       </footer>

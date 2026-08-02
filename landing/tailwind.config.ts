@@ -9,21 +9,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#0A0A0A",
-        surface: "#121212",
-        "surface-2": "#1A1A1A",
-        accent: "#FF6B4A",
-        "accent-dim": "#E55535",
+        bg: "#0A0C0D",
+        surface: "#161B1E",
+        "surface-2": "#2A3233",
+        accent: "#FFB800",
+        "accent-dim": "#D99A00",
         text: {
-          primary: "#F5F5F0",
-          secondary: "#9A9A92",
-          muted: "#6B6B64",
+          primary: "#F0F2F1",
+          secondary: "#9A9E9C",
+          muted: "#B0B7B3",
         },
-        sync: "#FF6B4A",
+        sync: "#FFB800",
       },
       fontFamily: {
         display: ["var(--font-unbounded)", "sans-serif"],
-        body: ["var(--font-onest)", "sans-serif"],
+        body: ["var(--font-body)", "sans-serif"],
+        mono: ["var(--font-mono)", "monospace"],
+        serif: ["var(--font-serif-accent)", "Georgia", "serif"],
       },
       fontSize: {
         xs: ["0.75rem", { lineHeight: "1rem" }],

@@ -6,21 +6,21 @@ import { motion, useScroll, useTransform, useReducedMotion } from "framer-motion
 const steps = [
   {
     num: "01",
-    title: "Создай комнату",
-    desc: "Назовите её как угодно — от «вечер пятницы» до «разбор трейлера». Plink выдаст короткий код.",
+    title: "Открой Plink и нажми «Смотреть с друзьями»",
+    desc: "Придумай название — от «фильмы на выходных» до «трейлер в час ночи». Получится короткий код, который можно показать друзьям.",
     detail: "K7XQ2M",
   },
   {
     num: "02",
-    title: "Отправь код друзьям",
-    desc: "Ссылка, QR-код или прямое приглашение онлайн-друзьям. Никаких установок для гостей.",
+    title: "Скинь ссылку или код в чат",
+    desc: "Друзья кликают и попадают в комнату — ничего не нужно устанавливать. Они могут быть на телефоне, планшете или ноутбуке.",
     detail: "plink.app/join/K7XQ2M",
   },
   {
     num: "03",
-    title: "Смотрите вместе",
-    desc: "Вставь ссылку на YouTube, VK или Rutube. Все устройства синхронизируются автоматически.",
-    detail: "Пауза у одного — пауза у всех",
+    title: "Выберите, что смотреть",
+    desc: "Поддерживаются YouTube, VK Видео, Rutube и ещё одиннадцать сервисов. Вставьте ссылку или найдите через поиск — начнётся у всех одновременно.",
+    detail: "Один начал смотреть — смотрите все",
   },
 ];
 
@@ -39,7 +39,7 @@ export default function HowItWorks() {
     <section
       ref={containerRef}
       id="how-it-works"
-      className="relative py-section-md lg:py-section-lg"
+      className="relative py-20 lg:py-28"
       aria-label="Как это работает"
     >
       <div className="container-main">
@@ -68,7 +68,7 @@ export default function HowItWorks() {
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true, margin: "-100px" }}
                 transition={{
-                  duration: 0.7,
+                  duration: prefersReducedMotion ? 0.01 : 0.7,
                   delay: prefersReducedMotion ? 0 : i * 0.15,
                   ease: [0.32, 0.72, 0, 1],
                 }}
@@ -102,11 +102,13 @@ export default function HowItWorks() {
                       delay: prefersReducedMotion ? 0 : 0.3 + i * 0.15,
                       ease: [0.32, 0.72, 0, 1],
                     }}
-                    className={`rounded-2xl border border-surface-2 bg-surface p-5 ${
-                      i === 1 ? "md:translate-y-8" : i === 2 ? "md:-translate-y-4" : ""
+                    className={`surface-card rounded-xl p-5 ${
+                      i === 1 ? "my-8" : i === 2 ? "-my-4" : ""
                     }`}
                   >
-                    <code className="text-sm font-medium text-accent">{step.detail}</code>
+                    <code className="text-sm font-medium text-accent">
+                      {step.detail}
+                    </code>
                   </motion.div>
                 </div>
               </motion.div>

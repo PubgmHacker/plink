@@ -6,7 +6,19 @@ import SwiftUI
 import StoreKit
 
 struct PlinkPlusPaywall: View {
-    enum Trigger { case emoji, theme, capacity, cameraFilter, settings }
+    enum Trigger: Identifiable { case emoji, theme, capacity, cameraFilter, settings, voiceChat
+
+    var id: String {
+        switch self {
+        case .emoji: return "emoji"
+        case .theme: return "theme"
+        case .capacity: return "capacity"
+        case .cameraFilter: return "cameraFilter"
+        case .settings: return "settings"
+        case .voiceChat: return "voiceChat"
+        }
+    }
+}
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedID: String?
@@ -82,6 +94,7 @@ struct PlinkPlusPaywall: View {
         case .capacity: return "Соберите всех друзей."
         case .cameraFilter: return "Выглядите лучше в кадре."
         case .settings: return "Больше характера с Plink+."
+        case .voiceChat: return "Голосовой чат в комнате."
         }
     }
 
@@ -124,6 +137,7 @@ struct PaywallArtwork: View {
         case .capacity: return "person.3.fill"
         case .cameraFilter: return "camera.filters"
         case .settings: return "star.circle.fill"
+        case .voiceChat: return "mic.fill"
         }
     }
 }
@@ -155,6 +169,7 @@ struct PaywallBenefits: View {
         case .capacity: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority), L.string(.plusBenefitCineBubbles)]
         case .cameraFilter: return [L.string(.plusBenefitVideoFilters), L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority)]
         case .settings: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority), L.string(.plusBenefitLiveThemes)]
+        case .voiceChat: return [L.string(.plusBenefitVoiceChat), L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority)]
         }
     }
 }

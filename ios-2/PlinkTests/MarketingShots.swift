@@ -234,14 +234,14 @@ final class MarketingShots: XCTestCase {
     // длинные реплики уезжают за край экрана. Держим строки короткими —
     // это ограничение продукта, а не кадра.
     private static let longConversation: [Line] = [
-        Line(senderId: "u-anya", senderName: "Аня", text: "Наконец-то! Я думала, начнёте"),
-        Line(senderId: "u-kirill", senderName: "Кирилл", text: "Звук у всех нормальный?"),
-        Line(senderId: meId, senderName: meName, text: "Да, всё слышно 👌"),
-        Line(senderId: "u-marina", senderName: "Марина", text: "Это мой любимый момент"),
-        Line(senderId: "u-anya", senderName: "Аня", text: "Тише, сейчас будет"),
-        Line(senderId: "u-kirill", senderName: "Кирилл", text: "Я к такому не готов 😅"),
-        Line(senderId: meId, senderName: meName, text: "Обсудим после титров"),
-        Line(senderId: "u-marina", senderName: "Марина", text: "У меня есть теория!"),
+        Line(senderId: "u-anya", senderName: "Аня", text: "А, это тот же актёр, только постаревший"),
+        Line(senderId: "u-kirill", senderName: "Кирилл", text: "Смотри на левый план, там машина"),
+        Line(senderId: meId, senderName: meName, text: "Заметила, там был номер"),
+        Line(senderId: "u-marina", senderName: "Марина", text: "Вот что рисовало название города"),
+        Line(senderId: "u-anya", senderName: "Аня", text: "Ты заметила, как музыка сменилась?"),
+        Line(senderId: "u-kirill", senderName: "Кирилл", text: "Было явно в тему"),
+        Line(senderId: meId, senderName: meName, text: "Пересмотри сцену в порту"),
+        Line(senderId: "u-marina", senderName: "Марина", text: "Я ошиблась про финал"),
     ]
 
     private func makeRoomModel() -> WatchRoomModel {
@@ -305,9 +305,9 @@ final class MarketingShots: XCTestCase {
         // перестаёт зависеть от того, в какую миллисекунду сделан снимок,
         // и кадр воспроизводится стабильно. По горизонтали разносим сами.
         let plan: [(String, String, String, ClosedRange<CGFloat>, TimeInterval)] = [
-            ("u-anya", "Аня", "❤️", 0.54...0.60, 0.10),
-            ("u-kirill", "Кирилл", "🔥", 0.69...0.75, 0.10),
-            ("u-marina", "Марина", "😂", 0.84...0.90, 3.10),
+            ("u-anya", "Аня", "👏", 0.54...0.60, 0.10),
+            ("u-kirill", "Кирилл", "😂", 0.69...0.75, 0.10),
+            ("u-marina", "Марина", "💀", 0.84...0.90, 3.10),
         ]
         for (userId, username, emoji, xRange, pause) in plan {
             box.events.append(Self.reaction(userId: userId, username: username, emoji: emoji, startX: xRange))
@@ -436,64 +436,156 @@ final class MarketingShots: XCTestCase {
             ?? bundle.url(forResource: name, withExtension: ext, subdirectory: folder)
     }
 
+    /// В продукте нет собственного видеоконтента — источники (YouTube, VK
+    /// Видео, Rutube) внешние. Для маркетингового кадра принципиально НЕ
+    /// использовать hero_banner_*: это промо-графика онбординга (бирюзовая,
+    /// плоская), а не то, что реально видно во время просмотра. Вместо неё —
+    /// нейтральная кинематографичная сцена, нарисованная кодом: она честно
+    /// читается как «плейсхолдер фильма», а не выдаёт себя за реальный UI.
     private static func videoFrame() -> UIImage? {
         if let cachedVideoFrame { return cachedVideoFrame }
-        if let url = bundledResource("hero_banner_watch_together", "mp4", "Banners") {
-            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-            generator.appliesPreferredTrackTransform = true
-            generator.requestedTimeToleranceBefore = .zero
-            generator.requestedTimeToleranceAfter = .zero
-            if let cgImage = try? generator.copyCGImage(
-                at: CMTime(seconds: 3.0, preferredTimescale: 600), actualTime: nil
-            ) {
-                cachedVideoFrame = UIImage(cgImage: cgImage)
-                return cachedVideoFrame
-            }
-        }
-        if let url = bundledResource("hero_banner_watch_together_poster", "png", "Banners"),
-           let data = try? Data(contentsOf: url) {
-            cachedVideoFrame = UIImage(data: data)
-            return cachedVideoFrame
-        }
-        // Последний рубеж: собственная кинематографичная заливка, чтобы
-        // вьюпорт плеера никогда не превратился в чёрный прямоугольник.
-        cachedVideoFrame = syntheticCinematicFrame()
+        cachedVideoFrame = syntheticFilmStillFrame()
         return cachedVideoFrame
     }
 
-    /// Мягкое бирюзовое свечение с виньеткой — собственная графика, рисуется
-    /// кодом. Используется только если ассет из бандла недоступен.
-    private static func syntheticCinematicFrame() -> UIImage {
+    /// Тёплая/холодная киносцена: закат, силуэты, широкий кадр с леттербоксом.
+    /// Классическая complementary цветокоррекция (тёплый передний план —
+    /// холодное небо), а не бирюзовое свечение приложения.
+    private static func syntheticFilmStillFrame() -> UIImage {
         let size = CGSize(width: 1920, height: 1080)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { context in
             let cg = context.cgContext
-            cg.setFillColor(UIColor(red: 0.02, green: 0.05, blue: 0.06, alpha: 1).cgColor)
-            cg.fill(CGRect(origin: .zero, size: size))
-
             let space = CGColorSpaceCreateDeviceRGB()
-            let glow = CGGradient(colorsSpace: space, colors: [
-                UIColor(red: 0.24, green: 0.86, blue: 0.75, alpha: 0.85).cgColor,
-                UIColor(red: 0.08, green: 0.38, blue: 0.42, alpha: 0.35).cgColor,
-                UIColor(red: 0.01, green: 0.04, blue: 0.05, alpha: 0).cgColor,
-            ] as CFArray, locations: [0, 0.45, 1])!
-            cg.drawRadialGradient(
-                glow,
-                startCenter: CGPoint(x: size.width * 0.5, y: size.height * 0.44), startRadius: 0,
-                endCenter: CGPoint(x: size.width * 0.5, y: size.height * 0.44), endRadius: size.width * 0.55,
+
+            // Небо: глубокий индиго → тёплый горизонт (сумерки).
+            let sky = CGGradient(colorsSpace: space, colors: [
+                UIColor(red: 0.06, green: 0.08, blue: 0.16, alpha: 1).cgColor,
+                UIColor(red: 0.16, green: 0.14, blue: 0.20, alpha: 1).cgColor,
+                UIColor(red: 0.55, green: 0.32, blue: 0.22, alpha: 1).cgColor,
+                UIColor(red: 0.78, green: 0.48, blue: 0.28, alpha: 1).cgColor,
+            ] as CFArray, locations: [0, 0.45, 0.78, 1])!
+            cg.drawLinearGradient(
+                sky,
+                start: CGPoint(x: size.width / 2, y: 0),
+                end: CGPoint(x: size.width / 2, y: size.height * 0.62),
                 options: []
             )
 
+            // Солнечный диск у горизонта.
+            let sun = CGGradient(colorsSpace: space, colors: [
+                UIColor(red: 0.95, green: 0.72, blue: 0.42, alpha: 0.9).cgColor,
+                UIColor(red: 0.95, green: 0.72, blue: 0.42, alpha: 0).cgColor,
+            ] as CFArray, locations: [0, 1])!
+            cg.drawRadialGradient(
+                sun,
+                startCenter: CGPoint(x: size.width * 0.58, y: size.height * 0.56), startRadius: 0,
+                endCenter: CGPoint(x: size.width * 0.58, y: size.height * 0.56), endRadius: size.width * 0.22,
+                options: []
+            )
+
+            // Дальний хребет (тёмный силуэт) и передний план.
+            let ridge = UIBezierPath()
+            ridge.move(to: CGPoint(x: 0, y: size.height * 0.64))
+            ridge.addCurve(
+                to: CGPoint(x: size.width, y: size.height * 0.60),
+                controlPoint1: CGPoint(x: size.width * 0.35, y: size.height * 0.58),
+                controlPoint2: CGPoint(x: size.width * 0.7, y: size.height * 0.68)
+            )
+            ridge.addLine(to: CGPoint(x: size.width, y: size.height))
+            ridge.addLine(to: CGPoint(x: 0, y: size.height))
+            ridge.close()
+            UIColor(red: 0.05, green: 0.06, blue: 0.10, alpha: 1).setFill()
+            ridge.fill()
+
+            // Два силуэта — «смотрим вместе», но абстрактно, без лиц.
+            for (x, h) in [(0.42, 0.16), (0.47, 0.14)] as [(CGFloat, CGFloat)] {
+                let figure = UIBezierPath(
+                    roundedRect: CGRect(
+                        x: size.width * x, y: size.height * (0.64 - h),
+                        width: size.width * 0.03, height: size.height * h
+                    ),
+                    cornerRadius: size.width * 0.015
+                )
+                UIColor(red: 0.03, green: 0.04, blue: 0.06, alpha: 1).setFill()
+                figure.fill()
+            }
+
+            // Виньетка для глубины.
             let vignette = CGGradient(colorsSpace: space, colors: [
                 UIColor.clear.cgColor,
-                UIColor.black.withAlphaComponent(0.85).cgColor,
-            ] as CFArray, locations: [0.35, 1])!
+                UIColor.black.withAlphaComponent(0.55).cgColor,
+            ] as CFArray, locations: [0.55, 1])!
             cg.drawRadialGradient(
                 vignette,
                 startCenter: CGPoint(x: size.width / 2, y: size.height / 2), startRadius: 0,
-                endCenter: CGPoint(x: size.width / 2, y: size.height / 2), endRadius: size.width * 0.72,
+                endCenter: CGPoint(x: size.width / 2, y: size.height / 2), endRadius: size.width * 0.75,
                 options: []
             )
+
+            // Постер фильма — как в типичном watch-together UI: маленькая
+            // карточка в левой части кадра. Минимальный брендинг, читается
+            // именно как контент, который сейчас смотрят.
+            let posterOrigin = CGPoint(x: size.width * 0.12, y: size.height * 0.28)
+            let posterSize = CGSize(width: size.width * 0.16, height: size.height * 0.30)
+
+            // Тень под постером.
+            let shadow = CGGradient(colorsSpace: space, colors: [
+                UIColor.black.withAlphaComponent(0.55).cgColor,
+                UIColor.black.withAlphaComponent(0).cgColor,
+            ] as CFArray, locations: [0, 1])!
+            cg.drawRadialGradient(
+                shadow,
+                startCenter: CGPoint(x: posterOrigin.x + posterSize.width/2, y: posterOrigin.y + posterSize.height),
+                startRadius: 0,
+                endCenter: CGPoint(x: posterOrigin.x + posterSize.width/2, y: posterOrigin.y + posterSize.height),
+                endRadius: posterSize.width * 1.4,
+                options: []
+            )
+
+            // Тело постера: тёплый градиент от тёмно-морского к сажи.
+            let posterPath = UIBezierPath(roundedRect: CGRect(origin: posterOrigin, size: posterSize), cornerRadius: 12)
+            UIColor(red: 0.10, green: 0.11, blue: 0.14, alpha: 1).setFill()
+            posterPath.fill()
+
+            // Заголовок фильма (имитация text-bars внутри постера).
+            let titleRect = CGRect(
+                x: posterOrigin.x + posterSize.width * 0.16,
+                y: posterOrigin.y + posterSize.height * 0.62,
+                width: posterSize.width * 0.68,
+                height: posterSize.height * 0.08
+            )
+            UIColor(red: 0.93, green: 0.94, blue: 0.94, alpha: 1).setFill()
+            UIBezierPath(roundedRect: titleRect, cornerRadius: 3).fill()
+
+            // Подзаголовок/год.
+            let subRect = CGRect(
+                x: titleRect.origin.x,
+                y: titleRect.origin.y + titleRect.height + 8,
+                width: titleRect.width * 0.45,
+                height: titleRect.height * 0.6
+            )
+            UIColor(red: 0.62, green: 0.65, blue: 0.68, alpha: 1).setFill()
+            UIBezierPath(roundedRect: subRect, cornerRadius: 2).fill()
+
+            // Постер «вписан» в сцену: тёплый свет от заката по нижней кромке.
+            let posterGlow = CGGradient(colorsSpace: space, colors: [
+                UIColor(red: 0.85, green: 0.62, blue: 0.40, alpha: 0.22).cgColor,
+                UIColor(red: 0.85, green: 0.62, blue: 0.40, alpha: 0).cgColor,
+            ] as CFArray, locations: [0, 1])!
+            cg.drawLinearGradient(
+                posterGlow,
+                start: CGPoint(x: posterOrigin.x, y: posterOrigin.y + posterSize.height),
+                end: CGPoint(x: posterOrigin.x, y: posterOrigin.y - posterSize.height * 0.3),
+                options: []
+            )
+
+            // Леттербокс — тонкие чёрные полосы сверху/снизу, читается
+            // как кинематографичный кадр, а не скриншот интерфейса.
+            let barHeight = size.height * 0.045
+            UIColor.black.setFill()
+            cg.fill(CGRect(x: 0, y: 0, width: size.width, height: barHeight))
+            cg.fill(CGRect(x: 0, y: size.height - barHeight, width: size.width, height: barHeight))
         }
     }
 

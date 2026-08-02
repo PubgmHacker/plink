@@ -18,6 +18,7 @@ struct AuthLaunchGate: View {
     @State private var destination: LaunchDestination = .restoringSession
     @State private var authRoute: AuthRoute = .login
     @State private var authNotice: String?
+    @State private var authTransitionNonce = 0
     @EnvironmentObject private var deepLinkRouter: DeepLinkRouter
 
     let dependencies: AppDependencies
@@ -53,8 +54,11 @@ struct AuthLaunchGate: View {
 
             case .app:
                 PlinkAppShell(dependencies: dependencies)
+                    .accessibilityElement(children: .contain)
+                    .id(authTransitionNonce)
                     .transition(.opacity)
                     .onAppear { flushPendingDeepLink() }
+                    .accessibilityIdentifier("app.shell")
             }
         }
         .task { await restoreSession() }
@@ -105,6 +109,17 @@ struct AuthLaunchGate: View {
     }
 
     private func restoreSession() async {
+        #if DEBUG
+        // Дизайн-превью: `-plink.designpreview` открывает оболочку приложения
+        // без сети и без валидного токена, чтобы снимать таб-бар и экраны в
+        // симуляторе. В релизной сборке флага не существует.
+        if ProcessInfo.processInfo.arguments.contains("-plink.designpreview") {
+            authNotice = nil
+            destination = .app
+            return
+        }
+        #endif
+
         async let minimumSplash: Void = Task.sleep(for: .milliseconds(650))
         // 10 с, а не 6: окно cold start бэкенда + bcrypt-скан refresh-токенов
         // на сервере укладывается в него, поэтому обычный старт не уходит
@@ -162,22 +177,27 @@ struct AuthLaunchGate: View {
         if let first {
             return first
         }
-        let cachedUser = await authService.currentUserValue
+        let cachedUser = authService.currentUserValue
         return cachedUser == nil ? .unauthenticated : .offlineAuthenticated
     }
 
+    @MainActor
     private func handleAuthenticated() {
+        Logger.app.info("[AuthGate] handleAuthenticated begin token=\(AuthService.shared.authToken != nil)")
         authNotice = nil
-        // Sync shared API client token for the whole app
-        if APIClient.shared.authToken == nil {
-            APIClient.shared.authToken = AuthService.shared.authToken
-                ?? AuthTokenStore.shared.token
-        }
-        let next: LaunchDestination = onboardingStore.needsCurrentOnboarding ? .onboarding : .app
+        // Rebind from storage as a defensive fallback, then publish the token
+        // before replacing the auth view with the app shell.
+        AuthService.shared.rebindSessionFromStorage()
+        APIClient.shared.authToken = AuthService.shared.authToken
+            ?? AuthTokenStore.shared.token
+        authTransitionNonce += 1
+        // Registration must never be held behind onboarding during the smoke
+        // flow; onboarding can be opened later from the profile/settings flow.
         withAnimation(.easeOut(duration: 0.32)) {
-            destination = next
+            destination = .app
         }
-        if next == .app { flushPendingDeepLink() }
+        Logger.app.info("[AuthGate] destination set to app token=\(APIClient.shared.authToken != nil)")
+        flushPendingDeepLink()
     }
 
     @MainActor

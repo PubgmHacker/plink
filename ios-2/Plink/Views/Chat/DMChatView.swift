@@ -720,7 +720,7 @@ struct DMChatView: View {
                     .foregroundStyle(.white.opacity(0.95))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .plinkGlass(.control, in: Capsule(style: .continuous))
                     .overlay(
                         Capsule()
                             .stroke(Color.white.opacity(0.14), lineWidth: 0.7)
@@ -757,7 +757,7 @@ struct DMChatView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .frame(minWidth: 120, maxWidth: 200)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .plinkGlass(.control, in: Capsule(style: .continuous))
                     .overlay(
                         Capsule()
                             .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
@@ -814,7 +814,7 @@ struct DMChatView: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.white.opacity(0.92))
                             .frame(width: 34, height: 34)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .plinkGlass(.control, in: Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.7))
                     }
                     .buttonStyle(.plain)

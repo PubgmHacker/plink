@@ -27,7 +27,8 @@ struct RegistrationView2026: View {
     }
 
     private var canRegister: Bool {
-        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        // Display name is optional: the backend accepts username/email/password,
+        // and the profile name can be filled after registration.
         usernameIsValid &&
         email.trimmingCharacters(in: .whitespacesAndNewlines).contains("@") &&
         password.count >= 6 &&
@@ -137,7 +138,7 @@ struct RegistrationView2026: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .plinkGlass(.control, in: Circle())
                     .overlay(Circle().stroke(PlinkTheatre.hairline))
             }
             .buttonStyle(.plain)
@@ -180,37 +181,39 @@ struct RegistrationView2026: View {
     }
 
     private var consent: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button {
-                acceptsTerms.toggle()
-                HapticManager.selection()
-            } label: {
+        Button {
+            acceptsTerms.toggle()
+            HapticManager.selection()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: acceptsTerms ? "checkmark.square.fill" : "square")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(acceptsTerms ? PlinkTheatre.tealDeep : PlinkTheatre.muted)
                     .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Принять условия и политику конфиденциальности")
-            .accessibilityValue(acceptsTerms ? "Принято" : "Не принято")
-            .accessibilityAddTraits(acceptsTerms ? [.isSelected] : [])
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Я принимаю правила Plink")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                HStack(spacing: 6) {
-                    Link("Условия", destination: URL(string: "https://plink.app/terms")!)
-                    Text("и")
-                    Link("Политику конфиденциальности", destination: URL(string: "https://plink.app/privacy")!)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Я принимаю правила Plink")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text("Условия")
+                        Text("и")
+                        Text("Политику конфиденциальности")
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PlinkTheatre.muted)
                 }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(PlinkTheatre.muted)
-                .tint(PlinkTheatre.tealDeep)
+                .padding(.top, 5)
+                Spacer(minLength: 0)
             }
-            .padding(.top, 5)
-            Spacer(minLength: 0)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("auth.consent")
+        .accessibilityLabel("Принять условия")
+        .accessibilityValue(acceptsTerms ? "Принято" : "Не принято")
+        .accessibilityAddTraits(acceptsTerms ? [.isSelected] : [])
     }
 
     private func register() async {
@@ -230,16 +233,22 @@ struct RegistrationView2026: View {
 
         do {
             let authService = AuthService.shared
+            Logger.api.info("[AuthUI] signUp started username=\(cleanUsername) email=\(cleanEmail)")
             _ = try await authService.signUp(email: cleanEmail, password: password, username: cleanUsername)
+            Logger.api.info("[AuthUI] signUp succeeded user=\(authService.currentUserValue?.id ?? "nil") token=\(authService.authToken != nil)")
             if !cleanName.isEmpty {
                 _ = try? await authService.updateProfile(displayName: cleanName)
             }
-            if let token = authService.authToken {
-                APIClient.shared.authToken = token
-            }
+            APIClient.shared.authToken = authService.authToken
             HapticManager.notification(.success)
-            onRegistered()
+            // Always hop back to the main actor after the async auth request.
+            // SwiftUI state transitions must not be scheduled from the URLSession
+            // continuation's executor.
+            await MainActor.run {
+                onRegistered()
+            }
         } catch {
+            Logger.api.error("[AuthUI] signUp failed: \(error.localizedDescription)")
             HapticManager.errorOccurred()
             errorMessage = AuthErrorCopy.message(for: error)
         }

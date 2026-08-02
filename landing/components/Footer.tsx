@@ -88,17 +88,17 @@ export default function Footer() {
             >
               {SUPPORT_EMAIL}
             </a>
-            <p className="mt-4 text-xs text-text-muted">
+            <p className="mt-4 text-xs text-[#B0B7B3]">
               Отвечаем в течение 24 часов.<br />По-русски и по-английски.
             </p>
           </div>
         </div>
 
         <div className="mt-16 flex flex-col items-center justify-between gap-4 border-t border-surface-2 pt-8 sm:flex-row">
-          <p className="text-xs text-text-muted">
+          <p className="text-xs text-[#B0B7B3]">
             © {new Date().getFullYear()} Plink. Все права защищены.
           </p>
-          <p className="text-xs text-text-muted">
+          <p className="text-xs text-[#B0B7B3]">
             Сделано с любовью к совместным просмотрам
           </p>
         </div>

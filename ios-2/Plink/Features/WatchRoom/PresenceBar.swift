@@ -11,6 +11,14 @@
 
 import SwiftUI
 
+// Голосовой чат отключён (транспорт не подключён), но paywall-триггер уже
+// использует это уведомление — объявление было потеряно при вырезании
+// голосового чата из продукта. Оставляем только имя нотификации, чтобы
+// таргет собирался; сам flow остаётся выключенным через FeatureFlags.
+extension Notification.Name {
+    static let showPlinkPlusPaywall = Notification.Name("showPlinkPlusPaywall")
+}
+
 struct PresenceBar: View {
     let model: WatchRoomModel
     // Ревью 26.07.2026: см. WatchChatView — скрим живой темы читает
@@ -60,19 +68,58 @@ struct PresenceBar: View {
                             Task { await model.toggleMicrophone() }
                         }
                     } else {
-                        // Free users can only listen
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Cinema2026.secondary)
-                            .frame(width: 36, height: 36)
-                            .background(Cinema2026.raised.opacity(0.5), in: Capsule())
+                        // Free users — show paywall for voice chat
+                        Button {
+                            NotificationCenter.default.post(
+                                name: .showPlinkPlusPaywall,
+                                object: nil,
+                                userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
+                            )
+                        } label: {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Cinema2026.secondary)
+                                .frame(width: 36, height: 36)
+                                .background(Cinema2026.raised.opacity(0.5), in: Capsule())
+                                .overlay(alignment: .topTrailing) {
+                                    Image(systemName: "crown.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Cinema2026.amber)
+                                        .offset(x: 4, y: -4)
+                                }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    CameraActionButton(state: model.cameraState) {
-                        Task { await model.toggleCamera() }
+                    if hasPremium {
+                        CameraActionButton(state: model.cameraState) {
+                            Task { await model.toggleCamera() }
+                        }
+                    } else {
+                        // Free users — show paywall for camera
+                        Button {
+                            NotificationCenter.default.post(
+                                name: .showPlinkPlusPaywall,
+                                object: nil,
+                                userInfo: ["trigger": PlinkPlusPaywall.Trigger.cameraFilter]
+                            )
+                        } label: {
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Cinema2026.secondary)
+                                .frame(width: 36, height: 36)
+                                .background(Cinema2026.raised.opacity(0.5), in: Capsule())
+                                .overlay(alignment: .topTrailing) {
+                                    Image(systemName: "crown.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Cinema2026.amber)
+                                        .offset(x: 4, y: -4)
+                                }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(4)
-                .background(.ultraThinMaterial, in: Capsule())
+                .plinkGlass(.overlay, in: Capsule(style: .continuous))
                 .overlay(Capsule().stroke(.white.opacity(0.06), lineWidth: 0.5))
             }
         }

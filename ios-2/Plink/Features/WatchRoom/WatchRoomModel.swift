@@ -1700,10 +1700,26 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     func toggleMicrophone() async {
         // P0 5.1: голос выключен целиком (LiveKit не сконфигурирован).
         // Кнопка скрыта флагом в PresenceBar; guard — второй барьер.
-        guard FeatureFlags.liveKitVoiceEnabled else { return }
+        guard FeatureFlags.liveKitVoiceEnabled else {
+            // LiveKit disabled — trigger paywall so user knows it's a Plink+ feature
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .showPlinkPlusPaywall,
+                    object: nil,
+                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
+                )
+            }
+            return
+        }
         // P0.2: Premium gate for speaking
         guard PremiumStatusManager.shared.isPremium else {
-            lastError = "Voice chat requires Plink+"
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .showPlinkPlusPaywall,
+                    object: nil,
+                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
+                )
+            }
             return
         }
         // Delegate to RTC controller if available
@@ -1711,7 +1727,31 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // For now, toggle state for UI
         // In real: await rtcController?.toggleMic()
     }
-    func toggleCamera() async {}
+
+    func toggleCamera() async {
+        // Camera in room — Plink+ only (same as voice)
+        guard FeatureFlags.liveKitVoiceEnabled else {
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .showPlinkPlusPaywall,
+                    object: nil,
+                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.cameraFilter]
+                )
+            }
+            return
+        }
+        guard PremiumStatusManager.shared.isPremium else {
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .showPlinkPlusPaywall,
+                    object: nil,
+                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.cameraFilter]
+                )
+            }
+            return
+        }
+        // In real: await rtcController?.toggleCamera()
+    }
 
     // PATCH 14: send a reaction emoji via RealtimeClient.
     // Validates against ReactionPalette — free emojis always sendable,

@@ -201,11 +201,8 @@ struct V4RoundButton: View {
     let symbol: String
     var action: () -> Void = {}
     var body: some View {
-        Button(action: action) { Text(symbol).foregroundStyle(V4.ink) }
-            .frame(width: 43, height: 43)
-            .background(V4.roundBG)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(V4.line, lineWidth: 1))
+        Button(action: action) { Text(symbol) }
+            .buttonStyle(PlinkGlassIconButtonStyle(diameter: 44))
     }
 }
 
@@ -284,7 +281,6 @@ struct V4Hero: View {
         let (_, c1, c2, _) = theme.colors
         // Use Plink+ colors if active
         let btnAccent = PlinkPlusLiveTheme.resolve(liveThemeIndex)?.accentColor ?? theme.accentColor
-        let btnSecondary = PlinkPlusLiveTheme.resolve(liveThemeIndex)?.secondaryAccent ?? theme.secondaryAccent
         let btnText = PlinkPlusLiveTheme.resolve(liveThemeIndex)?.buttonTextColor ?? theme.buttonTextColor
         ZStack(alignment: .bottomLeading) {
             LinearGradient(colors: [c1, Color.oklch(0.10,0.02,190)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -294,23 +290,20 @@ struct V4Hero: View {
                 Text(title).font(.system(size: 26.4, weight: .bold)).foregroundStyle(V4.ink)
                 Text(meta).font(.system(size: 13.12)).foregroundStyle(V4.muted)
                 Button(action: action) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.fill").font(.system(size: 11, weight: .bold))
-                        Text(button).font(.system(size: 14, weight: .heavy))
+                    HStack(spacing: 7) {
+                        Image(systemName: "play.fill").font(.system(size: 12, weight: .bold))
+                        Text(button)
                     }
-                    .foregroundStyle(btnText)
-                    .padding(.horizontal, 18).frame(height: 46)
-                    .background(
-                        ZStack {
-                            LinearGradient(colors: [btnAccent.opacity(0.9), btnSecondary.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            LinearGradient(colors: [.white.opacity(0.2), .clear], startPoint: .top, endPoint: .center)
-                        }
-                    )
-                    .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    .shadow(color: btnAccent.opacity(0.3), radius: 10, y: 4)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    PlinkProminentButtonStyle(
+                        tint: btnAccent,
+                        textColor: btnText,
+                        height: 48,
+                        cornerRadius: 16,
+                        fillsWidth: false
+                    )
+                )
             }.padding(.horizontal, 19).padding(.bottom, 18)
         }
         .frame(height: height)

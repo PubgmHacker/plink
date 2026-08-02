@@ -955,21 +955,23 @@ struct V4FriendsViewLive: View {
 
     // MARK: - M21/M22 Unified Inbox helpers
 
-    // Аудит 26.07.2026: вложенный тип не наследует MainActor-изоляцию View,
-    // а его геттеры дёргают DMChatService и FriendPinStore — оба @MainActor.
-    @MainActor
+    // Аудит 26.07.2026: `id` обязан быть nonisolated — Identifiable требует
+    // синхронного доступа вне актора. Изоляцию несут только те геттеры,
+    // что дёргают DMChatService и FriendPinStore (оба @MainActor).
     private enum InboxItem: Identifiable {
         case dm(Friend)
         case group(GroupChatDTO)
         var id: String {
             switch self { case .dm(let f): return "dm-\(f.id)"; case .group(let g): return "grp-\(g.id)" }
         }
+        @MainActor
         var lastActivity: Date {
             switch self {
             case .dm(let f): return DMChatService.shared.lastActivityAt(for: f.id) ?? .distantPast
             case .group(let g): return g.lastMessageDate ?? .distantPast
             }
         }
+        @MainActor
         var isPinned: Bool {
             switch self {
             case .dm(let f): return FriendPinStore.shared.isPinned(f.id)
@@ -985,7 +987,7 @@ struct V4FriendsViewLive: View {
         let groups = groupService.groups
             .sorted { ($0.lastMessageDate ?? .distantPast) > ($1.lastMessageDate ?? .distantPast) }
             .map { InboxItem.group($0) }
-        let pinned  = dms.filter(\.isPinned)
+        let pinned  = dms.filter { $0.isPinned }
         let unpinned = (dms.filter { !$0.isPinned } + groups)
             .sorted { $0.lastActivity > $1.lastActivity }
         return pinned + unpinned
@@ -1112,7 +1114,7 @@ struct V4FriendsViewLive: View {
                                 .foregroundStyle(unread > 0 ? V4.ink.opacity(0.85) : V4.muted)
                                 .lineLimit(1)
                         } else {
-                            Text("\(group.memberCount ?? 0) участника")
+                            Text("\(group.memberCount) участника")
                                 .font(.system(size: 13))
                                 .foregroundStyle(V4.muted).lineLimit(1)
                         }

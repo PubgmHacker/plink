@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plink — интерактивное превью</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#050505;--ink:#f5f7f6;--teal:#19e0c0;--violet:#7c5cff;--amber:#f5c26b;
+  --muted:rgba(245,247,246,.55);--line:rgba(255,255,255,.09);
+  --serif:'Didot','Bodoni 72','Playfair Display',Georgia,serif;
+  --sans:-apple-system,'SF Pro Text','Inter',system-ui,sans-serif;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);overflow-x:hidden}
+.orb{position:fixed;border-radius:50%;filter:blur(90px);opacity:.5;pointer-events:none;z-index:0}
+.o1{width:520px;height:520px;background:#19e0c0;left:-140px;top:-120px;animation:drift 38s ease-in-out infinite}
+.o2{width:460px;height:460px;background:#7c5cff;right:-120px;top:22%;animation:drift 46s ease-in-out infinite -12s}
+.o3{width:400px;height:400px;background:#f5c26b;left:30%;bottom:-160px;opacity:.22;animation:drift 52s ease-in-out infinite -22s}
+@keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(60px,50px) scale(1.12)}66%{transform:translate(-50px,30px) scale(.94)}}
+.wrap{position:relative;z-index:2;max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:26px}
+.brand{display:flex;align-items:center;gap:12px}
+.mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(140deg,#fff,var(--teal));display:grid;place-items:center;color:#04110e;font-size:15px}
+.brand h1{font-family:var(--serif);font-style:italic;font-size:26px;letter-spacing:-.03em;font-weight:400}
+.brand small{display:block;font-family:var(--sans);font-style:normal;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.lg{background:rgba(255,255,255,.03);border:1px solid var(--line);backdrop-filter:blur(20px);border-radius:16px}
+.hint{font-size:12px;color:var(--muted);padding:9px 14px}
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:28px;align-items:start}
+@media(max-width:900px){.stage{grid-template-columns:1fr}}
+.phone-wrap{display:flex;justify-content:center}
+.phone{width:392px;max-width:100%;height:812px;border-radius:52px;background:#000;border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 60px 120px -40px rgba(0,0,0,.9),0 0 0 10px rgba(255,255,255,.03);position:relative;overflow:hidden}
+.notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:112px;height:28px;border-radius:16px;background:#000;z-index:60}
+.statusbar{position:absolute;top:0;left:0;right:0;height:46px;display:flex;align-items:center;justify-content:space-between;padding:14px 26px 0;font-size:12px;font-weight:600;z-index:55;pointer-events:none}
+.screen{position:absolute;inset:0;display:none;flex-direction:column;padding:52px 0 0;overflow:hidden}
+.screen.active{display:flex;animation:fade .32s cubic-bezier(.16,1,.3,1)}
+@keyframes fade{from{opacity:0;transform:translateY(10px) scale(.995)}to{opacity:1;transform:none}}
+.body{flex:1;overflow-y:auto;padding:8px 18px 96px;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
+.tabbar{position:absolute;bottom:0;left:0;right:0;height:82px;display:flex;padding:8px 10px 20px;
+  background:linear-gradient(to top,rgba(5,5,5,.98),rgba(5,5,5,.6));backdrop-filter:blur(24px);border-top:1px solid var(--line);z-index:50}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:10px;color:var(--muted);cursor:pointer;border-radius:14px;transition:.2s}
+.tab i{font-size:19px;font-style:normal}
+.tab.on{color:var(--teal)}
+.tab:active{background:rgba(255,255,255,.05)}
+h2.title{font-family:var(--serif);font-style:italic;font-size:34px;letter-spacing:-.04em;line-height:.98;font-weight:400;margin:6px 0 4px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:16px}
+.sec{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:22px 0 10px}
+.card{background:rgba(255,255,255,.032);border:1px solid var(--line);border-radius:20px;padding:16px;cursor:pointer;transition:.22s}
+.card:hover{background:rgba(255,255,255,.06);transform:translateY(-2px)}
+.row{display:flex;align-items:center;gap:12px}
+.btn{display:block;width:100%;padding:15px;border:0;border-radius:16px;background:#fff;color:#050505;font-weight:650;font-size:15px;font-family:var(--sans);cursor:pointer;transition:.2s}
+.btn:hover{transform:translateY(-1px);box-shadow:0 12px 30px -12px rgba(255,255,255,.4)}
+.btn.ghost{background:rgba(255,255,255,.06);color:var(--ink);border:1px solid var(--line)}
+.btn.teal{background:linear-gradient(120deg,#fff,var(--teal))}
+.chip{display:inline-block;padding:5px 11px;border-radius:999px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--line);color:var(--muted)}
+.chip.live{color:#050505;background:var(--teal);border-color:transparent;font-weight:700}
+.side .lg{padding:18px;margin-bottom:14px}
+.side h3{font-family:var(--serif);font-style:italic;font-size:20px;font-weight:400;margin-bottom:10px}
+.flowlist{display:flex;flex-direction:column;gap:6px}
+.flowlist button{text-align:left;padding:11px 13px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02);color:var(--muted);font-size:13px;font-family:var(--sans);cursor:pointer;transition:.2s}
+.flowlist button:hover{color:var(--ink);background:rgba(255,255,255,.07)}
+.flowlist button.on{color:#050505;background:var(--teal);border-color:transparent;font-weight:650}
+.side p.note{font-size:12px;color:var(--muted);line-height:1.55}
+.avatar{width:42px;height:42px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;font-weight:700;font-size:14px;color:#04110e}
+.poster{height:112px;border-radius:16px;position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:10px}
+.poster span{font-size:12px;font-weight:650;position:relative;z-index:2}
+.poster:after{content:'';position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.75),transparent 65%)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.player{height:216px;border-radius:20px;background:radial-gradient(120% 120% at 30% 20%,#123b3a,#050505);position:relative;overflow:hidden;display:grid;place-items:center;margin-bottom:14px}
+.play{width:62px;height:62px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);backdrop-filter:blur(10px);display:grid;place-items:center;font-size:22px;cursor:pointer;transition:.2s}
+.play:hover{transform:scale(1.08);background:rgba(255,255,255,.24)}
+.bar{height:4px;border-radius:4px;background:rgba(255,255,255,.16);position:absolute;left:14px;right:14px;bottom:14px;cursor:pointer}
+.bar b{display:block;height:100%;width:38%;border-radius:4px;background:linear-gradient(90deg,#fff,var(--teal))}
+.msg{max-width:78%;padding:10px 13px;border-radius:16px;font-size:13px;line-height:1.45;background:rgba(255,255,255,.06);margin-bottom:8px}
+.msg.own{margin-left:auto;background:linear-gradient(120deg,rgba(25,224,192,.9),rgba(124,92,255,.75));color:#04110e;font-weight:550}
+.msg small{display:block;font-size:10px;opacity:.6;margin-bottom:3px}
+.composer{display:flex;gap:8px;align-items:center;margin-top:10px}
+.composer input{flex:1;padding:13px 15px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--ink);font-size:14px;font-family:var(--sans);outline:none}
+.composer input:focus{border-color:rgba(25,224,192,.6)}
+.send{width:46px;height:46px;border-radius:50%;border:0;background:linear-gradient(120deg,#fff,var(--teal));font-size:17px;cursor:pointer}
+.list-item{display:flex;align-items:center;gap:12px;padding:13px;border-radius:16px;cursor:pointer;transition:.2s}
+.list-item:hover{background:rgba(255,255,255,.05)}
+.sw{width:44px;height:26px;border-radius:999px;background:rgba(255,255,255,.14);position:relative;cursor:pointer;transition:.25s;flex:0 0 auto}
+.sw:after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.25s}
+.sw.on{background:var(--teal)}
+.sw.on:after{left:21px}
+.dots{display:flex;gap:6px;justify-content:center;margin:18px 0}
+.dots i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.2)}
+.dots i.on{background:var(--teal);width:22px;border-radius:4px}
+.code{font-family:ui-monospace,Menlo,monospace;font-size:26px;letter-spacing:.32em;text-align:center;padding:16px;border-radius:16px;border:1px dashed rgba(25,224,192,.5);background:rgba(25,224,192,.06);color:var(--teal)}
+.toast{position:absolute;left:50%;bottom:104px;transform:translate(-50%,14px);background:rgba(255,255,255,.13);border:1px solid var(--line);backdrop-filter:blur(20px);padding:11px 18px;border-radius:14px;font-size:13px;opacity:0;pointer-events:none;transition:.3s;z-index:70;white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.center{flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px 60px;text-align:center}
+.emoji-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.emoji-row button{width:42px;height:42px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04);font-size:18px;cursor:pointer;transition:.2s}
+.emoji-row button:hover{transform:translateY(-3px) scale(1.1);background:rgba(255,255,255,.1)}
+.float{position:absolute;font-size:26px;pointer-events:none;animation:rise 1.5s ease-out forwards;z-index:65}
+@keyframes rise{0%{opacity:1;transform:translateY(0) scale(.7)}100%{opacity:0;transform:translateY(-160px) scale(1.5)}}
+.back{background:none;border:0;color:var(--teal);font-size:14px;cursor:pointer;font-family:var(--sans);padding:4px 0;margin-bottom:6px}
+.kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center}
+.kpi div{padding:12px 6px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
+.kpi b{display:block;font-family:var(--serif);font-style:italic;font-size:22px;font-weight:400}
+.kpi span{font-size:10px;color:var(--muted)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="mark">▶</div>
+      <div><h1>Plink<small>Watch together · превью</small></h1></div>
+    </div>
+    <div class="lg hint">Кликабельный прототип · нажимай что угодно</div>
+  </header>
+  <div class="stage">
+    <div class="phone-wrap">
+      <div class="phone" id="phone">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>◗◗◗ ⏻</span></div>
+        <div id="screens"></div>
+        <div class="tabbar" id="tabbar"></div>
+        <div class="toast" id="toast"></div>
+      </div>
+    </div>
+    <aside class="side">
+      <div class="lg">
+        <h3>Экраны</h3>
+        <div class="flowlist" id="nav"></div>
+      </div>
+      <div class="lg">
+        <h3>О превью</h3>
+        <p class="note">Прототип собран по коду <b>ios-2</b>: сплэш и вход, онбординг, лента и создание комнаты, синхронный плеер с чатом и реакциями, друзья, диалоги, Plink+ и настройки. Все элементы реагируют на нажатие.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+<script>
+const screens = [
+  {
+    id: 'splash',
+    name: 'Сплэш',
+    tabs: false,
+    render: () => `
+      <div class="center">
+        <div style="width:96px;height:96px;border-radius:24px;background:linear-gradient(140deg,#fff,var(--teal));margin:0 auto 20px;display:grid;place-items:center;font-size:38px;color:#04110e">▶</div>
+        <h2 class="title" style="text-align:center;font-size:42px;margin-bottom:10px">Plink</h2>
+        <p class="sub" style="text-align:center">Смотрите вместе · синхронно</p>
+        <div class="dots"><i class="on"></i><i></i><i></i></div>
+      </div>
+    `
+  },
+  {
+    id: 'auth',
+    name: 'Вход',
+    tabs: false,
+    render: () => `
+      <div class="center">
+        <h2 class="title" style="text-align:center;font-size:38px;margin-bottom:8px">Добро пожаловать</h2>
+        <p class="sub" style="text-align:center;margin-bottom:26px">Войдите или зарегистрируйтесь</p>
+        <button class="btn teal" onclick="go('onboarding')">Начать</button>
+        <button class="btn ghost" style="margin-top:12px" onclick="toast('Вход через email')">Уже есть аккаунт</button>
+      </div>
+    `
+  },
+  {
+    id: 'onboarding',
+    name: 'Онбординг',
+    tabs: false,
+    render: () => `
+      <div class="center">
+        <div style="font-size:62px;margin-bottom:12px">🎬</div>
+        <h2 class="title" style="text-align:center;font-size:34px;margin-bottom:8px">Смотрите фильмы вместе</h2>
+        <p class="sub" style="text-align:center;margin-bottom:20px">Создавайте комнаты и приглашайте друзей. Видео синхронизируется автоматически.</p>
+        <div class="dots"><i></i><i class="on"></i><i></i></div>
+        <button class="btn" onclick="go('home')" style="margin-top:26px">Продолжить</button>
+      </div>
+    `
+  },
+  {
+    id: 'home',
+    name: 'Лента',
+    tabs: true,
+    render: () => `
+      <h2 class="title">Plink</h2>
+      <p class="sub">Создавайте комнаты или присоединяйтесь к друзьям</p>
+      <button class="btn teal" onclick="go('create')">Создать комнату</button>
+      <button class="btn ghost" style="margin-top:10px" onclick="go('join')">Присоединиться по коду</button>
+      <div class="sec">Популярные комнаты <span class="chip live" style="margin-left:6px">LIVE</span></div>
+      <div class="card" onclick="go('room')" style="margin-bottom:10px">
+        <div class="poster" style="background:linear-gradient(135deg,#123b3a,#7c5cff)">
+          <span>Смотрим «Интерстеллар»</span>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+          <div class="avatar" style="background:#f5c26b">A</div>
+          <div style="flex:1"><b>Алекс</b><br><small class="chip" style="border:0;padding:2px 0">4 участника</small></div>
+        </div>
+      </div>
+      <div class="card" onclick="toast('Комната открывается...')">
+        <div class="poster" style="background:linear-gradient(135deg,#19e0c0,#050505)">
+          <span>Киномарафон Marvel</span>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+          <div class="avatar" style="background:#7c5cff">M</div>
+          <div style="flex:1"><b>Мария</b><br><small class="chip" style="border:0;padding:2px 0">12 участников</small></div>
+        </div>
+      </div>
+    `
+  },
+  {
+    id: 'create',
+    name: 'Создание комнаты',
+    tabs: false,
+    render: () => `
+      <button class="back" onclick="go('home')">← Назад</button>
+      <h2 class="title">Новая комната</h2>
+      <p class="sub">Выберите платформу и вставьте ссылку</p>
+      <div class="grid2" style="margin-bottom:16px">
+        <button class="btn ghost" onclick="toast('YouTube выбран')">YouTube</button>
+        <button class="btn ghost" onclick="toast('Twitch выбран')">Twitch</button>
+      </div>
+      <input type="text" placeholder="https://youtube.com/watch?v=..." style="width:100%;padding:13px 15px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--ink);font-size:14px;font-family:var(--sans);margin-bottom:16px">
+      <button class="btn teal" onclick="go('room')">Создать и начать</button>
+    `
+  },
+  {
+    id: 'join',
+    name: 'Присоединиться',
+    tabs: false,
+    render: () => `
+      <button class="back" onclick="go('home')">← Назад</button>
+      <h2 class="title">Присоединиться</h2>
+      <p class="sub">Введите 6-значный код комнаты</p>
+      <div class="code" style="margin:24px 0">A4K2W9</div>
+      <button class="btn teal" onclick="go('room')">Войти в комнату</button>
+    `
+  },
+  {
+    id: 'room',
+    name: 'Комната',
+    tabs: false,
+    render: () => `
+      <div class="player">
+        <div class="play" onclick="togglePlay()">▶</div>
+        <div class="bar" onclick="toast('Перемотка')"><b></b></div>
+        <div style="position:absolute;top:14px;left:14px;right:14px;display:flex;justify-content:space-between">
+          <button style="background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px);padding:8px 12px;border-radius:10px;color:#fff;font-size:12px;cursor:pointer" onclick="go('home')">← Выйти</button>
+          <button style="background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px);padding:8px 12px;border-radius:10px;color:#fff;font-size:12px;cursor:pointer" onclick="toast('Пригласить')">+ Пригласить</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div class="avatar" style="background:#f5c26b">A</div>
+        <div style="flex:1"><b>Алекс</b><br><small style="font-size:11px;color:var(--muted)">admin</small></div>
+        <div class="chip live">LIVE</div>
+      </div>
+      <div class="sec">Чат</div>
+      <div class="msg"><small>Алекс</small>Всем привет! Готовы?</div>
+      <div class="msg own"><small>Вы</small>Да, запускай! 🔥</div>
+      <div class="msg"><small>Алекс</small>Стартуем через 10 секунд</div>
+      <div class="composer">
+        <input placeholder="Написать..." id="chatInput">
+        <button class="send" onclick="sendMsg()">➤</button>
+      </div>
+      <div class="sec">Быстрые реакции</div>
+      <div class="emoji-row">
+        <button onclick="react('🔥')">🔥</button>
+        <button onclick="react('😂')">😂</button>
+        <button onclick="react('❤️')">❤️</button>
+        <button onclick="react('👏')">👏</button>
+        <button onclick="react('😮')">😮</button>
+        <button onclick="react('🎉')">🎉</button>
+      </div>
+    `
+  },
+  {
+    id: 'friends',
+    name: 'Друзья',
+    tabs: true,
+    render: () => `
+      <h2 class="title">Друзья</h2>
+      <p class="sub">Ваши контакты в Plink</p>
+      <button class="btn ghost" onclick="toast('Добавить друга')">+ Добавить друга</button>
+      <div class="sec">Онлайн (2)</div>
+      <div class="list-item" onclick="go('chat')">
+        <div class="avatar" style="background:#19e0c0">A</div>
+        <div style="flex:1"><b>Алекс</b><br><small style="font-size:11px;color:var(--muted)">Смотрит «Интерстеллар»</small></div>
+      </div>
+      <div class="list-item" onclick="toast('Открывается профиль')">
+        <div class="avatar" style="background:#7c5cff">M</div>
+        <div style="flex:1"><b>Мария</b><br><small style="font-size:11px;color:var(--muted)">В киномарафоне</small></div>
+      </div>
+      <div class="sec">Офлайн (3)</div>
+      <div class="list-item" onclick="toast('Открывается профиль')">
+        <div class="avatar" style="background:#f5c26b">К</div>
+        <div style="flex:1"><b>Катя</b><br><small style="font-size:11px;color:var(--muted)">была 2 часа назад</small></div>
+      </div>
+      <div class="list-item" onclick="toast('Открывается профиль')">
+        <div class="avatar" style="background:#19e0c0;opacity:.5">Д</div>
+        <div style="flex:1;opacity:.6"><b>Дима</b><br><small style="font-size:11px;color:var(--muted)">был вчера</small></div>
+      </div>
+    `
+  },
+  {
+    id: 'chat',
+    name: 'Диалоги',
+    tabs: true,
+    render: () => `
+      <button class="back" onclick="go('friends')">← Назад</button>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+        <div class="avatar" style="background:#19e0c0">A</div>
+        <div><b style="font-size:18px">Алекс</b><br><small style="font-size:11px;color:var(--muted)">онлайн</small></div>
+      </div>
+      <div class="msg"><small>Алекс</small>Эй, смотришь что-нибудь?</div>
+      <div class="msg own"><small>Вы</small>Пока нет, а что?</div>
+      <div class="msg"><small>Алекс</small>Давай запустим «Интерстеллар»! Классный фильм 🎬</div>
+      <div class="msg own"><small>Вы</small>Отличная идея! Создавай комнату</div>
+      <div class="msg"><small>Алекс</small>Готово! Код: A4K2W9</div>
+      <div class="composer">
+        <input placeholder="Написать...">
+        <button class="send" onclick="toast('Сообщение отправлено')">➤</button>
+      </div>
+    `
+  },
+  {
+    id: 'ai',
+    name: 'AI Ассистент',
+    tabs: true,
+    render: () => `
+      <h2 class="title">AI Компаньон</h2>
+      <p class="sub">Умный помощник для выбора контента</p>
+      <div style="display:flex;justify-content:center;margin:32px 0">
+        <div class="orb-container" id="aiOrb">
+          <div class="sphere idle">
+            <div class="sphere-core"></div>
+            <div class="sphere-mid"></div>
+            <div class="sphere-rim"></div>
+            <div class="sphere-glow"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sec" style="text-align:center;margin-top:24px">Статус: <span id="aiStatus" style="color:var(--teal);font-weight:600">В ожидании</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0">
+        <button class="btn ghost" onclick="setAIState('listening')">🎤 Слушаю</button>
+        <button class="btn ghost" onclick="setAIState('thinking')">🧠 Думаю</button>
+        <button class="btn ghost" onclick="setAIState('speaking')">💬 Говорю</button>
+        <button class="btn ghost" onclick="setAIState('idle')">✨ Готов</button>
+      </div>
+      <div class="sec">Популярные запросы</div>
+      <div class="card" style="margin-bottom:10px" onclick="aiQuery('sci-fi')">
+        <b>🚀 Посоветуй что-то научно-фантастическое</b>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px">Получить рекомендации фильмов и сериалов</p>
+      </div>
+      <div class="card" style="margin-bottom:10px" onclick="aiQuery('comedy')">
+        <b>😂 Хочу посмеяться</b>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px">Подборка комедий</p>
+      </div>
+      <div class="card" onclick="aiQuery('trending')">
+        <b>🔥 Что сейчас популярно?</b>
+        <p style="font-size:12px;color:var(--muted);margin-top:4px">Трендовый контент этой недели</p>
+      </div>
+      <div class="composer" style="margin-top:16px">
+        <input placeholder="Спросите что-нибудь..." id="aiInput">
+        <button class="send" onclick="aiQuery()">➤</button>
+      </div>
+    `
+  },
+  {
+    id: 'plus',
+    name: 'Plink+',
+    tabs: true,
+    render: () => `
+      <h2 class="title">Plink+</h2>
+      <p class="sub">Премиум для настоящих киноманов</p>
+      <div class="card" style="padding:20px;background:linear-gradient(135deg,rgba(25,224,192,.12),rgba(124,92,255,.08));border-color:rgba(124,92,255,.3);margin-bottom:16px">
+        <div style="font-size:32px;margin-bottom:8px">✨</div>
+        <h3 style="font-family:var(--serif);font-style:italic;font-size:24px;font-weight:400;margin-bottom:6px">Годовая подписка</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:14px">499₽/месяц · экономия 40%</p>
+        <ul style="font-size:13px;line-height:1.7;margin-bottom:16px;padding-left:20px">
+          <li>Живые темы комнат (Aurora, Cosmos, Magma, Verdant)</li>
+          <li>Приватные комнаты без лимита</li>
+          <li>HD-качество трансляций</li>
+          <li>Расширенные реакции и стикеры</li>
+        </ul>
+        <button class="btn teal" onclick="toast('Оформление подписки')">Оформить за 5 990₽/год</button>
+      </div>
+      <button class="btn ghost" onclick="toast('Месячная подписка')">Попробовать месяц за 799₽</button>
+      <div class="sec">Текущие возможности</div>
+      <div class="kpi">
+        <div><b>∞</b><span>Комнаты</span></div>
+        <div><b>8</b><span>Участников</span></div>
+        <div><b>SD</b><span>Качество</span></div>
+      </div>
+    `
+  },
+  {
+    id: 'settings',
+    name: 'Настройки',
+    tabs: true,
+    render: () => `
+      <h2 class="title">Настройки</h2>
+      <p class="sub">Персонализация и безопасность</p>
+      <div class="sec">Профиль</div>
+      <div class="list-item" onclick="toast('Редактирование профиля')">
+        <div class="avatar" style="background:linear-gradient(120deg,var(--teal),var(--violet))">Я</div>
+        <div style="flex:1"><b>Ваш профиль</b><br><small style="font-size:11px;color:var(--muted)">@yourname</small></div>
+      </div>
+      <div class="sec">Приватность</div>
+      <div class="list-item">
+        <div style="flex:1"><b>Уведомления</b><br><small style="font-size:11px;color:var(--muted)">Получать приглашения</small></div>
+        <div class="sw on" onclick="toggleSw(this)"></div>
+      </div>
+      <div class="list-item">
+        <div style="flex:1"><b>Видимость статуса</b><br><small style="font-size:11px;color:var(--muted)">Показывать онлайн</small></div>
+        <div class="sw on" onclick="toggleSw(this)"></div>
+      </div>
+      <div class="list-item">
+        <div style="flex:1"><b>Reduce Motion</b><br><small style="font-size:11px;color:var(--muted)">Упрощённая анимация</small></div>
+        <div class="sw" onclick="toggleSw(this)"></div>
+      </div>
+      <div class="sec">Аккаунт</div>
+      <div class="list-item" onclick="toast('Сменить пароль')">
+        <div style="flex:1"><b>Безопасность</b></div>
+      </div>
+      <div class="list-item" onclick="toast('Выход из аккаунта')">
+        <div style="flex:1;color:#f55"><b>Выйти</b></div>
+      </div>
+    `
+  }
+];
+
+const tabs = [
+  { id: 'home', icon: '🏠', label: 'Лента' },
+  { id: 'friends', icon: '👥', label: 'Друзья' },
+  { id: 'chat', icon: '💬', label: 'Чаты' },
+  { id: 'ai', icon: '🔮', label: 'AI' },
+  { id: 'plus', icon: '✨', label: 'Plink+' },
+  { id: 'settings', icon: '⚙️', label: 'Настройки' }
+];
+
+let current = 'splash';
+
+function go(id) {
+  current = id;
+  render();
+}
+
+function render() {
+  const screen = screens.find(s => s.id === current);
+  if (!screen) return;
+  
+  const container = document.getElementById('screens');
+  container.innerHTML = `<div class="screen active body">${screen.render()}</div>`;
+  
+  const tabbar = document.getElementById('tabbar');
+  if (screen.tabs) {
+    tabbar.style.display = 'flex';
+    tabbar.innerHTML = tabs.map(t => `
+      <div class="tab ${t.id === current ? 'on' : ''}" onclick="go('${t.id}')">
+        <i>${t.icon}</i><span>${t.label}</span>
+      </div>
+    `).join('');
+  } else {
+    tabbar.style.display = 'none';
+  }
+  
+  renderNav();
+}
+
+function renderNav() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = screens.map(s => `
+    <button class="${s.id === current ? 'on' : ''}" onclick="go('${s.id}')">${s.name}</button>
+  `).join('');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function togglePlay() {
+  const btn = event.target;
+  btn.innerHTML = btn.innerHTML === '▶' ? '❚❚' : '▶';
+  toast(btn.innerHTML === '❚❚' ? 'Воспроизведение' : 'Пауза');
+}
+
+function sendMsg() {
+  const input = document.getElementById('chatInput');
+  if (!input || !input.value.trim()) return;
+  toast('Сообщение отправлено');
+  input.value = '';
+}
+
+function react(emoji) {
+  const phone = document.getElementById('phone');
+  const float = document.createElement('div');
+  float.className = 'float';
+  float.textContent = emoji;
+  float.style.left = (Math.random() * 60 + 20) + '%';
+  float.style.bottom = '120px';
+  phone.appendChild(float);
+  setTimeout(() => float.remove(), 1500);
+}
+
+function toggleSw(el) {
+  el.classList.toggle('on');
+  toast(el.classList.contains('on') ? 'Включено' : 'Отключено');
+}
+
+render();
+</script>
+
+</html>
+<style>
+.orb-container{width:240px;height:240px;position:relative;display:flex;align-items:center;justify-content:center}
+.sphere{width:180px;height:180px;position:relative;border-radius:50%;transition:all .6s cubic-bezier(.16,1,.3,1)}
+.sphere-core,.sphere-mid,.sphere-rim{position:absolute;inset:0;border-radius:50%;transition:all .6s}
+.sphere-core{background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.9),rgba(25,224,192,.95) 40%,rgba(124,92,255,.8));
+  box-shadow:inset 0 8px 24px rgba(255,255,255,.4),inset 0 -8px 24px rgba(0,0,0,.3);animation:pulse 2s ease-in-out infinite}
+.sphere-mid{background:radial-gradient(circle at 50% 50%,transparent 45%,rgba(25,224,192,.3) 70%,transparent);
+  transform:scale(1.15);opacity:.7;animation:rotate 8s linear infinite}
+.sphere-rim{background:radial-gradient(circle at 50% 50%,transparent 55%,rgba(124,92,255,.25));
+  transform:scale(1.3);opacity:.5;animation:rotate 12s linear infinite reverse}
+.sphere-glow{position:absolute;inset:-40px;border-radius:50%;background:radial-gradient(circle,var(--teal) 0%,transparent 60%);
+  opacity:.35;filter:blur(30px);animation:glow 2.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes rotate{to{transform:rotate(360deg)}}
+@keyframes glow{0%,100%{opacity:.35}50%{opacity:.6}}
+.sphere.listening .sphere-core{background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.95),rgba(124,92,255,.9) 40%,rgba(75,85,255,.75));
+  animation:pulse 1s ease-in-out infinite}
+.sphere.listening .sphere-glow{background:radial-gradient(circle,var(--violet) 0%,transparent 60%);animation:glow 1.2s ease-in-out infinite}
+.sphere.thinking .sphere-core{background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.95),rgba(200,100,255,.9) 40%,rgba(124,92,255,.8));
+  animation:pulse .7s ease-in-out infinite}
+.sphere.thinking .sphere-mid{animation:rotate 3s linear infinite}
+.sphere.thinking .sphere-glow{background:radial-gradient(circle,#b860ff 0%,transparent 60%);animation:glow .8s ease-in-out infinite}
+.sphere.speaking .sphere-core{background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.95),rgba(100,255,200,.9) 40%,rgba(25,224,192,.8));
+  animation:pulse 1.3s ease-in-out infinite}
+.sphere.speaking .sphere-glow{background:radial-gradient(circle,#50ffb0 0%,transparent 60%);animation:glow 1.5s ease-in-out infinite}
+</style>
+
+
+<script>
+function setAIState(state){const o=document.getElementById('aiOrb');if(!o)return;const s=o.querySelector('.sphere');if(!s)return;s.className='sphere '+state;const labels={idle:'В ожидании',listening:'Слушаю вас',thinking:'Обрабатываю запрос',speaking:'Отвечаю'};const st=document.getElementById('aiStatus');if(st)st.textContent=labels[state]||'Активен';toast('Состояние: '+labels[state])}
+function aiQuery(preset){const i=document.getElementById('aiInput');let q=preset?{scifi:'Посоветуй что-то научно-фантастическое',comedy:'Хочу посмеяться',trending:'Что сейчас популярно?'}[preset]:'';if(!q&&i)q=i.value.trim();if(!q){toast('Введите запрос');return}setAIState('listening');setTimeout(()=>setAIState('thinking'),1200);setTimeout(()=>setAIState('speaking'),2800);setTimeout(()=>{setAIState('idle');toast('Рекомендации готовы!')},4500);if(i)i.value=''}
+</script>
+
+</body>

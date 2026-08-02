@@ -1,25 +1,39 @@
 import type { Metadata, Viewport } from "next";
-import { Unbounded, Onest } from "next/font/google";
+import { Unbounded, Inter, JetBrains_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
 const unbounded = Unbounded({
   subsets: ["latin", "cyrillic"],
   variable: "--font-unbounded",
   display: "swap",
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: ["600", "700"],
 });
 
-const onest = Onest({
+const inter = Inter({
   subsets: ["latin", "cyrillic"],
-  variable: "--font-onest",
+  variable: "--font-body",
   display: "swap",
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600"],
+});
+
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  variable: "--font-serif-accent",
+  display: "swap",
+  weight: ["400"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-mono",
+  display: "swap",
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "Plink — Совместный просмотр видео с друзьями",
+  title: "Plink — Комната. Видео. Вместе.",
   description:
-    "Смотри видео синхронно с друзьями: один кадр, одна пауза, одни эмоции. YouTube, VK Видео, Rutube. Бесплатно на iOS.",
+    "Синхронный просмотр YouTube, VK Видео, Rutube и ещё одиннадцати сервисов. Чат, реакции, друзья — без расширений. iOS / macOS / Windows / Android.",
   keywords: [
     "совместный просмотр",
     "watch together",
@@ -27,6 +41,9 @@ export const metadata: Metadata = {
     "plink",
     "видео с друзьями",
     "ios приложение",
+    "vk видео",
+    "rutube",
+    "youtube watch party",
   ],
   authors: [{ name: "Plink" }],
   creator: "Plink",
@@ -92,7 +109,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0A0A0F",
+  themeColor: "#0B0F10",
   width: "device-width",
   initialScale: 1,
 };
@@ -103,7 +120,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" className={`${unbounded.variable} ${onest.variable}`}>
+    <html
+      lang="ru"
+      className={`${unbounded.variable} ${inter.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}
+    >
       <body className="min-h-screen bg-bg text-text-primary antialiased">
         <a
           href="#main"
