@@ -109,6 +109,29 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         return publicPaths.contains(where: { path.hasPrefix($0) })
     }
 
+    /// Плинк+ 02.08.2026: 402 и 503 — это не «ошибки сервера», а два штатных
+    /// продуктовых ответа, на которые UI реагирует по-разному:
+    /// 402 → экран покупки, 503 → честное «скоро». Раньше оба падали в default
+    /// и показывались как «Ошибка сервера (402)».
+    private static func productError(status: Int, data: Data) -> APIError? {
+        let body = try? JSONDecoder().decode(APIErrorBody.self, from: data)
+        switch status {
+        case 402:
+            return .subscriptionRequired(
+                feature: body?.feature ?? "unknown",
+                product: body?.product ?? "plink_plus",
+                message: body?.message ?? "Для этой функции нужна подписка Плинк+"
+            )
+        case 503:
+            return .unavailable(
+                reason: body?.reason ?? "unavailable",
+                message: body?.message ?? "Функция пока недоступна"
+            )
+        default:
+            return nil
+        }
+    }
+
     // Аудит 26.07.2026 P0: раньше ЛЮБОЙ 401 немедленно постил plinkSessionExpired
     // и выбрасывал на логин, хотя в Keychain лежал валидный refresh-токен, а
     // серверный TTL access-токена (1 час) короче клиентского хардкода (24 часа).
@@ -197,6 +220,12 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             }
             await Self.postSessionExpired()
             throw APIError.unauthorized
+        case 402, 503:
+            // Плинк+: подписка или «функция ещё не включена» — см. productError.
+            if let productError = Self.productError(status: httpResponse.statusCode, data: data) {
+                throw productError
+            }
+            throw APIError.serverError(status: httpResponse.statusCode, message: "Request failed")
         case 404:
             throw APIError.notFound
         case 409:
@@ -306,6 +335,13 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             }
             await Self.postSessionExpired()
             throw APIError.unauthorized
+        // Плинк+ 02.08.2026: те же два продуктовых кода, что и в request<T>.
+        // Без этого ветка requestNoBody молча теряла бы причину отказа.
+        case 402, 503:
+            if let productError = Self.productError(status: httpResponse.statusCode, data: data) {
+                throw productError
+            }
+            throw APIError.serverError(status: httpResponse.statusCode, message: "Request failed")
         // 🔧 FIX M7: requestNoBody was missing 404 handling
         case 404:
             throw APIError.notFound
@@ -352,6 +388,15 @@ enum APIError: LocalizedError {
     /// Аудит 26.07.2026 P1: 401 на публичных auth-маршрутах (signin/signup) —
     /// это неверные креды, а не истёкшая сессия. Отдельный кейс с текстом сервера.
     case invalidCredentials(message: String)
+    /// Плинк+ 02.08.2026: 402 — функция требует подписки. По этому кейсу
+    /// UI обязан открыть экран покупки, а не алерт с ошибкой.
+    /// `feature` говорит, что именно закрыто (например room_rtc) — по нему
+    /// выбирается триггер пэйволла и источник в аналитике.
+    case subscriptionRequired(feature: String, product: String, message: String)
+    /// Плинк+ 02.08.2026: 503 — функция ещё не включена на сервере
+    /// (reason=not_configured — нет ключей LiveKit). Это НЕ повод продавать
+    /// подписку и НЕ повод показывать ошибку — нужно честное «скоро».
+    case unavailable(reason: String, message: String)
     case notFound
     case conflict(message: String)
     case serverError(status: Int, message: String)
@@ -366,6 +411,8 @@ enum APIError: LocalizedError {
         // Наружу не выходит — обёртка request/requestNoBody перехватывает.
         case .unauthorizedNeedsRefresh: return "Сессия истекла. Войдите заново."
         case .invalidCredentials(let msg): return msg
+        case .subscriptionRequired(_, _, let msg): return msg
+        case .unavailable(_, let msg): return msg
         case .notFound: return "Ресурс не найден"
         case .conflict(let msg): return msg
         case .serverError(let status, let msg): return "Ошибка сервера (\(status)): \(msg)"
@@ -378,4 +425,10 @@ enum APIError: LocalizedError {
 struct APIErrorBody: Decodable {
     let error: String?
     let message: String?
+    /// Плинк+ 02.08.2026: сервер различает причины отказа машиночитаемо:
+    /// plus_required / not_configured. Опознавать их по тексту сообщения нельзя —
+    /// текст меняется и локализуется.
+    let reason: String?
+    let feature: String?
+    let product: String?
 }
