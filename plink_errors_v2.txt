@@ -1,6 +1,0 @@
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V5/PlinkAdminRoot.swift:405:40: error: generic parameter 'T' could not be inferred
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V5/PlinkAdminRoot.swift:409:40: error: type 'Any' cannot conform to 'Decodable'
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V5/PlinkAdminRoot.swift:460:40: error: type 'Any' cannot conform to 'Decodable'
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V5/PlinkAdminRoot.swift:501:40: error: type 'Any' cannot conform to 'Decodable'
-/Users/hellcart/Desktop/PROJECTS/PLINK/ios-2/Plink/V5/PlinkAdminRoot.swift:612:59: error: type 'Any' cannot conform to 'Decodable'
-** BUILD FAILED **
