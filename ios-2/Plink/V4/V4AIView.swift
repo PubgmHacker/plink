@@ -1,32 +1,96 @@
-// Plink/V4/V4AIView.swift — AI companion tab with 3D state sphere
+// Plink/V4/V4AIView.swift — AI companion tab: liquid glass чат + режим «Голос»
+//
+// 02.08.2026: экран разделён на два режима. Раньше чат и голос были смешаны:
+// микрофон просто диктовал текст в то же поле ввода. Голосовой режим — это
+// разговор без клавиатуры, ему не нужны ни лента сообщений, ни поле ввода.
+//
+// Цвет: акцент всегда берётся из активной темы (theme.accentColor), а не зашивается
+// в экран — иначе нарушается PLINK_DESIGN_DIRECTION.md.
 
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 import Foundation
 
 // Аудит 26.07.2026: V4MorphOrb использовался только удалённым макетом
 // V4AIView — удалён вместе с ним.
 
-// Аудит 26.07.2026: здесь был статический макет с захардкоженными данными
-// (0 инстанцирований по всему проекту) — удалён, живой экран ниже.
+// MARK: - Режимы вкладки
+
+enum V4AIMode: String, CaseIterable, Identifiable {
+    case chat
+    case voice
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chat: return "Чат"
+        case .voice: return "Голос"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .chat: return "bubble.left.and.bubble.right.fill"
+        case .voice: return "waveform"
+        }
+    }
+}
+
+// MARK: - Озвучка ответов
+
+/// Минимальная обёртка над AVSpeechSynthesizer. Один экземпляр на приложение,
+/// чтобы два ответа не читались хором.
+final class AISpeaker {
+    static let shared = AISpeaker()
+    private let synth = AVSpeechSynthesizer()
+
+    private init() {}
+
+    /// Говорит текст; если уже говорит — останавливается.
+    func toggle(_ text: String) {
+        if synth.isSpeaking {
+            synth.stopSpeaking(at: .immediate)
+            return
+        }
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "ru-RU")
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        synth.speak(utterance)
+    }
+
+    func stop() {
+        if synth.isSpeaking {
+            synth.stopSpeaking(at: .immediate)
+        }
+    }
+}
+
+// MARK: - Экран
 
 struct V4AIViewLive: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
+
+    @State private var mode: V4AIMode = .chat
     @State private var input = ""
     @State private var showManualCreate = false
     @State private var confirmingAction: AIProposedAction?
     @State private var presentedRoom: Room?
     @State private var speakingPulseUntil: Date = .distantPast
+    @State private var copiedMessageID: String?
     @State private var keyboard = KeyboardObserver()
     @StateObject private var speech = V4SpeechRecognizer()  // M34: реальный STT
+    @Namespace private var modeNamespace
 
     private var orbState: AIOrbState {
         let s = store.state.lowercased()
         if s.contains("ошиб") || s.contains("error") || s.contains("не удалось") { return .error }
         if store.state == "Думаю…" || s.contains("дума") { return .thinking }
         if store.state == "Слушаю…" || s.contains("слуша") { return .listening }
+        if speech.isRecording { return .listening }
         if keyboard.isVisible && !input.trimmingCharacters(in: .whitespaces).isEmpty { return .listening }
         if Date() < speakingPulseUntil { return .speaking }
         return .idle
@@ -42,215 +106,36 @@ struct V4AIViewLive: View {
         }
     }
 
+    private var lastUserPrompt: String? {
+        store.messages.last(where: { !$0.isBot })?.text
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 10) {
-                AICompanionModel(theme: theme, size: 44, glow: 20, state: orbState)
-                    .frame(width: 48, height: 48)
-                    .clipped()
-                VStack(alignment:.leading,spacing:2) {
-                    Text("Plink AI").font(.system(size:16,weight:.bold))
-                    Text(stateCaption)
-                        .font(.system(size:11.04, weight: .medium))
-                        .foregroundStyle(headerStateColor)
-                        .lineLimit(1)
-                }
-                Spacer()
-                // M34: очистить историю чата
-                if store.messages.count > 1 {
-                    Button {
-                        HapticManager.impact(.light)
-                        withAnimation { store.clearHistory() }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(V4.muted)
-                            .frame(width: 44, height: 44)
-                            .background(V4.raised, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Очистить историю чата")
-                }
-                Button {
-                    showManualCreate = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                        Text(LocalizationManager.shared.string(.roomLabel))
-                    }
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(theme.buttonTextColor)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 44)
-                    .background(theme.accentColor)
-                    .clipShape(Capsule())
-                }
-                .accessibilityLabel("Создать комнату вручную")
+            header
+            modeSwitcher
+
+            switch mode {
+            case .chat:
+                chatMode
+            case .voice:
+                voiceMode
             }
-            .frame(height:61)
-            .padding(.horizontal,17)
-            .accessibilityIdentifier("screen.ai")
-
-            // 3D AI sphere zone — collapses when keyboard is visible
-            ZStack(alignment:.bottom) {
-                // Soft radial stage under the orb (does not block living theme completely)
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                headerStateColor.opacity(0.18),
-                                .clear,
-                            ],
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 140
-                        )
-                    )
-                    .frame(width: 280, height: 280)
-                    .offset(y: -20)
-                    .allowsHitTesting(false)
-
-                AICompanionModel(theme: theme, size: 200, glow: 70, state: orbState)
-                    .offset(y: -18)
-
-                VStack(spacing: 4) {
-                    Text(LocalizationManager.shared.string(.aiWhatToday))
-                        .font(.system(size: 17, weight: .bold))
-                    Text(stateCaption)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(headerStateColor.opacity(0.95))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(headerStateColor.opacity(0.12), in: Capsule())
-                }
-                .padding(.bottom, 10)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: keyboard.isVisible ? 0 : 290)
-            .clipped()
-            .animation(.easeInOut(duration: 0.3), value: keyboard.isVisible)
-            .animation(.easeInOut(duration: 0.35), value: orbState)
-
-            // Chat messages
-            ScrollViewReader { proxy in
-                ScrollView(showsIndicators:false) {
-                    VStack(alignment:.leading,spacing:8) {
-                        ForEach(store.messages) { msg in
-                            if msg.isBot {
-                                VStack(alignment:.leading,spacing:3) {
-                                    Text("PLINK AI").font(.system(size:13.28,weight:.bold))
-                                    Text(msg.text).font(.system(size:13.28)).lineSpacing(5.31)
-
-                                    // P0.4: show confirm button if proposedAction exists
-                                    if let action = msg.proposedAction {
-                                        AIActionButton(action: action, store: store, presentedRoom: $presentedRoom, confirmingAction: $confirmingAction)
-                                    }
-                                }
-                                .padding(.vertical,11).padding(.horizontal,13)
-                                .background(V4.botBG)
-                                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-                                .id(msg.id)
-                            } else {
-                                HStack {
-                                    Spacer()
-                                    Text(msg.text)
-                                        .font(.system(size:13.28))
-                                        .padding(.vertical,11).padding(.horizontal,13)
-                                        .background(theme.accentColor.opacity(0.15))
-                                        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-                                        .id(msg.id)
-                                }
-                            }
-                        }
-                        // Chips — M34: динамические подсказки после ответа ИИ
-                        HStack(spacing:7) {
-                            if store.lastSuggestions.isEmpty {
-                                chip("Очередь","Собери очередь на вечер")
-                                chip("У друзей","Что смотрят друзья?")
-                                chip("Через AI","Создай комнату с Inception")
-                            } else {
-                                ForEach(store.lastSuggestions.prefix(3), id: \.self) { s in
-                                    chip(String(s.prefix(18)), s)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal,16)
-                    .padding(.top,8)
-                    .padding(.bottom,100)
-                }
-                .onChange(of: store.messages.count) { _, _ in
-                    if let last = store.messages.last, last.isBot {
-                        speakingPulseUntil = Date().addingTimeInterval(2.5)
-                    }
-                    if let lastID = store.messages.last?.id {
-                        withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
-                    }
-                }
-            }
-
-            // Composer — full width, no side gaps
-            HStack(spacing:6) {
-                Button {
-                    HapticManager.impact(.light)
-                    // M34: реальный STT — SFSpeechRecognizer (ru-RU)
-                    if speech.isRecording {
-                        speech.stop()
-                        store.setStatus("Готов помочь")
-                        let text = input.trimmingCharacters(in: .whitespaces)
-                        if !text.isEmpty {
-                            input = ""
-                            Task { await store.send(text) }
-                        }
-                    } else {
-                        speech.start()
-                        store.setStatus("Слушаю…")
-                    }
-                } label: {
-                    Image(systemName: orbState == .listening ? "mic.fill" : "mic")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(orbState == .listening ? theme.buttonTextColor : V4.ink)
-                }
-                .frame(width:44,height:44)
-                .background(orbState == .listening ? theme.accentColor : V4.raised)
-                .clipShape(RoundedRectangle(cornerRadius:14))
-                .accessibilityLabel("Голосовой ввод")
-
-                TextField("Спроси про фильмы и комнаты", text:$input)
-                    .foregroundStyle(V4.ink)
-                    .font(.system(size: 14))
-
-                Button {
-                    let text = input
-                    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                    input = ""
-                    HapticManager.impact(.light)
-                    Task { await store.send(text) }
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(theme.buttonTextColor)
-                }
-                .frame(width:44,height:44)
-                .background(theme.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius:14))
-                .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel("Отправить сообщение")
-            }
-            .padding(8)
-            .frame(minHeight:62)
-            .background(V4.composerBG)
-            .clipShape(RoundedRectangle(cornerRadius:22))
-            .overlay(RoundedRectangle(cornerRadius:22).stroke(V4.line))
-            .padding(.horizontal,13)
-            .padding(.bottom,90) // above tab bar
         }
         .foregroundStyle(V4.ink)
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // full screen
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.22), value: mode)
         .onChange(of: speech.transcript) { _, t in
             // M34: partial results прямо в поле ввода
             if speech.isRecording && !t.isEmpty { input = t }
+        }
+        .onChange(of: mode) { _, newMode in
+            // Переход между режимами не должен оставлять висячий микрофон или речь.
+            if speech.isRecording { speech.stop() }
+            AISpeaker.shared.stop()
+            store.setStatus("Готов помочь")
+            HapticManager.selection()
+            AnalyticsService.shared.track("ai_mode_switch", parameters: ["mode": newMode.rawValue])
         }
         .sheet(isPresented: $showManualCreate) {
             RoomCreationView(
@@ -264,6 +149,490 @@ struct V4AIViewLive: View {
         }
     }
 
+    // MARK: Шапка
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            AICompanionModel(theme: theme, size: 36, glow: 16, state: orbState)
+                .frame(width: 40, height: 40)
+                .clipped()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Plink AI").font(.system(size: 16, weight: .bold))
+                Text(stateCaption)
+                    .font(.system(size: 11.04, weight: .medium))
+                    .foregroundStyle(headerStateColor)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if mode == .chat && store.messages.count > 1 {
+                Button {
+                    HapticManager.impact(.light)
+                    AISpeaker.shared.stop()
+                    withAnimation { store.clearHistory() }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                        .frame(width: 44, height: 44)
+                        .plinkGlass(.overlay, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Очистить историю чата")
+            }
+
+            Button {
+                showManualCreate = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                    Text(LocalizationManager.shared.string(.roomLabel))
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(theme.buttonTextColor)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(theme.accentColor)
+                .clipShape(Capsule())
+            }
+            .accessibilityLabel("Создать комнату вручную")
+        }
+        .frame(height: 61)
+        .padding(.horizontal, 17)
+        .accessibilityIdentifier("screen.ai")
+    }
+
+    // MARK: Переключатель режимов
+
+    private var modeSwitcher: some View {
+        HStack(spacing: 4) {
+            ForEach(V4AIMode.allCases) { item in
+                Button {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                        mode = item
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(item.title)
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundStyle(mode == item ? theme.buttonTextColor : V4.muted)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .background {
+                        if mode == item {
+                            Capsule()
+                                .fill(theme.accentColor)
+                                .matchedGeometryEffect(id: "selected-ai-mode", in: modeNamespace)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+            }
+        }
+        .padding(4)
+        .plinkGlass(.navigation, in: Capsule())
+        .padding(.horizontal, 17)
+        .padding(.bottom, 6)
+    }
+
+    // MARK: Режим «Чат»
+
+    private var chatMode: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(store.messages) { msg in
+                            if msg.isBot {
+                                botBubble(id: "\(msg.id)", text: msg.text, action: msg.proposedAction)
+                                    .id(msg.id)
+                            } else {
+                                userBubble(text: msg.text)
+                                    .id(msg.id)
+                            }
+                        }
+
+                        if orbState == .thinking {
+                            TypingIndicator(tint: headerStateColor)
+                                .padding(.leading, 2)
+                        }
+
+                        suggestionChips
+                            .padding(.top, 2)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 100)
+                }
+                .onChange(of: store.messages.count) { _, _ in
+                    if let last = store.messages.last, last.isBot {
+                        speakingPulseUntil = Date().addingTimeInterval(2.5)
+                    }
+                    if let lastID = store.messages.last?.id {
+                        withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
+                    }
+                }
+            }
+
+            composer
+        }
+    }
+
+    private func userBubble(text: String) -> some View {
+        HStack {
+            Spacer(minLength: 48)
+            Text(text)
+                .font(.system(size: 14))
+                .lineSpacing(4)
+                .padding(.vertical, 11)
+                .padding(.horizontal, 14)
+                .background {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 18,
+                        bottomLeadingRadius: 18,
+                        bottomTrailingRadius: 6,
+                        topTrailingRadius: 18,
+                        style: .continuous
+                    )
+                    .fill(theme.accentColor.opacity(0.18))
+                    .overlay {
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 18,
+                            bottomLeadingRadius: 18,
+                            bottomTrailingRadius: 6,
+                            topTrailingRadius: 18,
+                            style: .continuous
+                        )
+                        .stroke(theme.accentColor.opacity(0.34), lineWidth: 0.6)
+                    }
+                }
+        }
+    }
+
+    private func botBubble(id: String, text: String, action: AIProposedAction?) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            AICompanionModel(theme: theme, size: 26, glow: 10, state: .idle)
+                .frame(width: 28, height: 28)
+                .clipped()
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text)
+                    .font(.system(size: 14))
+                    .lineSpacing(5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let action {
+                    AIActionButton(
+                        action: action,
+                        store: store,
+                        presentedRoom: $presentedRoom,
+                        confirmingAction: $confirmingAction
+                    )
+                }
+
+                Divider().overlay(V4.line)
+
+                HStack(spacing: 2) {
+                    bubbleAction(
+                        icon: copiedMessageID == id ? "checkmark" : "doc.on.doc",
+                        label: "Копировать ответ"
+                    ) {
+                        UIPasteboard.general.string = text
+                        HapticManager.impact(.light)
+                        withAnimation { copiedMessageID = id }
+                        Task {
+                            try? await Task.sleep(nanoseconds: 1_600_000_000)
+                            await MainActor.run {
+                                withAnimation {
+                                    if copiedMessageID == id { copiedMessageID = nil }
+                                }
+                            }
+                        }
+                    }
+
+                    bubbleAction(icon: "speaker.wave.2", label: "Озвучить ответ") {
+                        HapticManager.impact(.light)
+                        AISpeaker.shared.toggle(text)
+                        speakingPulseUntil = Date().addingTimeInterval(2.5)
+                    }
+
+                    Spacer()
+
+                    if let prompt = lastUserPrompt {
+                        bubbleAction(icon: "arrow.clockwise", label: "Повторить запрос") {
+                            HapticManager.impact(.light)
+                            Task { await store.send(prompt) }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 18,
+                bottomLeadingRadius: 6,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .fill(.ultraThinMaterial)
+            .overlay {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 18,
+                    bottomLeadingRadius: 6,
+                    bottomTrailingRadius: 18,
+                    topTrailingRadius: 18,
+                    style: .continuous
+                )
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.16),
+                            Color.white.opacity(0.03),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.7
+                )
+            }
+        }
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func bubbleAction(
+        icon: String,
+        label: String,
+        _ perform: @escaping () -> Void
+    ) -> some View {
+        Button(action: perform) {
+            Image(systemName: icon)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(V4.muted)
+                .frame(width: 34, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private var suggestionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                if store.lastSuggestions.isEmpty {
+                    chip("Очередь", "Собери очередь на вечер")
+                    chip("У друзей", "Что смотрят друзья?")
+                    chip("Через AI", "Создай комнату с Inception")
+                } else {
+                    ForEach(store.lastSuggestions.prefix(4), id: \.self) { s in
+                        chip(String(s.prefix(22)), s)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    // MARK: Композер
+
+    private var composer: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Button {
+                    showManualCreate = true
+                } label: {
+                    Label("Создать комнату", systemImage: "plus.circle")
+                }
+                Button {
+                    Task { await store.send("Что посмотреть сегодня вечером?") }
+                } label: {
+                    Label("Подобрать фильм", systemImage: "film")
+                }
+                Button {
+                    Task { await store.send("Собери очередь на вечер") }
+                } label: {
+                    Label("Собрать очередь", systemImage: "list.bullet")
+                }
+                if store.messages.count > 1 {
+                    Divider()
+                    Button(role: .destructive) {
+                        AISpeaker.shared.stop()
+                        withAnimation { store.clearHistory() }
+                    } label: {
+                        Label("Очистить чат", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(V4.ink)
+                    .frame(width: 40, height: 40)
+                    .plinkGlass(.overlay, in: Circle())
+            }
+            .accessibilityLabel("Быстрые действия")
+
+            TextField("Спроси про фильмы и комнаты", text: $input, axis: .vertical)
+                .lineLimit(1...4)
+                .foregroundStyle(V4.ink)
+                .font(.system(size: 14))
+                .padding(.vertical, 4)
+
+            Button {
+                HapticManager.impact(.light)
+                if speech.isRecording {
+                    speech.stop()
+                    store.setStatus("Готов помочь")
+                    let text = input.trimmingCharacters(in: .whitespaces)
+                    if !text.isEmpty {
+                        input = ""
+                        Task { await store.send(text) }
+                    }
+                } else {
+                    speech.start()
+                    store.setStatus("Слушаю…")
+                }
+            } label: {
+                Image(systemName: speech.isRecording ? "mic.fill" : "mic")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(speech.isRecording ? theme.accentColor : V4.muted)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Голосовой ввод")
+
+            Button {
+                let text = input
+                guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                input = ""
+                HapticManager.impact(.light)
+                Task { await store.send(text) }
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(theme.buttonTextColor)
+                    .frame(width: 40, height: 40)
+                    .background(theme.accentColor, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)
+            .opacity(input.trimmingCharacters(in: .whitespaces).isEmpty ? 0.45 : 1)
+            .accessibilityLabel("Отправить сообщение")
+        }
+        .padding(7)
+        .frame(minHeight: 58)
+        .plinkGlass(.navigation, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(.horizontal, 13)
+        .padding(.bottom, 90) // над таб-баром
+    }
+
+    // MARK: Режим «Голос»
+
+    private var voiceMode: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 12)
+
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [headerStateColor.opacity(0.22), .clear],
+                            center: .center,
+                            startRadius: 20,
+                            endRadius: 190
+                        )
+                    )
+                    .frame(width: 360, height: 360)
+                    .allowsHitTesting(false)
+
+                AICompanionModel(theme: theme, size: 240, glow: 90, state: orbState)
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer(minLength: 8)
+
+            Text(voicePrompt)
+                .font(.system(size: 19, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .frame(minHeight: 56)
+
+            Text(stateCaption)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(headerStateColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(headerStateColor.opacity(0.12), in: Capsule())
+
+            Spacer(minLength: 16)
+
+            Button {
+                HapticManager.impact(.medium)
+                if speech.isRecording {
+                    speech.stop()
+                    let text = input.trimmingCharacters(in: .whitespaces)
+                    input = ""
+                    if text.isEmpty {
+                        store.setStatus("Готов помочь")
+                    } else {
+                        Task { await store.send(text) }
+                    }
+                } else {
+                    AISpeaker.shared.stop()
+                    speech.start()
+                    store.setStatus("Слушаю…")
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .stroke(headerStateColor.opacity(0.35), lineWidth: 1)
+                        .frame(width: 96, height: 96)
+
+                    Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(speech.isRecording ? theme.buttonTextColor : V4.ink)
+                        .frame(width: 76, height: 76)
+                        .background {
+                            if speech.isRecording {
+                                Circle().fill(theme.accentColor)
+                            } else {
+                                Circle().fill(.ultraThinMaterial)
+                            }
+                        }
+                        .environment(\.colorScheme, .dark)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Говорить")
+
+            Text(speech.isRecording ? "Нажмите, когда закончите" : "Нажмите и говорите")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(V4.muted)
+                .padding(.top, 12)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, 104) // над таб-баром
+    }
+
+    /// В голосовом режиме ленты нет, поэтому последний ответ показываем крупно.
+    private var voicePrompt: String {
+        if speech.isRecording && !input.isEmpty { return input }
+        if let last = store.messages.last, last.isBot { return last.text }
+        return LocalizationManager.shared.string(.aiWhatToday)
+    }
+
+    // MARK: Общее
+
     private var headerStateColor: Color {
         switch orbState {
         case .idle: return theme.accentColor
@@ -274,22 +643,49 @@ struct V4AIViewLive: View {
         }
     }
 
-    private func chip(_ label:String,_ prompt:String)->some View {
+    private func chip(_ label: String, _ prompt: String) -> some View {
         Button {
             input = prompt
             HapticManager.impact(.light)
             Task { await store.send(prompt) }
         } label: {
             Text(label)
-                .font(.system(size:11.52, weight: .semibold))
+                .font(.system(size: 11.52, weight: .semibold))
                 .foregroundStyle(V4.ink)
-                .padding(.horizontal,12)
-                .frame(minHeight:44)
-                .background(V4.surface.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius:12))
-                .overlay(RoundedRectangle(cornerRadius:12).stroke(V4.line))
+                .padding(.horizontal, 13)
+                .frame(minHeight: 36)
+                .plinkGlass(.overlay, in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Индикатор набора
+
+/// Три точки, пока ИИ думает. Без этого экран выглядел замершим.
+struct TypingIndicator: View {
+    let tint: Color
+    @State private var phase = 0
+
+    private let timer = Timer.publish(every: 0.28, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(tint.opacity(phase == index ? 0.95 : 0.3))
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(phase == index ? 1.15 : 0.9)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .plinkGlass(.overlay, in: Capsule())
+        .animation(.easeInOut(duration: 0.24), value: phase)
+        .onReceive(timer) { _ in
+            phase = (phase + 1) % 3
+        }
+        .accessibilityLabel("ИИ печатает ответ")
     }
 }
 
@@ -325,8 +721,8 @@ struct AIActionButton: View {
                     }
                 }
                 .padding(10)
-                .background(V4.surface.opacity(0.5))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .plinkGlass(.overlay, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
             HStack(spacing: 8) {
@@ -359,8 +755,7 @@ struct AIActionButton: View {
                         .foregroundStyle(V4.muted)
                         .padding(.horizontal, 14)
                         .frame(minHeight: 44)
-                        .background(V4.surface)
-                        .clipShape(Capsule())
+                        .plinkGlass(.overlay, in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -388,7 +783,6 @@ struct AIActionButton: View {
     }
 }
 
-
 enum AIOrbState: Equatable {
     case idle
     case listening
@@ -398,4 +792,3 @@ enum AIOrbState: Equatable {
 }
 
 // AICompanionModel is defined in AI3DCompanionSphere.swift (real SceneKit 3D orb)
-
