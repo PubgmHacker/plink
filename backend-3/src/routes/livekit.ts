@@ -8,7 +8,7 @@ import { prisma } from '../config/db.js';
  * Голос в личных сообщениях остаётся бесплатным для всех и через этот
  * эндпоинт не ходит (голосовые сообщения живут в routes/messages.ts).
  *
- * Проверка обязана быть НА СЕРВЕРЕ. До этой правки /rtc/token выдавал
+ * Проверка обязана быть НА СЕРВЕРЕ. До правки 02.08.2026 /rtc/token выдавал
  * токен с `canPublish: true` любому участнику комнаты: спрятать кнопку
  * в интерфейсе — не защита, такой запрос повторяется curl'ом за минуту.
  */
@@ -39,6 +39,18 @@ async function hasActivePlus(userId: string): Promise<boolean> {
   return !!(user?.isPremium && user.premiumUntil && user.premiumUntil > now);
 }
 
+/**
+ * БЕТА-РЕЖИМ (02.08.2026). На бета-тесте нужно прогнать все экраны,
+ * включая экран покупки Плинк+, поэтому пэйволл показывается РАНЬШЕ
+ * проверки доступности SFU — даже когда ключей LiveKit ещё нет.
+ *
+ * ⚠️ ПЕРЕД ОТПРАВКОЙ В APP STORE поставить RTC_PAYWALL_BEFORE_AVAILABILITY=false.
+ * Продавать подписку за функцию, которая физически не работает, запрещено
+ * App Store Review Guideline 3.1.1 — и приводит к возвратам средств.
+ * Переключается переменной окружения, правка кода и релиз не нужны.
+ */
+const PAYWALL_BEFORE_AVAILABILITY = process.env.RTC_PAYWALL_BEFORE_AVAILABILITY !== 'false';
+
 export const livekitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/rtc/token', {
     preHandler: [(fastify as any).authenticate],
@@ -61,27 +73,13 @@ export const livekitRoutes: FastifyPluginAsync = async (fastify) => {
     if (!room || !room.isActive) return reply.status(404).send({ error: 'Room not found' });
     if (room.hostID !== userId && !participant) return reply.status(403).send({ error: 'Not a room member' });
 
-    // Порядок двух следующих проверок важен и выбран намеренно.
-    //
-    // Сначала — есть ли вообще рабочий SFU. Пока ключей LiveKit нет,
-    // функция не работает НИ У КОГО, и показывать в этот момент экран
-    // покупки нельзя: продажа подписки за заведомо нерабочую кнопку — это
-    // возвраты и прямое замечание по App Store Review Guideline 3.1.1.
-    // Клиент по reason='not_configured' показывает «скоро», а не пэйволл.
-    // Когда ключи появятся, пэйволл включится сам, без правки кода.
-    if (!config.LIVEKIT_URL || !config.LIVEKIT_API_KEY || !config.LIVEKIT_API_SECRET) {
-      return reply.status(503).send({
-        error: 'RTC unavailable',
-        reason: 'not_configured',
-        message: 'Голос и видео в комнате пока не включены',
-      });
-    }
+    const sfuReady = !!(config.LIVEKIT_URL && config.LIVEKIT_API_KEY && config.LIVEKIT_API_SECRET);
 
-    // Затем — подписка. 402 отделён от 403 намеренно: 403 значит «тебе
-    // сюда нельзя» (не участник комнаты), 402 — «можно, если оформишь
-    // Плинк+». Именно по 402 клиент открывает экран подписки, а не алерт
-    // с ошибкой — разные коды нужны именно для этого.
-    if (!(await hasActivePlus(userId))) {
+    // 402 отделён от 403 намеренно: 403 значит «тебе сюда нельзя»
+    // (не участник комнаты), 402 — «можно, если оформишь Плинк+».
+    // Именно по 402 клиент открывает экран подписки, а не алерт с ошибкой.
+    const denyWithoutPlus = async () => {
+      if (await hasActivePlus(userId)) return null;
       return reply.status(402).send({
         error: 'subscription_required',
         reason: 'plus_required',
@@ -89,6 +87,31 @@ export const livekitRoutes: FastifyPluginAsync = async (fastify) => {
         product: 'plink_plus',
         message: 'Голос и видеочат в комнате доступны с подпиской Плинк+',
       });
+    };
+
+    const denyWithoutSfu = () => {
+      if (sfuReady) return null;
+      return reply.status(503).send({
+        error: 'RTC unavailable',
+        reason: 'not_configured',
+        message: 'Голос и видео в комнате пока не включены',
+      });
+    };
+
+    // Бета: сначала пэйволл — обычный пользователь видит экран покупки
+    // даже без ключей LiveKit. Подписчик при этом получает честное «скоро»,
+    // а не молчаливый обрыв — два состояния остаются различимыми.
+    // Прод: сначала доступность — не продаём то, чего нет.
+    if (PAYWALL_BEFORE_AVAILABILITY) {
+      const paywall = await denyWithoutPlus();
+      if (paywall) return paywall;
+      const unavailable = denyWithoutSfu();
+      if (unavailable) return unavailable;
+    } else {
+      const unavailable = denyWithoutSfu();
+      if (unavailable) return unavailable;
+      const paywall = await denyWithoutPlus();
+      if (paywall) return paywall;
     }
 
     const identity = userId;
@@ -147,6 +170,9 @@ export const livekitRoutes: FastifyPluginAsync = async (fastify) => {
       e2eeSupported: false,
       requiresPlus: true,
       hasPlus,
+      // Бета: клиент показывает кнопку микрофона активной даже без SFU,
+      // чтобы тап дошёл до сервера и вернул 402 → экран покупки.
+      paywallBeforeAvailability: PAYWALL_BEFORE_AVAILABILITY,
     });
   });
 };
