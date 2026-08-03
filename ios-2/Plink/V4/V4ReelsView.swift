@@ -1,14 +1,20 @@
-// Plink/V4/V4ReelsView.swift — Рилсы: лента трейлеров во вкладке «ИИ»
+// Plink/V4/V4ReelsView.swift — Лента трейлеров во вкладке «ИИ»
 //
-// 03.08.2026. Порт из HTML-макета (панель data-mpanel="reels").
-// До этого рилсы существовали только в превью, в Swift их не было вообще.
+// 03.08.2026, вторая редакция. Первая была буквальным портом HTML-макета:
+// карточка 430 pt посреди экрана и две стрелки справа. Это старомодно:
+// лента коротких роликов листается пальцем и занимает весь экран, иначе она
+// не читается как лента.
+//
+// Сейчас: вертикальный пейджинг на всю высоту, свайп пальцем, фон — размытый
+// постер текущего трейлера, сам ролик — чёткое окно 16:9.
 //
 // ЮРИДИЧЕСКОЕ ОГРАНИЧЕНИЕ, НЕ НАРУШАТЬ:
 // условия YouTube API запрещают перекрывать плеер собственными элементами
-// управления. Поэтому кнопки действий вынесены в отдельную полосу ПОД
-// плеером (.bar в макете), а не поверх видео. Не переносите их на плеер.
+// управления. Поэтому колонка действий и подпись живут НИЖЕ окна плеера,
+// в свободной части экрана, а не поверх видео. При переводе на настоящий
+// плеер геометрию менять нельзя.
 //
-// Лента пока на заглушках: подключение каталога ждёт решения по коммерческой
+// Лента на заглушках: подключение каталога ждёт решения по коммерческой
 // лицензии TMDB. Точка входа для реальных данных — V4ReelsPanel(items:).
 
 import SwiftUI
@@ -191,53 +197,204 @@ struct V4ReelItem: Identifiable, Equatable {
     ]
 }
 
-// MARK: - Сегмент «Рилсы / Голос»
+// MARK: - Лента
 
-/// Повторяет .seg из макета: капсула с подложкой, активная кнопка залита акцентом.
-///
-/// Перебор идёт по индексам, а не через id: \.value — KeyPath к элементу кортежа
-/// в Swift невозможен: кортеж не номинальный тип и свойств у него нет.
-struct V4SegmentedBar<Value: Hashable>: View {
-    let options: [(value: Value, title: String)]
-    @Binding var selection: Value
+/// Полноэкранная лента трейлеров: один трейлер — один экран,
+/// листается вертикальным свайпом. Никаких стрелок.
+struct V4ReelsPanel: View {
     let theme: V4Theme
+    var items: [V4ReelItem] = V4ReelItem.placeholders
+
+    /// Место сверху под плавающую шапку экрана.
+    var topInset: CGFloat = 84
+    /// Место снизу под док и таб-бар.
+    var bottomInset: CGFloat = 150
+
+    /// «Смотреть вместе» — собрать комнату по этому трейлеру.
+    var onWatchTogether: (V4ReelItem) -> Void = { _ in }
+    /// «В очередь».
+    var onEnqueue: (V4ReelItem) -> Void = { _ in }
+    /// «Поделиться».
+    var onShare: (V4ReelItem) -> Void = { _ in }
+    /// «Ещё» — контекстное меню.
+    var onMore: (V4ReelItem) -> Void = { _ in }
+
+    @State private var visibleID: String?
+    @State private var playingID: String?
+
+    private var currentArt: V4ReelArt {
+        items.first(where: { $0.id == visibleID })?.art ?? items.first?.art ?? .indigo
+    }
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(options.indices), id: \.self) { i in
-                let option = options[i]
-                let active = option.value == selection
+        if items.isEmpty {
+            empty
+        } else {
+            feed
+        }
+    }
 
-                Button {
-                    guard !active else { return }
-                    HapticManager.selection()
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        selection = option.value
+    private var feed: some View {
+        ZStack {
+            // Фон — тот же постер, сильно размытый: даёт глубину и связывает
+            // окно плеера с чёрным экраном.
+            V4ReelArtView(art: currentArt)
+                .blur(radius: 60)
+                .opacity(0.55)
+                .overlay(Color.black.opacity(0.45))
+                .animation(.easeInOut(duration: 0.45), value: visibleID)
+                .ignoresSafeArea()
+
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(items) { reel in
+                        page(reel)
+                            .containerRelativeFrame(.vertical)
+                            .id(reel.id)
                     }
-                } label: {
-                    Text(option.title)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(active ? theme.buttonTextColor : V4.muted)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                        .background {
-                            if active {
-                                Capsule().fill(theme.accentColor)
-                            }
-                        }
-                        .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(active ? [.isSelected] : [])
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollIndicators(.hidden)
+            .scrollPosition(id: $visibleID)
+            .onChange(of: visibleID) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                HapticManager.selection()
+                playingID = nil
+                AnalyticsService.shared.track(
+                    "reel_swiped",
+                    parameters: ["direction": "next"]
+                )
             }
         }
-        .padding(4)
-        .background(V4.surface, in: Capsule())
-        .overlay(Capsule().stroke(V4.line))
+        .background(Color.black)
+        .accessibilityIdentifier("reels.feed")
+    }
+
+    // MARK: Один экран ленты
+
+    private func page(_ reel: V4ReelItem) -> some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: topInset)
+
+            player(reel)
+
+            // Всё управление — ниже плеера, в свободной части экрана.
+            HStack(alignment: .top, spacing: 14) {
+                info(reel)
+                Spacer(minLength: 4)
+                actions(reel)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+
+            Spacer(minLength: 0)
+
+            Color.clear.frame(height: bottomInset)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reels.card")
+    }
+
+    /// Окно плеера 16:9. Единственные элементы поверх видео — кнопка
+    /// воспроизведения самого плеера и его метка. Больше сюда ничего не класть.
+    private func player(_ reel: V4ReelItem) -> some View {
+        ZStack(alignment: .topLeading) {
+            V4ReelArtView(art: reel.art)
+
+            Text("ОФИЦИАЛЬНЫЙ ПЛЕЕР")
+                .font(.system(size: 9.5, weight: .heavy))
+                .tracking(0.6)
+                .foregroundStyle(V4.ink)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(
+                    Color.black.opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.white.opacity(0.2))
+                )
+                .padding(12)
+
+            V4GlyphButton(
+                glyph: playingID == reel.id ? .pause : .play,
+                theme: theme,
+                kind: .onMedia,
+                diameter: 62,
+                iconSize: 20,
+                accessibility: playingID == reel.id ? "Пауза" : "Смотреть трейлер"
+            ) {
+                HapticManager.impact(.medium)
+                playingID = (playingID == reel.id) ? nil : reel.id
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(Color.white.opacity(0.10))
+        )
+        .padding(.horizontal, 12)
+        .shadow(color: .black.opacity(0.55), radius: 26, y: 14)
+    }
+
+    private func info(_ reel: V4ReelItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(reel.title)
+                .font(.system(size: 22, weight: .heavy))
+                .tracking(-0.5)
+                .foregroundStyle(V4.ink)
+                .lineLimit(2)
+
+            Text(reel.subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.white.opacity(0.7))
+                .lineLimit(2)
+
+            V4ReelPill(title: "Смотреть вместе", accent: true, theme: theme) {
+                onWatchTogether(reel)
+            }
+            .padding(.top, 8)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 8)
+    }
+
+    /// Колонка круглых иконок. Живёт ниже плеера, не поверх него.
+    private func actions(_ reel: V4ReelItem) -> some View {
+        VStack(spacing: 14) {
+            V4GlyphAction(glyph: .queue, caption: "В очередь", theme: theme) {
+                onEnqueue(reel)
+            }
+            V4GlyphAction(glyph: .share, caption: "Отправить", theme: theme) {
+                onShare(reel)
+            }
+            V4GlyphAction(glyph: .more, caption: "Ещё", theme: theme) {
+                onMore(reel)
+            }
+        }
+    }
+
+    private var empty: some View {
+        VStack(spacing: 10) {
+            V4GlyphIcon(glyph: .play, size: 26, weight: .regular)
+                .foregroundStyle(V4.muted)
+            Text("Трейлеры появятся, когда подключим каталог")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(V4.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Кнопка в полосе действий
+// MARK: - Кнопка-капсула
 
 struct V4ReelPill: View {
     let title: String
@@ -251,10 +408,10 @@ struct V4ReelPill: View {
             action()
         } label: {
             Text(title)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .foregroundStyle(accent ? theme.buttonTextColor : V4.ink)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .frame(minHeight: 44)
                 .background {
                     if accent {
@@ -268,243 +425,5 @@ struct V4ReelPill: View {
                 }
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Панель рилсов
-
-struct V4ReelsPanel: View {
-    let theme: V4Theme
-    var items: [V4ReelItem] = V4ReelItem.placeholders
-
-    /// «Смотреть вместе» — собрать комнату по этому трейлеру.
-    var onWatchTogether: (V4ReelItem) -> Void = { _ in }
-    /// «В очередь».
-    var onEnqueue: (V4ReelItem) -> Void = { _ in }
-    /// «Ещё» — контекстное меню.
-    var onMore: (V4ReelItem) -> Void = { _ in }
-
-    @State private var index: Int = 0
-    @State private var isPlaying = false
-
-    private var current: V4ReelItem? {
-        guard items.indices.contains(index) else { return nil }
-        return items[index]
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let reel = current {
-                card(reel)
-                legalNote
-            } else {
-                empty
-            }
-        }
-        .padding(.horizontal, 16)
-    }
-
-    // MARK: Карточка
-
-    private func card(_ reel: V4ReelItem) -> some View {
-        ZStack(alignment: .bottom) {
-            // Плеер. Занимает всё, кроме нижних 96 pt под полосу действий.
-            VStack(spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    V4ReelArtView(art: reel.art)
-                        .id(reel.id)
-                        .transition(.opacity)
-
-                    Text("ОФИЦИАЛЬНЫЙ ПЛЕЕР")
-                        .font(.system(size: 9.5, weight: .heavy))
-                        .tracking(0.6)
-                        .foregroundStyle(V4.ink)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(Color.white.opacity(0.2))
-                        )
-                        .padding(12)
-
-                    playButton
-
-                    swipeControls
-
-                    info(reel)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-
-                Color.clear.frame(height: 96)
-            }
-
-            actionBar(reel)
-        }
-        .frame(height: 430)
-        .background(Color.black)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(V4.line)
-        )
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    if value.translation.height < -40 {
-                        advance(by: 1)
-                    } else if value.translation.height > 40 {
-                        advance(by: -1)
-                    }
-                }
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("reels.card")
-    }
-
-    // MARK: Слои поверх плеера
-
-    /// Единственный элемент поверх видео — кнопка воспроизведения самого плеера.
-    /// Никаких других органов управления здесь быть не должно.
-    private var playButton: some View {
-        GeometryReader { geo in
-            Button {
-                HapticManager.impact(.medium)
-                isPlaying.toggle()
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(V4.ink)
-                    .frame(width: 56, height: 56)
-                    .background(Color.black.opacity(0.4), in: Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.26)))
-            }
-            .buttonStyle(.plain)
-            .position(x: geo.size.width / 2, y: geo.size.height * 0.42)
-            .accessibilityLabel(isPlaying ? "Пауза" : "Смотреть трейлер")
-        }
-    }
-
-    private var swipeControls: some View {
-        VStack(spacing: 14) {
-            arrow("chevron.up", label: "Предыдущий трейлер") { advance(by: -1) }
-            arrow("chevron.down", label: "Следующий трейлер") { advance(by: 1) }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .padding(.trailing, 12)
-        .padding(.bottom, 40)
-    }
-
-    private func arrow(_ icon: String, label: String, _ perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(V4.ink)
-                .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(Color.black.opacity(0.45))
-                        .frame(width: 40, height: 40)
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.2))
-                        .frame(width: 40, height: 40)
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-
-    private func info(_ reel: V4ReelItem) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(reel.title)
-                .font(.system(size: 18, weight: .heavy))
-                .tracking(-0.4)
-                .foregroundStyle(V4.ink)
-
-            Text(reel.subtitle)
-                .font(.system(size: 11.5))
-                .foregroundStyle(Color.white.opacity(0.72))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .padding(14)
-        .background(
-            LinearGradient(
-                colors: [.clear, Color.black.opacity(0.9)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 120)
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .allowsHitTesting(false)
-        )
-    }
-
-    // MARK: Полоса действий — ПОД плеером
-
-    private func actionBar(_ reel: V4ReelItem) -> some View {
-        HStack(spacing: 8) {
-            V4ReelPill(title: "Смотреть вместе", accent: true, theme: theme) {
-                onWatchTogether(reel)
-            }
-            V4ReelPill(title: "В очередь", theme: theme) {
-                onEnqueue(reel)
-            }
-            V4ReelPill(title: "Ещё", theme: theme) {
-                onMore(reel)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .frame(height: 96)
-        .frame(maxWidth: .infinity)
-        .background(Color(red: 0x0a / 255, green: 0x0a / 255, blue: 0x0b / 255))
-        .overlay(alignment: .top) {
-            Rectangle().fill(V4.line).frame(height: 1)
-        }
-    }
-
-    private var legalNote: some View {
-        Text("Управление вынесено под плеер: YouTube API запрещает перекрывать плеер своими кнопками. Лента ждёт решения по коммерческой лицензии TMDB.")
-            .font(.system(size: 10.5))
-            .lineSpacing(3)
-            .foregroundStyle(V4.muted)
-            .padding(.leading, 9)
-            .overlay(alignment: .leading) {
-                Rectangle().fill(theme.accentColor).frame(width: 2)
-            }
-            .padding(.top, 11)
-    }
-
-    private var empty: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "film.stack")
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(V4.muted)
-            Text("Трейлеры появятся, когда подключим каталог")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(V4.muted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 430)
-    }
-
-    // MARK: Переключение
-
-    private func advance(by delta: Int) {
-        guard !items.isEmpty else { return }
-        HapticManager.selection()
-        isPlaying = false
-        withAnimation(.easeOut(duration: 0.22)) {
-            index = (index + delta + items.count) % items.count
-        }
-        AnalyticsService.shared.track(
-            "reel_swiped",
-            parameters: ["direction": delta > 0 ? "next" : "prev"]
-        )
     }
 }
