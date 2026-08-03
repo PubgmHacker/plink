@@ -2,8 +2,13 @@
 //
 // 02.08.2026, решение владельца: вкладка «ИИ» — это развлечение (голос, дальше рилсы),
 // а текстовый чат — это способ поиска фильма, поэтому он живёт отдельным экраном
-// поверх вкладок и открывается с «Главной» (поиск и карточка «Спросить ии-ассистента»)
+// поверх вкладок и открывается с «Главной» (строка поиска)
 // и кнопкой в шапке вкладки «ИИ».
+//
+// 03.08.2026: обещанные рилсы пришли. Сегмент «Рилсы / Голос» стоит под общей
+// шапкой, сама лента живёт в V4ReelsView.swift. Голосовой экран целиком переехал
+// в voiceBody — содержимое не изменилось, у него только забрали собственную шапку,
+// чтобы она не рисовалась дважды.
 //
 // Цвет: акцент всегда берётся из активной темы (theme.accentColor), не зашивается в экран.
 
@@ -22,20 +27,23 @@ extension Notification.Name {
 
 // MARK: - Режимы вкладки
 
-/// В вкладке остался один режим — голос. Следующим шагом сюда же встанут рилсы.
+/// Два режима: лента трейлеров и голосовой помощник.
 enum V4AIMode: String, CaseIterable, Identifiable {
+    case reels
     case voice
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .reels: return "Рилсы"
         case .voice: return "Голос"
         }
     }
 
     var icon: String {
         switch self {
+        case .reels: return "play.rectangle.on.rectangle"
         case .voice: return "waveform"
         }
     }
@@ -69,12 +77,13 @@ final class AISpeaker {
     }
 }
 
-// MARK: - Вкладка «ИИ» — голос
+// MARK: - Вкладка «ИИ» — рилсы и голос
 
 struct V4AIViewLive: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
 
+    @State private var mode: V4AIMode = .reels
     @State private var heard = ""
     @State private var speakingPulseUntil: Date = .distantPast
     @StateObject private var speech = V4SpeechRecognizer()
@@ -109,6 +118,44 @@ struct V4AIViewLive: View {
         VStack(spacing: 0) {
             header
 
+            V4SegmentedBar(
+                options: [
+                    (value: V4AIMode.reels, title: V4AIMode.reels.title),
+                    (value: V4AIMode.voice, title: V4AIMode.voice.title),
+                ],
+                selection: $mode,
+                theme: theme
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+
+            if mode == .reels {
+                ScrollView(showsIndicators: false) {
+                    V4ReelsPanel(theme: theme)
+                        .padding(.top, 14)
+                        .padding(.bottom, 120)
+                }
+            } else {
+                voiceBody
+            }
+        }
+        .foregroundStyle(V4.ink)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("screen.ai")
+        .onChange(of: mode) { _, newMode in
+            // Уходим с голоса — глушим микрофон и озвучку, иначе они продолжат
+                // работать поверх трейлера.
+            if newMode != .voice {
+                if speech.isRecording { speech.stop() }
+                AISpeaker.shared.stop()
+            }
+        }
+    }
+
+    // MARK: Голосовой режим
+
+    private var voiceBody: some View {
+        VStack(spacing: 0) {
             Spacer(minLength: 8)
 
             ZStack {
@@ -154,10 +201,8 @@ struct V4AIViewLive: View {
 
             Spacer(minLength: 0)
         }
-        .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, 104) // над таб-баром
-        .accessibilityIdentifier("screen.ai")
         .onChange(of: speech.transcript) { _, t in
             if speech.isRecording && !t.isEmpty { heard = t }
         }
@@ -175,7 +220,7 @@ struct V4AIViewLive: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            V4Heading(eyebrow: "ГОЛОСОВОЙ ПОМОЩНИК", title: "ИИ")
+            V4Heading(eyebrow: "ТРЕЙЛЕРЫ И ГОЛОС", title: "ИИ")
             Spacer()
             Button {
                 HapticManager.selection()
