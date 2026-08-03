@@ -10,6 +10,11 @@
 // в voiceBody — содержимое не изменилось, у него только забрали собственную шапку,
 // чтобы она не рисовалась дважды.
 //
+// 03.08.2026, правило тишины: ассистент обязан замолчать в четырёх случаях —
+// уход со вкладки «ИИ», переключение на рилсы, закрытие текстового чата и уход
+// приложения в фон. Вкладки живут в ZStack и не уничтожаются при переключении,
+// поэтому onDisappear здесь не срабатывает — нужен явный флаг isActive из корня.
+//
 // Цвет: акцент всегда берётся из активной темы (theme.accentColor), не зашивается в экран.
 
 import SwiftUI
@@ -82,11 +87,16 @@ final class AISpeaker {
 struct V4AIViewLive: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
+    /// Вкладка сейчас на экране. Корень держит все вкладки живыми через ZStack,
+    /// поэтому без этого флага голос продолжал бы работать с чужого экрана.
+    var isActive: Bool = true
 
     @State private var mode: V4AIMode = .reels
     @State private var heard = ""
     @State private var speakingPulseUntil: Date = .distantPast
     @StateObject private var speech = V4SpeechRecognizer()
+
+    @Environment(\.scenePhase) private var scenePhase
 
     private var orbState: AIOrbState {
         let s = store.state.lowercased()
@@ -143,13 +153,27 @@ struct V4AIViewLive: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("screen.ai")
         .onChange(of: mode) { _, newMode in
-            // Уходим с голоса — глушим микрофон и озвучку, иначе они продолжат
-                // работать поверх трейлера.
-            if newMode != .voice {
-                if speech.isRecording { speech.stop() }
-                AISpeaker.shared.stop()
-            }
+            // Ушли с голоса внутри вкладки — микрофон и озвучка не должны
+            // работать поверх трейлера.
+            if newMode != .voice { silenceAssistant() }
         }
+        .onChange(of: isActive) { _, active in
+            // Ушли на другую вкладку. Вкладка остаётся в памяти, onDisappear
+            // не вызывается, поэтому глушим вручную.
+            if !active { silenceAssistant() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // У приложения включён фоновый режим audio, иначе ответ продолжал
+            // бы читаться после сворачивания.
+            if phase != .active { silenceAssistant() }
+        }
+        .onDisappear { silenceAssistant() }
+    }
+
+    /// Единственная точка остановки голоса: и запись, и синтез речи.
+    private func silenceAssistant() {
+        if speech.isRecording { speech.stop() }
+        AISpeaker.shared.stop()
     }
 
     // MARK: Голосовой режим
@@ -207,15 +231,15 @@ struct V4AIViewLive: View {
             if speech.isRecording && !t.isEmpty { heard = t }
         }
         .onChange(of: store.messages.count) { _, _ in
+            // Озвучиваем ответ только если вкладка на экране и мы в голосе:
+            // иначе ответ, пришедший из текстового чата, заговорил бы сам собой.
+            guard isActive, mode == .voice else { return }
             if let last = store.messages.last, last.isBot {
                 speakingPulseUntil = Date().addingTimeInterval(2.5)
                 AISpeaker.shared.toggle(last.text)
             }
         }
-        .onDisappear {
-            if speech.isRecording { speech.stop() }
-            AISpeaker.shared.stop()
-        }
+        .onDisappear { silenceAssistant() }
     }
 
     private var header: some View {
@@ -224,8 +248,7 @@ struct V4AIViewLive: View {
             Spacer()
             Button {
                 HapticManager.selection()
-                if speech.isRecording { speech.stop() }
-                AISpeaker.shared.stop()
+                silenceAssistant()
                 NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
             } label: {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
@@ -306,6 +329,7 @@ struct V4AIChatView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var input = ""
     @State private var showManualCreate = false
@@ -351,6 +375,11 @@ struct V4AIChatView: View {
         .onChange(of: speech.transcript) { _, t in
             if speech.isRecording && !t.isEmpty { input = t }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { silenceAssistant() }
+        }
+        // Закрытие экрана любым способом обязано выключить микрофон и озвучку.
+        .onDisappear { silenceAssistant() }
         .sheet(isPresented: $showManualCreate) {
             RoomCreationView(onRoomCreated: { _ in showManualCreate = false })
                 .environmentObject(APIClient.shared)
@@ -361,14 +390,19 @@ struct V4AIChatView: View {
         }
     }
 
+    /// Единственная точка остановки голоса: и запись, и синтез речи.
+    private func silenceAssistant() {
+        if speech.isRecording { speech.stop() }
+        AISpeaker.shared.stop()
+    }
+
     // MARK: Шапка
 
     private var header: some View {
         HStack(spacing: 10) {
             Button {
                 HapticManager.selection()
-                AISpeaker.shared.stop()
-                if speech.isRecording { speech.stop() }
+                silenceAssistant()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -409,8 +443,7 @@ struct V4AIChatView: View {
 
             Button {
                 HapticManager.selection()
-                AISpeaker.shared.stop()
-                if speech.isRecording { speech.stop() }
+                silenceAssistant()
                 dismiss()
                 onVoice()
             } label: {

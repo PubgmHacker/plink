@@ -73,7 +73,9 @@ struct PlinkApprovedV4Root: View {
                     .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
                 V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
                     .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
-                V4AIViewLive(theme:theme, store:aiStore)
+                // isActive: вкладки не уничтожаются при переключении, поэтому
+                // экран «ИИ» узнаёт об уходе только отсюда — и глушит голос.
+                V4AIViewLive(theme:theme, store:aiStore, isActive: tab == 3)
                     .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                 V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
                     .opacity(tab == 4 ? 1 : 0).allowsHitTesting(tab == 4)
@@ -117,6 +119,9 @@ struct PlinkApprovedV4Root: View {
             case .background:
                 DMChatService.shared.stopUnreadPolling()
                 PresenceHeartbeat.stop()
+                // У приложения включён фоновый режим audio: без этого ответ
+                // ассистента продолжал бы читаться после сворачивания.
+                AISpeaker.shared.stop()
             default:
                 break
             }
@@ -524,5 +529,3 @@ struct NotificationInboxButton: View {
         .accessibilityValue(unreadCount == 0 ? "Нет новых" : "Новых: \(unreadCount)")
     }
 }
-
-
