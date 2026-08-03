@@ -33,6 +33,9 @@ struct PlinkApprovedV4Root: View {
     @State private var profileStore: V4ProfileStore?
     @State private var showCreateRoom = false
     @State private var showJoinByCode = false
+    // 02.08.2026: текстовый чат с ИИ — общий экран поверх вкладок, а не режим вкладки «ИИ».
+    // Открывается с «Главной» (поиск и карточка ассистента) и из шапки вкладки «ИИ».
+    @State private var showAIChat = false
     @State private var lastSharedRoomCode: String?
 
     // Аудит 26.07.2026 P1: единственный консьюмер deep-link'ов (раньше
@@ -150,6 +153,17 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenJoinByCode"))) { _ in
             showJoinByCode = true
         }
+        // 02.08.2026: чат с ИИ — отдельная поверхность над вкладками.
+        .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIChat)) { _ in
+            showAIChat = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIVoice)) { _ in
+            showAIChat = false
+            tab = 3
+        }
+        .fullScreenCover(isPresented: $showAIChat) {
+            V4AIChatView(theme: theme, store: aiStore, onVoice: { tab = 3 })
+        }
         .sheet(isPresented: $showCreateRoom) {
             RoomCreationView(
                 onRoomCreated: { newRoom in
@@ -188,7 +202,7 @@ struct PlinkApprovedV4Root: View {
         ) {
             Button("Скопировано — ОК") { lastSharedRoomCode = nil }
         } message: {
-            Text("Отправь другу код: \(lastSharedRoomCode ?? "")\n\nДруг: вкладка «Комнаты» → иконка «человек+» → ввести код.\nКод уже в буфере обмена.")
+            Text("Отправь другу код: \(lastSharedRoomCode ?? "")\n\nДруг: вкладка «Комнаты» → «Войти по коду» → ввести код.\nКод уже в буфере обмена.")
         }
         // P0.2b: single fullScreenCover for WatchRoom — handles both join and create
         .fullScreenCover(item: $roomToPresent) { room in
