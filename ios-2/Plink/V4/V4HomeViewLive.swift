@@ -1,5 +1,16 @@
-// Plink/V4/V4HomeViewLive.swift — split from PlinkV4PixelPerfect (move-only, no logic change)
-// Source of truth: V4 design module. Do not change visuals.
+// Plink/V4/V4HomeViewLive.swift
+// 02.08.2026: «Главная» пересобрана под новый макет.
+//
+// Что изменилось и почему:
+// 1) Убрана лента LIVE-комнат «Смотрят сейчас». Именно она делала «Главную»
+//    неотличимой от вкладки «Комнаты». Главная отвечает на вопрос «что посмотреть»,
+//    Комнаты — «с кем и когда».
+// 2) Поиск и карточка «Спросить ИИ-ассистента» — точки входа в чат с ИИ
+//    (.plinkOpenAIChat). ИИ работает там, где ищут фильм, а не отдельной вкладкой.
+// 3) Вместо автокарусели огромных квадратов — лента компактных постеров
+//    и нумерованный топ-3. Автопрокрутка ещё и спорила с жестами пользователя.
+// 4) Удалён мёртвый код: promoBanner, releaseNotesCard/releaseNoteRow, showScheduleSheet
+//    — ни одного вызова в теле экрана.
 
 import SwiftUI
 import PhotosUI
@@ -8,21 +19,8 @@ import UIKit
 #endif
 import Foundation
 
-// Аудит 26.07.2026: здесь была структура `V4HomeView` — макетный вариант
-// главного экрана с ЗАХАРДКОЖЕННЫМИ демо-данными: герой «Afterglow»,
-// «5 друзей уже смотрят», карточки «Кино без спойлеров · 5 друзей · LIVE»
-// и аватар с буквой «П» вместо имени пользователя.
-//
-// Проверка по всему проекту показала НОЛЬ мест использования: экран нигде
-// не открывался, приложение работает через `V4HomeViewLive` с настоящими
-// данными. То есть пользователи выдуманных друзей не видели.
-//
-// Структура удалена, потому что оставлять её было ловушкой: любой, кто
-// подключил бы её по ошибке (имена различаются одним словом «Live»),
-// показал бы людям несуществующие комнаты. Доверие после такого
-// не восстанавливается, а польза от макета — нулевая, он есть в истории git.
+// MARK: - AutoScrollCarousel — оставлен для других экранов
 
-// MARK: - AutoScrollCarousel — continuous slow auto-scrolling horizontal carousel
 struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
     let items: [T]
     let cardWidth: CGFloat
@@ -94,53 +92,276 @@ struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
     }
 }
 
-// MARK: - Live Screen Variants (P0: Real backend data)
+// MARK: - Главная
 
-// M30: фильтры главной
 struct V4HomeViewLive: View {
     let theme: V4Theme
     @Bindable var searchStore: V4SearchStore
     var roomsStore: V4RoomsStore?
     let openRoom: () -> Void
     var liveThemeIndex: Int = 0
-    /// M14: переключить на вкладку «Комнаты» (для «Все» в «Смотрят сейчас»).
+    /// Переключить на вкладку «Комнаты».
     var openRoomsTab: (() -> Void)? = nil
+
     @ObservedObject private var historyMgr = WatchHistoryManager.shared
     @ObservedObject private var watchlist = WatchlistService.shared
+    @ObservedObject private var dmInbox = DMChatService.shared
+    @ObservedObject private var groupInbox = GroupChatService.shared
+
     @State private var showUnifiedSearch = false
     @State private var showReleaseNotes = false
     @State private var showInbox = false
-    // M17: живые бейджи непрочитанного для колокольчика
-    @ObservedObject private var dmInbox = DMChatService.shared
-    @ObservedObject private var groupInbox = GroupChatService.shared
-    @State private var showScheduleSheet = false  // M12: планирование сеансов
     @State private var isRefreshing = false
-    @State private var previewItem: V4SearchResult?    // M34: превью перед созданием комнаты
+    @State private var previewItem: V4SearchResult?
 
-    // Discovery is an intentional action inside the content hierarchy. A sticky
-    // search field at the top made Home feel like a utility screen and pushed the
-    // social/product thesis below the fold.
-    private var discoveryEntry: some View {
+    // MARK: Цвета темы
+
+    private var activeAccent: Color {
+        if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { return live.accentColor }
+        return theme.accentColor
+    }
+    private var activeSecondary: Color {
+        if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { return live.secondaryAccent }
+        return theme.secondaryAccent
+    }
+    private var activeBtnText: Color {
+        if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { return live.buttonTextColor }
+        return theme.buttonTextColor
+    }
+
+    private var timeOfDayGreeting: String {
+        let h = Calendar.current.component(.hour, from: Date())
+        switch h {
+        case 5..<12: return "ДОБРОЕ УТРО"
+        case 12..<17: return "ДОБРЫЙ ДЕНЬ"
+        case 17..<22: return "ДОБРЫЙ ВЕЧЕР"
+        default: return "ПОЗДНЯЯ НОЧЬ"
+        }
+    }
+
+    private var avatarLetter: String {
+        let name = AuthService.shared.currentUserValue?.username ?? "П"
+        let clean = name.hasPrefix("@") ? String(name.dropFirst()) : name
+        return String(clean.prefix(1)).uppercased()
+    }
+
+    // MARK: Тело
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                topBar
+
+                V4Heading(eyebrow: timeOfDayGreeting, title: "Что посмотрим?")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 19)
+                    .padding(.bottom, 16)
+
+                searchRow
+                    .padding(.horizontal, 19)
+                    .padding(.bottom, 14)
+
+                askAICard
+                    .padding(.horizontal, 19)
+                    .padding(.bottom, 20)
+
+                if searchStore.trending.isEmpty {
+                    if isRefreshing {
+                        HomeSkeletonView().transition(.opacity)
+                    } else {
+                        HomeFallbackPlaceholder(theme: theme, openRoom: { showUnifiedSearch = true })
+                            .padding(.bottom, 20)
+                    }
+                }
+
+                if !searchStore.trending.isEmpty {
+                    heroCarousel
+                }
+
+                if let resumeItem = resumeCandidate {
+                    sectionTitle(L.string(.homeContinueWatching))
+                    continueWatchingCard(resumeItem)
+                        .padding(.horizontal, 19)
+                        .padding(.bottom, 22)
+                }
+
+                if !searchStore.trending.isEmpty {
+                    sectionTitle(L.string(.homePopular))
+                    posterRail
+                        .padding(.bottom, 24)
+                }
+
+                if searchStore.trending.count >= 3 {
+                    sectionTitle("Топ недели")
+                    topThree
+                        .padding(.horizontal, 19)
+                        .padding(.bottom, 24)
+                }
+
+                if !watchlist.entries.isEmpty {
+                    sectionTitle(L.string(.homeWatchLaterLabel))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(watchlist.entries) { entry in
+                                watchlistCard(entry)
+                            }
+                        }
+                        .padding(.horizontal, 19)
+                    }
+                    .padding(.bottom, 24)
+                }
+
+                if searchStore.trending.count > 5 {
+                    sectionTitle(L.string(.homeRecommendations))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(searchStore.trending.suffix(8)) { item in
+                                recommendationCard(item)
+                            }
+                        }
+                        .padding(.horizontal, 19)
+                    }
+                    .padding(.bottom, 20)
+                }
+
+                // Комнаты живут на своей вкладке. Здесь — одна строка-переход,
+                // а не вторая копия того же экрана.
+                roomsHandoff
+                    .padding(.horizontal, 19)
+            }
+            .padding(.bottom, 96)
+        }
+        .foregroundStyle(V4.ink)
+        .refreshable {
+            isRefreshing = true
+            await searchStore.loadTrending()
+            isRefreshing = false
+        }
+        .sheet(item: $previewItem) { item in
+            TrendingPreviewSheet(item: item, theme: theme) {
+                previewItem = nil
+                Task { await createRoomFromTrending(item) }
+            }
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showInbox) {
+            PlinkInboxView()
+                .preferredColorScheme(.dark)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showUnifiedSearch) {
+            UnifiedSearchView(searchStore: searchStore, roomsStore: roomsStore, openRoom: {
+                showUnifiedSearch = false
+                openRoom()
+            })
+            .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showReleaseNotes) {
+            ReleaseNotesSheet()
+                .preferredColorScheme(.dark)
+        }
+    }
+
+    // MARK: Шапка
+
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            V4Avatar(
+                letter: avatarLetter,
+                theme: theme,
+                isPremium: PremiumStatusManager.shared.isPremium,
+                imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)
+            )
+            Spacer()
+            Button { showReleaseNotes = true } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(activeAccent)
+                    .frame(width: 40, height: 40)
+                    .background(activeAccent.opacity(0.12), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Новое в Plink")
+            NotificationInboxButton(
+                unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal,
+                action: { showInbox = true }
+            )
+        }
+        .accessibilityIdentifier("screen.home")
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: Поиск + вход в ИИ
+
+    private var searchRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                HapticManager.impact(.light)
+                showUnifiedSearch = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(V4.muted)
+                    Text("Фильм, сериал или ссылка")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(V4.line, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Найти видео, сервис или комнату")
+
+            Button {
+                HapticManager.impact(.light)
+                AnalyticsService.shared.track("ai_chat_used", parameters: ["source": "home_search"])
+                NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(activeBtnText)
+                    .frame(width: 52, height: 52)
+                    .background(activeAccent, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Спросить ИИ-ассистента")
+        }
+    }
+
+    private var askAICard: some View {
         Button {
             HapticManager.impact(.light)
-            showUnifiedSearch = true
+            AnalyticsService.shared.track("ai_chat_used", parameters: ["source": "home_card"])
+            NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
         } label: {
             HStack(spacing: 14) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(activeAccent.opacity(0.14))
-                    Image(systemName: "play.rectangle.on.rectangle.fill")
+                    Image(systemName: "sparkles")
                         .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(activeAccent)
                 }
                 .frame(width: 48, height: 48)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Что будем смотреть?")
-                        .font(.system(size: 16, weight: .heavy))
+                    Text("Спросить ИИ-ассистента")
+                        .font(.system(size: 15.5, weight: .heavy))
                         .foregroundStyle(V4.ink)
-                    Text("YouTube, Twitch, ссылка или код комнаты")
-                        .font(.system(size: 12, weight: .medium))
+                    Text("Подберёт фильм и сразу соберёт комнату")
+                        .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(V4.muted)
                         .lineLimit(1)
                 }
@@ -168,656 +389,206 @@ struct V4HomeViewLive: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Найти видео, сервис или комнату")
     }
 
-    // M30: динамическое приветствие по времени суток
-    private var timeOfDayGreeting: String {
-        let h = Calendar.current.component(.hour, from: Date())
-        switch h {
-        case 5..<12: return "ДОБРОЕ УТРО"
-        case 12..<17: return "ДОБРЫЙ ДЕНЬ"
-        case 17..<22: return "ДОБРЫЙ ВЕЧЕР"
-        default: return "ПОЗДНЯЯ НОЧЬ"
-        }
-    }
+    // MARK: Герой
 
-    /// M14: реальная буква имени пользователя вместо жёсткой «П».
-    private var avatarLetter: String {
-        let name = AuthService.shared.currentUserValue?.username ?? "П"
-        let clean = name.hasPrefix("@") ? String(name.dropFirst()) : name
-        return String(clean.prefix(1)).uppercased()
-    }
-
-    // Theme-aware colors — use Plink+ theme colors if active, else standard
-    private var activeAccent: Color {
-        if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { return live.accentColor }
-        return theme.accentColor
-    }
-    private var activeSecondary: Color {
-        if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { return live.secondaryAccent }
-        return theme.secondaryAccent
-    }
-    private var activeBtnText: Color {
-        if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { return live.buttonTextColor }
-        return theme.buttonTextColor
-    }
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                HStack { V4Avatar(letter: avatarLetter, theme: theme, isPremium: PremiumStatusManager.shared.isPremium, imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)); Spacer();
-                    Button { showReleaseNotes = true } label: {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(activeAccent)
-                            .frame(width: 40, height: 40)
-                            .background(activeAccent.opacity(0.12), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Новое в Plink")
-                    NotificationInboxButton(unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal, action: { showInbox = true }) }
-                    .accessibilityIdentifier("screen.home")
-                    .padding(.horizontal,18).padding(.top,10).padding(.bottom,16)
-                .sheet(isPresented: $showInbox) {
-                    // M17: живой центр уведомлений вместо заглушки
-                    PlinkInboxView()
-                        .preferredColorScheme(.dark)
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                }
-                V4Heading(eyebrow: timeOfDayGreeting, title: "Что посмотрим?")
-                    .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,19).padding(.bottom,18)
-
-                discoveryEntry
-                    .padding(.horizontal, 19)
-                    .padding(.bottom, 20)
-
-                // M20: skeleton пока trending не загружен; M31: fallback если пусто
-                if searchStore.trending.isEmpty {
-                    if isRefreshing {
-                        HomeSkeletonView()
-                            .transition(.opacity)
-                    } else {
-                        HomeFallbackPlaceholder(theme: theme, openRoom: { showUnifiedSearch = true })
-                            .padding(.bottom, 20)
-                    }
-                }
-
-                // Hero — only live trending rooms/videos (no promo video banners)
-                if !searchStore.trending.isEmpty {
-                    TabView {
-                        ForEach(searchStore.trending.prefix(5)) { item in
-                            V4Hero(
-                                title: item.title,
-                                meta: "YouTube · \(item.subtitle)",
-                                button: "Смотреть вместе",
-                                height: 260,
-                                theme: theme,
-                                action: {
-                                    HapticManager.impact(.medium)
-                                    previewItem = item  // M34: сначала превью, потом комната
-                                },
-                                liveThemeIndex: liveThemeIndex
-                            )
-                            .padding(.horizontal, 13)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .always))
-                    .frame(height: 280)
-                    .padding(.bottom, 20)
-                }
-
-                // "Популярное" — auto-scrolling carousel, bigger posters
-                if !searchStore.trending.isEmpty {
-                    HStack { Text(L.string(.homePopular)).font(.system(size:24,weight:.heavy)).foregroundStyle(V4.ink); Spacer() }
-                        .padding(.horizontal,19).padding(.bottom,14)
-                    AutoScrollCarousel(items: Array(searchStore.trending.prefix(10)), cardWidth: 250) { item in
-                        trendingCard(item)
-                    }
-                    .padding(.bottom, 22)
-                }
-
-                // Updates live in a dedicated sheet. They must not interrupt the
-                // content feed or appear as a permanent promotional card on Home.
-
-                // M14: «Продолжить просмотр» — вернуться к недосмотренному
-                if let resumeItem = resumeCandidate {
-                    continueWatchingCard(resumeItem)
-                        .padding(.horizontal, 19)
-                        .padding(.bottom, 18)
-                }
-
-                // M14: «Посмотреть позже» — watchlist
-                if !watchlist.entries.isEmpty {
-                    HStack { Text(L.string(.homeWatchLaterLabel)).font(.system(size:22,weight:.heavy)).foregroundStyle(V4.ink); Spacer() }
-                        .padding(.horizontal,19).padding(.bottom,12)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(watchlist.entries) { entry in
-                                watchlistCard(entry)
-                            }
-                        }
-                        .padding(.horizontal, 19)
-                    }
-                    .padding(.bottom, 8)
-                }
-
-                // Рекомендации — bigger cards, more prominent
-                if searchStore.trending.count > 5 {
-                    HStack { Text(L.string(.homeRecommendations)).font(.system(size:22,weight:.heavy)).foregroundStyle(V4.ink); Spacer() }
-                        .padding(.horizontal,19).padding(.bottom,12)
-                    ScrollView(.horizontal,showsIndicators:false) { HStack(spacing:12) {
-                        ForEach(searchStore.trending.suffix(8)) { item in
-                            recommendationCard(item)
-                        }
-                    }.padding(.horizontal,19) }
-                    .padding(.bottom, 8)
-                }
-
-                // Live rooms are a concise preview on Home. Room discovery,
-                // filtering, codes and creation belong to the Rooms tab.
-                HStack(spacing:8) {
-                    Circle().fill(V4.danger).frame(width:8,height:8)
-                        .shadow(color: V4.danger.opacity(0.6), radius: 4)
-                    Text(L.string(.homeWatchingNow))
-                        .font(.system(size:22,weight:.heavy))
-                        .tracking(-0.4)
-                    Spacer()
-                    // M14: «Все» ведёт на вкладку «Комнаты» — больше не тупик
-                    Button {
-                        HapticManager.selection()
-                        openRoomsTab?()
-                    } label: {
-                        Text(L.string(.homeAll))
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(activeAccent)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .foregroundStyle(V4.ink)
-                .padding(.horizontal,19).padding(.top,32).padding(.bottom,14)
-
-                Group {
-                    if let rs = roomsStore {
-                        switch rs.state {
-                        case .loading, .idle:
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 14) {
-                                    ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
-                                }
-                                .padding(.horizontal, 19)
-                            }
-                        case .loaded where !rs.rooms.isEmpty:
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 14) {
-                                    ForEach(rs.rooms.prefix(8)) { room in watchingNowCard(room) }
-                                }
-                                .padding(.horizontal, 19)
-                            }
-                            .scrollTargetBehavior(.viewAligned)
-                        case .failed:
-                            compactRoomsState(
-                                icon: "wifi.exclamationmark",
-                                title: "Не удалось загрузить комнаты",
-                                subtitle: "Проверь соединение и повтори",
-                                actionTitle: "Повторить"
-                            ) { Task { await roomsStore?.load() } }
-                            .padding(.horizontal, 19)
-                        case .loaded, .empty:
-                            compactRoomsState(
-                                icon: "person.3.sequence.fill",
-                                title: "Пока тихо",
-                                subtitle: "Найди видео или создай комнату — друзья смогут присоединиться",
-                                actionTitle: "Найти видео"
-                            ) { showUnifiedSearch = true }
-                            .padding(.horizontal, 19)
-                        }
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 14) {
-                                ForEach(0..<2, id: \.self) { _ in watchingNowSkeleton }
-                            }
-                            .padding(.horizontal, 19)
-                        }
-                    }
-                }
-                .frame(height: 334)
-
-                // Новое в Plink открывается отдельным окном через кнопку в шапке.
-            }.padding(.bottom,96)
-        }.foregroundStyle(V4.ink)
-        .refreshable {
-            isRefreshing = true
-            await searchStore.loadTrending()
-            isRefreshing = false
-        }
-        .sheet(item: $previewItem) { item in
-            // M34: превью перед созданием комнаты
-            TrendingPreviewSheet(item: item, theme: theme) {
-                previewItem = nil
-                Task { await createRoomFromTrending(item) }
+    private var heroCarousel: some View {
+        TabView {
+            ForEach(searchStore.trending.prefix(5)) { item in
+                V4Hero(
+                    title: item.title,
+                    meta: "YouTube · \(item.subtitle)",
+                    button: "Смотреть вместе",
+                    height: 260,
+                    theme: theme,
+                    action: {
+                        HapticManager.impact(.medium)
+                        previewItem = item
+                    },
+                    liveThemeIndex: liveThemeIndex
+                )
+                .padding(.horizontal, 13)
             }
-            .presentationDetents([.large])
         }
-        .sheet(isPresented: $showUnifiedSearch) {
-            UnifiedSearchView(searchStore: searchStore, roomsStore: roomsStore, openRoom: {
-                showUnifiedSearch = false
-                openRoom()
-            })
-            .preferredColorScheme(.dark)
-        }
-        .sheet(isPresented: $showScheduleSheet) {
-            ScheduleSessionSheet()
-                .preferredColorScheme(.dark)
-        }
-        .sheet(isPresented: $showReleaseNotes) {
-            ReleaseNotesSheet()
-                .preferredColorScheme(.dark)
+        .tabViewStyle(.page(indexDisplayMode: .always))
+        .frame(height: 280)
+        .padding(.bottom, 22)
+    }
+
+    // MARK: Лента компактных постеров
+
+    private var posterRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(searchStore.trending.prefix(10)) { item in
+                    posterCard(item)
+                }
+            }
+            .padding(.horizontal, 19)
         }
     }
 
-    private var watchingNowSkeleton: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(V4.cardBG.opacity(0.82))
-                .frame(height: 170)
-                .overlay(alignment: .topLeading) {
-                    Capsule().fill(V4.raised.opacity(0.9)).frame(width: 70, height: 24).padding(14)
+    private func posterCard(_ item: V4SearchResult) -> some View {
+        Button {
+            HapticManager.impact(.light)
+            previewItem = item
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .bottomLeading) {
+                    artwork(item)
+                        .frame(width: 124, height: 168)
+                        .clipped()
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.62)],
+                        startPoint: .center,
+                        endPoint: .bottom
+                    )
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(.black)
+                        .frame(width: 26, height: 26)
+                        .background(.white, in: Circle())
+                        .padding(8)
                 }
-            RoundedRectangle(cornerRadius: 5).fill(V4.cardBG).frame(width: 190, height: 16)
-            RoundedRectangle(cornerRadius: 4).fill(V4.cardBG.opacity(0.6)).frame(width: 126, height: 11)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                Text(item.title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(V4.ink)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(width: 124, alignment: .leading)
+            }
         }
-        .padding(10)
-        .frame(width: 306, height: 308, alignment: .topLeading)
-        .background(V4.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .accessibilityLabel("Загрузка активных комнат")
+        .buttonStyle(.plain)
     }
 
-    private func compactRoomsState(
-        icon: String,
-        title: String,
-        subtitle: String,
-        actionTitle: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [activeAccent, activeSecondary],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    Image(systemName: icon)
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(activeBtnText)
-                }
-                .frame(width: 58, height: 58)
-                .shadow(color: activeAccent.opacity(0.34), radius: 18, y: 10)
+    // MARK: Топ-3
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title)
-                        .font(.system(size: 18, weight: .heavy))
+    private var topThree: some View {
+        VStack(spacing: 10) {
+            ForEach(Array(searchStore.trending.prefix(3).enumerated()), id: \.element.id) { index, item in
+                Button {
+                    HapticManager.impact(.light)
+                    previewItem = item
+                } label: {
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 26, weight: .black))
+                            .foregroundStyle(activeAccent.opacity(0.55))
+                            .frame(width: 26)
+
+                        artwork(item)
+                            .frame(width: 62, height: 62)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title)
+                                .font(.system(size: 13.5, weight: .heavy))
+                                .foregroundStyle(V4.ink)
+                                .lineLimit(1)
+                            Text(item.subtitle)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(V4.muted)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text("Смотреть")
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundStyle(activeBtnText)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .background(activeAccent, in: Capsule())
+                    }
+                    .padding(10)
+                    .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(V4.line, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: Переход в комнаты
+
+    private var roomsHandoff: some View {
+        Button {
+            HapticManager.selection()
+            openRoomsTab?()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(activeAccent)
+                    .frame(width: 40, height: 40)
+                    .background(activeAccent.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Смотреть с друзьями")
+                        .font(.system(size: 14.5, weight: .heavy))
                         .foregroundStyle(V4.ink)
-                    Text(subtitle)
-                        .font(.system(size: 12, weight: .medium))
+                    Text(roomsHandoffSubtitle)
+                        .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(V4.muted)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
 
                 Spacer(minLength: 6)
 
-                Text(actionTitle)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(activeBtnText)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 44)
-                    .background(
-                        LinearGradient(
-                            colors: [activeAccent, activeSecondary],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: Capsule()
-                    )
-                    .shadow(color: activeAccent.opacity(0.28), radius: 12, y: 6)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(V4.muted)
             }
-            .frame(maxWidth: .infinity)
-            .padding(18)
-            .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.black.opacity(0.72), V4.surface.opacity(0.92)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    RadialGradient(
-                        colors: [activeAccent.opacity(0.22), .clear],
-                        center: .topLeading,
-                        startRadius: 8,
-                        endRadius: 240
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                }
-            )
+            .padding(13)
+            .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [activeAccent.opacity(0.30), .white.opacity(0.06), activeSecondary.opacity(0.18)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(V4.line, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Открыть вкладку Комнаты")
     }
 
-    /// Cinematic live-room tile. The room is presented as a social scene rather
-    /// than a settings row: media first, people second, metadata last.
-    @ViewBuilder
-    private func watchingNowCard(_ room: Room) -> some View {
-        Button {
-            HapticManager.impact(.light)
-            NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    roomArtwork(room)
-                        .frame(height: 190)
-                        .clipped()
+    private var roomsHandoffSubtitle: String {
+        let count = roomsStore?.rooms.count ?? 0
+        if count == 0 { return "Создать комнату или войти по коду" }
+        return "Сейчас открыто комнат: \(count)"
+    }
 
-                    LinearGradient(
-                        colors: [.black.opacity(0.24), .clear, .black.opacity(0.82)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+    // MARK: Общие элементы
 
-                    HStack(spacing: 7) {
-                        if room.isActive {
-                            HStack(spacing: 6) {
-                                Circle().fill(.white).frame(width: 5, height: 5)
-                                Text(L.string(.homeLive))
-                            }
-                            .font(.system(size: 10, weight: .black))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .frame(height: 28)
-                            .background(V4.danger, in: Capsule())
-                            .shadow(color: V4.danger.opacity(0.42), radius: 10)
-                        }
-
-                        roomPrivacyBadge(room)
-                        Spacer()
-
-                        HStack(spacing: 5) {
-                            Image(systemName: "person.2.fill")
-                            Text("\(room.participantCount)")
-                        }
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 9)
-                        .frame(height: 28)
-                        .plinkGlass(.control, in: Capsule(style: .continuous))
-                    }
-                    .padding(14)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Spacer()
-                        Text(room.mediaItem?.title ?? room.name)
-                            .font(.system(size: 21, weight: .heavy))
-                            .tracking(-0.35)
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                        if let artist = room.mediaItem?.artist, !artist.isEmpty {
-                            Text(artist)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.72))
-                                .lineLimit(1)
-                        }
-                    }
-                    .padding(16)
-                }
-
-                HStack(spacing: 11) {
-                    roomParticipantStack(room)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(room.name)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(V4.ink)
-                            .lineLimit(1)
-                        Text("Владелец · \(room.hostName)")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(V4.muted)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundStyle(activeBtnText)
-                        .frame(width: 40, height: 40)
-                        .background(activeAccent, in: Circle())
-                        .shadow(color: activeAccent.opacity(0.32), radius: 12, y: 6)
-                }
-                .padding(15)
-                .background(
-                    LinearGradient(
-                        colors: [V4.surface.opacity(0.96), Color.black.opacity(0.55)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            }
-            .frame(width: 292, height: 294)
-            .background(
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.black.opacity(0.76), V4.surface.opacity(0.96)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [activeAccent.opacity(0.38), .white.opacity(0.10), activeSecondary.opacity(0.22)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: .black.opacity(0.46), radius: 28, y: 16)
+    private func sectionTitle(_ text: String) -> some View {
+        HStack {
+            Text(text)
+                .font(.system(size: 20, weight: .heavy))
+                .tracking(-0.4)
+                .foregroundStyle(V4.ink)
+            Spacer()
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(room.mediaItem?.title ?? room.name), владелец комнаты \(room.hostName), \(room.participantCount) участников")
-        .accessibilityHint("Открыть комнату")
+        .padding(.horizontal, 19)
+        .padding(.bottom, 12)
     }
 
     @ViewBuilder
-    private func roomArtwork(_ room: Room) -> some View {
-        if let thumbStr = room.mediaItem?.thumbnailURL, let url = URL(string: thumbStr) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    roomArtworkFallback(room)
-                }
+    private func artwork(_ item: V4SearchResult) -> some View {
+        if let url = item.artworkURL {
+            AsyncImage(url: url) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Rectangle().fill(V4.cardBG)
             }
         } else {
-            roomArtworkFallback(room)
+            Rectangle().fill(V4.cardBG)
+                .overlay(Image(systemName: "film").foregroundStyle(V4.muted))
         }
     }
-
-    private func roomArtworkFallback(_ room: Room) -> some View {
-        let seed = abs(room.id.hashValue)
-        let angle = Double(seed % 240) + 80
-        return ZStack {
-            LinearGradient(
-                colors: [
-                    Color.oklch(0.54, 0.15, angle),
-                    Color.oklch(0.22, 0.10, angle + 42),
-                    Color.oklch(0.07, 0.025, 215),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Circle()
-                .fill(Color.white.opacity(0.11))
-                .frame(width: 170, height: 170)
-                .blur(radius: 10)
-                .offset(x: 118, y: -54)
-            Image(systemName: room.mediaItem == nil ? "rectangle.stack.badge.play.fill" : "play.fill")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.white.opacity(0.72))
-                .shadow(color: .black.opacity(0.36), radius: 20)
-        }
-    }
-
-    @ViewBuilder
-    private func roomPrivacyBadge(_ room: Room) -> some View {
-        if room.privacy != .publicRoom || room.isLocked {
-            Image(systemName: room.isLocked ? "lock.fill" : room.privacy.icon)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(0.88))
-                .frame(width: 28, height: 28)
-                .plinkGlass(.control, in: Circle())
-        }
-    }
-
-    private func roomParticipantStack(_ room: Room) -> some View {
-        HStack(spacing: -8) {
-            ForEach(Array(room.participants.prefix(3).enumerated()), id: \.element.id) { index, participant in
-                Group {
-                    if let url = PlinkAvatarURL.resolve(userId: participant.id, stored: participant.avatarURL) {
-                        AsyncImage(url: url) { image in
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            roomAvatarFallback(participant.username, index: index)
-                        }
-                    } else {
-                        roomAvatarFallback(participant.username, index: index)
-                    }
-                }
-                .frame(width: 34, height: 34)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(V4.surface, lineWidth: 2))
-            }
-            if room.participants.isEmpty {
-                roomAvatarFallback(room.hostName, index: 0)
-                    .frame(width: 34, height: 34)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(V4.surface, lineWidth: 2))
-            }
-        }
-    }
-
-    private func roomAvatarFallback(_ name: String, index: Int) -> some View {
-        let palette: [Color] = [activeAccent, activeSecondary, V4.danger]
-        return ZStack {
-            palette[index % palette.count]
-            Text(String(name.prefix(1)).uppercased())
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(.white)
-        }
-    }
-
-    private var releaseNotesCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [activeAccent.opacity(0.28), activeSecondary.opacity(0.18)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(activeAccent)
-                }
-                .frame(width: 56, height: 56)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Новое в Plink")
-                        .font(.system(size: 18, weight: .heavy))
-                        .foregroundStyle(V4.ink)
-                    Text("Что нового после обновления")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(V4.muted)
-                }
-
-                Spacer()
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                releaseNoteRow(icon: "sparkles", title: "Умные подсказки ИИ", subtitle: "Ассистент предлагает контекстно, без лишнего шума")
-                releaseNoteRow(icon: "qrcode.viewfinder", title: "Вход по коду", subtitle: "Шесть символов — и ты внутри, без поиска и ссылок")
-                releaseNoteRow(icon: "clock.arrow.circlepath", title: "История просмотров", subtitle: "Что вы смотрели вместе — теперь собрано в профиле")
-            }
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [V4.surface.opacity(0.96), Color.black.opacity(0.64)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(activeAccent.opacity(0.16), lineWidth: 1)
-        )
-    }
-
-    private func releaseNoteRow(icon: String, title: String, subtitle: String) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .fill(activeAccent.opacity(0.12))
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(activeAccent)
-            }
-            .frame(width: 42, height: 42)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(V4.ink)
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(V4.muted)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(V4.cardBG.opacity(0.34), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
 
     private struct ReleaseNotesSheet: View {
         var body: some View {
@@ -827,7 +598,7 @@ struct V4HomeViewLive: View {
                         Text("Новое в Plink")
                             .font(.system(size: 28, weight: .black))
                         VStack(alignment: .leading, spacing: 12) {
-                            note(icon: "sparkles", title: "Умные подсказки ИИ", subtitle: "Ассистент теперь предлагает, что посмотреть, когда уместно.")
+                            note(icon: "sparkles", title: "ИИ-ассистент везде", subtitle: "Чат с ассистентом открывается прямо с Главной, а вкладка «ИИ» — это голос.")
                             note(icon: "qrcode.viewfinder", title: "Вход по коду", subtitle: "Шестизначный код — быстрый способ войти в комнату.")
                             note(icon: "clock.arrow.circlepath", title: "История просмотров", subtitle: "Что вы смотрели вместе теперь видно в профиле и истории.")
                         }
@@ -862,117 +633,6 @@ struct V4HomeViewLive: View {
         }
     }
 
-    /// Promotional banner for hero carousel
-    private func promoBanner(title: String, subtitle: String, icon: String, isPremium: Bool = false, action: @escaping () -> Void) -> some View {
-        let bannerAccent = isPremium ? Color(hex: "#A855F7") : activeAccent
-        let bannerSecondary = isPremium ? Color(hex: "#EC4899") : activeSecondary
-        return Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                // Background gradient
-                LinearGradient(
-                    colors: [bannerAccent.opacity(0.3), Color.oklch(0.06, 0.01, 190)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                // Glow accent
-                RadialGradient(colors: [bannerSecondary.opacity(0.4), .clear], center: UnitPoint(x: 0.75, y: 0.25), startRadius: 0, endRadius: 180)
-                // Dark fade at bottom for text readability
-                LinearGradient(colors: [.clear, Color.oklch(0.06, 0.01, 190, alpha: 0.9)], startPoint: UnitPoint(x: 0.5, y: 0.3), endPoint: .bottom)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    // Icon badge
-                    HStack(spacing: 8) {
-                        Image(systemName: icon)
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .background(bannerAccent.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
-                        if isPremium {
-                            Text("Plink+")
-                                .font(.system(size: 10, weight: .black))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color(hex: "#A855F7"), in: Capsule())
-                        }
-                    }
-                    Text(title)
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text(subtitle)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(2)
-                    // CTA button
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .bold))
-                        Text(isPremium ? "Оформить" : "Создать")
-                            .font(.system(size: 14, weight: .heavy))
-                    }
-                    .foregroundStyle(activeBtnText)
-                    .padding(.horizontal, 18)
-                    .frame(height: 46)
-                    .background(
-                        ZStack {
-                            LinearGradient(colors: [bannerAccent.opacity(0.9), bannerSecondary.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            LinearGradient(colors: [.white.opacity(0.2), .clear], startPoint: .top, endPoint: .center)
-                        }
-                    )
-                    .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    .shadow(color: bannerAccent.opacity(0.3), radius: 10, y: 4)
-                }
-                .padding(.horizontal, 19)
-                .padding(.bottom, 18)
-            }
-            .frame(height: 260)
-            .clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous))
-            .shadow(color: .black.opacity(0.40), radius: 27, y: 25)
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Trending card with thumbnail + title
-    private func trendingCard(_ item: V4SearchResult) -> some View {
-        let (_, _, _, accent) = theme.colors
-        return VStack(alignment: .leading, spacing: 10) {
-            ZStack(alignment: .topTrailing) {
-                if let url = item.artworkURL {
-                    AsyncImage(url: url) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 14).fill(V4.cardBG)
-                    }
-                } else {
-                    RoundedRectangle(cornerRadius: 14).fill(V4.cardBG)
-                }
-                RoundedRectangle(cornerRadius: 14).fill(accent.opacity(0.05))
-                Text("YouTube")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: Capsule())
-                    .padding(8)
-            }
-            .frame(width: 250, height: 140)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-            Text(item.title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(V4.ink)
-                .lineLimit(2)
-                .frame(width: 250, alignment: .leading)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            HapticManager.impact(.light)
-            previewItem = item  // M34: превью по тапу на карточку
-        }
-    }
-
-    /// Compact cinematic card for recommendations.
     private func recommendationCard(_ item: V4SearchResult) -> some View {
         Button {
             HapticManager.impact(.light)
@@ -980,15 +640,9 @@ struct V4HomeViewLive: View {
         } label: {
             VStack(alignment: .leading, spacing: 9) {
                 ZStack(alignment: .bottomTrailing) {
-                    if let url = item.artworkURL {
-                        AsyncImage(url: url) { image in
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            RoundedRectangle(cornerRadius: 12).fill(V4.cardBG)
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 12).fill(V4.cardBG)
-                    }
+                    artwork(item)
+                        .frame(width: 180, height: 108)
+                        .clipped()
                     LinearGradient(
                         colors: [.clear, .black.opacity(0.55)],
                         startPoint: .center,
@@ -1001,7 +655,6 @@ struct V4HomeViewLive: View {
                         .background(.white, in: Circle())
                         .padding(9)
                 }
-                .frame(width: 180, height: 108)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 Text(item.title)
@@ -1024,11 +677,8 @@ struct V4HomeViewLive: View {
         .buttonStyle(.plain)
     }
 
-    /// Create room from a trending video — posts .plinkRoomCreated so
-    /// PlinkApprovedV4Root picks it up and presents WatchRoom.
-    // MARK: - M14: «Продолжить просмотр» + «Посмотреть позже»
+    // MARK: Продолжить смотреть / список
 
-    /// Недосмотренное видео (2–95% прогресса) — кандидат на «Продолжить».
     private var resumeCandidate: WatchHistoryItem? {
         historyMgr.history.first(where: {
             let p = $0.progress ?? 0
@@ -1069,29 +719,30 @@ struct V4HomeViewLive: View {
                     }
                 }
                 .frame(width: 116, height: 65)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(L.string(.homeContinueWatching))
-                        .font(.system(size: 10, weight: .heavy)).tracking(1.2)
-                        .foregroundStyle(activeAccent)
                     Text(item.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(V4.ink)
                         .lineLimit(2)
                     Text("\(L.string(.homeTimeLeft)) \(remainingText(item))")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(V4.muted)
                 }
                 Spacer()
                 Image(systemName: "play.fill")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(activeAccent)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(activeBtnText)
+                    .frame(width: 36, height: 36)
+                    .background(activeAccent, in: Circle())
             }
             .padding(12)
-            .background(V4.cardBG.opacity(0.55))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(V4.line, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -1123,7 +774,7 @@ struct V4HomeViewLive: View {
                     }
                 }
                 .frame(width: 150, height: 84)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 Text(entry.mediaItem.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(V4.ink)
@@ -1142,7 +793,6 @@ struct V4HomeViewLive: View {
     }
 
     private func resumeWatching(_ item: WatchHistoryItem) async {
-        // Хост сделает синхронный seek к сохранённому таймкоду после подключения
         PlinkPendingResume.set(mediaId: item.mediaItemId, seconds: item.watchedDuration)
         await createRoom(from: item.mediaItem, title: item.title)
     }
@@ -1186,20 +836,16 @@ struct V4HomeViewLive: View {
     }
 
     private func createRoomFromTrending(_ item: V4SearchResult) async {
-        AnalyticsService.shared.track("room_create_from_trending")  // M35: funnel
-        // Ensure API client has token (Keychain alone is not enough for RoomService)
+        AnalyticsService.shared.track("room_create_from_trending")
         if APIClient.shared.authToken == nil {
             APIClient.shared.authToken = AuthTokenStore.shared.token
         }
         guard APIClient.shared.authToken != nil else {
-            await MainActor.run {
-                HapticManager.errorOccurred()
-            }
+            await MainActor.run { HapticManager.errorOccurred() }
             return
         }
 
         let videoId = item.id
-        // Prefer watch URL — backend + client both extract videoId reliably
         let streamURL = "https://www.youtube.com/watch?v=\(videoId)"
         let mediaItem = MediaItem(
             id: videoId,
@@ -1222,7 +868,6 @@ struct V4HomeViewLive: View {
         )
         do {
             var room = try await RoomService(api: APIClient.shared).createRoom(request)
-            // If server stripped mediaItem, keep the local one for playback
             if room.mediaItem == nil {
                 room = Room(
                     id: room.id,
@@ -1247,11 +892,7 @@ struct V4HomeViewLive: View {
                 NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
             }
         } catch {
-            await MainActor.run {
-                HapticManager.errorOccurred()
-            }
+            await MainActor.run { HapticManager.errorOccurred() }
         }
     }
 }
-
-
