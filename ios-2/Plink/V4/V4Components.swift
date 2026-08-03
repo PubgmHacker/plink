@@ -14,7 +14,6 @@ struct V4Avatar: View {
     var isAdmin: Bool = false
     /// Optional remote photo — falls back to letter gradient when missing/failed.
     var imageURL: URL? = nil
-    @State private var ringRotation: Double = 0
     var body: some View {
         let (_, c1, c2, _) = theme.colors
         ZStack {
@@ -33,32 +32,12 @@ struct V4Avatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay {
-            if isAdmin {
-                // Admin: rotating crimson ring — tight on the circle edge
-                Circle()
-                    .stroke(
-                        AngularGradient(colors: [Color(red: 1, green: 0.2, blue: 0.3), Color(red: 0.9, green: 0.1, blue: 0.2), Color(red: 1, green: 0.3, blue: 0.4), Color(red: 1, green: 0.2, blue: 0.3)], center: .center),
-                        lineWidth: 2.5
-                    )
-                    .rotationEffect(.degrees(ringRotation))
-                    .onAppear {
-                        withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { ringRotation = 360 }
-                    }
-            } else if isPremium {
-                // Premium: rotating theme gradient ring
-                Circle()
-                    .stroke(
-                        AngularGradient(colors: [theme.accentColor, theme.secondaryAccent, theme.accentColor], center: .center),
-                        lineWidth: 2.5
-                    )
-                    .rotationEffect(.degrees(ringRotation))
-                    .onAppear {
-                        withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { ringRotation = 360 }
-                    }
-            }
-            // No ring for regular users — clean circle
-        }
+        // Кольцо роли — из единой системы (Plink/Design/Identity). Раньше
+        // здесь была своя реализация: жёстко заданный красный RGB вместо
+        // токена, толщина 2.5 pt против 2 pt в AvatarView и вращение за 4 с
+        // против 3.2 с. Premium-кольцо к тому же красилось акцентом темы,
+        // поэтому у подписчика цвет статуса менялся вместе с оформлением.
+        .plinkIdentityRing(isAdmin: isAdmin, isPremium: isPremium, diameter: size)
     }
 
     private func letterFallback(c1: Color, c2: Color) -> some View {

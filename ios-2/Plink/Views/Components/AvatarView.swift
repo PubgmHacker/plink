@@ -53,7 +53,7 @@ struct AvatarView: View {
                 .frame(width: size, height: size)
                 .clipShape(Circle())
                 .modifier(RingModifier(isPremium: isPremium, isAdmin: isAdmin,
-                                       lineWidth: ringWidth))
+                                       diameter: size))
                 .shadow(color: shadowColor, radius: size * 0.15, y: size * 0.06)
 
             // ── Бейдж (только для Premium/Admin, минимум size 48) ──
@@ -117,13 +117,15 @@ struct AvatarView: View {
         max(2, size * 0.035)
     }
 
+    /// Подсветка под аватаркой. Цвета — из единой системы уровней; раньше
+    /// админ светился `Cinema2026.danger`, а Plink+ — мятным акцентом, из-за
+    /// чего свечение расходилось с цветом самого кольца.
     private var shadowColor: Color {
-        if isAdmin {
-            return Cinema2026.danger.opacity(0.4)
-        } else if isPremium {
-            return Cinema2026.accent.opacity(0.4)
+        switch PlinkIdentityLevel(isAdmin: isAdmin, isPremium: isPremium) {
+        case .admin:   return PlinkIdentityRing.adminColor.opacity(0.34)
+        case .plus:    return PlinkIdentityRing.plusGlow.opacity(0.34)
+        case .regular: return .clear
         }
-        return .clear
     }
 
     // MARK: - Badge
@@ -132,29 +134,13 @@ struct AvatarView: View {
         (isPremium || isAdmin) && size >= 48
     }
 
+    /// Бейдж уровня. Логика «кто получает бейдж» совпадает с кольцом:
+    /// у подписчика-администратора кольцо золотое, поэтому бейдж — щит.
     private var badgeView: some View {
-        let badgeSize = size * 0.32
-
-        return ZStack {
-            Circle()
-                .fill(Cinema2026.background)
-            Circle()
-                .stroke(isAdmin ? Cinema2026.danger : Cinema2026.accent, lineWidth: 1)
-
-            if isAdmin {
-                // 🔧 FIX: user's custom admin icon (was SF Symbol 'shield.fill')
-                Image("AdminBadge")
-                    .resizable()
-                    .scaledToFit()
-                    .padding(badgeSize * 0.15)
-                    .foregroundColor(Cinema2026.danger)
-            } else {
-                Image(systemName: "crown.fill")
-                    .font(.system(size: badgeSize * 0.5, weight: .semibold))
-                    .foregroundColor(Cinema2026.amber)
-            }
-        }
-        .frame(width: badgeSize, height: badgeSize)
+        PlinkIdentityBadge(
+            kind: (isPremium && isAdmin) ? .admin : (isPremium ? .plus : .admin),
+            diameter: size
+        )
     }
 }
 
@@ -162,27 +148,22 @@ struct AvatarView: View {
 
 /// Internal (not private) so PlinkStableAvatar in DMChatView can reuse it
 /// for admin/Plink+ rings on chat avatars.
+///
+/// Теперь это тонкая обёртка над `PlinkIdentityRing` — единой системой
+/// колец (Plink/Design/Identity). Раньше здесь была своя реализация с
+/// цветами Cinema2026, расходившаяся с V4Avatar по цвету и толщине.
 struct RingModifier: ViewModifier {
     let isPremium: Bool
     let isAdmin: Bool
-    let lineWidth: CGFloat
+    /// Диаметр аватарки: от него система колец считает толщину и канавку.
+    let diameter: CGFloat
 
     func body(content: Content) -> some View {
-        if isAdmin {
-            // Admin — приоритет над Premium
-            content
-                .adminStroke(lineWidth: lineWidth)
-        } else if isPremium {
-            content
-                .premiumStroke(lineWidth: lineWidth)
-        } else {
-            // Обычный пользователь — тонкая статичная обводка
-            content
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-                )
-        }
+        content.plinkIdentityRing(
+            isAdmin: isAdmin,
+            isPremium: isPremium,
+            diameter: diameter
+        )
     }
 }
 
@@ -213,43 +194,18 @@ struct RingModifier: ViewModifier {
 
 // MARK: - AdminBadgeChip
 //
-// 🔧 NEW: Маленький чип-бейдж «Админ» для размещения рядом с именем пользователя
-// в Settings, Profile, EditProfile — не только в чате.
+// Маленький чип-бейдж «Админ» рядом с именем пользователя в Settings,
+// Profile, EditProfile — не только в чате.
 //
-// 🔧 FIX: Uses Image('AdminBadge') — user's custom admin icon (uploaded PNG,
-// 512×512 RGBA). Was using SF Symbol 'shield.fill' which user didn't want.
+// Теперь это обёртка над `PlinkIdentityChip` из единой системы бейджей
+// (Plink/Design/Identity). Раньше здесь была капсула с заливкой на 15 %,
+// обводкой 0.5 pt и красным текстом, которому для читаемости подкладывали
+// четыре тени по сторонам — именно это и выглядело дешёвым.
 struct AdminBadgeChip: View {
     var compact: Bool = false    // true = только иконка (для tight layouts)
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image("AdminBadge")
-                .resizable()
-                .scaledToFit()
-                .frame(width: compact ? 12 : 14, height: compact ? 12 : 14)
-            if !compact {
-                Text("АДМИН")
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
-                    .tracking(0.5)
-                    // 🔧 TEXT STROKE: тонкая чёрная обводка для читаемости красного текста
-                    .shadow(color: .black.opacity(0.7), radius: 0.4, x: 0.4, y: 0)
-                    .shadow(color: .black.opacity(0.7), radius: 0.4, x: -0.4, y: 0)
-                    .shadow(color: .black.opacity(0.7), radius: 0.4, x: 0, y: 0.4)
-                    .shadow(color: .black.opacity(0.7), radius: 0.4, x: 0, y: -0.4)
-            }
-        }
-        .foregroundColor(Cinema2026.danger)
-        .padding(.horizontal, compact ? 6 : 8)
-        .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(Cinema2026.danger.opacity(0.15))
-        )
-        .overlay(
-            Capsule()
-                .stroke(Cinema2026.danger.opacity(0.6), lineWidth: 0.5)
-        )
-        .shadow(color: Cinema2026.danger.opacity(0.4), radius: 4, y: 1)
+        PlinkIdentityChip(kind: .admin, compact: compact)
     }
 }
 

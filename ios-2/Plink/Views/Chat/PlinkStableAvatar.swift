@@ -35,7 +35,7 @@ struct PlinkStableAvatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .modifier(RingModifier(isPremium: isPremium, isAdmin: isAdmin, lineWidth: ringLineWidth))
+        .modifier(RingModifier(isPremium: isPremium, isAdmin: isAdmin, diameter: size))
         .task(id: url?.absoluteString ?? letter) {
             await loadIfNeeded(force: false)
         }

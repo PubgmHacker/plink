@@ -198,9 +198,33 @@ struct PulsingDot: View {
 
 struct LiveBadge: View {
     var body: some View {
-        HStack(spacing: 3) { PulsingDot(color: .white); Text("LIVE").font(.system(size: 9, weight: .black)) }
-        .padding(.horizontal, 6).padding(.vertical, 3)
-        .background(Cinema2026.danger, in: Capsule()).foregroundStyle(.white)
+        HStack(spacing: 4) {
+            PulsingDot(color: .white)
+            Text("LIVE")
+                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                .tracking(0.7)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3.5)
+        .foregroundStyle(.white)
+        // Тот же рецепт, что у остальных бейджей: насыщенная заливка,
+        // верхний блик и обводка светом. Раньше это была плоская капсула
+        // danger-цветом без объёма.
+        .background {
+            ZStack {
+                Capsule(style: .continuous).fill(Color(hex: 0xFF3B5C))
+                Capsule(style: .continuous).fill(
+                    LinearGradient(
+                        colors: [.white.opacity(0.34), .clear],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                )
+                .blendMode(.overlay)
+            }
+        }
+        .overlay(Capsule(style: .continuous).strokeBorder(.white.opacity(0.24), lineWidth: 0.8))
+        .shadow(color: Color(hex: 0xFF3B5C).opacity(0.42), radius: 6, y: 2)
     }
 }
 
