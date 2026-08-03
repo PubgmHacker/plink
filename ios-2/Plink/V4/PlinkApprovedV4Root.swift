@@ -36,6 +36,9 @@ struct PlinkApprovedV4Root: View {
     // 02.08.2026: текстовый чат с ИИ — общий экран поверх вкладок, а не режим вкладки «ИИ».
     // Открывается с «Главной» (поиск и карточка ассистента) и из шапки вкладки «ИИ».
     @State private var showAIChat = false
+    // 03.08.2026: голосовой режим упразднён. Вход «спросить голосом» открывает
+    // тот же чат, но сразу включает микрофон.
+    @State private var aiChatAutoVoice = false
     @State private var lastSharedRoomCode: String?
 
     // Аудит 26.07.2026 P1: единственный консьюмер deep-link'ов (раньше
@@ -74,7 +77,7 @@ struct PlinkApprovedV4Root: View {
                 V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
                     .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
                 // isActive: вкладки не уничтожаются при переключении, поэтому
-                // экран «ИИ» узнаёт об уходе только отсюда — и глушит голос.
+                // экран «ИИ» узнаёт об уходе только отсюда — и обрывает запись.
                 V4AIViewLive(theme:theme, store:aiStore, isActive: tab == 3)
                     .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                 V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
@@ -119,9 +122,6 @@ struct PlinkApprovedV4Root: View {
             case .background:
                 DMChatService.shared.stopUnreadPolling()
                 PresenceHeartbeat.stop()
-                // У приложения включён фоновый режим audio: без этого ответ
-                // ассистента продолжал бы читаться после сворачивания.
-                AISpeaker.shared.stop()
             default:
                 break
             }
@@ -160,14 +160,17 @@ struct PlinkApprovedV4Root: View {
         }
         // 02.08.2026: чат с ИИ — отдельная поверхность над вкладками.
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIChat)) { _ in
+            aiChatAutoVoice = false
             showAIChat = true
         }
+        // 03.08.2026: «спросить голосом» больше не отдельный экран — это тот же
+        // чат с включённым микрофоном.
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIVoice)) { _ in
-            showAIChat = false
-            tab = 3
+            aiChatAutoVoice = true
+            showAIChat = true
         }
-        .fullScreenCover(isPresented: $showAIChat) {
-            V4AIChatView(theme: theme, store: aiStore, onVoice: { tab = 3 })
+        .fullScreenCover(isPresented: $showAIChat, onDismiss: { aiChatAutoVoice = false }) {
+            V4AIChatView(theme: theme, store: aiStore, autoStartVoice: aiChatAutoVoice)
         }
         .sheet(isPresented: $showCreateRoom) {
             RoomCreationView(

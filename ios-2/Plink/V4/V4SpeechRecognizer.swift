@@ -1,5 +1,8 @@
 // Plink/V4/V4SpeechRecognizer.swift — M34: реальное распознавание речи (ru-RU)
 // SFSpeechRecognizer + AVAudioEngine, partial results прямо в поле ввода.
+//
+// 03.08.2026: распознавание работает в режиме удержания кнопки, поэтому сессия
+// живёт доли секунды. Отсюда два правила ниже — wantsRecording и finish().
 
 import Foundation
 import Speech
@@ -15,11 +18,19 @@ final class V4SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
 
+    /// Пользователь всё ещё держит кнопку. Разрешение на микрофон приходит
+    /// асинхронно, и при коротком нажатии stop() успевал сработать раньше
+    /// колбэка — сессия стартовала уже после отпускания, и остановить её было
+    /// некому. Микрофон оставался включённым.
+    private var wantsRecording = false
+
     func start() {
         transcript = ""
+        wantsRecording = true
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             Task { @MainActor in
                 guard status == .authorized else { return }
+                guard self?.wantsRecording == true else { return }
                 self?.beginSession()
             }
         }
@@ -62,7 +73,17 @@ final class V4SpeechRecognizer: ObservableObject {
         }
     }
 
+    /// Мягкое завершение: движок останавливается, но задача распознавания
+    /// продолжает жить. Финальная расшифровка приходит уже после отпускания
+    /// кнопки, и именно в ней оказывается последнее слово короткой фразы —
+    /// если рубить задачу сразу, «поставь Дюну» превращается в «поставь».
+    func finish() {
+        wantsRecording = false
+        stopEngineOnly()
+    }
+
     func stop() {
+        wantsRecording = false
         stopEngineOnly()
         task?.cancel()
         task = nil

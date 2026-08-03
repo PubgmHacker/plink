@@ -5,258 +5,375 @@
 // поверх вкладок и открывается с «Главной» (строка поиска)
 // и кнопкой в шапке вкладки «ИИ».
 //
-// 03.08.2026: обещанные рилсы пришли. Сегмент «Рилсы / Голос» стоит под общей
-// шапкой, сама лента живёт в V4ReelsView.swift. Голосовой экран целиком переехал
-// в voiceBody — содержимое не изменилось, у него только забрали собственную шапку,
-// чтобы она не рисовалась дважды.
+// 03.08.2026: обещанные рилсы пришли. Лента живёт в V4ReelsView.swift.
 //
-// 03.08.2026, граница режимов: чат — это чат, голос — это голос. AISpeaker
-// используется только в голосовом режиме вкладки. В переписке ответы не читаются
-// вслух никогда — ни автоматически, ни по кнопке.
+// 03.08.2026, голос перестал быть режимом. Раньше вкладка делилась сегментом на
+// «Рилсы» и «Голос», и голосовой экран умел только говорить — подтвердить
+// предложение ассистента там было нечем, AIActionButton существует лишь в пузыре
+// чата. Теперь голос — это способ ввода: удерживаешь микрофон, поверх экрана
+// поднимается сфера, отпускаешь — распознанный текст уходит запросом, ответ
+// приходит текстом вместе с кнопками действий.
 //
-// 03.08.2026, правило тишины: ассистент обязан замолчать при уходе со вкладки «ИИ»,
-// переключении на рилсы и уходе приложения в фон. Вкладки живут в ZStack и не
-// уничтожаются при переключении, поэтому onDisappear здесь не срабатывает —
-// нужен явный флаг isActive из корня.
+// Следствие: приложение не произносит ответы вслух нигде. AISpeaker и
+// AVSpeechSynthesizer удалены вместе с голосовым экраном — чат остаётся чатом,
+// голос остаётся вводом.
 //
 // Цвет: акцент всегда берётся из активной темы (theme.accentColor), не зашивается в экран.
 
 import SwiftUI
 import PhotosUI
 import UIKit
-import AVFoundation
+import Combine
 import Foundation
 
 extension Notification.Name {
     /// Открыть текстовый чат с ИИ поверх любого экрана.
     static let plinkOpenAIChat = Notification.Name("plinkOpenAIChat")
-    /// Перейти на вкладку «ИИ» в голосовом режиме.
+    /// Открыть чат с сразу включённым микрофоном (бывший «голосовой режим»).
     static let plinkOpenAIVoice = Notification.Name("plinkOpenAIVoice")
 }
 
-// MARK: - Режимы вкладки
+// MARK: - Захват голоса
 
-/// Два режима: лента трейлеров и голосовой помощник.
-enum V4AIMode: String, CaseIterable, Identifiable {
-    case reels
-    case voice
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .reels: return "Рилсы"
-        case .voice: return "Голос"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .reels: return "play.rectangle.on.rectangle"
-        case .voice: return "waveform"
-        }
-    }
-}
-
-// MARK: - Озвучка ответов
-
-/// Минимальная обёртка над AVSpeechSynthesizer. Один экземпляр на приложение,
-/// чтобы два ответа не читались хором.
+/// Один контроллер записи на обе поверхности — шапку вкладки «ИИ» и композер
+/// чата. Поведение обязано совпадать до мелочей, поэтому логика жеста живёт
+/// здесь, а не дублируется в двух экранах.
 ///
-/// Единственный легальный потребитель — голосовой режим V4AIViewLive.
-/// Текстовый чат озвучкой не пользуется вообще.
-final class AISpeaker {
-    static let shared = AISpeaker()
-    private let synth = AVSpeechSynthesizer()
+/// Три сценария нажатия:
+/// 1. Удержание — пишем, пока палец на кнопке, отпустили — отправили.
+/// 2. Короткий тап — запись «залипает», руки свободны, следующее нажатие
+///    отправляет. Без этого случайное касание обрывало бы фразу на первом слове.
+/// 3. Сдвиг пальца вверх на 80 pt — отпускание отменяет запрос.
+@MainActor
+final class V4VoiceCapture: ObservableObject {
+    @Published private(set) var isCapturing = false
+    @Published private(set) var isLocked = false
+    @Published private(set) var cancelArmed = false
+    @Published private(set) var heard = ""
 
-    private init() {}
+    private let speech = V4SpeechRecognizer()
+    private var bag = Set<AnyCancellable>()
+    private var pressStartedAt = Date.distantPast
 
-    func toggle(_ text: String) {
-        if synth.isSpeaking {
-            synth.stopSpeaking(at: .immediate)
+    /// Ниже этого порога нажатие считается тапом, а не удержанием.
+    private let tapThreshold: TimeInterval = 0.35
+    /// Насколько нужно увести палец вверх, чтобы отменить запрос.
+    private let cancelDistance: CGFloat = -80
+
+    init() {
+        speech.$transcript
+            .sink { [weak self] text in self?.heard = text }
+            .store(in: &bag)
+    }
+
+    func pressBegan(surface: String) {
+        guard !isCapturing else { return }
+        pressStartedAt = Date()
+        heard = ""
+        cancelArmed = false
+        isLocked = false
+        isCapturing = true
+        HapticManager.impact(.medium)
+        speech.start()
+        AnalyticsService.shared.track("voice_input_started", parameters: ["surface": surface])
+    }
+
+    /// Запись без удержания — для входа «спросить голосом» с других экранов.
+    func startLocked(surface: String) {
+        guard !isCapturing else { return }
+        pressBegan(surface: surface)
+        isLocked = true
+    }
+
+    func pressMoved(_ translationHeight: CGFloat) {
+        guard isCapturing, !isLocked else { return }
+        let armed = translationHeight < cancelDistance
+        if armed != cancelArmed {
+            HapticManager.selection()
+            cancelArmed = armed
+        }
+    }
+
+    func pressEnded(complete: @escaping (String) -> Void) {
+        guard isCapturing else { return }
+        if cancelArmed { cancel(); return }
+        if isLocked { finish(complete: complete); return }
+        if Date().timeIntervalSince(pressStartedAt) < tapThreshold {
+            isLocked = true
+            HapticManager.impact(.light)
             return
         }
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ru-RU")
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        synth.speak(utterance)
+        finish(complete: complete)
     }
 
-    func stop() {
-        if synth.isSpeaking {
-            synth.stopSpeaking(at: .immediate)
+    func cancel() {
+        guard isCapturing else { return }
+        speech.stop()
+        isCapturing = false
+        isLocked = false
+        cancelArmed = false
+        heard = ""
+        HapticManager.impact(.medium)
+    }
+
+    private func finish(complete: @escaping (String) -> Void) {
+        // Движок глушим сразу, а задачу распознавания оставляем дожить: финальная
+        // расшифровка приходит с задержкой, и без неё теряется последнее слово.
+        speech.finish()
+        isCapturing = false
+        isLocked = false
+        cancelArmed = false
+        HapticManager.impact(.light)
+
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self else { return }
+            let text = self.speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.speech.stop()
+            self.heard = ""
+            guard !text.isEmpty else { return }
+            complete(text)
         }
     }
 }
 
-// MARK: - Вкладка «ИИ» — рилсы и голос
+// MARK: - Кнопка микрофона
+
+enum V4MicChrome {
+    /// Голая иконка — для строки ввода в чате.
+    case bare
+    /// Круглая кнопка 44 pt — для шапки вкладки.
+    case circle
+}
+
+struct V4VoiceMicButton: View {
+    @ObservedObject var capture: V4VoiceCapture
+    let theme: V4Theme
+    let surface: String
+    var chrome: V4MicChrome = .bare
+    var onResult: (String) -> Void
+
+    private var active: Bool { capture.isCapturing }
+
+    var body: some View {
+        icon
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !capture.isCapturing { capture.pressBegan(surface: surface) }
+                        capture.pressMoved(value.translation.height)
+                    }
+                    .onEnded { _ in
+                        capture.pressEnded(complete: onResult)
+                    }
+            )
+            .accessibilityLabel("Голосовой ввод")
+            .accessibilityHint("Удерживайте и говорите. Короткое нажатие включает запись, следующее отправляет запрос.")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        switch chrome {
+        case .bare:
+            Image(systemName: active ? "mic.fill" : "mic")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(active ? theme.accentColor : V4.muted)
+                .frame(width: 34, height: 34)
+        case .circle:
+            Image(systemName: active ? "mic.fill" : "mic")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(active ? theme.buttonTextColor : V4.ink)
+                .frame(width: 44, height: 44)
+                .background {
+                    Circle().fill(active ? AnyShapeStyle(theme.accentColor) : AnyShapeStyle(V4.roundBG))
+                }
+                .overlay(Circle().stroke(active ? Color.clear : V4.line))
+        }
+    }
+}
+
+// MARK: - Сфера поверх экрана
+
+/// То самое окно Siri: содержимое уходит за матовое стекло, остаётся сфера,
+/// распознанный текст и подсказка. Во время удержания слой прозрачен для
+/// касаний — жест принадлежит кнопке. Кнопки появляются только в залипающем
+/// режиме, когда палец уже отпущен.
+struct V4VoiceCaptureOverlay: View {
+    @ObservedObject var capture: V4VoiceCapture
+    let theme: V4Theme
+    var onSend: () -> Void
+    var onCancel: () -> Void
+
+    private var orbState: AIOrbState {
+        capture.cancelArmed ? .error : .listening
+    }
+
+    private var accent: Color {
+        capture.cancelArmed ? V4.danger : theme.accentColor
+    }
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .ignoresSafeArea()
+
+            Color.black.opacity(0.26).ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 24)
+
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [accent.opacity(0.24), .clear],
+                                center: .center,
+                                startRadius: 18,
+                                endRadius: 180
+                            )
+                        )
+                        .frame(width: 340, height: 340)
+                        .allowsHitTesting(false)
+
+                    AICompanionModel(theme: theme, size: 220, glow: 82, state: orbState)
+                }
+
+                Text(capture.heard.isEmpty ? "Слушаю…" : capture.heard)
+                    .font(.system(size: 20, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(V4.ink)
+                    .padding(.horizontal, 34)
+                    .frame(minHeight: 64)
+                    .padding(.top, 8)
+
+                Spacer(minLength: 18)
+
+                Text(hint)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(capture.cancelArmed ? V4.danger : V4.muted)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 30)
+
+                if capture.isLocked {
+                    HStack(spacing: 10) {
+                        Button {
+                            onCancel()
+                        } label: {
+                            Text("Отмена")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(V4.muted)
+                                .padding(.horizontal, 20)
+                                .frame(minHeight: 46)
+                                .plinkGlass(.overlay, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            onSend()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.up")
+                                Text("Отправить")
+                            }
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(theme.buttonTextColor)
+                            .padding(.horizontal, 22)
+                            .frame(minHeight: 46)
+                            .background(theme.accentColor, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 16)
+                }
+
+                Spacer(minLength: 40)
+            }
+        }
+        // Пока палец на кнопке, слой не должен перехватывать касания.
+        .allowsHitTesting(capture.isLocked)
+        .accessibilityIdentifier("voice.capture")
+    }
+
+    private var hint: String {
+        if capture.cancelArmed { return "Отпустите — запрос отменится" }
+        if capture.isLocked { return "Запись идёт. Отправьте или отмените." }
+        return "Отпустите, чтобы отправить\nСдвиньте вверх — отмена"
+    }
+}
+
+// MARK: - Вкладка «ИИ» — лента трейлеров
 
 struct V4AIViewLive: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
     /// Вкладка сейчас на экране. Корень держит все вкладки живыми через ZStack,
-    /// поэтому без этого флага голос продолжал бы работать с чужого экрана.
+    /// поэтому уход с вкладки виден только отсюда — и обрывает запись.
     var isActive: Bool = true
 
-    @State private var mode: V4AIMode = .reels
-    @State private var heard = ""
-    @State private var speakingPulseUntil: Date = .distantPast
-    @StateObject private var speech = V4SpeechRecognizer()
-
+    @StateObject private var capture = V4VoiceCapture()
     @Environment(\.scenePhase) private var scenePhase
 
-    private var orbState: AIOrbState {
-        let s = store.state.lowercased()
-        if s.contains("ошиб") || s.contains("error") || s.contains("не удалось") { return .error }
-        if s.contains("дума") { return .thinking }
-        if speech.isRecording || s.contains("слуша") { return .listening }
-        if Date() < speakingPulseUntil { return .speaking }
-        return .idle
-    }
-
-    private var stateCaption: String {
-        switch orbState {
-        case .idle: return store.state.isEmpty ? "Готов помочь" : store.state
-        case .listening: return "Слушаю…"
-        case .thinking: return "Думаю…"
-        case .speaking: return "Отвечаю…"
-        case .error: return store.state
-        }
-    }
-
-    /// В голосовом режиме ленты нет, поэтому последний ответ показываем крупно.
-    private var voicePrompt: String {
-        if speech.isRecording && !heard.isEmpty { return heard }
-        if let last = store.messages.last, last.isBot { return last.text }
-        return LocalizationManager.shared.string(.aiWhatToday)
-    }
-
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        ZStack {
+            VStack(spacing: 0) {
+                header
 
-            V4SegmentedBar(
-                options: [
-                    (value: V4AIMode.reels, title: V4AIMode.reels.title),
-                    (value: V4AIMode.voice, title: V4AIMode.voice.title),
-                ],
-                selection: $mode,
-                theme: theme
-            )
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
-
-            if mode == .reels {
                 ScrollView(showsIndicators: false) {
                     V4ReelsPanel(theme: theme)
                         .padding(.top, 14)
                         .padding(.bottom, 120)
                 }
-            } else {
-                voiceBody
+            }
+
+            if capture.isCapturing {
+                V4VoiceCaptureOverlay(
+                    capture: capture,
+                    theme: theme,
+                    onSend: { capture.pressEnded(complete: handleVoiceResult) },
+                    onCancel: { capture.cancel() }
+                )
+                .zIndex(30)
             }
         }
+        .animation(.easeInOut(duration: 0.18), value: capture.isCapturing)
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("screen.ai")
-        .onChange(of: mode) { _, newMode in
-            // Ушли с голоса внутри вкладки — микрофон и озвучка не должны
-            // работать поверх трейлера.
-            if newMode != .voice { silenceAssistant() }
-        }
         .onChange(of: isActive) { _, active in
-            // Ушли на другую вкладку. Вкладка остаётся в памяти, onDisappear
-            // не вызывается, поэтому глушим вручную.
-            if !active { silenceAssistant() }
+            if !active { capture.cancel() }
         }
         .onChange(of: scenePhase) { _, phase in
-            // У приложения включён фоновый режим audio, иначе ответ продолжал
-            // бы читаться после сворачивания.
-            if phase != .active { silenceAssistant() }
+            if phase != .active { capture.cancel() }
         }
-        .onDisappear { silenceAssistant() }
+        .onDisappear { capture.cancel() }
     }
 
-    /// Единственная точка остановки голоса: и запись, и синтез речи.
-    private func silenceAssistant() {
-        if speech.isRecording { speech.stop() }
-        AISpeaker.shared.stop()
-    }
-
-    // MARK: Голосовой режим
-
-    private var voiceBody: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 8)
-
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [stateColor.opacity(0.22), .clear],
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 190
-                        )
-                    )
-                    .frame(width: 360, height: 360)
-                    .allowsHitTesting(false)
-
-                AICompanionModel(theme: theme, size: 240, glow: 90, state: orbState)
-            }
-            .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 8)
-
-            Text(voicePrompt)
-                .font(.system(size: 19, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .frame(minHeight: 56)
-
-            Text(stateCaption)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(stateColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(stateColor.opacity(0.12), in: Capsule())
-
-            Spacer(minLength: 16)
-
-            micButton
-
-            Text(speech.isRecording ? "Нажмите, когда закончите" : "Нажмите и говорите")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(V4.muted)
-                .padding(.top, 12)
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, 104) // над таб-баром
-        .onChange(of: speech.transcript) { _, t in
-            if speech.isRecording && !t.isEmpty { heard = t }
-        }
-        .onChange(of: store.messages.count) { _, _ in
-            // Говорим только здесь и только когда экран на виду. Стор общий
-            // с текстовым чатом, и без этой проверки ответ из переписки
-            // заговорил бы сам собой.
-            guard isActive, mode == .voice else { return }
-            if let last = store.messages.last, last.isBot {
-                speakingPulseUntil = Date().addingTimeInterval(2.5)
-                AISpeaker.shared.toggle(last.text)
-            }
-        }
-        .onDisappear { silenceAssistant() }
+    /// Голос с ленты уходит в чат: там живут пузыри и кнопки подтверждения.
+    private func handleVoiceResult(_ text: String) {
+        NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
+        Task { await store.send(text) }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            V4Heading(eyebrow: "ТРЕЙЛЕРЫ И ГОЛОС", title: "ИИ")
+            V4Heading(eyebrow: "ТРЕЙЛЕРЫ", title: "ИИ")
             Spacer()
+
+            V4VoiceMicButton(
+                capture: capture,
+                theme: theme,
+                surface: "ai_tab",
+                chrome: .circle,
+                onResult: handleVoiceResult
+            )
+
             Button {
                 HapticManager.selection()
-                silenceAssistant()
+                capture.cancel()
                 NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
             } label: {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
@@ -272,72 +389,18 @@ struct V4AIViewLive: View {
         .padding(.horizontal, 18)
         .padding(.top, 10)
     }
-
-    private var micButton: some View {
-        Button {
-            HapticManager.impact(.medium)
-            if speech.isRecording {
-                speech.stop()
-                let text = heard.trimmingCharacters(in: .whitespaces)
-                heard = ""
-                if text.isEmpty {
-                    store.setStatus("Готов помочь")
-                } else {
-                    Task { await store.send(text) }
-                }
-            } else {
-                AISpeaker.shared.stop()
-                speech.start()
-                store.setStatus("Слушаю…")
-                AnalyticsService.shared.track("voice_chat_started", parameters: ["surface": "ai_tab"])
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .stroke(stateColor.opacity(0.35), lineWidth: 1)
-                    .frame(width: 96, height: 96)
-
-                Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(speech.isRecording ? theme.buttonTextColor : V4.ink)
-                    .frame(width: 76, height: 76)
-                    .background {
-                        if speech.isRecording {
-                            Circle().fill(theme.accentColor)
-                        } else {
-                            Circle().fill(.ultraThinMaterial)
-                        }
-                    }
-                    .environment(\.colorScheme, .dark)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Говорить")
-    }
-
-    private var stateColor: Color {
-        switch orbState {
-        case .idle: return theme.accentColor
-        case .listening: return Color(red: 0.45, green: 0.55, blue: 1.0)
-        case .thinking: return Color(red: 0.85, green: 0.4, blue: 1.0)
-        case .speaking: return Color(red: 0.25, green: 0.9, blue: 0.7)
-        case .error: return Color(red: 1.0, green: 0.4, blue: 0.4)
-        }
-    }
 }
 
 // MARK: - Текстовый чат — отдельный экран поверх вкладок
 //
-// Здесь нет ни одного обращения к AISpeaker для чтения ответов. Микрофон в
-// композере — это диктовка в поле ввода, он только слушает и ничего не произносит.
+// Ответы здесь не читаются вслух и читаться не могут: синтезатора речи в
+// приложении больше нет. Микрофон в композере — только ввод.
 
 struct V4AIChatView: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
-    /// Закрыть чат и перейти в голосовой режим вкладки «ИИ».
-    var onVoice: () -> Void = {
-        NotificationCenter.default.post(name: .plinkOpenAIVoice, object: nil)
-    }
+    /// Открыть экран с сразу включённым микрофоном (вход «спросить голосом»).
+    var autoStartVoice: Bool = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -347,14 +410,14 @@ struct V4AIChatView: View {
     @State private var confirmingAction: AIProposedAction?
     @State private var presentedRoom: Room?
     @State private var copiedMessageID: String?
-    @StateObject private var speech = V4SpeechRecognizer()
+    @StateObject private var capture = V4VoiceCapture()
 
-    /// Состояние без .speaking: чат никогда не говорит вслух.
+    /// Состояние без .speaking: приложение не говорит вслух.
     private var orbState: AIOrbState {
         let s = store.state.lowercased()
         if s.contains("ошиб") || s.contains("error") || s.contains("не удалось") { return .error }
         if s.contains("дума") { return .thinking }
-        if speech.isRecording || s.contains("слуша") { return .listening }
+        if capture.isCapturing || s.contains("слуша") { return .listening }
         return .idle
     }
 
@@ -373,23 +436,36 @@ struct V4AIChatView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            thread
-            composer
+        ZStack {
+            VStack(spacing: 0) {
+                header
+                thread
+                composer
+            }
+
+            if capture.isCapturing {
+                V4VoiceCaptureOverlay(
+                    capture: capture,
+                    theme: theme,
+                    onSend: { capture.pressEnded(complete: sendVoiceResult) },
+                    onCancel: { capture.cancel() }
+                )
+                .zIndex(30)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: capture.isCapturing)
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(V4.cardBG.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        .onChange(of: speech.transcript) { _, t in
-            if speech.isRecording && !t.isEmpty { input = t }
+        .onAppear {
+            if autoStartVoice { capture.startLocked(surface: "ai_chat_autostart") }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { stopDictation() }
+            if phase != .active { capture.cancel() }
         }
         // Закрытие экрана любым способом обязано выключить микрофон.
-        .onDisappear { stopDictation() }
+        .onDisappear { capture.cancel() }
         .sheet(isPresented: $showManualCreate) {
             RoomCreationView(onRoomCreated: { _ in showManualCreate = false })
                 .environmentObject(APIClient.shared)
@@ -400,9 +476,9 @@ struct V4AIChatView: View {
         }
     }
 
-    /// В чате глушить нечего, кроме диктовки — озвучки здесь нет по замыслу.
-    private func stopDictation() {
-        if speech.isRecording { speech.stop() }
+    private func sendVoiceResult(_ text: String) {
+        input = ""
+        Task { await store.send(text) }
     }
 
     // MARK: Шапка
@@ -411,7 +487,7 @@ struct V4AIChatView: View {
         HStack(spacing: 10) {
             Button {
                 HapticManager.selection()
-                stopDictation()
+                capture.cancel()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -448,21 +524,6 @@ struct V4AIChatView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Очистить историю чата")
             }
-
-            Button {
-                HapticManager.selection()
-                stopDictation()
-                dismiss()
-                onVoice()
-            } label: {
-                Image(systemName: "waveform")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(theme.buttonTextColor)
-                    .frame(width: 44, height: 44)
-                    .background(theme.accentColor, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Перейти в голосовой режим")
         }
         .frame(height: 61)
         .padding(.horizontal, 15)
@@ -560,8 +621,8 @@ struct V4AIChatView: View {
 
                 Divider().overlay(V4.line)
 
-                // Кнопки «Озвучить ответ» здесь нет намеренно: чтение вслух живёт
-                // только в голосовом режиме вкладки «ИИ».
+                // Кнопки «Озвучить ответ» здесь нет намеренно: приложение
+                // не произносит текст вслух ни на одном экране.
                 HStack(spacing: 2) {
                     bubbleAction(
                         icon: copiedMessageID == id ? "checkmark" : "doc.on.doc",
@@ -702,30 +763,15 @@ struct V4AIChatView: View {
                 .font(.system(size: 14))
                 .padding(.vertical, 4)
 
-            // Диктовка в поле ввода: микрофон только слушает, ответ приходит текстом.
-            Button {
-                HapticManager.impact(.light)
-                if speech.isRecording {
-                    speech.stop()
-                    store.setStatus("Готов помочь")
-                    let text = input.trimmingCharacters(in: .whitespaces)
-                    if !text.isEmpty {
-                        input = ""
-                        Task { await store.send(text) }
-                    }
-                } else {
-                    speech.start()
-                    store.setStatus("Слушаю…")
-                }
-            } label: {
-                Image(systemName: speech.isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(speech.isRecording ? theme.accentColor : V4.muted)
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Голосовой ввод")
+            // Удержание вызывает сферу поверх экрана, отпускание отправляет
+            // распознанный текст обычным сообщением.
+            V4VoiceMicButton(
+                capture: capture,
+                theme: theme,
+                surface: "ai_chat",
+                chrome: .bare,
+                onResult: sendVoiceResult
+            )
 
             Button {
                 let text = input
