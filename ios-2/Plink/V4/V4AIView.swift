@@ -10,9 +10,16 @@
 // 03.08.2026, голос перестал быть режимом. Раньше вкладка делилась сегментом на
 // «Рилсы» и «Голос», и голосовой экран умел только говорить — подтвердить
 // предложение ассистента там было нечем, AIActionButton существует лишь в пузыре
-// чата. Теперь голос — это способ ввода: удерживаешь микрофон, поверх экрана
-// поднимается сфера, отпускаешь — распознанный текст уходит запросом, ответ
-// приходит текстом вместе с кнопками действий.
+// чата. Теперь голос — это способ ввода: нажимаешь микрофон, снизу поднимается
+// сфера, отпускаешь — распознанный текст уходит запросом, ответ приходит текстом
+// вместе с кнопками действий.
+//
+// 03.08.2026, вторая правка по эргономике. Микрофон и чат стояли в шапке справа —
+// до верхнего угла экрана 6.9" большим пальцем не дотянуться. Обе кнопки съехали
+// вниз, в плавающий док над таб-баром: широкая строка открывает чат, круглая
+// кнопка 58 pt пишет голос. И запись больше не гасит экран целиком: вместо
+// полноэкранного слоя снизу поднимается компактная панель с мини-сферой —
+// как у Siri на iOS. В чате панель встаёт над композером, переписка видна.
 //
 // Следствие: приложение не произносит ответы вслух нигде. AISpeaker и
 // AVSpeechSynthesizer удалены вместе с голосовым экраном — чат остаётся чатом,
@@ -35,7 +42,7 @@ extension Notification.Name {
 
 // MARK: - Захват голоса
 
-/// Один контроллер записи на обе поверхности — шапку вкладки «ИИ» и композер
+/// Один контроллер записи на обе поверхности — док вкладки «ИИ» и композер
 /// чата. Поведение обязано совпадать до мелочей, поэтому логика жеста живёт
 /// здесь, а не дублируется в двух экранах.
 ///
@@ -142,8 +149,8 @@ final class V4VoiceCapture: ObservableObject {
 enum V4MicChrome {
     /// Голая иконка — для строки ввода в чате.
     case bare
-    /// Круглая кнопка 44 pt — для шапки вкладки.
-    case circle
+    /// Крупная круглая кнопка 58 pt — главный голосовой вход в доке вкладки.
+    case dock
 }
 
 struct V4VoiceMicButton: View {
@@ -181,26 +188,35 @@ struct V4VoiceMicButton: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(active ? theme.accentColor : V4.muted)
                 .frame(width: 34, height: 34)
-        case .circle:
+        case .dock:
             Image(systemName: active ? "mic.fill" : "mic")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(active ? theme.buttonTextColor : V4.ink)
-                .frame(width: 44, height: 44)
-                .background {
-                    Circle().fill(active ? AnyShapeStyle(theme.accentColor) : AnyShapeStyle(V4.roundBG))
-                }
-                .overlay(Circle().stroke(active ? Color.clear : V4.line))
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(theme.buttonTextColor)
+                .frame(width: 58, height: 58)
+                .background(Circle().fill(dockFill))
+                .overlay(
+                    Circle()
+                        .stroke(dockFill.opacity(0.35), lineWidth: active ? 8 : 0)
+                        .scaleEffect(active ? 1.16 : 1)
+                )
+                .shadow(color: dockFill.opacity(0.4), radius: active ? 18 : 10, y: 6)
+                .scaleEffect(active ? 1.05 : 1)
+                .animation(.spring(response: 0.28, dampingFraction: 0.7), value: active)
         }
+    }
+
+    private var dockFill: Color {
+        capture.cancelArmed ? V4.danger : theme.accentColor
     }
 }
 
-// MARK: - Сфера поверх экрана
+// MARK: - Панель записи снизу (мини-сфера, как у Siri)
 
-/// То самое окно Siri: содержимое уходит за матовое стекло, остаётся сфера,
-/// распознанный текст и подсказка. Во время удержания слой прозрачен для
-/// касаний — жест принадлежит кнопке. Кнопки появляются только в залипающем
-/// режиме, когда палец уже отпущен.
-struct V4VoiceCaptureOverlay: View {
+/// Раньше запись гасила весь экран матовым стеклом. Это ломало главный смысл
+/// голоса: пользователь терял из виду то, о чём спрашивает, а в чате исчезала
+/// переписка. Теперь запись — компактная панель, которая поднимается снизу над
+/// кнопкой микрофона: слева живая сфера, справа расшифровка. Контент виден.
+struct V4VoiceDock: View {
     @ObservedObject var capture: V4VoiceCapture
     let theme: V4Theme
     var onSend: () -> Void
@@ -215,85 +231,74 @@ struct V4VoiceCaptureOverlay: View {
     }
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-                .ignoresSafeArea()
-
-            Color.black.opacity(0.26).ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 24)
-
-                ZStack {
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [accent.opacity(0.24), .clear],
-                                center: .center,
-                                startRadius: 18,
-                                endRadius: 180
-                            )
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [accent.opacity(0.30), .clear],
+                            center: .center,
+                            startRadius: 6,
+                            endRadius: 52
                         )
-                        .frame(width: 340, height: 340)
-                        .allowsHitTesting(false)
+                    )
+                    .frame(width: 86, height: 86)
+                    .allowsHitTesting(false)
 
-                    AICompanionModel(theme: theme, size: 220, glow: 82, state: orbState)
-                }
+                AICompanionModel(theme: theme, size: 54, glow: 24, state: orbState)
+                    .frame(width: 54, height: 54)
+                    .clipped()
+            }
+            .frame(width: 58, height: 58)
 
+            VStack(alignment: .leading, spacing: 3) {
                 Text(capture.heard.isEmpty ? "Слушаю…" : capture.heard)
-                    .font(.system(size: 20, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(V4.ink)
-                    .padding(.horizontal, 34)
-                    .frame(minHeight: 64)
-                    .padding(.top, 8)
-
-                Spacer(minLength: 18)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(capture.heard.isEmpty ? V4.muted : V4.ink)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.easeOut(duration: 0.12), value: capture.heard)
 
                 Text(hint)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(capture.cancelArmed ? V4.danger : V4.muted)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
+                    .lineLimit(2)
+            }
 
-                if capture.isLocked {
-                    HStack(spacing: 10) {
-                        Button {
-                            onCancel()
-                        } label: {
-                            Text("Отмена")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(V4.muted)
-                                .padding(.horizontal, 20)
-                                .frame(minHeight: 46)
-                                .plinkGlass(.overlay, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            onSend()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.up")
-                                Text("Отправить")
-                            }
+            if capture.isLocked {
+                HStack(spacing: 8) {
+                    Button(action: onCancel) {
+                        Image(systemName: "xmark")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(theme.buttonTextColor)
-                            .padding(.horizontal, 22)
-                            .frame(minHeight: 46)
-                            .background(theme.accentColor, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
+                            .foregroundStyle(V4.muted)
+                            .frame(width: 44, height: 44)
+                            .plinkGlass(.overlay, in: Circle())
                     }
-                    .padding(.top, 16)
-                }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Отменить запись")
 
-                Spacer(minLength: 40)
+                    Button(action: onSend) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(theme.buttonTextColor)
+                            .frame(width: 44, height: 44)
+                            .background(theme.accentColor, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Отправить запрос")
+                }
             }
         }
-        // Пока палец на кнопке, слой не должен перехватывать касания.
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plinkGlass(.navigation, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(accent.opacity(0.35), lineWidth: 1)
+        )
+        // Пока палец удерживает кнопку, панель не должна перехватывать касание.
         .allowsHitTesting(capture.isLocked)
         .accessibilityIdentifier("voice.capture")
     }
@@ -301,7 +306,7 @@ struct V4VoiceCaptureOverlay: View {
     private var hint: String {
         if capture.cancelArmed { return "Отпустите — запрос отменится" }
         if capture.isLocked { return "Запись идёт. Отправьте или отмените." }
-        return "Отпустите, чтобы отправить\nСдвиньте вверх — отмена"
+        return "Отпустите — отправлю. Вверх — отмена."
     }
 }
 
@@ -318,28 +323,21 @@ struct V4AIViewLive: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 header
 
                 ScrollView(showsIndicators: false) {
                     V4ReelsPanel(theme: theme)
                         .padding(.top, 14)
-                        .padding(.bottom, 120)
+                        // Место под плавающий док и таб-бар.
+                        .padding(.bottom, 190)
                 }
             }
 
-            if capture.isCapturing {
-                V4VoiceCaptureOverlay(
-                    capture: capture,
-                    theme: theme,
-                    onSend: { capture.pressEnded(complete: handleVoiceResult) },
-                    onCancel: { capture.cancel() }
-                )
-                .zIndex(30)
-            }
+            dock
         }
-        .animation(.easeInOut(duration: 0.18), value: capture.isCapturing)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: capture.isCapturing)
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("screen.ai")
@@ -358,36 +356,65 @@ struct V4AIViewLive: View {
         Task { await store.send(text) }
     }
 
+    /// Шапка теперь только называет экран. Всё, что нажимается, уехало вниз.
     private var header: some View {
         HStack(spacing: 10) {
             V4Heading(eyebrow: "ТРЕЙЛЕРЫ", title: "ИИ")
             Spacer()
-
-            V4VoiceMicButton(
-                capture: capture,
-                theme: theme,
-                surface: "ai_tab",
-                chrome: .circle,
-                onResult: handleVoiceResult
-            )
-
-            Button {
-                HapticManager.selection()
-                capture.cancel()
-                NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
-            } label: {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(V4.ink)
-                    .frame(width: 44, height: 44)
-                    .background(V4.roundBG, in: Circle())
-                    .overlay(Circle().stroke(V4.line))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Текстовый чат с ИИ")
         }
         .padding(.horizontal, 18)
         .padding(.top, 10)
+    }
+
+    /// Зона большого пальца: строка открывает чат, круглая кнопка пишет голос.
+    private var dock: some View {
+        VStack(spacing: 10) {
+            if capture.isCapturing {
+                V4VoiceDock(
+                    capture: capture,
+                    theme: theme,
+                    onSend: { capture.pressEnded(complete: handleVoiceResult) },
+                    onCancel: { capture.cancel() }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    HapticManager.selection()
+                    capture.cancel()
+                    NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(theme.accentColor)
+                        Text("Спроси про фильмы и комнаты")
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 54)
+                    .frame(maxWidth: .infinity)
+                    .plinkGlass(.navigation, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Текстовый чат с ИИ")
+
+                V4VoiceMicButton(
+                    capture: capture,
+                    theme: theme,
+                    surface: "ai_tab",
+                    chrome: .dock,
+                    onResult: handleVoiceResult
+                )
+            }
+        }
+        .padding(.horizontal, 14)
+        // Над таб-баром (64 pt) с воздухом.
+        .padding(.bottom, 84)
     }
 }
 
@@ -436,24 +463,27 @@ struct V4AIChatView: View {
     }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                header
-                thread
-                composer
-            }
+        VStack(spacing: 0) {
+            header
+            thread
 
+            // Панель записи встаёт между лентой и композером: переписка остаётся
+            // на экране, кнопка микрофона — прямо под пальцем.
             if capture.isCapturing {
-                V4VoiceCaptureOverlay(
+                V4VoiceDock(
                     capture: capture,
                     theme: theme,
                     onSend: { capture.pressEnded(complete: sendVoiceResult) },
                     onCancel: { capture.cancel() }
                 )
-                .zIndex(30)
+                .padding(.horizontal, 13)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+
+            composer
         }
-        .animation(.easeInOut(duration: 0.18), value: capture.isCapturing)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: capture.isCapturing)
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(V4.cardBG.ignoresSafeArea())
@@ -763,7 +793,7 @@ struct V4AIChatView: View {
                 .font(.system(size: 14))
                 .padding(.vertical, 4)
 
-            // Удержание вызывает сферу поверх экрана, отпускание отправляет
+            // Удержание поднимает панель со сферой, отпускание отправляет
             // распознанный текст обычным сообщением.
             V4VoiceMicButton(
                 capture: capture,
