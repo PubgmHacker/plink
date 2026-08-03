@@ -1,11 +1,11 @@
-// Plink/V4/V4AIView.swift — AI companion tab: liquid glass чат + режим «Голос»
+// Plink/V4/V4AIView.swift — ИИ Plink
 //
-// 02.08.2026: экран разделён на два режима. Раньше чат и голос были смешаны:
-// микрофон просто диктовал текст в то же поле ввода. Голосовой режим — это
-// разговор без клавиатуры, ему не нужны ни лента сообщений, ни поле ввода.
+// 02.08.2026, решение владельца: вкладка «ИИ» — это развлечение (голос, дальше рилсы),
+// а текстовый чат — это способ поиска фильма, поэтому он живёт отдельным экраном
+// поверх вкладок и открывается с «Главной» (поиск и карточка «Спросить ии-ассистента»)
+// и кнопкой в шапке вкладки «ИИ».
 //
-// Цвет: акцент всегда берётся из активной темы (theme.accentColor), а не зашивается
-// в экран — иначе нарушается PLINK_DESIGN_DIRECTION.md.
+// Цвет: акцент всегда берётся из активной темы (theme.accentColor), не зашивается в экран.
 
 import SwiftUI
 import PhotosUI
@@ -13,27 +13,29 @@ import UIKit
 import AVFoundation
 import Foundation
 
-// Аудит 26.07.2026: V4MorphOrb использовался только удалённым макетом
-// V4AIView — удалён вместе с ним.
+extension Notification.Name {
+    /// Открыть текстовый чат с ИИ поверх любого экрана.
+    static let plinkOpenAIChat = Notification.Name("plinkOpenAIChat")
+    /// Перейти на вкладку «ИИ» в голосовом режиме.
+    static let plinkOpenAIVoice = Notification.Name("plinkOpenAIVoice")
+}
 
 // MARK: - Режимы вкладки
 
+/// В вкладке остался один режим — голос. Следующим шагом сюда же встанут рилсы.
 enum V4AIMode: String, CaseIterable, Identifiable {
-    case chat
     case voice
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .chat: return "Чат"
         case .voice: return "Голос"
         }
     }
 
     var icon: String {
         switch self {
-        case .chat: return "bubble.left.and.bubble.right.fill"
         case .voice: return "waveform"
         }
     }
@@ -49,7 +51,6 @@ final class AISpeaker {
 
     private init() {}
 
-    /// Говорит текст; если уже говорит — останавливается.
     func toggle(_ text: String) {
         if synth.isSpeaking {
             synth.stopSpeaking(at: .immediate)
@@ -68,30 +69,21 @@ final class AISpeaker {
     }
 }
 
-// MARK: - Экран
+// MARK: - Вкладка «ИИ» — голос
 
 struct V4AIViewLive: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
 
-    @State private var mode: V4AIMode = .chat
-    @State private var input = ""
-    @State private var showManualCreate = false
-    @State private var confirmingAction: AIProposedAction?
-    @State private var presentedRoom: Room?
+    @State private var heard = ""
     @State private var speakingPulseUntil: Date = .distantPast
-    @State private var copiedMessageID: String?
-    @State private var keyboard = KeyboardObserver()
-    @StateObject private var speech = V4SpeechRecognizer()  // M34: реальный STT
-    @Namespace private var modeNamespace
+    @StateObject private var speech = V4SpeechRecognizer()
 
     private var orbState: AIOrbState {
         let s = store.state.lowercased()
         if s.contains("ошиб") || s.contains("error") || s.contains("не удалось") { return .error }
-        if store.state == "Думаю…" || s.contains("дума") { return .thinking }
-        if store.state == "Слушаю…" || s.contains("слуша") { return .listening }
-        if speech.isRecording { return .listening }
-        if keyboard.isVisible && !input.trimmingCharacters(in: .whitespaces).isEmpty { return .listening }
+        if s.contains("дума") { return .thinking }
+        if speech.isRecording || s.contains("слуша") { return .listening }
         if Date() < speakingPulseUntil { return .speaking }
         return .idle
     }
@@ -106,6 +98,197 @@ struct V4AIViewLive: View {
         }
     }
 
+    /// В голосовом режиме ленты нет, поэтому последний ответ показываем крупно.
+    private var voicePrompt: String {
+        if speech.isRecording && !heard.isEmpty { return heard }
+        if let last = store.messages.last, last.isBot { return last.text }
+        return LocalizationManager.shared.string(.aiWhatToday)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            Spacer(minLength: 8)
+
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [stateColor.opacity(0.22), .clear],
+                            center: .center,
+                            startRadius: 20,
+                            endRadius: 190
+                        )
+                    )
+                    .frame(width: 360, height: 360)
+                    .allowsHitTesting(false)
+
+                AICompanionModel(theme: theme, size: 240, glow: 90, state: orbState)
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer(minLength: 8)
+
+            Text(voicePrompt)
+                .font(.system(size: 19, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .frame(minHeight: 56)
+
+            Text(stateCaption)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(stateColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(stateColor.opacity(0.12), in: Capsule())
+
+            Spacer(minLength: 16)
+
+            micButton
+
+            Text(speech.isRecording ? "Нажмите, когда закончите" : "Нажмите и говорите")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(V4.muted)
+                .padding(.top, 12)
+
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(V4.ink)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, 104) // над таб-баром
+        .accessibilityIdentifier("screen.ai")
+        .onChange(of: speech.transcript) { _, t in
+            if speech.isRecording && !t.isEmpty { heard = t }
+        }
+        .onChange(of: store.messages.count) { _, _ in
+            if let last = store.messages.last, last.isBot {
+                speakingPulseUntil = Date().addingTimeInterval(2.5)
+                AISpeaker.shared.toggle(last.text)
+            }
+        }
+        .onDisappear {
+            if speech.isRecording { speech.stop() }
+            AISpeaker.shared.stop()
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            V4Heading(eyebrow: "ГОЛОСОВОЙ ПОМОЩНИК", title: "ИИ")
+            Spacer()
+            Button {
+                HapticManager.selection()
+                if speech.isRecording { speech.stop() }
+                AISpeaker.shared.stop()
+                NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(V4.ink)
+                    .frame(width: 44, height: 44)
+                    .background(V4.roundBG, in: Circle())
+                    .overlay(Circle().stroke(V4.line))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Текстовый чат с ИИ")
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+    }
+
+    private var micButton: some View {
+        Button {
+            HapticManager.impact(.medium)
+            if speech.isRecording {
+                speech.stop()
+                let text = heard.trimmingCharacters(in: .whitespaces)
+                heard = ""
+                if text.isEmpty {
+                    store.setStatus("Готов помочь")
+                } else {
+                    Task { await store.send(text) }
+                }
+            } else {
+                AISpeaker.shared.stop()
+                speech.start()
+                store.setStatus("Слушаю…")
+                AnalyticsService.shared.track("voice_chat_started", parameters: ["surface": "ai_tab"])
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .stroke(stateColor.opacity(0.35), lineWidth: 1)
+                    .frame(width: 96, height: 96)
+
+                Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(speech.isRecording ? theme.buttonTextColor : V4.ink)
+                    .frame(width: 76, height: 76)
+                    .background {
+                        if speech.isRecording {
+                            Circle().fill(theme.accentColor)
+                        } else {
+                            Circle().fill(.ultraThinMaterial)
+                        }
+                    }
+                    .environment(\.colorScheme, .dark)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Говорить")
+    }
+
+    private var stateColor: Color {
+        switch orbState {
+        case .idle: return theme.accentColor
+        case .listening: return Color(red: 0.45, green: 0.55, blue: 1.0)
+        case .thinking: return Color(red: 0.85, green: 0.4, blue: 1.0)
+        case .speaking: return Color(red: 0.25, green: 0.9, blue: 0.7)
+        case .error: return Color(red: 1.0, green: 0.4, blue: 0.4)
+        }
+    }
+}
+
+// MARK: - Текстовый чат — отдельный экран поверх вкладок
+
+struct V4AIChatView: View {
+    let theme: V4Theme
+    @Bindable var store: V4AIStore
+    /// Закрыть чат и перейти в голосовой режим вкладки «ИИ».
+    var onVoice: () -> Void = {
+        NotificationCenter.default.post(name: .plinkOpenAIVoice, object: nil)
+    }
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var input = ""
+    @State private var showManualCreate = false
+    @State private var confirmingAction: AIProposedAction?
+    @State private var presentedRoom: Room?
+    @State private var speakingPulseUntil: Date = .distantPast
+    @State private var copiedMessageID: String?
+    @StateObject private var speech = V4SpeechRecognizer()
+
+    private var orbState: AIOrbState {
+        let s = store.state.lowercased()
+        if s.contains("ошиб") || s.contains("error") || s.contains("не удалось") { return .error }
+        if s.contains("дума") { return .thinking }
+        if speech.isRecording || s.contains("слуша") { return .listening }
+        if Date() < speakingPulseUntil { return .speaking }
+        return .idle
+    }
+
+    private var stateCaption: String {
+        switch orbState {
+        case .idle: return "Подберёт фильм и соберёт комнату"
+        case .listening: return "Слушаю…"
+        case .thinking: return "Думаю…"
+        case .speaking: return "Отвечаю…"
+        case .error: return store.state
+        }
+    }
+
     private var lastUserPrompt: String? {
         store.messages.last(where: { !$0.isBot })?.text
     }
@@ -113,36 +296,20 @@ struct V4AIViewLive: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            modeSwitcher
-
-            switch mode {
-            case .chat:
-                chatMode
-            case .voice:
-                voiceMode
-            }
+            thread
+            composer
         }
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.22), value: mode)
+        .background(V4.cardBG.ignoresSafeArea())
+        .preferredColorScheme(.dark)
         .onChange(of: speech.transcript) { _, t in
-            // M34: partial results прямо в поле ввода
             if speech.isRecording && !t.isEmpty { input = t }
         }
-        .onChange(of: mode) { _, newMode in
-            // Переход между режимами не должен оставлять висячий микрофон или речь.
-            if speech.isRecording { speech.stop() }
-            AISpeaker.shared.stop()
-            store.setStatus("Готов помочь")
-            HapticManager.selection()
-            AnalyticsService.shared.track("ai_mode_switch", parameters: ["mode": newMode.rawValue])
-        }
         .sheet(isPresented: $showManualCreate) {
-            RoomCreationView(
-                onRoomCreated: { _ in showManualCreate = false }
-            )
-            .environmentObject(APIClient.shared)
-            .preferredColorScheme(.dark)
+            RoomCreationView(onRoomCreated: { _ in showManualCreate = false })
+                .environmentObject(APIClient.shared)
+                .preferredColorScheme(.dark)
         }
         .fullScreenCover(item: $presentedRoom) { room in
             WatchRoomContainer(room: room)
@@ -153,21 +320,33 @@ struct V4AIViewLive: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            AICompanionModel(theme: theme, size: 36, glow: 16, state: orbState)
-                .frame(width: 40, height: 40)
-                .clipped()
+            Button {
+                HapticManager.selection()
+                AISpeaker.shared.stop()
+                if speech.isRecording { speech.stop() }
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(V4.ink)
+                    .frame(width: 44, height: 44)
+                    .background(V4.roundBG, in: Circle())
+                    .overlay(Circle().stroke(V4.line))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Закрыть чат")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Plink AI").font(.system(size: 16, weight: .bold))
+                Text("ИИ-ассистент").font(.system(size: 16, weight: .heavy))
                 Text(stateCaption)
-                    .font(.system(size: 11.04, weight: .medium))
-                    .foregroundStyle(headerStateColor)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(stateColor)
                     .lineLimit(1)
             }
 
             Spacer()
 
-            if mode == .chat && store.messages.count > 1 {
+            if store.messages.count > 1 {
                 Button {
                     HapticManager.impact(.light)
                     AISpeaker.shared.stop()
@@ -184,103 +363,62 @@ struct V4AIViewLive: View {
             }
 
             Button {
-                showManualCreate = true
+                HapticManager.selection()
+                AISpeaker.shared.stop()
+                if speech.isRecording { speech.stop() }
+                dismiss()
+                onVoice()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                    Text(LocalizationManager.shared.string(.roomLabel))
-                }
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(theme.buttonTextColor)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
-                .background(theme.accentColor)
-                .clipShape(Capsule())
+                Image(systemName: "waveform")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(theme.buttonTextColor)
+                    .frame(width: 44, height: 44)
+                    .background(theme.accentColor, in: Circle())
             }
-            .accessibilityLabel("Создать комнату вручную")
+            .buttonStyle(.plain)
+            .accessibilityLabel("Говорить с ассистентом")
         }
         .frame(height: 61)
-        .padding(.horizontal, 17)
-        .accessibilityIdentifier("screen.ai")
+        .padding(.horizontal, 15)
+        .accessibilityIdentifier("screen.aichat")
     }
 
-    // MARK: Переключатель режимов
+    // MARK: Лента
 
-    private var modeSwitcher: some View {
-        HStack(spacing: 4) {
-            ForEach(V4AIMode.allCases) { item in
-                Button {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                        mode = item
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 12, weight: .semibold))
-                        Text(item.title)
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .foregroundStyle(mode == item ? theme.buttonTextColor : V4.muted)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .background {
-                        if mode == item {
-                            Capsule()
-                                .fill(theme.accentColor)
-                                .matchedGeometryEffect(id: "selected-ai-mode", in: modeNamespace)
+    private var thread: some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(store.messages) { msg in
+                        if msg.isBot {
+                            botBubble(id: "\(msg.id)", text: msg.text, action: msg.proposedAction)
+                                .id(msg.id)
+                        } else {
+                            userBubble(text: msg.text)
+                                .id(msg.id)
                         }
                     }
+
+                    if orbState == .thinking {
+                        TypingIndicator(tint: stateColor)
+                            .padding(.leading, 2)
+                    }
+
+                    suggestionChips
+                        .padding(.top, 2)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-        }
-        .padding(4)
-        .plinkGlass(.navigation, in: Capsule())
-        .padding(.horizontal, 17)
-        .padding(.bottom, 6)
-    }
-
-    // MARK: Режим «Чат»
-
-    private var chatMode: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(store.messages) { msg in
-                            if msg.isBot {
-                                botBubble(id: "\(msg.id)", text: msg.text, action: msg.proposedAction)
-                                    .id(msg.id)
-                            } else {
-                                userBubble(text: msg.text)
-                                    .id(msg.id)
-                            }
-                        }
-
-                        if orbState == .thinking {
-                            TypingIndicator(tint: headerStateColor)
-                                .padding(.leading, 2)
-                        }
-
-                        suggestionChips
-                            .padding(.top, 2)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 100)
+            .onChange(of: store.messages.count) { _, _ in
+                if let last = store.messages.last, last.isBot {
+                    speakingPulseUntil = Date().addingTimeInterval(2.5)
                 }
-                .onChange(of: store.messages.count) { _, _ in
-                    if let last = store.messages.last, last.isBot {
-                        speakingPulseUntil = Date().addingTimeInterval(2.5)
-                    }
-                    if let lastID = store.messages.last?.id {
-                        withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
-                    }
+                if let lastID = store.messages.last?.id {
+                    withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
                 }
             }
-
-            composer
         }
     }
 
@@ -532,108 +670,10 @@ struct V4AIViewLive: View {
         .frame(minHeight: 58)
         .plinkGlass(.navigation, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, 13)
-        .padding(.bottom, 90) // над таб-баром
+        .padding(.bottom, 10)
     }
 
-    // MARK: Режим «Голос»
-
-    private var voiceMode: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 12)
-
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [headerStateColor.opacity(0.22), .clear],
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 190
-                        )
-                    )
-                    .frame(width: 360, height: 360)
-                    .allowsHitTesting(false)
-
-                AICompanionModel(theme: theme, size: 240, glow: 90, state: orbState)
-            }
-            .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 8)
-
-            Text(voicePrompt)
-                .font(.system(size: 19, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .frame(minHeight: 56)
-
-            Text(stateCaption)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(headerStateColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(headerStateColor.opacity(0.12), in: Capsule())
-
-            Spacer(minLength: 16)
-
-            Button {
-                HapticManager.impact(.medium)
-                if speech.isRecording {
-                    speech.stop()
-                    let text = input.trimmingCharacters(in: .whitespaces)
-                    input = ""
-                    if text.isEmpty {
-                        store.setStatus("Готов помочь")
-                    } else {
-                        Task { await store.send(text) }
-                    }
-                } else {
-                    AISpeaker.shared.stop()
-                    speech.start()
-                    store.setStatus("Слушаю…")
-                }
-            } label: {
-                ZStack {
-                    Circle()
-                        .stroke(headerStateColor.opacity(0.35), lineWidth: 1)
-                        .frame(width: 96, height: 96)
-
-                    Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(speech.isRecording ? theme.buttonTextColor : V4.ink)
-                        .frame(width: 76, height: 76)
-                        .background {
-                            if speech.isRecording {
-                                Circle().fill(theme.accentColor)
-                            } else {
-                                Circle().fill(.ultraThinMaterial)
-                            }
-                        }
-                        .environment(\.colorScheme, .dark)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Говорить")
-
-            Text(speech.isRecording ? "Нажмите, когда закончите" : "Нажмите и говорите")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(V4.muted)
-                .padding(.top, 12)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.bottom, 104) // над таб-баром
-    }
-
-    /// В голосовом режиме ленты нет, поэтому последний ответ показываем крупно.
-    private var voicePrompt: String {
-        if speech.isRecording && !input.isEmpty { return input }
-        if let last = store.messages.last, last.isBot { return last.text }
-        return LocalizationManager.shared.string(.aiWhatToday)
-    }
-
-    // MARK: Общее
-
-    private var headerStateColor: Color {
+    private var stateColor: Color {
         switch orbState {
         case .idle: return theme.accentColor
         case .listening: return Color(red: 0.45, green: 0.55, blue: 1.0)
@@ -701,7 +741,6 @@ struct AIActionButton: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Preview
             if let preview = action.payloadPreview {
                 VStack(alignment: .leading, spacing: 4) {
                     if let title = preview.title {
