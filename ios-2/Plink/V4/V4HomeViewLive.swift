@@ -1,15 +1,20 @@
 // Plink/V4/V4HomeViewLive.swift
 // 02.08.2026: «Главная» пересобрана под новый макет.
+// 03.08.2026: приведена в соответствие с HTML-превью (экран data-view="home").
 //
 // Что изменилось и почему:
 // 1) Убрана лента LIVE-комнат «Смотрят сейчас». Именно она делала «Главную»
 //    неотличимой от вкладки «Комнаты». Главная отвечает на вопрос «что посмотреть»,
 //    Комнаты — «с кем и когда».
-// 2) Поиск и карточка «Спросить ИИ-ассистента» — точки входа в чат с ИИ
-//    (.plinkOpenAIChat). ИИ работает там, где ищут фильм, а не отдельной вкладкой.
-// 3) Вместо автокарусели огромных квадратов — лента компактных постеров
-//    и нумерованный топ-3. Автопрокрутка ещё и спорила с жестами пользователя.
-// 4) Удалён мёртвый код: promoBanner, releaseNotesCard/releaseNoteRow, showScheduleSheet
+// 2) Вход в ИИ ровно один — строка поиска. Раньше их было три (искра в шапке,
+//    синий квадрат у поиска и карточка «Спросить ИИ-ассистента»), и это
+//    расходилось с макетом: там .searchbar единственная точка входа.
+// 3) Приветствие сведено в одну строку с аватаром (.greet в макете), а не
+//    висит отдельной надписью капсом над заголовком.
+// 4) Добавлен ряд чипов жанров (.chiprow).
+// 5) В шапке единственный колокольчик — по решению владельца от 03.08.2026
+//    центр уведомлений в приложении один.
+// 6) Удалён мёртвый код: promoBanner, releaseNotesCard/releaseNoteRow, showScheduleSheet
 //    — ни одного вызова в теле экрана.
 
 import SwiftUI
@@ -113,6 +118,10 @@ struct V4HomeViewLive: View {
     @State private var showInbox = false
     @State private var isRefreshing = false
     @State private var previewItem: V4SearchResult?
+    @State private var selectedGenre: String = V4HomeViewLive.genres[0]
+
+    /// Ряд чипов из макета (.chiprow).
+    static let genres = ["Для вас", "Новое", "Фантастика", "Аниме", "Хоррор", "Комедии"]
 
     // MARK: Цвета темы
 
@@ -129,20 +138,38 @@ struct V4HomeViewLive: View {
         return theme.buttonTextColor
     }
 
-    private var timeOfDayGreeting: String {
+    /// «Добрый вечер, Андрей» — одной строкой, как в макете.
+    private var greetingLine: String {
         let h = Calendar.current.component(.hour, from: Date())
+        let part: String
         switch h {
-        case 5..<12: return "ДОБРОЕ УТРО"
-        case 12..<17: return "ДОБРЫЙ ДЕНЬ"
-        case 17..<22: return "ДОБРЫЙ ВЕЧЕР"
-        default: return "ПОЗДНЯЯ НОЧЬ"
+        case 5..<12: part = "Доброе утро"
+        case 12..<17: part = "Добрый день"
+        case 17..<22: part = "Добрый вечер"
+        default: part = "Поздняя ночь"
         }
+        guard let name = AuthService.shared.currentUserValue?.username, !name.isEmpty else {
+            return part
+        }
+        let clean = name.hasPrefix("@") ? String(name.dropFirst()) : name
+        return "\(part), \(clean)"
     }
 
     private var avatarLetter: String {
         let name = AuthService.shared.currentUserValue?.username ?? "П"
         let clean = name.hasPrefix("@") ? String(name.dropFirst()) : name
         return String(clean.prefix(1)).uppercased()
+    }
+
+    /// Отбор по выбранному чипу. Полноценные жанры появятся вместе с каталогом,
+    /// пока фильтруем по тексту и не прячем ленту целиком, если совпадений нет.
+    private var visibleTrending: [V4SearchResult] {
+        guard selectedGenre != V4HomeViewLive.genres[0] else { return searchStore.trending }
+        let needle = selectedGenre.lowercased()
+        let filtered = searchStore.trending.filter {
+            $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle)
+        }
+        return filtered.isEmpty ? searchStore.trending : filtered
     }
 
     // MARK: Тело
@@ -152,20 +179,22 @@ struct V4HomeViewLive: View {
             VStack(spacing: 0) {
                 topBar
 
-                V4Heading(eyebrow: timeOfDayGreeting, title: "Что посмотрим?")
+                Text("Что посмотрим?")
+                    .font(.system(size: 30, weight: .black))
+                    .tracking(-0.8)
+                    .foregroundStyle(V4.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 19)
-                    .padding(.bottom, 16)
-
-                searchRow
                     .padding(.horizontal, 19)
                     .padding(.bottom, 14)
 
-                askAICard
+                searchRow
                     .padding(.horizontal, 19)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 12)
 
-                if searchStore.trending.isEmpty {
+                genreChips
+                    .padding(.bottom, 18)
+
+                if visibleTrending.isEmpty {
                     if isRefreshing {
                         HomeSkeletonView().transition(.opacity)
                     } else {
@@ -174,7 +203,7 @@ struct V4HomeViewLive: View {
                     }
                 }
 
-                if !searchStore.trending.isEmpty {
+                if !visibleTrending.isEmpty {
                     heroCarousel
                 }
 
@@ -185,13 +214,13 @@ struct V4HomeViewLive: View {
                         .padding(.bottom, 22)
                 }
 
-                if !searchStore.trending.isEmpty {
+                if !visibleTrending.isEmpty {
                     sectionTitle(L.string(.homePopular))
                     posterRail
                         .padding(.bottom, 24)
                 }
 
-                if searchStore.trending.count >= 3 {
+                if visibleTrending.count >= 3 {
                     sectionTitle("Топ недели")
                     topThree
                         .padding(.horizontal, 19)
@@ -211,11 +240,11 @@ struct V4HomeViewLive: View {
                     .padding(.bottom, 24)
                 }
 
-                if searchStore.trending.count > 5 {
+                if visibleTrending.count > 5 {
                     sectionTitle(L.string(.homeRecommendations))
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(searchStore.trending.suffix(8)) { item in
+                            ForEach(visibleTrending.suffix(8)) { item in
                                 recommendationCard(item)
                             }
                         }
@@ -263,7 +292,7 @@ struct V4HomeViewLive: View {
         }
     }
 
-    // MARK: Шапка
+    // MARK: Шапка — аватар, приветствие, единственный колокольчик
 
     private var topBar: some View {
         HStack(spacing: 10) {
@@ -273,16 +302,15 @@ struct V4HomeViewLive: View {
                 isPremium: PremiumStatusManager.shared.isPremium,
                 imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)
             )
-            Spacer()
-            Button { showReleaseNotes = true } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(activeAccent)
-                    .frame(width: 40, height: 40)
-                    .background(activeAccent.opacity(0.12), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Новое в Plink")
+
+            Text(greetingLine)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(V4.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+
+            Spacer(minLength: 6)
+
             NotificationInboxButton(
                 unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal,
                 action: { showInbox = true }
@@ -291,111 +319,86 @@ struct V4HomeViewLive: View {
         .accessibilityIdentifier("screen.home")
         .padding(.horizontal, 18)
         .padding(.top, 10)
-        .padding(.bottom, 16)
+        .padding(.bottom, 14)
     }
 
-    // MARK: Поиск + вход в ИИ
+    // MARK: Поиск — единственный вход в ИИ
 
     private var searchRow: some View {
-        HStack(spacing: 10) {
-            Button {
-                HapticManager.impact(.light)
-                showUnifiedSearch = true
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(V4.muted)
-                    Text("Фильм, сериал или ссылка")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(V4.muted)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(V4.line, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Найти видео, сервис или комнату")
-
-            Button {
-                HapticManager.impact(.light)
-                AnalyticsService.shared.track("ai_chat_used", parameters: ["source": "home_search"])
-                NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
-            } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 16, weight: .black))
-                    .foregroundStyle(activeBtnText)
-                    .frame(width: 52, height: 52)
-                    .background(activeAccent, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Спросить ИИ-ассистента")
-        }
-    }
-
-    private var askAICard: some View {
         Button {
             HapticManager.impact(.light)
-            AnalyticsService.shared.track("ai_chat_used", parameters: ["source": "home_card"])
-            NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
+            AnalyticsService.shared.track("ai_chat_used", parameters: ["source": "home_search"])
+            showUnifiedSearch = true
         } label: {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(activeAccent.opacity(0.14))
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(activeAccent)
-                }
-                .frame(width: 48, height: 48)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Спросить ИИ-ассистента")
-                        .font(.system(size: 15.5, weight: .heavy))
-                        .foregroundStyle(V4.ink)
-                    Text("Подберёт фильм и сразу соберёт комнату")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(V4.muted)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 13, weight: .black))
-                    .foregroundStyle(activeBtnText)
-                    .frame(width: 38, height: 38)
-                    .background(activeAccent, in: Circle())
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(V4.muted)
+                Text("Фильм, ссылка или вопрос ИИ")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(V4.muted)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
-            .padding(14)
-            .background(
-                LinearGradient(
-                    colors: [V4.surface.opacity(0.94), activeAccent.opacity(0.08)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-            )
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(activeAccent.opacity(0.16), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(V4.line, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Найти фильм, вставить ссылку или спросить ИИ")
+    }
+
+    // MARK: Чипы жанров
+
+    private var genreChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(V4HomeViewLive.genres, id: \.self) { genre in
+                    let active = genre == selectedGenre
+
+                    Button {
+                        HapticManager.selection()
+                        withAnimation(.easeOut(duration: 0.16)) { selectedGenre = genre }
+                        AnalyticsService.shared.track(
+                            "home_genre_chip",
+                            parameters: ["genre": genre]
+                        )
+                    } label: {
+                        Text(genre)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(active ? activeBtnText : V4.ink)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background {
+                                if active {
+                                    Capsule().fill(activeAccent)
+                                } else {
+                                    Capsule().fill(V4.surface)
+                                }
+                            }
+                            .overlay {
+                                if !active { Capsule().stroke(V4.line) }
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(active ? [.isSelected] : [])
+                }
+            }
+            .padding(.horizontal, 19)
+        }
     }
 
     // MARK: Герой
 
     private var heroCarousel: some View {
         TabView {
-            ForEach(searchStore.trending.prefix(5)) { item in
+            ForEach(visibleTrending.prefix(5)) { item in
                 V4Hero(
                     title: item.title,
                     meta: "YouTube · \(item.subtitle)",
@@ -421,7 +424,7 @@ struct V4HomeViewLive: View {
     private var posterRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ForEach(searchStore.trending.prefix(10)) { item in
+                ForEach(visibleTrending.prefix(10)) { item in
                     posterCard(item)
                 }
             }
@@ -468,7 +471,7 @@ struct V4HomeViewLive: View {
 
     private var topThree: some View {
         VStack(spacing: 10) {
-            ForEach(Array(searchStore.trending.prefix(3).enumerated()), id: \.element.id) { index, item in
+            ForEach(Array(visibleTrending.prefix(3).enumerated()), id: \.element.id) { index, item in
                 Button {
                     HapticManager.impact(.light)
                     previewItem = item
@@ -598,7 +601,7 @@ struct V4HomeViewLive: View {
                         Text("Новое в Plink")
                             .font(.system(size: 28, weight: .black))
                         VStack(alignment: .leading, spacing: 12) {
-                            note(icon: "sparkles", title: "ИИ-ассистент везде", subtitle: "Чат с ассистентом открывается прямо с Главной, а вкладка «ИИ» — это голос.")
+                            note(icon: "sparkles", title: "ИИ-ассистент везде", subtitle: "Чат с ассистентом открывается прямо с Главной, а вкладка «ИИ» — это рилсы и голос.")
                             note(icon: "qrcode.viewfinder", title: "Вход по коду", subtitle: "Шестизначный код — быстрый способ войти в комнату.")
                             note(icon: "clock.arrow.circlepath", title: "История просмотров", subtitle: "Что вы смотрели вместе теперь видно в профиле и истории.")
                         }
@@ -895,4 +898,5 @@ struct V4HomeViewLive: View {
             await MainActor.run { HapticManager.errorOccurred() }
         }
     }
+}
 }
