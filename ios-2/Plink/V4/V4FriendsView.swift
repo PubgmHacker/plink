@@ -143,6 +143,12 @@ struct V4FriendsViewLive: View {
                     case .friends:
                         friendsPeopleBlock
                     case .chats:
+                        // Прототип 03.08.2026: во вкладке «Чаты» вместо
+                        // колокольчика — явная карточка заявок. Иконка в шапке
+                        // одна на все сегменты и легко теряется.
+                        if requestBadge > 0 {
+                            friendRequestsCard
+                        }
                         chatsBlock
                     case .rooms:
                         recentBlock
@@ -502,6 +508,58 @@ struct V4FriendsViewLive: View {
     }
 
     // MARK: - Header
+
+    /// Карточка входящих заявок для вкладки «Чаты».
+    /// Ведёт в тот же экран, что и иконка в шапке.
+    private var friendRequestsCard: some View {
+        Button {
+            HapticManager.impact(.light)
+            showRequests = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "person.badge.clock.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(theme.accentColor)
+                    .frame(width: 40, height: 40)
+                    .background(theme.accentColor.opacity(0.14), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(requestsCardTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                    Text("Посмотреть и ответить")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(V4.muted)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(V4.muted)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .plinkGlass(.control, cornerRadius: 18, tint: theme.accentColor)
+            .padding(.horizontal, 16)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(requestsCardTitle)
+        .accessibilityHint("Открывает список заявок в друзья")
+    }
+
+    /// «2 заявки в друзья» — с правильным падежом для 1/2-4/5+.
+    private var requestsCardTitle: String {
+        let n = requestBadge
+        let form: String
+        switch (n % 100, n % 10) {
+        case (11...14, _): form = "заявок"
+        case (_, 1):       form = "заявка"
+        case (_, 2...4):   form = "заявки"
+        default:           form = "заявок"
+        }
+        return "\(n) \(form) в друзья"
+    }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {

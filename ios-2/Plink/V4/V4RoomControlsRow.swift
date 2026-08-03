@@ -74,7 +74,7 @@ enum V4RoomPrivacyLevel: Int, CaseIterable, Identifiable {
 struct V4RoomControlsRow: View {
     @Binding var privacy: V4RoomPrivacyLevel
 
-    /// Есть ли活 подписка Плинк+. Без неё микрофон и видео закрыты.
+    /// Есть ли подписка Плинк+. Без неё микрофон и видео закрыты.
     var hasPlus: Bool = false
     /// Сколько фильмов стоит в очереди.
     var queueCount: Int = 0

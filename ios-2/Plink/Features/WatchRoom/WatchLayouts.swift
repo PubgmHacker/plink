@@ -37,6 +37,9 @@ struct PortraitWatchLayout: View {
             PresenceBar(model: model)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
+            RoomControlsRowBridge(model: model)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+
             WatchChatView(model: model)
                 .frame(maxHeight: .infinity)
                 .scrollDismissesKeyboard(.interactively)
@@ -44,6 +47,72 @@ struct PortraitWatchLayout: View {
             WatchChatComposer(model: model)
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+}
+
+// MARK: - Строка управления комнатой
+
+/// Связывает `V4RoomControlsRow` с `WatchRoomModel`.
+///
+/// Вынесено в отдельный тип, потому что строке нужен `@Binding` на уровень
+/// приватности, а `@Bindable` требует собственного места хранения — в
+/// раскладке модель приходит как `let`.
+private struct RoomControlsRowBridge: View {
+    @Bindable var model: WatchRoomModel
+
+    @State private var privacySheetPresented = false
+    @State private var invitePresented = false
+
+    init(model: WatchRoomModel) {
+        self.model = model
+    }
+
+    var body: some View {
+        V4RoomControlsRow(
+            privacy: $model.privacyLevel,
+            hasPlus: PremiumStatusManager.shared.isPremium,
+            queueCount: model.roomQueue.count,
+            micEnabled: false,
+            cameraEnabled: false,
+            onTapPrivacy: {
+                // Уровень доступа меняет только хост — гостю шторка
+                // показала бы контролы, которые ничего не делают.
+                guard model.isHost else { return }
+                privacySheetPresented = true
+            },
+            onToggleMic: { Task { await model.toggleMicrophone() } },
+            onToggleCamera: { Task { await model.toggleCamera() } },
+            // Очередь уже живёт лентой над чатом (WatchChatComposer, M16),
+            // второй список был бы дублем — кнопка ведёт в приглашение,
+            // откуда добавляют видео.
+            onOpenQueue: { invitePresented = true },
+            onInvite: { invitePresented = true },
+            onLockedTap: {
+                NotificationCenter.default.post(
+                    name: .showPlinkPlusPaywall,
+                    object: nil,
+                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
+                )
+            },
+            accent: V4.accent
+        )
+        .sheet(isPresented: $privacySheetPresented) {
+            V4RoomPrivacySheet(
+                privacy: $model.privacyLevel,
+                roomCode: model.displayRoomCode,
+                accent: V4.accent,
+                onCopyLink: {
+                    #if canImport(UIKit)
+                    UIPasteboard.general.string = model.roomShareText
+                    #endif
+                    HapticManager.impact(.light)
+                },
+                onDone: { privacySheetPresented = false }
+            )
+        }
+        .sheet(isPresented: $invitePresented) {
+            RoomInviteSheet(model: model)
+        }
     }
 }
 

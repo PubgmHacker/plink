@@ -1647,6 +1647,31 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         )))
     }
 
+    /// Мост между строкой управления (`V4RoomControlsRow`) и серверным
+    /// `RoomPrivacy`. Уровней в UI три, на сервере четыре: `byLink` и
+    /// `privateRoom` схлопываются в «Никто» — код и ссылка работают на любом
+    /// уровне, поэтому отдельный «по приглашению» был бы дублем ссылки.
+    /// Источник истины остаётся один — `roomPrivacy`.
+    var privacyLevel: V4RoomPrivacyLevel {
+        get {
+            switch roomPrivacy {
+            case .publicRoom:  return .everyone
+            case .friendsRoom: return .friends
+            case .byLink, .privateRoom: return .nobody
+            }
+        }
+        set {
+            // Приватность меняет только хост; setPrivacy сам это проверяет.
+            switch newValue {
+            case .everyone: setPrivacy(.publicRoom)
+            case .friends:  setPrivacy(.friendsRoom)
+            // .byLink, а не .privateRoom: пароля в этом UI нет, а
+            // privateRoom без пароля закрыл бы вход даже по коду.
+            case .nobody:   setPrivacy(.byLink)
+            }
+        }
+    }
+
     func leaveRoom() {
         guard !didLeaveRoom else {
             wantsDismiss = true

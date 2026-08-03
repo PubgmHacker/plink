@@ -216,6 +216,13 @@ enum AuthErrorCopy {
                 return "Сессия завершена. Войдите снова"
             case .notFound:
                 return "Не удалось найти нужные данные"
+            // 402 и 503 на экране входа означают проблему не с подпиской, а с
+            // самим сервисом: покупать здесь нечего, поэтому отдаём текст
+            // сервера, если он есть, и нейтральную формулировку иначе.
+            case .subscriptionRequired(_, _, let message):
+                return message.isEmpty ? "Эта возможность доступна в Плинк+" : message
+            case .unavailable(_, let message):
+                return message.isEmpty ? "Функция скоро появится" : message
             case .invalidURL, .invalidResponse, .decodingError, .serverError, .networkError:
                 return "Plink сейчас недоступен. Попробуйте ещё раз чуть позже"
             }

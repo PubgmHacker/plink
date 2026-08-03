@@ -38,7 +38,7 @@ export default function Pricing() {
 
         {/* Toggle */}
         <div className="mb-12 flex">
-          <div className="relative inline-flex rounded-xl border border-surface-2 bg-surface p-1">
+          <div className="liquid-glass relative inline-flex rounded-full p-1">
             <motion.div
               layout
               className="absolute inset-y-1 rounded-lg bg-accent"
@@ -71,7 +71,7 @@ export default function Pricing() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
-            className="rounded-3xl border border-surface-2 bg-surface p-8 lg:p-10"
+            className="relative rounded-3xl border border-white/[0.07] bg-white/[0.02] p-8 lg:p-10"
           >
             <h3 className="text-display text-xl font-semibold text-text-primary">Бесплатно</h3>
             <p className="mt-2 text-text-secondary">Для тех, кто просто хочет смотреть вместе</p>
@@ -110,7 +110,7 @@ export default function Pricing() {
               href={APP_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-10 block w-full rounded-xl border border-surface-2 py-4 text-center text-base font-semibold text-text-primary transition-all hover:border-accent hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent"
+              className="liquid-glass liquid-glass-interactive mt-10 block w-full rounded-full py-4 text-center text-base font-semibold text-text-primary transition-all duration-300 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
             >
               Скачать бесплатно
             </a>
@@ -122,9 +122,18 @@ export default function Pricing() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.1, ease: [0.32, 0.72, 0, 1] }}
-            className="relative rounded-3xl border border-surface-2 bg-surface p-8 lg:p-10"
+            className="liquid-glass liquid-glass-strong relative rounded-3xl p-8 shadow-[0_28px_80px_-32px_rgba(255,184,0,0.32)] ring-1 ring-accent/25 lg:p-10"
           >
-            <div className="absolute inset-x-0 top-0 h-px bg-accent" aria-hidden="true" />
+            {/* Тёплая подсветка снизу — платный тариф должен читаться как
+                другой уровень, а не как копия бесплатного с другим текстом. */}
+            <div
+              className="pointer-events-none absolute -bottom-24 left-1/2 h-56 w-[78%] -translate-x-1/2 rounded-full bg-accent/12 blur-[70px]"
+              aria-hidden="true"
+            />
+            <div
+              className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent"
+              aria-hidden="true"
+            />
 
             <h3 className="text-display text-xl font-semibold text-text-primary">Plink+</h3>
             <p className="mt-2 text-text-secondary">Живые темы, премиальные реакции, кастомизация</p>
@@ -200,7 +209,7 @@ export default function Pricing() {
               href={APP_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-10 block w-full rounded-xl bg-accent py-4 text-center text-base font-semibold text-bg transition-all hover:bg-accent-dim focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
+              className="mt-10 block w-full rounded-full bg-accent py-4 text-center text-base font-semibold text-bg shadow-[0_12px_38px_-10px_rgba(255,184,0,0.6)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-accent-dim focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg"
             >
               Оформить Plink+
             </a>

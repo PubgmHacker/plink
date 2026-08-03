@@ -27,13 +27,15 @@ export default function Navigation() {
       initial={{ y: -100 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
-      className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
-        scrolled
-          ? "border-b border-surface-2 bg-bg/80 backdrop-blur-xl"
-          : "bg-transparent"
-      }`}
+      className="fixed inset-x-0 top-0 z-50 px-4 pt-3 sm:px-6"
     >
-      <nav className="container-main flex h-20 items-center justify-between">
+      <nav
+        className={`container-main flex items-center justify-between rounded-full transition-all duration-500 ${
+          scrolled
+            ? "liquid-glass liquid-glass-strong h-16 !px-5 md:!px-6"
+            : "h-16 !px-5 md:!px-6"
+        }`}
+      >
         {/* Logo */}
         <a
           href="#"
@@ -62,7 +64,7 @@ export default function Navigation() {
             href={APP_STORE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden rounded-lg bg-surface-2 px-5 py-2.5 text-sm font-medium text-text-primary transition-all hover:bg-accent hover:text-bg focus:outline-none focus:ring-2 focus:ring-accent sm:inline-block"
+            className="liquid-glass liquid-glass-interactive hidden rounded-full px-5 py-2.5 text-sm font-semibold text-text-primary transition-all duration-300 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent sm:inline-block"
           >
             Скачать
           </a>

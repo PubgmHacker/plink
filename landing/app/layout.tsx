@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Unbounded, Inter, JetBrains_Mono, Instrument_Serif } from "next/font/google";
+import { Unbounded, Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const unbounded = Unbounded({
@@ -9,18 +9,14 @@ const unbounded = Unbounded({
   weight: ["600", "700"],
 });
 
-const inter = Inter({
+// Manrope вместо Inter. Inter — шрифт по умолчанию у всех генераторов
+// лендингов, и именно он выдаёт шаблонное происхождение сайта. У Manrope
+// заметнее геометрия и выше x-height, кириллица полная.
+const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
   variable: "--font-body",
   display: "swap",
-  weight: ["400", "500", "600"],
-});
-
-const instrumentSerif = Instrument_Serif({
-  subsets: ["latin"],
-  variable: "--font-serif-accent",
-  display: "swap",
-  weight: ["400"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -58,7 +54,6 @@ export const metadata: Metadata = {
     canonical: "/",
     languages: {
       "ru-RU": "/",
-      "en-US": "/en",
     },
   },
   openGraph: {
@@ -122,7 +117,7 @@ export default function RootLayout({
   return (
     <html
       lang="ru"
-      className={`${unbounded.variable} ${inter.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}
+      className={`${unbounded.variable} ${manrope.variable} ${jetbrainsMono.variable}`}
     >
       <body className="min-h-screen bg-bg text-text-primary antialiased">
         <a
