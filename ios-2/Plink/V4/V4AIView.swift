@@ -10,10 +10,14 @@
 // в voiceBody — содержимое не изменилось, у него только забрали собственную шапку,
 // чтобы она не рисовалась дважды.
 //
-// 03.08.2026, правило тишины: ассистент обязан замолчать в четырёх случаях —
-// уход со вкладки «ИИ», переключение на рилсы, закрытие текстового чата и уход
-// приложения в фон. Вкладки живут в ZStack и не уничтожаются при переключении,
-// поэтому onDisappear здесь не срабатывает — нужен явный флаг isActive из корня.
+// 03.08.2026, граница режимов: чат — это чат, голос — это голос. AISpeaker
+// используется только в голосовом режиме вкладки. В переписке ответы не читаются
+// вслух никогда — ни автоматически, ни по кнопке.
+//
+// 03.08.2026, правило тишины: ассистент обязан замолчать при уходе со вкладки «ИИ»,
+// переключении на рилсы и уходе приложения в фон. Вкладки живут в ZStack и не
+// уничтожаются при переключении, поэтому onDisappear здесь не срабатывает —
+// нужен явный флаг isActive из корня.
 //
 // Цвет: акцент всегда берётся из активной темы (theme.accentColor), не зашивается в экран.
 
@@ -58,6 +62,9 @@ enum V4AIMode: String, CaseIterable, Identifiable {
 
 /// Минимальная обёртка над AVSpeechSynthesizer. Один экземпляр на приложение,
 /// чтобы два ответа не читались хором.
+///
+/// Единственный легальный потребитель — голосовой режим V4AIViewLive.
+/// Текстовый чат озвучкой не пользуется вообще.
 final class AISpeaker {
     static let shared = AISpeaker()
     private let synth = AVSpeechSynthesizer()
@@ -231,8 +238,9 @@ struct V4AIViewLive: View {
             if speech.isRecording && !t.isEmpty { heard = t }
         }
         .onChange(of: store.messages.count) { _, _ in
-            // Озвучиваем ответ только если вкладка на экране и мы в голосе:
-            // иначе ответ, пришедший из текстового чата, заговорил бы сам собой.
+            // Говорим только здесь и только когда экран на виду. Стор общий
+            // с текстовым чатом, и без этой проверки ответ из переписки
+            // заговорил бы сам собой.
             guard isActive, mode == .voice else { return }
             if let last = store.messages.last, last.isBot {
                 speakingPulseUntil = Date().addingTimeInterval(2.5)
@@ -319,6 +327,9 @@ struct V4AIViewLive: View {
 }
 
 // MARK: - Текстовый чат — отдельный экран поверх вкладок
+//
+// Здесь нет ни одного обращения к AISpeaker для чтения ответов. Микрофон в
+// композере — это диктовка в поле ввода, он только слушает и ничего не произносит.
 
 struct V4AIChatView: View {
     let theme: V4Theme
@@ -335,16 +346,15 @@ struct V4AIChatView: View {
     @State private var showManualCreate = false
     @State private var confirmingAction: AIProposedAction?
     @State private var presentedRoom: Room?
-    @State private var speakingPulseUntil: Date = .distantPast
     @State private var copiedMessageID: String?
     @StateObject private var speech = V4SpeechRecognizer()
 
+    /// Состояние без .speaking: чат никогда не говорит вслух.
     private var orbState: AIOrbState {
         let s = store.state.lowercased()
         if s.contains("ошиб") || s.contains("error") || s.contains("не удалось") { return .error }
         if s.contains("дума") { return .thinking }
         if speech.isRecording || s.contains("слуша") { return .listening }
-        if Date() < speakingPulseUntil { return .speaking }
         return .idle
     }
 
@@ -376,10 +386,10 @@ struct V4AIChatView: View {
             if speech.isRecording && !t.isEmpty { input = t }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { silenceAssistant() }
+            if phase != .active { stopDictation() }
         }
-        // Закрытие экрана любым способом обязано выключить микрофон и озвучку.
-        .onDisappear { silenceAssistant() }
+        // Закрытие экрана любым способом обязано выключить микрофон.
+        .onDisappear { stopDictation() }
         .sheet(isPresented: $showManualCreate) {
             RoomCreationView(onRoomCreated: { _ in showManualCreate = false })
                 .environmentObject(APIClient.shared)
@@ -390,10 +400,9 @@ struct V4AIChatView: View {
         }
     }
 
-    /// Единственная точка остановки голоса: и запись, и синтез речи.
-    private func silenceAssistant() {
+    /// В чате глушить нечего, кроме диктовки — озвучки здесь нет по замыслу.
+    private func stopDictation() {
         if speech.isRecording { speech.stop() }
-        AISpeaker.shared.stop()
     }
 
     // MARK: Шапка
@@ -402,7 +411,7 @@ struct V4AIChatView: View {
         HStack(spacing: 10) {
             Button {
                 HapticManager.selection()
-                silenceAssistant()
+                stopDictation()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -428,7 +437,6 @@ struct V4AIChatView: View {
             if store.messages.count > 1 {
                 Button {
                     HapticManager.impact(.light)
-                    AISpeaker.shared.stop()
                     withAnimation { store.clearHistory() }
                 } label: {
                     Image(systemName: "trash")
@@ -443,7 +451,7 @@ struct V4AIChatView: View {
 
             Button {
                 HapticManager.selection()
-                silenceAssistant()
+                stopDictation()
                 dismiss()
                 onVoice()
             } label: {
@@ -454,7 +462,7 @@ struct V4AIChatView: View {
                     .background(theme.accentColor, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Говорить с ассистентом")
+            .accessibilityLabel("Перейти в голосовой режим")
         }
         .frame(height: 61)
         .padding(.horizontal, 15)
@@ -490,9 +498,6 @@ struct V4AIChatView: View {
                 .padding(.bottom, 24)
             }
             .onChange(of: store.messages.count) { _, _ in
-                if let last = store.messages.last, last.isBot {
-                    speakingPulseUntil = Date().addingTimeInterval(2.5)
-                }
                 if let lastID = store.messages.last?.id {
                     withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
                 }
@@ -555,6 +560,8 @@ struct V4AIChatView: View {
 
                 Divider().overlay(V4.line)
 
+                // Кнопки «Озвучить ответ» здесь нет намеренно: чтение вслух живёт
+                // только в голосовом режиме вкладки «ИИ».
                 HStack(spacing: 2) {
                     bubbleAction(
                         icon: copiedMessageID == id ? "checkmark" : "doc.on.doc",
@@ -571,12 +578,6 @@ struct V4AIChatView: View {
                                 }
                             }
                         }
-                    }
-
-                    bubbleAction(icon: "speaker.wave.2", label: "Озвучить ответ") {
-                        HapticManager.impact(.light)
-                        AISpeaker.shared.toggle(text)
-                        speakingPulseUntil = Date().addingTimeInterval(2.5)
                     }
 
                     Spacer()
@@ -681,7 +682,6 @@ struct V4AIChatView: View {
                 if store.messages.count > 1 {
                     Divider()
                     Button(role: .destructive) {
-                        AISpeaker.shared.stop()
                         withAnimation { store.clearHistory() }
                     } label: {
                         Label("Очистить чат", systemImage: "trash")
@@ -702,6 +702,7 @@ struct V4AIChatView: View {
                 .font(.system(size: 14))
                 .padding(.vertical, 4)
 
+            // Диктовка в поле ввода: микрофон только слушает, ответ приходит текстом.
             Button {
                 HapticManager.impact(.light)
                 if speech.isRecording {
