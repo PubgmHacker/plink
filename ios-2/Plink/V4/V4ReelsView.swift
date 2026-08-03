@@ -194,6 +194,9 @@ struct V4ReelItem: Identifiable, Equatable {
 // MARK: - Сегмент «Рилсы / Голос»
 
 /// Повторяет .seg из макета: капсула с подложкой, активная кнопка залита акцентом.
+///
+/// Перебор идёт по индексам, а не через id: \.value — KeyPath к элементу кортежа
+/// в Swift невозможен: кортеж не номинальный тип и свойств у него нет.
 struct V4SegmentedBar<Value: Hashable>: View {
     let options: [(value: Value, title: String)]
     @Binding var selection: Value
@@ -201,7 +204,8 @@ struct V4SegmentedBar<Value: Hashable>: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(options, id: \.value) { option in
+            ForEach(Array(options.indices), id: \.self) { i in
+                let option = options[i]
                 let active = option.value == selection
 
                 Button {
