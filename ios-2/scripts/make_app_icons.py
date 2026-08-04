@@ -12,7 +12,7 @@
     а не чёрная (текущая иконка на тёмном экране пропадает).
 """
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import pathlib
 import math
 
@@ -56,13 +56,17 @@ def radial_glow(size, center, radius, color, strength=1.0):
 #    Тёплый свет против холодного синего: сцена читается как «смотрим
 #    вместе» без единой буквы.
 # ─────────────────────────────────────────────────────────────────────────
-def direction_couch():
-    img = vertical_gradient(S, (26, 62, 150), ACCENT_NIGHT)
+def direction_couch(with_wordmark: bool = False):
+    # Синий заметно светлее, чем в первой версии: на домашнем экране iOS
+    # затемняет иконку своим наложением, и прежний градиент (26,62,150 → почти
+    # чёрный) читался тёмным пятном рядом с системными иконками.
+    img = vertical_gradient(S, (46, 96, 208), (14, 38, 104))
     d = ImageDraw.Draw(img)
 
-    # Экран — источник света, крупный прямоугольник в верхней трети.
-    sw, sh = int(S * 0.60), int(S * 0.34)
-    sx, sy = (S - sw) // 2, int(S * 0.16)
+    # Экран — источник света. Ширина 0.54, а не 0.60: маска-суперэллипс iOS
+    # срезает углы, и широкий экран прижимался к самому краю иконки.
+    sw, sh = int(S * 0.54), int(S * 0.31)
+    sx, sy = (S - sw) // 2, int(S * 0.185)
 
     tint, mask = radial_glow(S, (S // 2, sy + sh // 2), int(S * 0.42), WARM, 0.85)
     img = Image.composite(tint, img, mask.point(lambda v: int(v * 0.55)))
@@ -70,23 +74,62 @@ def direction_couch():
 
     d.rounded_rectangle([sx, sy, sx + sw, sy + sh], radius=int(S * 0.035), fill=WARM_HOT)
 
-    # Два силуэта: круг-голова + плечи. Заливка цветом фона — фигуры
+    # Надпись PLINK на экране: то, что показывает «телевизор» в иконке.
+    # Единственное место, где текст в иконке оправдан, — он часть сюжета, а не
+    # подпись поверх знака. Ниже 120 px буквы всё равно нечитаемы, поэтому в
+    # мелких размерах надпись не рисуется вовсе (см. emit): вместо мутной каши
+    # там остаётся чистое световое пятно.
+    d = ImageDraw.Draw(img)
+    if with_wordmark:
+        label = "PLINK"
+        target_w = int(sw * 0.74)
+        font = None
+        for path in (
+            "/System/Library/Fonts/SFNSRounded.ttf",
+            "/System/Library/Fonts/SFNS.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+        ):
+            if not pathlib.Path(path).exists():
+                continue
+            # Подбираем кегль под ширину экрана, а не задаём числом: у разных
+            # шрифтов метрики отличаются, и «на глаз» надпись уехала бы.
+            for size in range(int(sh * 0.9), 10, -2):
+                try:
+                    cand = ImageFont.truetype(path, size)
+                except OSError:
+                    break
+                box = d.textbbox((0, 0), label, font=cand, stroke_width=0)
+                if box[2] - box[0] <= target_w:
+                    font = cand
+                    break
+            if font:
+                break
+
+        if font:
+            box = d.textbbox((0, 0), label, font=font)
+            tx = sx + (sw - (box[2] - box[0])) // 2 - box[0]
+            ty = sy + (sh - (box[3] - box[1])) // 2 - box[1]
+            # Тёмная надпись на светлом экране: свет остаётся светом.
+            d.text((tx, ty), label, font=font, fill=(18, 34, 74))
+
+    # Два силуэта: круг-голова + плечи. Заливка тёмно-синим — фигуры
     # «вырезаны» из света, поэтому силуэт остаётся читаемым в 60 px.
-    body = (7, 17, 48)
-    head_r = int(S * 0.085)
-    for cx in (int(S * 0.345), int(S * 0.655)):
-        cy = int(S * 0.605)
+    body = (9, 22, 60)
+    head_r = int(S * 0.082)
+    for cx in (int(S * 0.355), int(S * 0.645)):
+        cy = int(S * 0.615)
         d.ellipse([cx - head_r, cy - head_r, cx + head_r, cy + head_r], fill=body)
-        bw, bh = int(S * 0.26), int(S * 0.24)
+        bw, bh = int(S * 0.25), int(S * 0.23)
         d.rounded_rectangle(
             [cx - bw // 2, cy + int(head_r * 0.55), cx + bw // 2, cy + bh],
-            radius=int(S * 0.085), fill=body,
+            radius=int(S * 0.082), fill=body,
         )
 
-    # Диван — одна плотная полоса внизу, без ножек и деталей.
+    # Диван — одна плотная полоса внизу, без ножек и деталей. Не доходит до
+    # краёв: иначе маска iOS срезает её концы.
     d.rounded_rectangle(
-        [int(S * 0.13), int(S * 0.80), int(S * 0.87), int(S * 0.95)],
-        radius=int(S * 0.055), fill=(5, 13, 38),
+        [int(S * 0.155), int(S * 0.795), int(S * 0.845), int(S * 0.93)],
+        radius=int(S * 0.05), fill=(6, 16, 44),
     )
     return img
 
@@ -193,18 +236,32 @@ def direction_play():
     return Image.composite(fill, img, tri)
 
 
-def emit(img, name):
-    """1024 — исходник, остальные — то, что реально видит человек."""
+def emit(img, name, small_img=None, wordmark_min_px=120):
+    """1024 — исходник, остальные — то, что реально видит человек.
+
+    `small_img` — вариант без надписи для мелких размеров. Уменьшать картинку
+    с текстом до 60 px нельзя: буквы превращаются в грязь и пачкают световое
+    пятно, ради которого иконка и работает. Ниже `wordmark_min_px` берём
+    версию без надписи.
+    """
     img = img.convert("RGB")
     img.save(OUT / f"{name}-1024.png")
+    fallback = (small_img or img).convert("RGB")
     for px in (180, 120, 60):
-        img.resize((px, px), Image.LANCZOS).save(OUT / f"{name}-{px}.png")
+        source = img if px >= wordmark_min_px else fallback
+        source.resize((px, px), Image.LANCZOS).save(OUT / f"{name}-{px}.png")
     return img
 
 
 if __name__ == "__main__":
+    # A: на экране внутри иконки — надпись PLINK (крупные размеры) и чистый
+    # свет (мелкие). Оба варианта складываем рядом, чтобы было что сравнить.
+    plain = direction_couch(with_wordmark=False)
+    emit(direction_couch(with_wordmark=True), "A-couch", small_img=plain)
+    emit(plain, "A-couch-plain")
+    print("rendered A-couch (+plain)")
+
     for fn, name in (
-        (direction_couch, "A-couch"),
         (direction_link, "B-link"),
         (direction_play, "C-play"),
     ):

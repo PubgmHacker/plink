@@ -17,6 +17,10 @@ SOURCE = (
     HERE.parent.parent
     / "ios-2/Plink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
 )
+# Вариант без надписи PLINK на экране. Ниже ~32 px буквы превращаются в грязь и
+# пачкают световое пятно, ради которого знак и работает, поэтому мелкие
+# favicon берутся отсюда.
+SOURCE_PLAIN = HERE.parent.parent / "ios-2/docs/icons/A-couch-plain-1024.png"
 
 VELVET = (10, 13, 20)
 
@@ -50,19 +54,20 @@ def load_font(size):
 
 def main():
     src = Image.open(SOURCE).convert("RGB")
+    plain = Image.open(SOURCE_PLAIN).convert("RGB") if SOURCE_PLAIN.exists() else src
 
-    # Favicon: 16 px — это ~8 различимых пикселей, поэтому берём ту же
-    # картинку, но без скругления на самых мелких (углы съедают силуэт).
+    # Favicon: 16 px — это ~8 различимых пикселей. Надпись там нечитаема, поэтому
+    # до 32 px включительно берём вариант без неё, а 48 px уже её держит.
     for px in (16, 32, 48):
-        icon = src.resize((px, px), Image.LANCZOS)
-        icon.save(PUBLIC / f"favicon-{px}x{px}.png")
+        source = src if px >= 48 else plain
+        source.resize((px, px), Image.LANCZOS).save(PUBLIC / f"favicon-{px}x{px}.png")
 
     rounded(src, 0.23).resize((180, 180), Image.LANCZOS).save(
         PUBLIC / "apple-touch-icon.png"
     )
 
     # .ico с тремя размерами внутри — старые браузеры берут из него.
-    src.resize((48, 48), Image.LANCZOS).save(
+    plain.resize((48, 48), Image.LANCZOS).save(
         PUBLIC / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)]
     )
 
