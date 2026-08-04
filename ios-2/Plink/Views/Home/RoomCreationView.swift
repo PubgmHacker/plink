@@ -37,14 +37,43 @@ struct RoomCreationView: View {
     @State private var recentServices: [VideoService] = RecentServicesStore.recents
     @State private var createErrorMessage: String? = nil
 
+    /// Мастер открыт сразу на «Настройке» по готовой ссылке (карточка буфера на
+    /// «Главной»). Шагов «сервис» и «контент» позади нет, поэтому «Назад» в них
+    /// уводить не должен — он закрывает мастер.
+    private let startedFromLink: Bool
+
     init(onCreate: ((String, VideoService, DetectedVideo?) -> Void)? = nil) {
         self.onCreate = onCreate
         self.onRoomCreated = nil
+        self.startedFromLink = false
     }
 
     init(onRoomCreated: @escaping (Room) -> Void) {
         self.onCreate = nil
         self.onRoomCreated = onRoomCreated
+        self.startedFromLink = false
+    }
+
+    /// Открыть мастер сразу на шаге настройки с готовой ссылкой.
+    ///
+    /// Нужен для карточки «ссылка из буфера» на «Главной»: сервис и видео уже
+    /// известны, проходить шаги выбора заново незачем.
+    init(
+        prefilledLink: String,
+        service: VideoService,
+        onRoomCreated: @escaping (Room) -> Void
+    ) {
+        self.onCreate = nil
+        self.onRoomCreated = onRoomCreated
+        self.startedFromLink = true
+        _step = State(initialValue: .setup)
+        _selectedService = State(initialValue: service)
+        _detectedVideo = State(initialValue: DetectedVideo(
+            title: nil,
+            embedURL: prefilledLink,
+            originalURL: prefilledLink,
+            service: service
+        ))
     }
 
     var body: some View {
@@ -63,8 +92,12 @@ struct RoomCreationView: View {
                     }
                 }
 
-                // Floating back button
-                if step != .service {
+                // Floating back button.
+                // Если мастер открыт по готовой ссылке, позади шагов нет —
+                // кнопку не показываем совсем, чтобы «Назад» не уводил в выбор
+                // контента для сервиса, который пользователь не выбирал.
+                // Закрыть мастер можно «Отменой» в шапке.
+                if step != .service && !startedFromLink {
                     VStack {
                         Spacer()
                         HStack {

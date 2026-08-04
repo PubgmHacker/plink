@@ -113,6 +113,22 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
+    /// «Главная» целиком — единственный способ посмотреть её без живого
+    /// бэкенда: UI-тест воронки сначала проходит регистрацию, а она требует
+    /// базу данных.
+    func testHomeShot() throws {
+        try requireEnabled()
+        try shoot(
+            V4HomeViewLive(
+                theme: .electric,
+                searchStore: V4SearchStore(),
+                roomsStore: nil,
+                openRoom: {}
+            ),
+            named: "08-home"
+        )
+    }
+
     // MARK: - Инфраструктура
 
 

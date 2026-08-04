@@ -107,13 +107,26 @@ struct V4HomeViewLive: View {
     var liveThemeIndex: Int = 0
     /// Переключить на вкладку «Комнаты».
     var openRoomsTab: (() -> Void)? = nil
+    /// Открыть мастер комнаты сразу с готовой ссылкой из буфера обмена,
+    /// минуя шаги «сервис» и «контент».
+    var createRoomWithLink: ((String, VideoService) -> Void)? = nil
 
     @ObservedObject private var historyMgr = WatchHistoryManager.shared
     @ObservedObject private var watchlist = WatchlistService.shared
     @ObservedObject private var dmInbox = DMChatService.shared
     @ObservedObject private var groupInbox = GroupChatService.shared
 
+    /// Ссылку обычно копируют в другом приложении и возвращаются в Plink —
+    /// к этому моменту «Главная» уже на экране и `onAppear` не сработает.
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var showUnifiedSearch = false
+    /// В буфере обмена есть веб-ссылка. Само содержимое не читаем до тапа —
+    /// иначе iOS покажет системный баннер на каждом открытии экрана.
+    @State private var hasClipboardLink = false
+    /// `changeCount` буфера на момент, когда ссылкой уже воспользовались.
+    /// Пока значение не изменилось, карточку не показываем повторно.
+    @State private var usedClipboardChangeCount: Int = -1
     @State private var showReleaseNotes = false
     @State private var showInbox = false
     @State private var isRefreshing = false
@@ -190,6 +203,18 @@ struct V4HomeViewLive: View {
                 searchRow
                     .padding(.horizontal, 19)
                     .padding(.bottom, 12)
+
+                // Ссылка в буфере — самый короткий путь к совместному
+                // просмотру. Подсказка уже была внутри мастера, но только на
+                // его первом шаге: чтобы её увидеть, надо было сделать два
+                // тапа. Здесь она встречает сразу и сокращает путь до
+                // просмотра с шести тапов до трёх.
+                if hasClipboardLink {
+                    clipboardLinkCard
+                        .padding(.horizontal, 19)
+                        .padding(.bottom, 14)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
                 genreChips
                     .padding(.bottom, 18)
@@ -285,6 +310,10 @@ struct V4HomeViewLive: View {
                 openRoom()
             })
             .preferredColorScheme(.dark)
+        }
+        .onAppear { refreshClipboardLink() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshClipboardLink() }
         }
         .sheet(isPresented: $showReleaseNotes) {
             ReleaseNotesSheet()
@@ -690,6 +719,98 @@ struct V4HomeViewLive: View {
         let left = max(0, total - item.watchedDuration)
         let mins = Int(left / 60)
         return mins > 0 ? "\(mins) мин" : "меньше минуты"
+    }
+
+    /// Карточка «в буфере есть ссылка».
+    ///
+    /// Не показывает саму ссылку и логотип сервиса: до тапа содержимое буфера
+    /// не прочитано (см. `refreshClipboardLink`). Поэтому текст обобщённый —
+    /// зато без системного баннера при каждом открытии экрана.
+    private var clipboardLinkCard: some View {
+        Button(action: useClipboardLink) {
+            HStack(spacing: 12) {
+                V4GlyphIcon(glyph: .play, size: 17, filled: true, weight: .regular)
+                    .foregroundStyle(activeBtnText)
+                    .frame(width: 42, height: 42)
+                    .background(activeAccent, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ссылка в буфере обмена")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                    Text("Открыть комнату с этим видео")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(V4.muted)
+                }
+
+                Spacer(minLength: 8)
+
+                V4GlyphIcon(glyph: .chevronRight, size: 13, weight: .regular)
+                    .foregroundStyle(V4.muted)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 68)
+            // Без тинта: с ним стекло заливалось акцентом целиком и карточка
+            // спорила с главной кнопкой экрана. Акцент остаётся на иконке.
+            .plinkGlass(.control, cornerRadius: 20)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Ссылка в буфере обмена")
+        .accessibilityHint("Открывает создание комнаты с видео по ссылке")
+    }
+
+    /// Проверяет, лежит ли в буфере обмена ссылка — НЕ читая содержимое.
+    ///
+    /// `UIPasteboard.general.string` в iOS 16+ показывает системный баннер
+    /// «Приложение собирается вставить контент из…» на каждом обращении, и
+    /// `hasStrings` от него не спасает. Ловить этот баннер при каждом открытии
+    /// «Главной» — хуже, чем сэкономленные два тапа.
+    ///
+    /// `detectPatterns` разрешения не требует: он отвечает только «там есть
+    /// URL», без самого текста. Содержимое читаем позже, по явному тапу
+    /// пользователя — там баннер уместен и ожидаем.
+    private func refreshClipboardLink() {
+        #if canImport(UIKit)
+        // API отдаёт результат только колбэком, async-варианта нет.
+        UIPasteboard.general.detectPatterns(for: [.probableWebURL]) { result in
+            let found: Bool
+            switch result {
+            case .success(let patterns): found = patterns.contains(.probableWebURL)
+            case .failure:               found = false
+            }
+            Task { @MainActor in
+                // changeCount меняется при любой новой копии. Если он тот же,
+                // что и на момент прошлого использования, — это та же ссылка,
+                // по которой комнату уже создали. Предлагать её снова незачем.
+                let isSameAsUsed = UIPasteboard.general.changeCount == usedClipboardChangeCount
+                withAnimation(.easeOut(duration: 0.25)) {
+                    hasClipboardLink = found && !isSameAsUsed
+                }
+            }
+        }
+        #endif
+    }
+
+    /// Пользователь тапнул карточку — теперь читаем буфер. Системный баннер
+    /// здесь появится один раз и в ответ на явное действие.
+    private func useClipboardLink() {
+        #if canImport(UIKit)
+        guard let raw = UIPasteboard.general.string?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.hasPrefix("http"),
+              let svc = VideoService.detect(fromURL: raw) else {
+            // В буфере оказалась не та ссылка — прячем карточку, чтобы не
+            // предлагать заведомо нерабочее действие. Запоминаем состояние
+            // буфера, иначе карточка вернётся на следующем же обновлении.
+            usedClipboardChangeCount = UIPasteboard.general.changeCount
+            withAnimation(.easeOut(duration: 0.2)) { hasClipboardLink = false }
+            return
+        }
+        usedClipboardChangeCount = UIPasteboard.general.changeCount
+        withAnimation(.easeOut(duration: 0.2)) { hasClipboardLink = false }
+        HapticManager.impact(.medium)
+        createRoomWithLink?(raw, svc)
+        #endif
     }
 
     @ViewBuilder

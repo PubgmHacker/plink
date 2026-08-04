@@ -32,6 +32,8 @@ struct PlinkApprovedV4Root: View {
     @State private var aiStore = V4AIStore()
     @State private var profileStore: V4ProfileStore?
     @State private var showCreateRoom = false
+    /// Ссылка из буфера, с которой открывается мастер комнаты.
+    @State private var pendingCreateLink: (url: String, service: VideoService)?
     @State private var showJoinByCode = false
     // 02.08.2026: текстовый чат с ИИ — общий экран поверх вкладок, а не режим вкладки «ИИ».
     // Открывается с «Главной» (поиск и карточка ассистента) и из шапки вкладки «ИИ».
@@ -70,7 +72,18 @@ struct PlinkApprovedV4Root: View {
             }
             Group {
                 // ZStack with opacity — keeps all tabs alive, no recreation lag
-                V4HomeViewLive(theme:theme, searchStore:searchStore, roomsStore:roomsStore, openRoom:{ openFirstRoom() }, liveThemeIndex:liveThemeIndex, openRoomsTab:{ tab = 1 })
+                V4HomeViewLive(
+                    theme: theme,
+                    searchStore: searchStore,
+                    roomsStore: roomsStore,
+                    openRoom: { openFirstRoom() },
+                    liveThemeIndex: liveThemeIndex,
+                    openRoomsTab: { tab = 1 },
+                    createRoomWithLink: { url, service in
+                        pendingCreateLink = (url, service)
+                        showCreateRoom = true
+                    }
+                )
                     .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
                 V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
                     .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
@@ -173,23 +186,24 @@ struct PlinkApprovedV4Root: View {
             V4AIChatView(theme: theme, store: aiStore, autoStartVoice: aiChatAutoVoice)
         }
         .sheet(isPresented: $showCreateRoom) {
-            RoomCreationView(
-                onRoomCreated: { newRoom in
-                    showCreateRoom = false
-                    HapticManager.roomJoined()
-                    // Copy room code + surface alert so host always sees 6-char code
-                    UIPasteboard.general.string = "Код комнаты Plink: \(newRoom.code)"
-                    lastSharedRoomCode = newRoom.code
-                    // P0.2b: room created → present WatchRoom after host dismisses code alert
-                    Task { await roomsStore?.load() }
-                    // Present room after brief moment so alert is readable
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        roomToPresent = newRoom
-                    }
+            // Если пришли по ссылке из буфера — мастер открывается сразу на
+            // шаге настройки: сервис и видео уже известны.
+            Group {
+                if let link = pendingCreateLink {
+                    RoomCreationView(
+                        prefilledLink: link.url,
+                        service: link.service,
+                        onRoomCreated: handleRoomCreated
+                    )
+                } else {
+                    RoomCreationView(onRoomCreated: handleRoomCreated)
                 }
-            )
+            }
             .environmentObject(APIClient.shared)
             .preferredColorScheme(.dark)
+            // Ссылка одноразовая: иначе следующее «Создать комнату» снова
+            // открылось бы на старом видео.
+            .onDisappear { pendingCreateLink = nil }
         }
         .sheet(isPresented: $showJoinByCode) {
             JoinRoomSheet(
@@ -314,6 +328,21 @@ struct PlinkApprovedV4Root: View {
     private func openFirstRoom() {
         guard let room = roomsStore?.heroRoom ?? roomsStore?.railRooms.first else { return }
         openRoom(room)
+    }
+
+    /// Комната создана — общий финал для обоих входов в мастер.
+    private func handleRoomCreated(_ newRoom: Room) {
+        showCreateRoom = false
+        HapticManager.roomJoined()
+        // Copy room code + surface alert so host always sees 6-char code
+        UIPasteboard.general.string = "Код комнаты Plink: \(newRoom.code)"
+        lastSharedRoomCode = newRoom.code
+        // P0.2b: room created → present WatchRoom after host dismisses code alert
+        Task { await roomsStore?.load() }
+        // Present room after brief moment so alert is readable
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            roomToPresent = newRoom
+        }
     }
 
     /// Quick Room — one-tap create from first trending video.
