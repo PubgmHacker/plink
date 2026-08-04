@@ -67,8 +67,10 @@ enum ServicePickerFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all: return "Все"
-        case .russian: return "🇷🇺 Российские"
-        case .international: return "🌍 Зарубежные"
+        // Эмодзи-флаги убраны: в чипах они выглядели как стикеры, а на части
+        // устройств 🇷🇺 рендерится как «RU» — ширина чипа скакала.
+        case .russian: return "Российские"
+        case .international: return "Зарубежные"
         case .free: return "Без подписки"
         case .subscription: return "С подпиской"
         }
@@ -118,13 +120,28 @@ struct ServiceFilterChips: View {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { filter = f }
                     } label: {
                         Text(f.title)
-                            .font(.system(size: 13, weight: filter == f ? .bold : .medium))
-                            .foregroundStyle(filter == f ? .black : Cinema2026.text)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule().fill(filter == f ? Cinema2026.accent : Cinema2026.surface)
-                            )
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(filter == f ? V4.canvas : V4.ink)
+                            .padding(.horizontal, 15)
+                            .frame(height: 36)
+                            .background {
+                                if filter == f {
+                                    Capsule(style: .continuous).fill(V4.accent)
+                                } else {
+                                    // Невыбранные чипы — на стекле, как вся
+                                    // остальная навигация приложения.
+                                    Capsule(style: .continuous)
+                                        .fill(.white.opacity(0.06))
+                                        .overlay(
+                                            Capsule(style: .continuous)
+                                                .strokeBorder(V4.line, lineWidth: 1)
+                                        )
+                                }
+                            }
+                            // Вес шрифта постоянный: раньше выбранный чип
+                            // становился .bold и его ширина менялась, из-за
+                            // чего соседние чипы дёргались при переключении.
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -148,46 +165,59 @@ struct ServiceCarouselCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
+                HStack(alignment: .top) {
+                    // Логотип на нейтральной подложке. Раньше он лежал прямо
+                    // на брендовом градиенте и терял контраст: белые марки
+                    // (Apple TV+) растворялись, тёмные — сливались с углом.
                     ServiceLogoView(service: service, size: 40)
+                        .padding(7)
+                        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .strokeBorder(.white.opacity(0.14), lineWidth: 0.8)
+                        )
                     Spacer()
-                    Text(service.region.badge)
-                        .font(.system(size: 17))
+                    if service.requiresAuth && authorized {
+                        // Вход выполнен — единственный статус, который нужен
+                        // в углу. Эмодзи-флаг региона убран: он выглядел как
+                        // случайный стикер и дублировал фильтр над каруселью.
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .heavy))
+                            .foregroundStyle(V4.canvas)
+                            .frame(width: 22, height: 22)
+                            .background(Color(hex: 0x33D17A), in: Circle())
+                    }
                 }
 
                 Spacer()
 
                 Text(service.title)
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
                 Text(service.subtitle)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    badge(service.isFree ? "Без подписки" : "Подписка",
-                          color: service.isFree ? Color.green : Color.orange)
-                    if service.requiresAuth && authorized {
-                        badge("✓ Вход выполнен", color: Color.white)
-                    }
-                }
-                .padding(.top, 8)
+                accessTag
+                    .padding(.top, 9)
             }
-            .padding(16)
+            .padding(15)
             .frame(width: 200, height: 168, alignment: .leading)
-            .background(
-                LinearGradient(
-                    colors: [service.accentColor.opacity(0.85), service.accentColor.opacity(0.35), Color.black.opacity(0.6)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-            )
+            .background(cardBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.22), .white.opacity(0.05)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             )
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: .black.opacity(0.34), radius: 14, y: 8)
             .scaleEffect(pressed ? 0.96 : 1)
         }
         .buttonStyle(.plain)
@@ -196,14 +226,39 @@ struct ServiceCarouselCard: View {
         }, perform: {})
     }
 
-    private func badge(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color.opacity(0.32), in: Capsule())
-            .overlay(Capsule().stroke(color.opacity(0.55), lineWidth: 0.5))
+    /// Фон: почти чёрная подложка приложения плюс мягкое пятно бренда в
+    /// верхнем углу. Раньше градиент бренда заливал карточку целиком на 85 %,
+    /// и полка из пяти сервисов превращалась в набор кричащих плашек, каждая
+    /// со своим цветом — рядом с остальным тёмным интерфейсом это и читалось
+    /// «дешёво».
+    private var cardBackground: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(V4.surface)
+            RadialGradient(
+                colors: [service.accentColor.opacity(0.40), .clear],
+                center: UnitPoint(x: 0.16, y: 0.10),
+                startRadius: 0,
+                endRadius: 186
+            )
+        }
+    }
+
+    /// Доступность сервиса: подписка или свободный вход.
+    private var accessTag: some View {
+        let free = service.isFree
+        let tint = free ? Color(hex: 0x33D17A) : V4.amber
+        return HStack(spacing: 4) {
+            Image(systemName: free ? "bolt.fill" : "lock.fill")
+                .font(.system(size: 8.5, weight: .heavy))
+            Text(free ? "Без подписки" : "Нужна подписка")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(0.3)
+        }
+        .foregroundStyle(V4.canvas)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(tint, in: Capsule(style: .continuous))
     }
 }
 

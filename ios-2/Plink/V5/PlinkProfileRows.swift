@@ -111,12 +111,10 @@ private struct SettingsCard<Content: View>: View {
         VStack(spacing: 0) {
             content
         }
-        .background(V4.surface.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: SettingsUI.cardRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: SettingsUI.cardRadius, style: .continuous)
-                .stroke(V4.line, lineWidth: 1)
-        )
+        // Карточка настроек — на стекле, как вся навигация приложения.
+        // Раньше это была плоская заливка V4.surface на 72 %: на живом фоне
+        // с движущимися пятнами она читалась вырезанным прямоугольником.
+        .plinkGlass(.control, cornerRadius: SettingsUI.cardRadius)
     }
 }
 
@@ -124,14 +122,28 @@ private struct SettingsIconBadge: View {
     let systemName: String
     var color: Color = V4.accent
     var body: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(color.opacity(0.16))
+        // Плотная заливка вместо opacity(0.16): бледные плашки превращали
+        // список в «стену серых строк», где ни одна иконка не читалась.
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .fill(color.opacity(0.92))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [.white.opacity(0.30), .clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    )
+                    .blendMode(.overlay)
+            )
             .frame(width: SettingsUI.iconSize, height: SettingsUI.iconSize)
             .overlay(
                 Image(systemName: systemName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(color)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
             )
+            .shadow(color: color.opacity(0.30), radius: 4, y: 2)
     }
 }
 
