@@ -41,9 +41,9 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
 struct V4FriendsViewLive: View {
     // M16: групповые беседы (мессенджер внутри приложения)
     // M21/M22: unified inbox — беседы встроены прямо в чаты
-    @ObservedObject private var groupService = GroupChatService.shared
-    @ObservedObject private var muteStore = ChatMuteStore.shared
-    @State private var openGroup: GroupChatDTO? = nil
+    @ObservedObject var groupService = GroupChatService.shared
+    @ObservedObject var muteStore = ChatMuteStore.shared
+    @State var openGroup: GroupChatDTO? = nil
     let theme: V4Theme
     var store: V4FriendsStore?
     /// M14: активные комнаты — для «Друг сейчас смотрит».
@@ -52,20 +52,20 @@ struct V4FriendsViewLive: View {
     var isActive: Bool = true
     /// Default: Друзья (not chats) — full friend list / carousel first.
     @State private var segment: FriendsHubSegment = .friends
-    @State private var dmFriend: Friend?
-    @State private var profileFriend: Friend?
-    @State private var showCreateRoom = false
-    @State private var watchWithFriend: Friend?
-    @State private var showAddFriend = false
-    @State private var showCreateGroupSheet = false  // M34: CTA «Создать беседу»
+    @State var dmFriend: Friend?
+    @State var profileFriend: Friend?
+    @State var showCreateRoom = false
+    @State var watchWithFriend: Friend?
+    @State var showAddFriend = false
+    @State var showCreateGroupSheet = false  // M34: CTA «Создать беседу»
     @State private var showRequests = false
-    @State private var toast: String?
+    @State var toast: String?
     @State private var recentRooms: [Room] = []
     @State private var recentLoading = false
     @State private var roomToOpen: Room?
     @Environment(\.scenePhase) private var scenePhase
     /// Shared so unread badges survive sheet open/close.
-    @ObservedObject private var dmService = DMChatService.shared
+    @ObservedObject var dmService = DMChatService.shared
     @ObservedObject private var inviteService = RoomInviteService.shared
     /// Forces avatar AsyncImage reload when session bust changes
     @State private var avatarBust = PlinkAvatarURL.sessionBust
@@ -73,12 +73,12 @@ struct V4FriendsViewLive: View {
     private var requestBadge: Int { store?.requests.count ?? 0 }
 
     /// Pin order — shared store (not a private stored prop so memberwise init stays public).
-    private var pinStore: FriendPinStore { FriendPinStore.shared }
+    var pinStore: FriendPinStore { FriendPinStore.shared }
 
     @ObservedObject private var blockManager = UserBlockManager.shared
 
     /// Alphabetical / online-first friends list (no chat previews). Blocked hidden.
-    private var peopleFriends: [Friend] {
+    var peopleFriends: [Friend] {
         let list = (store?.friends ?? []).filter { !blockManager.isBlocked($0.id) }
         return list.sorted { a, b in
             if a.isOnline != b.isOnline { return a.isOnline && !b.isOnline }
@@ -86,13 +86,13 @@ struct V4FriendsViewLive: View {
         }
     }
 
-    private var onlineFriends: [Friend] {
+    var onlineFriends: [Friend] {
         // Deleted accounts never appear as online (Telegram).
         peopleFriends.filter { $0.isOnline && !$0.deleted }
     }
 
     /// M14: друзья, которые прямо сейчас хостят активную комнату.
-    private var friendsWatchingNow: [(friend: Friend, room: Room)] {
+    var friendsWatchingNow: [(friend: Friend, room: Room)] {
         guard let rooms = roomsStore?.rooms, !rooms.isEmpty else { return [] }
         var seen = Set<String>()
         var result: [(friend: Friend, room: Room)] = []
@@ -108,7 +108,7 @@ struct V4FriendsViewLive: View {
     }
 
     /// Telegram order: pinned (stable) → unpinned by last message time. Blocked hidden.
-    private var orderedFriends: [Friend] {
+    var orderedFriends: [Friend] {
         let list = (store?.friends ?? []).filter { !blockManager.isBlocked($0.id) && !dmService.isArchived($0.id) }
         return pinStore.sortedChats(
             friends: list,
@@ -616,7 +616,7 @@ struct V4FriendsViewLive: View {
 
     // MARK: - Section chrome
 
-    private func sectionHeader(title: String, icon: String, count: Int?, actionTitle: String? = nil, action: (() -> Void)? = nil) -> some View {
+    func sectionHeader(title: String, icon: String, count: Int?, actionTitle: String? = nil, action: (() -> Void)? = nil) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .bold))
@@ -652,7 +652,7 @@ struct V4FriendsViewLive: View {
         .padding(.horizontal, 18)
     }
 
-    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) {
             content()
         }
@@ -665,7 +665,7 @@ struct V4FriendsViewLive: View {
         .padding(.horizontal, 16)
     }
 
-    private func emptyInside(icon: String, title: String, subtitle: String, cta: String? = nil, action: (() -> Void)? = nil) -> some View {
+    func emptyInside(icon: String, title: String, subtitle: String, cta: String? = nil, action: (() -> Void)? = nil) -> some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 30))
@@ -693,532 +693,6 @@ struct V4FriendsViewLive: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .padding(.horizontal, 12)
-    }
-
-    // MARK: - Друзья (people only — no chat previews)
-
-    @ViewBuilder
-    /// M14: карточка «друг смотрит» с кнопкой присоединения.
-    private func friendWatchingCard(_ friend: Friend, _ room: Room) -> some View {
-        Button {
-            HapticManager.impact(.medium)
-            NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
-        } label: {
-            HStack(spacing: 12) {
-                V4Avatar(letter: String(friend.displayTitle.prefix(1)).uppercased(), theme: theme, size: 40)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(friend.displayTitle)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(V4.ink)
-                        .lineLimit(1)
-                    Text("смотрит «\(room.name)»")
-                        .font(.system(size: 12))
-                        .foregroundStyle(V4.muted)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Text(LocalizationManager.shared.string(.frJoin))
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(theme.accentColor)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .overlay(Capsule().stroke(theme.accentColor.opacity(0.6), lineWidth: 1))
-            }
-            .padding(12)
-            .background(V4.cardBG.opacity(0.55))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var friendsPeopleBlock: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // M14: «Друг сейчас смотрит — присоединиться»
-            if !friendsWatchingNow.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionHeader(
-                        title: LocalizationManager.shared.string(.frWatchingNow),
-                        icon: "play.tv.fill",
-                        count: friendsWatchingNow.count,
-                        actionTitle: nil,
-                        action: nil
-                    )
-                    VStack(spacing: 8) {
-                        ForEach(friendsWatchingNow, id: \.room.id) { pair in
-                            friendWatchingCard(pair.friend, pair.room)
-                        }
-                    }
-                    .padding(.horizontal, 18)
-                }
-            }
-
-            // Online carousel
-            if !onlineFriends.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionHeader(
-                        title: LocalizationManager.shared.string(.frOnline),
-                        icon: "circle.fill",
-                        count: onlineFriends.count,
-                        actionTitle: nil,
-                        action: nil
-                    )
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
-                            ForEach(onlineFriends) { friend in
-                                onlineFriendChip(friend)
-                            }
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                sectionHeader(
-                    title: LocalizationManager.shared.string(.frAllFriends),
-                    icon: "person.2.fill",
-                    count: store?.friends.count,
-                    actionTitle: LocalizationManager.shared.string(.frAdd),
-                    action: { showAddFriend = true }
-                )
-
-                if let s = store {
-                    switch s.state {
-                    case .loading:
-                        sectionCard {
-                            ProgressView().tint(theme.accentColor)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 36)
-                                .accessibilityLabel("Загрузка друзей")
-                        }
-                    case .failed(let err):
-                        sectionCard {
-                            emptyInside(
-                                icon: "wifi.exclamationmark",
-                                title: "Не удалось загрузить друзей",
-                                subtitle: err,
-                                cta: "Повторить"
-                            ) { Task { await store?.load() } }
-                        }
-                    case .idle:
-                        Color.clear.frame(height: 1)
-                    case .loaded, .empty:
-                        if s.friends.isEmpty {
-                            sectionCard {
-                                VStack(spacing: 4) {
-                                    emptyInside(
-                                        icon: "person.badge.plus",
-                                        title: LocalizationManager.shared.string(.frEmptyTitle),
-                                        subtitle: LocalizationManager.shared.string(.frEmptySub),
-                                        cta: LocalizationManager.shared.string(.frFind)
-                                    ) { showAddFriend = true }
-                                    // M26 UX: инвайт-ссылка прямо из пустого состояния
-                                    if let myId = AuthService.shared.currentUserValue?.id,
-                                       let inviteURL = URL(string: "https://plink.app/u/\(myId)") {
-                                        ShareLink(item: inviteURL) {
-                                            Label(LocalizationManager.shared.string(.frInviteLink), systemImage: "square.and.arrow.up")
-                                                .font(.system(size: 13.5, weight: .semibold))
-                                                .foregroundStyle(theme.accentColor)
-                                                .padding(.vertical, 8)
-                                        }
-                                    }
-                                }
-                                .padding(.bottom, 10)
-                            }
-                        } else {
-                            // 2-column grid of friend cards
-                            LazyVGrid(
-                                columns: [
-                                    GridItem(.flexible(), spacing: 12),
-                                    GridItem(.flexible(), spacing: 12)
-                                ],
-                                spacing: 12
-                            ) {
-                                ForEach(peopleFriends) { friend in
-                                    friendPersonCard(friend)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                    }
-                } else {
-                    sectionCard {
-                        ProgressView().tint(theme.accentColor)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 36)
-                    }
-                }
-            }
-        }
-    }
-
-    private func onlineFriendChip(_ friend: Friend) -> some View {
-        Button {
-            HapticManager.selection()
-            profileFriend = friend
-        } label: {
-            VStack(spacing: 8) {
-                ZStack(alignment: .bottomTrailing) {
-                    friendAvatar(friend, size: 64)
-                    if !friend.deleted {
-                        Circle()
-                            .fill(Color(red: 0.3, green: 0.9, blue: 0.55))
-                            .frame(width: 14, height: 14)
-                            .overlay(Circle().stroke(V4.surface.opacity(0.95), lineWidth: 2))
-                            .offset(x: 2, y: 2)
-                    }
-                }
-                Text(friend.displayTitle)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(V4.ink)
-                    .lineLimit(1)
-                    .frame(width: 72)
-            }
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            if !friend.deleted {
-                Button { dmFriend = friend } label: {
-                    Label("Написать", systemImage: "message.fill")
-                }
-                Button {
-                    watchWithFriend = friend
-                    showCreateRoom = true
-                } label: {
-                    Label("Смотреть вместе", systemImage: "film.fill")
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func friendAvatar(_ friend: Friend, size: CGFloat) -> some View {
-        if friend.deleted {
-            PlinkDeletedAvatar(size: size)
-        } else {
-            PlinkStableAvatar(
-                url: PlinkAvatarURL.stable(userId: friend.id, stored: friend.avatarURL),
-                letter: friend.initials,
-                size: size,
-                userId: friend.id
-            )
-        }
-    }
-
-    private func friendPersonCard(_ friend: Friend) -> some View {
-        VStack(spacing: 10) {
-            Button {
-                HapticManager.selection()
-                profileFriend = friend
-            } label: {
-                VStack(spacing: 8) {
-                    ZStack(alignment: .bottomTrailing) {
-                        friendAvatar(friend, size: 56)
-                        if friend.isOnline && !friend.deleted {
-                            Circle()
-                                .fill(Color(red: 0.3, green: 0.9, blue: 0.55))
-                                .frame(width: 12, height: 12)
-                                .overlay(Circle().stroke(V4.surface.opacity(0.95), lineWidth: 2))
-                                .offset(x: 1, y: 1)
-                        }
-                    }
-                    Text(friend.displayTitle)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(V4.ink)
-                        .lineLimit(1)
-                    Text(friend.presenceText)
-                        .font(.system(size: 11))
-                        .foregroundStyle(
-                            friend.isOnline && !friend.deleted
-                            ? Color(red: 0.3, green: 0.9, blue: 0.55)
-                            : V4.muted
-                        )
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if friend.deleted {
-                Text(LocalizationManager.shared.string(.frCantMessage))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(V4.muted)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 34)
-                    .background(V4.raised.opacity(0.4), in: Capsule())
-            } else {
-                HStack(spacing: 8) {
-                    Button {
-                        HapticManager.selection()
-                        dmFriend = friend
-                    } label: {
-                        V4GlyphIcon(glyph: .chat, size: 13, filled: true, weight: .regular)
-                            .foregroundStyle(V4.ink)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 34)
-                            .background(V4.raised.opacity(0.75), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Чат с \(friend.displayTitle)")
-
-                    Button {
-                        HapticManager.impact(.light)
-                        watchWithFriend = friend
-                        showCreateRoom = true
-                    } label: {
-                        V4GlyphIcon(glyph: .film, size: 13, filled: true, weight: .regular)
-                            .foregroundStyle(theme.buttonTextColor)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 34)
-                            .background(theme.accentColor, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Смотреть вместе с \(friend.displayTitle)")
-                }
-            }
-        }
-        .padding(12)
-        .background(V4.surface.opacity(0.42), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(V4.line.opacity(0.55), lineWidth: 1)
-        )
-        .contextMenu {
-            Button { profileFriend = friend } label: {
-                Label("Профиль", systemImage: "person.crop.circle")
-            }
-            if !friend.deleted {
-                Button { dmFriend = friend } label: {
-                    Label("Написать", systemImage: "message.fill")
-                }
-                Button {
-                    watchWithFriend = friend
-                    showCreateRoom = true
-                } label: {
-                    Label("��мотреть вместе", systemImage: "film.fill")
-                }
-            }
-        }
-    }
-
-    // MARK: - Чаты / Общение
-
-    // MARK: - M21/M22 Unified Inbox helpers
-
-    // Аудит 26.07.2026: `id` обязан быть nonisolated — Identifiable требует
-    // синхронного доступа вне актора. Изоляцию несут только те геттеры,
-    // что дёргают DMChatService и FriendPinStore (оба @MainActor).
-    private enum InboxItem: Identifiable {
-        case dm(Friend)
-        case group(GroupChatDTO)
-        var id: String {
-            switch self { case .dm(let f): return "dm-\(f.id)"; case .group(let g): return "grp-\(g.id)" }
-        }
-        @MainActor
-        var lastActivity: Date {
-            switch self {
-            case .dm(let f): return DMChatService.shared.lastActivityAt(for: f.id) ?? .distantPast
-            case .group(let g): return g.lastMessageDate ?? .distantPast
-            }
-        }
-        @MainActor
-        var isPinned: Bool {
-            switch self {
-            case .dm(let f): return FriendPinStore.shared.isPinned(f.id)
-            case .group: return false
-            }
-        }
-    }
-
-    private var unifiedInbox: [InboxItem] {
-        let _ = dmService.inboxEpoch
-        let _ = pinStore.orderedPinnedIds
-        let dms = orderedFriends.map { InboxItem.dm($0) }
-        let groups = groupService.groups
-            .sorted { ($0.lastMessageDate ?? .distantPast) > ($1.lastMessageDate ?? .distantPast) }
-            .map { InboxItem.group($0) }
-        let pinned  = dms.filter { $0.isPinned }
-        let unpinned = (dms.filter { !$0.isPinned } + groups)
-            .sorted { $0.lastActivity > $1.lastActivity }
-        return pinned + unpinned
-    }
-
-    private var chatsBlock: some View {
-        let totalCount = (store?.friends.count ?? 0) + groupService.groups.count
-        return VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(
-                title: "Чаты",
-                icon: "bubble.left.and.bubble.right.fill",
-                count: totalCount > 0 ? totalCount : nil,
-                actionTitle: LocalizationManager.shared.string(.frAdd),
-                action: { showAddFriend = true }
-            )
-
-            // M34: быстрое создание групповой беседы
-            Button {
-                HapticManager.impact(.light)
-                showCreateGroupSheet = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.3.fill")
-                    Text("Создать беседу")
-                    Spacer()
-                    Image(systemName: "plus")
-                }
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(theme.accentColor)
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-                .background(theme.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.accentColor.opacity(0.35)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Создать групповую беседу")
-
-            if unifiedInbox.isEmpty {
-                sectionCard {
-                    emptyInside(
-                        icon: "bubble.left.and.bubble.right",
-                        title: "Пока нет чатов",
-                        subtitle: "Добавь друга или создай беседу — всё появится здесь",
-                        cta: "Найти друга"
-                    ) { showAddFriend = true }
-                }
-            } else {
-                sectionCard {
-                    ForEach(unifiedInbox) { item in
-                        switch item {
-                        case .dm(let friend):   friendChatRow(friend)
-                        case .group(let group): groupChatRow(group)
-                        }
-                    }
-                }
-            }
-        }
-        // M21: открыть беседу из unified inbox
-        .sheet(item: $openGroup) { group in
-            NavigationStack {
-                GroupsListView(friends: store?.friends ?? [], meId: dmService.currentUserId)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Закрыть") { openGroup = nil }
-                        }
-                    }
-            }
-            .preferredColorScheme(.dark)
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-    }
-
-    /// M21/M22: Telegram-style group chat row (unified inbox)
-    @ViewBuilder
-    private func groupChatRow(_ group: GroupChatDTO) -> some View {
-        let unread  = group.unreadCount ?? 0
-        let muteKey = "grp-\(group.id)"
-        let muted   = muteStore.isMuted(muteKey)
-        Button {
-            HapticManager.selection()
-            openGroup = group
-        } label: {
-            HStack(spacing: 12) {
-                ZStack(alignment: .bottomTrailing) {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient(
-                                colors: [theme.accentColor.opacity(0.85), theme.accentColor.opacity(0.42)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            ))
-                            .frame(width: 48, height: 48)
-                        V4GlyphIcon(glyph: .people3, size: 15, filled: true, weight: .regular)
-                            .foregroundStyle(theme.buttonTextColor)
-                    }
-                    // 👥 group marker
-                    Circle().fill(V4.surface)
-                        .frame(width: 18, height: 18)
-                        .overlay {
-                            Image(systemName: muted ? "bell.slash.fill" : "person.3.fill")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(muted ? .orange : theme.accentColor)
-                        }
-                        .offset(x: 2, y: 2)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Text(group.title)
-                            .font(.system(size: 15.5, weight: unread > 0 ? .heavy : .semibold))
-                            .foregroundStyle(V4.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 6)
-                        if let lastAt = group.lastMessageDate {
-                            Text(Self.chatListTime(lastAt))
-                                .font(.system(size: 12, weight: unread > 0 ? .semibold : .regular))
-                                .foregroundStyle(unread > 0 ? theme.accentColor : V4.muted)
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        if let last = group.lastMessageText, !last.isEmpty {
-                            Text(last)
-                                .font(.system(size: 13, weight: unread > 0 ? .medium : .regular))
-                                .foregroundStyle(unread > 0 ? V4.ink.opacity(0.85) : V4.muted)
-                                .lineLimit(1)
-                        } else {
-                            Text("\(group.memberCount) участника")
-                                .font(.system(size: 13))
-                                .foregroundStyle(V4.muted).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                        if muted {
-                            Image(systemName: "bell.slash.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.orange)
-                        }
-                        if unread > 0 {
-                            Text(unread > 99 ? "99+" : "\(unread)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(muted ? Color.gray : theme.accentColor, in: Capsule())
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(unread > 0 && !muted ? theme.accentColor.opacity(0.05) : Color.clear)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 74)
-        }
-        // Аудит 26.07.2026 P1: swipeActions удалены — работают только в List,
-        // строки лежат в VStack/ScrollView (свайпы не срабатывали). Действия — в contextMenu.
-        // M22: контекстное меню (долгий тап)
-        .contextMenu {
-            Button { openGroup = group } label: {
-                Label("Открыть беседу", systemImage: "person.3.fill")
-            }
-            Button {
-                Task { await groupService.markRead(groupId: group.id) }
-                toast = "Отмечено как прочитанное"
-            } label: { Label("Отметить как прочитанное", systemImage: "checkmark.message.fill") }
-            Button {
-                muteStore.toggle(muteKey)
-                toast = muteStore.isMuted(muteKey) ? "Беседа заглушена" : "Уведомления включены"
-            } label: {
-                Label(muted ? "Включить уведомления" : "Выключить уведомления",
-                      systemImage: muted ? "bell.fill" : "bell.slash.fill")
-            }
-            Divider()
-            Button(role: .destructive) {
-                Task { await groupService.leave(groupId: group.id) }
-                toast = "Беседа удалена"
-            } label: { Label("Удалить беседу", systemImage: "trash") }
-        }
     }
 
     // MARK: - Недавние комнаты (с кем / что смотрели)
@@ -1263,7 +737,7 @@ struct V4FriendsViewLive: View {
 
     // MARK: - Rows
 
-    private func friendChatRow(_ friend: Friend) -> some View {
+    func friendChatRow(_ friend: Friend) -> some View {
         let unread = dmService.unreadCount(for: friend.id)
         let preview = dmService.lastPreviewByFriend[friend.id]
         let pinned = pinStore.isPinned(friend.id)
@@ -1447,7 +921,7 @@ struct V4FriendsViewLive: View {
     }
 
     /// Compact time for chat list (Telegram-like).
-    private static func chatListTime(_ date: Date) -> String {
+    static func chatListTime(_ date: Date) -> String {
         let cal = Calendar.current
         if cal.isDateInToday(date) {
             let f = DateFormatter()
