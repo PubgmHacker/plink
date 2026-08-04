@@ -33,6 +33,15 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
         case .rooms: return "play.rectangle.fill"
         }
     }
+
+    /// Иконка из общего набора — вместо своего Image(systemName:).
+    var glyph: V4Glyph {
+        switch self {
+        case .friends: return .people
+        case .chats:   return .chat
+        case .rooms:   return .room
+        }
+    }
 }
 
 
@@ -52,6 +61,8 @@ struct V4FriendsViewLive: View {
     var isActive: Bool = true
     /// Default: Друзья (not chats) — full friend list / carousel first.
     @State private var segment: FriendsHubSegment = .friends
+    /// Для переезда пилюли выделения между сегментами.
+    @Namespace private var segmentNS
     @State var dmFriend: Friend?
     @State var profileFriend: Friend?
     @State var showCreateRoom = false
@@ -457,10 +468,12 @@ struct V4FriendsViewLive: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: seg.icon)
-                            .font(.system(size: 12, weight: .bold))
+                        V4GlyphIcon(glyph: seg.glyph, size: 13, filled: segment == seg, weight: .regular)
                         Text(seg.title)
-                            .font(.system(size: 13, weight: .bold))
+                            // Вес постоянный: раньше выбранный сегмент не менял
+                            // вес, но иконка была залитой всегда — теперь
+                            // заливка и есть признак выбора.
+                            .font(.system(size: 13, weight: .semibold))
                         // Badges
                         if seg == .chats, totalUnread > 0 {
                             Text(totalUnread > 99 ? "99+" : "\(totalUnread)")
@@ -468,7 +481,7 @@ struct V4FriendsViewLive: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
-                                .background(theme.accentColor, in: Capsule())
+                                .background(V4.danger, in: Capsule())
                         }
                         if seg == .friends, let n = store?.friends.count, n > 0 {
                             Text("\(n)")
@@ -484,27 +497,22 @@ struct V4FriendsViewLive: View {
                     .foregroundStyle(segment == seg ? theme.buttonTextColor : V4.ink.opacity(0.75))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(segment == seg ? theme.accentColor : V4.surface.opacity(0.45))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(segment == seg ? Color.clear : V4.line.opacity(0.55), lineWidth: 1)
-                    )
+                    .background {
+                        // Пилюля переезжает между сегментами как одна масса,
+                        // а не гаснет и зажигается заново на новом месте.
+                        if segment == seg {
+                            Capsule(style: .continuous)
+                                .fill(theme.accentColor)
+                                .matchedGeometryEffect(id: "friends.segment", in: segmentNS)
+                        }
+                    }
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(V4.surface.opacity(0.28))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(V4.line.opacity(0.4), lineWidth: 0.8)
-        )
+        .plinkGlass(.control, in: Capsule(style: .continuous))
     }
 
     // MARK: - Header

@@ -104,6 +104,15 @@ final class DesignAuditShots: XCTestCase {
         try shoot(IdentityRingsBoard(), named: "06-identity-rings")
     }
 
+
+    func testFriendsShot() throws {
+        try requireEnabled()
+        try shoot(
+            V4FriendsViewLive(theme: .electric, store: nil, roomsStore: nil, isActive: true),
+            named: "07-friends"
+        )
+    }
+
     // MARK: - Инфраструктура
 
 
