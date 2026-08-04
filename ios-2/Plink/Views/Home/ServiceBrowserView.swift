@@ -30,6 +30,10 @@ struct ServiceBrowserView: View {
     @State private var canGoBack = false
     @State private var canGoForward = false
     @State private var showCreateConfirm = false
+    @State private var isPageLoading = true
+    @State private var loadFailed = false
+    /// Меняется, чтобы пересоздать веб-вью при «Повторить».
+    @State private var reloadToken = 0
     /// 🔧 NEW: When a video page is detected, this is set to the detected video info
     @State private var detectedVideo: DetectedVideo?
     /// Smart Wall appears only when the user selects protected content.
@@ -55,12 +59,36 @@ struct ServiceBrowserView: View {
                         canGoForward: $canGoForward,
                         onVideoDetected: { video in
                             detectedVideo = video
+                        },
+                        onLoadingChange: { loading in
+                            withAnimation(.easeOut(duration: 0.2)) { isPageLoading = loading }
+                        },
+                        onLoadFailed: {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                isPageLoading = false
+                                loadFailed = true
+                            }
                         }
                     )
+                    .id(reloadToken)
 
                     // 🔧 Pack v3: bottomBar убран — авто-переход через onChange
                     // Кнопка "Создать комнату" больше не нужна — видео автоматически
                     // открывает RoomSetupView.
+                }
+
+                // Пока грузится страница сервиса, экран был пустым и чёрным:
+                // на медленной сети это читалось как зависшее приложение.
+                if isPageLoading {
+                    loadingOverlay
+                        .transition(.opacity)
+                        .zIndex(10)
+                } else if loadFailed {
+                    // Упавшая загрузка тоже оставляла чёрный экран без
+                    // единого объяснения и без выхода.
+                    failureOverlay
+                        .transition(.opacity)
+                        .zIndex(10)
                 }
 
                 if let video = authWallVideo {
@@ -108,6 +136,81 @@ struct ServiceBrowserView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Загрузка страницы сервиса
+
+    /// Что показываем, пока грузится сайт сервиса. Логотип сервиса вместо
+    /// абстрактного спиннера: пользователь видит, КУДА он идёт, а не просто
+    /// факт ожидания.
+    private var loadingOverlay: some View {
+        ZStack {
+            V4.canvas.ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                ServiceLogoView(service: service, size: 56)
+                    .padding(14)
+                    .plinkGlass(.control, cornerRadius: 22)
+
+                VStack(spacing: 5) {
+                    Text(service.brandName)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                    Text("Открываем сервис…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(V4.muted)
+                }
+
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(V4.accent)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Открываем \(service.brandName)")
+    }
+
+    /// Загрузка упала. Раньше на этом месте оставался чёрный экран без
+    /// объяснения и без выхода — приходилось закрывать экран вслепую.
+    private var failureOverlay: some View {
+        ZStack {
+            V4.canvas.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(V4.amber)
+                    .frame(width: 78, height: 78)
+                    .plinkGlass(.control, in: Circle())
+
+                VStack(spacing: 6) {
+                    Text("\(service.brandName) не открылся")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                    Text("Проверьте соединение и попробуйте снова.")
+                        .font(.system(size: 13))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(V4.muted)
+                }
+
+                Button("Повторить") {
+                    loadFailed = false
+                    isPageLoading = true
+                    // Пересоздаём веб-вью: у упавшего WKWebView reload()
+                    // часто возвращает ту же ошибку из кэша.
+                    reloadToken += 1
+                }
+                .buttonStyle(
+                    PlinkProminentButtonStyle(
+                        tint: V4.accent,
+                        height: 48,
+                        cornerRadius: 16,
+                        fillsWidth: false
+                    )
+                )
+            }
+            .padding(.horizontal, 34)
+        }
     }
 
     // MARK: - Video Detected Banner
@@ -394,6 +497,12 @@ struct ServiceWebView: UIViewRepresentable {
     @Binding var canGoForward: Bool
     /// 🔧 NEW: Called when a video page is detected
     var onVideoDetected: ((DetectedVideo) -> Void)?
+    /// Идёт ли загрузка страницы. Без этого сигнала экран сервиса оставался
+    /// пустым и чёрным всё время загрузки — на медленной сети выглядело как
+    /// зависшее приложение.
+    var onLoadingChange: ((Bool) -> Void)?
+    /// Загрузка упала — сеть недоступна или сервис не ответил.
+    var onLoadFailed: (() -> Void)?
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -556,8 +665,26 @@ struct ServiceWebView: UIViewRepresentable {
             decisionHandler(.allow)
         }
 
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            DispatchQueue.main.async { self.parent.onLoadingChange?(true) }
+        }
+
+        /// Сеть отвалилась до первого байта. Без этого индикатор крутился бы
+        /// вечно на упавшей загрузке.
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            DispatchQueue.main.async {
+                self.parent.onLoadingChange?(false)
+                // Отмена — это не сбой: так выглядит переход на новый URL,
+                // пока предыдущий ещё грузился.
+                if (error as NSError).code != NSURLErrorCancelled {
+                    self.parent.onLoadFailed?()
+                }
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             DispatchQueue.main.async {
+                self.parent.onLoadingChange?(false)
                 self.parent.currentURL = webView.url
                 self.parent.pageTitle = webView.title ?? ""
                 self.parent.canGoBack = webView.canGoBack
@@ -634,7 +761,13 @@ struct ServiceWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             DispatchQueue.main.async {
+                // Индикатор обязан гаснуть и на упавшей загрузке, иначе он
+                // крутится вечно.
+                self.parent.onLoadingChange?(false)
                 self.parent.pageTitle = "Ошибка загрузки"
+                if (error as NSError).code != NSURLErrorCancelled {
+                    self.parent.onLoadFailed?()
+                }
             }
         }
 
