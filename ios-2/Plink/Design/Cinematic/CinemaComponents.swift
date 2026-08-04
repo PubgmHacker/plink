@@ -248,7 +248,7 @@ extension View {
     }
 }
 
-// MARK: - ConditionalBreathing, GlassButtonStyle, RaveTextFieldStyle, ConditionalGlow
+// MARK: - ConditionalBreathing, GlassButtonStyle, ConditionalGlow
 struct ConditionalBreathing: ViewModifier {
     let isActive: Bool; let maxScale: CGFloat; let period: Double
     @State private var breathing = false
@@ -270,15 +270,6 @@ struct GlassButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1.0)
             .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.72),
                        value: configuration.isPressed)
-    }
-}
-
-struct RaveTextFieldStyle: TextFieldStyle {
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration.font(.system(size: 16)).foregroundStyle(Cinema2026.text)
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Cinema2026.surface))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Cinema2026.divider, lineWidth: 0.5))
     }
 }
 
