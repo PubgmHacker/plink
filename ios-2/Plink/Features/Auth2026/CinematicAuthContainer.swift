@@ -56,11 +56,22 @@ struct CinematicAuthContainer<Content: View>: View {
 
 // MARK: - Стили кнопок
 
-/// Main action: a restrained cobalt surface with fixed geometry.
-/// Main action: светлая плашка. Раньше была синим градиентом — но после того,
-/// как стеклянные поля получили синий тинт бренда, кнопка перестала от них
-/// отличаться: три синие плашки подряд одного веса. Свет — самый сильный
-/// контраст на тёмном экране, поэтому главное действие берёт его себе.
+/// Главное действие — ЕДИНСТВЕННАЯ светлая плашка на экране.
+///
+/// Ответ на вопрос «а нужны ли цветные кнопки или сделать всё стеклянное»
+/// (аудит 04.08.2026): всё стеклянное — нельзя. Экран, где поля, переключатель
+/// и кнопка сделаны из одного полупрозрачного материала, теряет фокус: у всех
+/// элементов один вес, и глазу не за что зацепиться. Это и есть механика
+/// «выглядит дешёво» — не отсутствие цвета, а отсутствие иерархии. Плюс сам
+/// Apple описывает обычную стеклянную кнопку как второстепенную («её плохо
+/// видно — нормально, если кнопка не так важна»), а для главного действия
+/// предлагает выраженную заливку.
+///
+/// Поэтому: поля — плотные и тёмные, переключатель — утопленный, кнопка —
+/// светлая. Ровно один яркий элемент, и это то самое действие, за которым
+/// человек пришёл. Цвет кнопке не нужен: на тёмном экране свет и есть самый
+/// сильный акцент, а любой конкретный цвет тут же присвоил бы шеллу одну из
+/// тем продукта — ту самую проблему, из-за которой синий и убрали.
 struct AuthPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -68,38 +79,42 @@ struct AuthPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 16.5, weight: .heavy))
-            .foregroundStyle(isEnabled ? PlinkBrand.blueInk : PlinkTheatre.muted)
+            .foregroundStyle(isEnabled ? Color(hex: 0x101013) : PlinkTheatre.muted)
             .frame(maxWidth: .infinity)
             // minHeight: при крупном Dynamic Type подпись не влезала в 56 pt.
             .frame(minHeight: 56)
             .background {
-                // Выключенная кнопка — НЕ полупрозрачная белая: прозрачность на
-                // тёмном фоне даёт ровно тот серый, от которого уходим. Вместо
-                // этого — тёмное стекло в синем бренда: кнопка явно неактивна,
-                // но остаётся частью экрана, а не выцветшим пятном.
                 if isEnabled {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    // Тёплый уход книзу, а не в холодный: кнопка освещена тем
+                    // же лучом, что знак. Холодно-голубой низ (как было) читался
+                    // «синей темой», а не светом.
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [.white, Color(red: 0.87, green: 0.91, blue: 0.98)],
+                                colors: [.white, Color(hex: 0xF0E7D8)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         )
                 } else {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(PlinkBrand.glassTint.opacity(0.55))
+                    // Выключенная кнопка — НЕ полупрозрачная белая: прозрачность
+                    // на тёмном даёт ровно тот серый, от которого уходим.
+                    // Плотная поверхность на ступень ниже поля: кнопка явно
+                    // неактивна, но остаётся частью экрана.
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(PlinkTheatre.surface)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
                         }
                 }
             }
+            // Тёплое гало: кнопка выглядит источником света, а не наклейкой.
             .shadow(
-                color: PlinkBrand.warm.opacity(
-                    isEnabled ? (configuration.isPressed ? 0.10 : 0.22) : 0
+                color: PlinkTheatre.warm.opacity(
+                    isEnabled ? (configuration.isPressed ? 0.12 : 0.26) : 0
                 ),
-                radius: configuration.isPressed ? 8 : 20,
+                radius: configuration.isPressed ? 10 : 24,
                 y: 8
             )
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
@@ -163,7 +178,7 @@ struct CompactAuthField: View {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(focused ? PlinkTheatre.tealDeep : PlinkTheatre.muted)
+                    .foregroundStyle(focused ? PlinkTheatre.warm : PlinkTheatre.muted)
                     .frame(width: 18)
             }
             Group {
@@ -181,19 +196,24 @@ struct CompactAuthField: View {
             .onSubmit { onSubmit?() }
             .focused($focused)
             .foregroundStyle(PlinkTheatre.screen)
-            .tint(PlinkTheatre.tealDeep)
+            .tint(PlinkTheatre.warm)
         }
         .padding(.horizontal, 18)
         .frame(height: 56)
-        .plinkGlass(.control, cornerRadius: 18)
+        // Плотная заливка, не стекло — см. разбор в AuthField
+        // (PlinkAuthScreen): поле ввода это слой контента, а не управления.
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(focused ? PlinkTheatre.surfaceLift : PlinkTheatre.surface)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
-                    focused ? PlinkTheatre.tealDeep.opacity(0.78) : PlinkTheatre.hairline,
-                    lineWidth: focused ? 1.3 : 1
+                    focused ? PlinkTheatre.warm.opacity(0.55) : PlinkTheatre.hairline,
+                    lineWidth: focused ? 1.4 : 1
                 )
         )
-        .shadow(color: PlinkTheatre.tealDeep.opacity(focused ? 0.15 : 0), radius: 12)
+        .shadow(color: PlinkTheatre.warm.opacity(focused ? 0.14 : 0), radius: 12)
         .animation(.easeOut(duration: 0.18), value: focused)
         .accessibilityLabel(title)
     }
@@ -277,7 +297,7 @@ struct LegalConsentFooter: View {
                 Link("Конфиденциальность", destination: URL(string: "https://plink.app/privacy")!)
             }
             .font(.system(size: 11, weight: .medium))
-            .tint(PlinkTheatre.tealDeep)
+            .tint(PlinkTheatre.warmSoft)
         }
     }
 }

@@ -261,15 +261,19 @@ struct AuthLaunchGate: View {
 
 // MARK: - Cinematic splash («restoring session»)
 
-/// Точные цвета бренда Plink (как на лендинге): бархат кинозала, свет экрана, teal.
+/// Сплэш берёт цвета ИЗ ШЕЛЛА (PlinkTheatre), а не держит свою копию.
+///
+/// Аудит 04.08.2026: здесь лежала третья палитра проекта со своими значениями
+/// (#060d0f вместо #0B0B0D и т.д.) и с мёртвыми teal-токенами от палитры,
+/// которой в продукте уже нет. Сплэш и вход показываются друг за другом, и
+/// расхождение читалось как смена фона при переходе.
 private enum SplashPalette {
-    static let velvetDeep = Color(red: 7 / 255.0, green: 8 / 255.0, blue: 9 / 255.0)      // #060d0f
-    static let velvet = Color(red: 16 / 255.0, green: 19 / 255.0, blue: 20 / 255.0)         // #0c1b1e
-    static let screenLight = Color(red: 242 / 255.0, green: 244 / 255.0, blue: 243 / 255.0) // #eafaf7
-    static let muted = Color(red: 152 / 255.0, green: 163 / 255.0, blue: 160 / 255.0)       // #7fa39c
-    static let teal = Color(red: 242 / 255.0, green: 244 / 255.0, blue: 243 / 255.0)         // монохром: бывший teal → свет экрана
-    static let tealBright = Color.white   // #49f7d8
-    static let tealDeep = Color(red: 25 / 255.0, green: 224 / 255.0, blue: 192 / 255.0)     // #0a9a83
+    static let velvetDeep = PlinkTheatre.velvetDeep
+    static let velvet = PlinkTheatre.velvet
+    static let screenLight = PlinkTheatre.screen
+    static let muted = PlinkTheatre.muted
+    /// Акцент сплэша — тёплый свет, тот же, что у знака и у входа.
+    static let accent = PlinkTheatre.warm
 }
 
 /// Луч проектора: трапеция от узкой «апертуры» сверху к широкому основанию.
@@ -371,13 +375,10 @@ struct CinematicSplashView: View {
             logoMark
                 .scaleEffect(pulsing ? 1.04 : 1.0)
 
-            // Вордмарк тот же, что на экране входа: плотный, с отрицательным
-            // трекингом. Раньше здесь было «Plink» обычным полужирным, на входе
-            // — «PLINK» вразрядку, то есть два разных написания подряд.
-            Text("PLINK")
-                .font(.system(size: 34, weight: .black))
-                .tracking(-1)
-                .foregroundStyle(SplashPalette.screenLight)
+            // Ровно тот же компонент, что на экране входа, — со светящейся
+            // щелью на месте «I». Раньше здесь стоял свой Text("PLINK"), и
+            // сплэш с входом показывали разные написания одного слова.
+            PlinkWordmark(size: 34)
                 .padding(.top, 22)
 
             Text("СМОТРИМ ВМЕСТЕ")
@@ -391,7 +392,7 @@ struct CinematicSplashView: View {
 
             ProgressView()
                 .progressViewStyle(.circular)
-                .tint(SplashPalette.teal)
+                .tint(SplashPalette.accent)
                 .scaleEffect(0.9)
                 .opacity(0.85)
                 .padding(.bottom, 48)

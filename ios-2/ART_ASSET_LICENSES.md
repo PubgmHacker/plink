@@ -1,53 +1,69 @@
 # Art Asset Licenses
 
-## Auth Poster Mosaic
+## Auth / splash background
 
-The animated poster mosaic in `AnimatedPosterMosaic.swift` loads images
-from public CDN URLs at runtime. These are NOT bundled in the app binary.
+`AnimatedPosterMosaic.swift` рисует фон экранов входа и сплэша **полностью
+процедурно**: градиент + световая утечка + зерно плёнки, сид от индекса тайла.
+Ни одного внешнего изображения — ни в бандле, ни по сети.
 
-### Source: TMDB (The Movie Database)
+Права спрашивать не у кого: рисунка, у которого есть автор, здесь нет.
 
-- **URL pattern:** `https://image.tmdb.org/t/p/w500/<path>.jpg`
-- **License:** TMDB API terms — images are provided for display purposes
-  under their API license. No artwork is copied, redistributed or
-  bundled in the app.
-- **Usage:** Runtime `AsyncImage` fetch only. No local caching beyond
-  standard URLCache. No metadata extraction.
+### Почему не настоящие постеры (решение 04.08.2026)
 
-### Movies referenced (as of 2026-07-12):
+Прошлая версия тянула постеры с `image.tmdb.org` (Dune, Oppenheimer, Barbie,
+Joker, Interstellar, Shutter Island, Blade Runner 2049, The Dark Knight,
+Inception) и оправдывалась тем, что «изображения не бандлятся». Это неверный
+аргумент: отсутствие бандла отвечает на вопрос о **распространении**, а не о
+праве **показывать** чужую работу в своём интерфейсе.
 
-| Movie | TMDB Path |
-|---|---|
-| Dune | `8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg` |
-| Oppenheimer | `qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg` |
-| Barbie | `1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg` |
-| Joker | `aDQZHvI3rGdtzZ2nFGzJXWL7X5m.jpg` |
-| Interstellar | `8Gxv8gSFCU0XGDykEGv7clRv7wq.jpg` |
-| Shutter Island | `kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg` |
-| Blade Runner 2049 | `9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg` |
-| The Dark Knight | `b41qXmtBtZQ3hU2rL3mJ8mFnFk.jpg` |
-| Inception | `7Hfi13FfRTIfEYFiQXiIuV2xV8a.jpg` |
+Что было не так по существу:
 
-### Compliance
+- Постеры и кадры — объекты авторского права студий. Декоративный фон в чужом
+  приложении не подпадает под fair use: использование коммерческое,
+  неизменённое и не трансформирующее.
+- TMDB своими условиями **не передаёт** прав на сами изображения — они лишь
+  отдают то, что загрузили правообладатели и сообщество. Права студий этим не
+  закрываются.
+- App Review 5.2 требует, чтобы приложение подавала сторона, которой права
+  принадлежат или лицензированы. Netflix показывает эти постеры, потому что
+  лицензировал сам контент; у Plink такой лицензии нет.
 
-- No Pinterest art, anime illustrations, or proprietary streaming
-  service branding is used.
-- No EXIF or location metadata is stored.
-- Images are loaded on-demand and subject to user's network.
-- If TMDB is unavailable, fallback shows `Cinema2026.surface` rectangles.
+Слой удалён из кода. Генеративная мозаика — **основной** путь, а не фолбэк.
 
-### Future: Bundled Assets
+### Если однажды понадобится фотографическая фактура
 
-For offline support and guaranteed availability, replace runtime CDN
-fetches with bundled licensed PNGs:
+Допустимые источники, в порядке предпочтения:
 
-```
-Assets.xcassets/AuthPoster01.imageset ... AuthPoster09.imageset
-```
+1. **Процедурная графика** (как сейчас) — ноль рисков.
+2. **Unsplash / Pexels** — коммерческое использование разрешено, атрибуция не
+   требуется. Брать только кадры **без узнаваемых лиц и без логотипов**: лицо
+   тянет за собой права на изображение человека, которые лицензия на фото не
+   покрывает.
+3. **Общественное достояние** — постеры до 1930-х (Nosferatu 1922, Metropolis
+   1927 и подобные) из Wikimedia Commons / Internet Archive / PICRYL.
 
-Each bundled asset must have:
-- Original source documented
-- Artist/photographer credited
-- License type (CC-BY, licensed, original)
-- Territory restrictions
-- Expiry date (if applicable)
+Для любого файла из п. 2–3 в этот документ обязательно пишется: название, год,
+источник (URL), тип лицензии, дата проверки. Для п. 3 — ещё и подтверждение,
+что права не продлевались.
+
+**Отдельно запрещено:** брать превью чужих видео с YouTube / VK / Rutube как
+декорацию. Внутри продукта эти сервисы играются по их правилам встраивания;
+использовать их кадры как украшение своего экрана эти правила не разрешают
+(App Review 5.2.3 называет YouTube прямо).
+
+### Что НЕ является достаточным обоснованием
+
+- «Загружаем по сети, не бандлим» — это про распространение, не про права.
+- «Есть API-ключ» — ключ даёт доступ к данным, а не права на изображения.
+- «Показываем размыто и мелко» — переработкой это не считается.
+
+## Иконка приложения и знак бренда
+
+`scripts/make_app_icons.py` и `PlinkBrandMark.swift` — собственная отрисовка,
+без сторонних ассетов. Шрифт — системный SF (Apple разрешает использование в
+интерфейсе приложений на своих платформах).
+
+## Прочее
+
+- EXIF и геометки нигде не сохраняются.
+- Брендинг сторонних стриминговых сервисов не используется.

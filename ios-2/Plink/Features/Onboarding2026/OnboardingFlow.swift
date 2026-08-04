@@ -271,7 +271,7 @@ struct OnboardingSyncScene: View {
                 .overlay {
                     // Свет экрана — то, что делает картинку «кино», а не схемой.
                     RadialGradient(
-                        colors: [PlinkTheatre.tealDeep.opacity(0.55), .clear],
+                        colors: [PlinkTheatre.warm.opacity(0.55), .clear],
                         center: .center, startRadius: 2, endRadius: 62
                     )
                 }
@@ -340,7 +340,7 @@ struct OnboardingReelsScene: View {
             .frame(width: 128, height: 190)
             .overlay {
                 RadialGradient(
-                    colors: [PlinkTheatre.tealDeep.opacity(0.42), .clear],
+                    colors: [PlinkTheatre.warm.opacity(0.42), .clear],
                     center: UnitPoint(x: 0.5, y: 0.32), startRadius: 4, endRadius: 150
                 )
             }
@@ -383,7 +383,7 @@ struct OnboardingAIScene: View {
                 ForEach(0..<3, id: \.self) { ring in
                     Circle()
                         .strokeBorder(
-                            PlinkTheatre.tealDeep.opacity(0.30 - Double(ring) * 0.08),
+                            PlinkTheatre.warm.opacity(0.30 - Double(ring) * 0.08),
                             lineWidth: 1
                         )
                         .frame(width: 108 + CGFloat(ring) * 46)
@@ -403,7 +403,7 @@ struct OnboardingAIScene: View {
                     .frame(width: 96)
                     .overlay {
                         RadialGradient(
-                            colors: [PlinkTheatre.tealDeep.opacity(0.6), .clear],
+                            colors: [PlinkTheatre.warm.opacity(0.6), .clear],
                             center: .center, startRadius: 2, endRadius: 70
                         )
                     }

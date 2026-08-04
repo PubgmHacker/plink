@@ -191,6 +191,68 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
+    // MARK: Доступность
+    //
+    // Фон входа собран из шести слоёв (мозаика кадров, луч, зерно), и каждый
+    // из них при Reduce Transparency / Reduce Motion обязан отключиться. Это
+    // ровно тот код, который ломается молча: обычные кадры выглядят
+    // нормально, а человек с включённой настройкой получает либо кашу, либо
+    // пустой чёрный экран. Поэтому оба состояния снимаются отдельно.
+
+    /// Reduce Transparency: мозаика, луч и зерно должны уйти, база и виньетка
+    /// остаться. Экран обязан быть НЕ пустым и НЕ прозрачным.
+    func testAuthReduceTransparencyShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(
+                prefilledEmail: "kira@plink.app",
+                prefilledPassword: "sunset42",
+                onAuthenticated: {}
+            )
+            .environmentObject(APIClient.shared)
+            .environment(
+                \.plinkAccessibilityOverride,
+                PlinkAccessibilityOverride(reduceTransparency: true)
+            ),
+            named: "14-auth-reduce-transparency"
+        )
+    }
+
+    /// Reduce Motion: мозаика встаёт статичным кадром (без TimelineView),
+    /// но остаётся на месте — движение убирается, картинка нет.
+    func testAuthReduceMotionShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(
+                prefilledEmail: "kira@plink.app",
+                prefilledPassword: "sunset42",
+                onAuthenticated: {}
+            )
+            .environmentObject(APIClient.shared)
+            .environment(
+                \.plinkAccessibilityOverride,
+                PlinkAccessibilityOverride(reduceMotion: true)
+            ),
+            named: "15-auth-reduce-motion"
+        )
+    }
+
+    /// Крупный Dynamic Type: у полей и кнопки minHeight вместо фиксированной
+    /// высоты — проверяем, что подписи не обрезаются.
+    func testAuthLargeTypeShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(
+                prefilledEmail: "kira@plink.app",
+                prefilledPassword: "sunset42",
+                onAuthenticated: {}
+            )
+            .environmentObject(APIClient.shared)
+            .environment(\.dynamicTypeSize, .accessibility2),
+            named: "16-auth-large-type"
+        )
+    }
+
     // MARK: - Инфраструктура
 
 
@@ -289,8 +351,8 @@ final class DesignAuditShots: XCTestCase {
         )
         host.overrideUserInterfaceStyle = .dark
         host.view.backgroundColor = .black
-
         window.rootViewController = host
+
         window.isHidden = false
         window.makeKeyAndVisible()
         host.view.frame = window.bounds

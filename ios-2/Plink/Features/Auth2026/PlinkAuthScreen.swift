@@ -142,11 +142,29 @@ struct PlinkAuthScreen: View {
             GeometryReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        Spacer(minLength: 24)
+                        // Верхний отступ ФИКСИРОВАННЫЙ, а разрыв ниже —
+                        // растягивающийся. Два обычных Spacer'а (было 24/26)
+                        // делили свободное место поровну и ставили шапку ровно
+                        // в центр пустоты — самая заметная черта шаблонного
+                        // экрана. Здесь знак стоит в верхней трети, а весь
+                        // излишек высоты уходит в разрыв перед формой.
+                        Spacer()
+                            .frame(height: max(24, proxy.size.height * 0.07))
 
                         header
 
-                        Spacer(minLength: 26)
+                        // Разрыв между блоком бренда и формой НАМЕРЕННО
+                        // крупнее любого расстояния внутри формы (минимум 56
+                        // против 12–18). Иерархия строится расстоянием: так
+                        // видно два блока — «кто мы» и «что сделать», — а не
+                        // восемь равноудалённых элементов.
+                        //
+                        // Потолка у разрыва НЕТ намеренно: с ним (пробовал 96)
+                        // весь излишек высоты уходил не в разрыв, а над
+                        // шапкой — стек прижимался к низу, и сверху
+                        // открывалась пустая треть экрана. Пусть лишнюю высоту
+                        // забирает пауза между блоками: она осмысленная.
+                        Spacer(minLength: 56)
 
                         modeSwitch
                             .padding(.bottom, 18)
@@ -154,10 +172,10 @@ struct PlinkAuthScreen: View {
                         card
 
                         LegalConsentFooter()
-                            .padding(.top, 20)
+                            .padding(.top, 22)
                             // Нижний отступ, а не 8: футер упирался в край
                             // экрана и обрезался под домашним индикатором.
-                            .padding(.bottom, 28)
+                            .padding(.bottom, 26)
                     }
                     .frame(maxWidth: 430)
                     .padding(.horizontal, 22)
@@ -189,28 +207,25 @@ struct PlinkAuthScreen: View {
     // MARK: Шапка
 
     private var header: some View {
-        VStack(spacing: 16) {
-            // Знак совпадает с иконкой на домашнем экране. Прежний
-            // PlinkFrameMark — серый стеклянный квадрат с play-треугольником —
-            // не совпадал ни с иконкой, ни с акцентом приложения.
-            PlinkBrandMark(size: 72)
+        VStack(spacing: 0) {
+            // Знак совпадает с иконкой на домашнем экране — и, после
+            // редизайна 04.08.2026, нейтрален к темам (см. PlinkBrandMark).
+            PlinkBrandMark(size: 76)
+                .padding(.bottom, 20)
 
-            // Начертание вместо .rounded с разрядкой 6: скруглённый гротеск
-            // вразрядку — шрифт по умолчанию у любого шаблона, отсюда и
-            // ощущение «сгенерированного» логотипа. Плотный узкий заголовок
-            // с отрицательным трекингом читается как вордмарк, а не как
-            // системный текст.
-            Text("PLINK")
-                .font(.system(size: 40, weight: .black, design: .default))
-                .tracking(-1.2)
-                .foregroundStyle(PlinkTheatre.screen)
+            PlinkWordmark(size: 42)
 
             // Обещание продукта, а не описание формы: экран должен говорить
             // «смотрим вместе», а не «заполните поля».
+            //
+            // Разрядка 0.3 и тёплый серый: подпись под плотным вордмарком
+            // должна быть заметно легче его, иначе два текста спорят.
             Text("Смотрите вместе — кадр в кадр")
-                .font(.system(size: 15.5, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
+                .tracking(0.3)
                 .foregroundStyle(PlinkTheatre.muted)
                 .multilineTextAlignment(.center)
+                .padding(.top, 14)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Plink. Смотрите вместе — кадр в кадр")
@@ -218,8 +233,16 @@ struct PlinkAuthScreen: View {
 
     // MARK: Переключатель режима
 
-    /// Скользящая пилюля на стекле — тот же приём, что в сегментах «Друзья»,
-    /// чтобы вход не выглядел экраном из другого приложения.
+    /// Скользящая пилюля — тот же приём, что в сегментах «Друзья», чтобы вход
+    /// не выглядел экраном из другого приложения.
+    ///
+    /// Аудит 04.08.2026: выбранная половина была ЗАЛИТА БЕЛЫМ, а дорожка —
+    /// синей. Белая плашка — самый сильный контраст на тёмном экране, и она
+    /// стояла на переключателе: экран кричал «Вход» вместо «Войти», спорил с
+    /// главной кнопкой (тоже белой) и делал вид, будто «Вход» и «Регистрация» —
+    /// главное решение экрана. Переключатель — навигация, а не действие:
+    /// теперь выбранная половина лишь чуть подсвечена, а текст на ней
+    /// становится белым. Единственная белая плашка на экране — кнопка.
     private var modeSwitch: some View {
         HStack(spacing: 4) {
             ForEach(PlinkAuthMode.allCases) { item in
@@ -239,29 +262,57 @@ struct PlinkAuthScreen: View {
                     focus = nil
                 } label: {
                     Text(item.title)
-                        .font(.system(size: 14.5, weight: .bold))
-                        .foregroundStyle(isOn ? PlinkBrand.blueInk : PlinkTheatre.muted)
+                        .font(.system(size: 14.5, weight: isOn ? .bold : .semibold))
+                        .foregroundStyle(isOn ? PlinkTheatre.screen : PlinkTheatre.muted)
                         .frame(maxWidth: .infinity)
                         // minHeight, а не фиксированная высота: при крупном
                         // Dynamic Type подпись иначе обрезается.
-                        .frame(minHeight: 44)
+                        .frame(minHeight: 42)
                         .background {
                             if isOn {
                                 Capsule(style: .continuous)
-                                    .fill(PlinkTheatre.screen)
+                                    .fill(PlinkTheatre.surfaceLift)
+                                    .overlay {
+                                        Capsule(style: .continuous)
+                                            .strokeBorder(PlinkTheatre.specular, lineWidth: 0.8)
+                                            .mask {
+                                                // Блик только по верхней кромке.
+                                                LinearGradient(
+                                                    colors: [.white, .clear],
+                                                    startPoint: .top,
+                                                    endPoint: .bottom
+                                                )
+                                            }
+                                    }
                                     .matchedGeometryEffect(id: "authModePill", in: modeNS)
                             }
                         }
                         .contentShape(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
+                // Идентификатор для UI-теста воронки: тот ищет
+                // «auth.openRegistration», чтобы переключиться на регистрацию.
+                // В приложении такого идентификатора не было ни на одном
+                // элементе (проверено на чистом main), поэтому тест не мог
+                // переключить режим и падал на «Поле имени пользователя не
+                // появилось» — то есть воронка не проверялась вообще.
+                .accessibilityIdentifier(
+                    item == .signUp ? "auth.openRegistration" : "auth.openSignIn"
+                )
                 .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
             }
         }
         .padding(4)
-        // Тинт синим бренда, а не нейтральное стекло: белое с прозрачностью на
-        // почти чёрном фоне даёт серый, из-за которого экран и выглядел мутным.
-        .plinkGlass(.control, in: Capsule(style: .continuous), tint: PlinkBrand.glassTint)
+        // Дорожка — утопленная, без тинта: тинт темой (был синий) объявлял
+        // цветом бренда одну из тем продукта.
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.34))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+        )
     }
 
     // MARK: Форма
@@ -369,7 +420,7 @@ struct PlinkAuthScreen: View {
                 if isLoading {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(PlinkTheatre.velvetDeep)
+                        .tint(Color(hex: 0x101013))
                 }
             }
         }
@@ -473,7 +524,7 @@ private struct AuthField<Trailing: View>: View {
             HStack(spacing: 10) {
                 if let icon {
                     V4GlyphIcon(glyph: icon, size: 16, weight: .regular)
-                        .foregroundStyle(focused ? PlinkTheatre.tealDeep : PlinkTheatre.muted)
+                        .foregroundStyle(focused ? PlinkTheatre.warm : PlinkTheatre.muted)
                         .frame(width: 20)
                 }
 
@@ -492,7 +543,7 @@ private struct AuthField<Trailing: View>: View {
                 .onSubmit { onSubmit?() }
                 .focused($focused)
                 .foregroundStyle(PlinkTheatre.screen)
-                .tint(PlinkTheatre.tealDeep)
+                .tint(PlinkTheatre.warm)
 
                 trailing
             }
@@ -500,12 +551,48 @@ private struct AuthField<Trailing: View>: View {
             .padding(.trailing, 6)
             // minHeight: при крупном Dynamic Type текст в 56 pt не влезал.
             .frame(minHeight: 56)
-            // Тинт синим бренда: нейтральное стекло на почти чёрном фоне
-            // читалось серым, и весь экран выглядел выцветшим.
-            .plinkGlass(.control, cornerRadius: 18, tint: PlinkBrand.glassTint)
+            // ПОЛЯ — ПЛОТНЫЕ, НЕ СТЕКЛЯННЫЕ (аудит 04.08.2026).
+            //
+            // Здесь было стекло с синим тинтом темы. Убрано по двум причинам.
+            //
+            // Правило: стекло у Apple живёт на слое НАВИГАЦИИ И УПРАВЛЕНИЯ
+            // (панели, тулбары, кнопки), а не на слое контента. Поле ввода —
+            // контент: человек в него пишет и должен видеть, что написал.
+            // Собственные экраны Apple (Настройки, App Store) дают полям
+            // плотную заливку, а не размытие. Сам Apple в 26.1 был вынужден
+            // добавить «Tinted»-режим, потому что стекло поверх насыщенного
+            // фона мешало читать.
+            //
+            // И практическая: за формой теперь живая мозаика кадров. Стекло
+            // пропускало бы её внутрь поля, и контраст текста зависел бы от
+            // того, какой тайл под полем проплывает. Плотная подложка
+            // гарантирует 4.5:1 при любом кадре фона.
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(focused ? PlinkTheatre.surfaceLift : PlinkTheatre.surface)
+            )
+            .overlay {
+                // Блик по верхней кромке — «поверхность поймала свет».
+                // Именно этой детали не хватало, чтобы плотная плашка не
+                // читалась плоским прямоугольником.
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(PlinkTheatre.specular, lineWidth: 0.8)
+                    .mask {
+                        LinearGradient(
+                            colors: [.white, .clear],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                    }
+            }
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(borderColor, lineWidth: focused || problem != nil ? 1.3 : 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: focused || problem != nil ? 1.4 : 1)
+            )
+            // Фокус подсвечен тёплым — акцентом шелла, а не темы.
+            .shadow(
+                color: PlinkTheatre.warm.opacity(focused ? 0.14 : 0),
+                radius: 14
             )
             .animation(.easeOut(duration: 0.18), value: focused)
             .animation(.easeOut(duration: 0.18), value: problem != nil)
@@ -525,7 +612,7 @@ private struct AuthField<Trailing: View>: View {
 
     private var borderColor: Color {
         if problem != nil { return PlinkTheatre.amber.opacity(0.72) }
-        return focused ? PlinkTheatre.tealDeep.opacity(0.78) : PlinkTheatre.hairline
+        return focused ? PlinkTheatre.warm.opacity(0.55) : PlinkTheatre.hairline
     }
 
     private var prompt: Text {
