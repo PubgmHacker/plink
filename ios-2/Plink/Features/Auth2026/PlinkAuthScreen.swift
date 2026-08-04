@@ -65,6 +65,11 @@ struct PlinkAuthScreen: View {
     /// Режим при открытии. Пользователь всегда попадает на «Вход» — параметр
     /// нужен рендеру кадров для аудита, чтобы снять оба состояния экрана.
     var initialMode: PlinkAuthMode = .signIn
+    /// Предзаполненные поля — только для рендера кадров: судить о контрасте
+    /// активной кнопки по пустой форме нельзя, а нажать в офскрин-рендере
+    /// некому.
+    var prefilledEmail: String? = nil
+    var prefilledPassword: String? = nil
     let onAuthenticated: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -169,6 +174,8 @@ struct PlinkAuthScreen: View {
         .onAppear {
             guard !appeared else { return }
             mode = initialMode
+            if let prefilledEmail { email = prefilledEmail }
+            if let prefilledPassword { password = prefilledPassword }
             if reduceMotion {
                 appeared = true
             } else {
@@ -182,20 +189,27 @@ struct PlinkAuthScreen: View {
     // MARK: Шапка
 
     private var header: some View {
-        VStack(spacing: 14) {
-            PlinkFrameMark(size: 66)
+        VStack(spacing: 16) {
+            // Знак совпадает с иконкой на домашнем экране. Прежний
+            // PlinkFrameMark — серый стеклянный квадрат с play-треугольником —
+            // не совпадал ни с иконкой, ни с акцентом приложения.
+            PlinkBrandMark(size: 72)
 
+            // Начертание вместо .rounded с разрядкой 6: скруглённый гротеск
+            // вразрядку — шрифт по умолчанию у любого шаблона, отсюда и
+            // ощущение «сгенерированного» логотипа. Плотный узкий заголовок
+            // с отрицательным трекингом читается как вордмарк, а не как
+            // системный текст.
             Text("PLINK")
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .tracking(6)
+                .font(.system(size: 40, weight: .black, design: .default))
+                .tracking(-1.2)
                 .foregroundStyle(PlinkTheatre.screen)
 
             // Обещание продукта, а не описание формы: экран должен говорить
             // «смотрим вместе», а не «заполните поля».
             Text("Смотрите вместе — кадр в кадр")
-                .font(.system(size: 17, weight: .bold))
-                .tracking(-0.3)
-                .foregroundStyle(PlinkTheatre.screen)
+                .font(.system(size: 15.5, weight: .medium))
+                .foregroundStyle(PlinkTheatre.muted)
                 .multilineTextAlignment(.center)
         }
         .accessibilityElement(children: .combine)
@@ -226,7 +240,7 @@ struct PlinkAuthScreen: View {
                 } label: {
                     Text(item.title)
                         .font(.system(size: 14.5, weight: .bold))
-                        .foregroundStyle(isOn ? PlinkTheatre.velvetDeep : PlinkTheatre.muted)
+                        .foregroundStyle(isOn ? PlinkBrand.blueInk : PlinkTheatre.muted)
                         .frame(maxWidth: .infinity)
                         // minHeight, а не фиксированная высота: при крупном
                         // Dynamic Type подпись иначе обрезается.
@@ -245,7 +259,9 @@ struct PlinkAuthScreen: View {
             }
         }
         .padding(4)
-        .plinkGlass(.control, in: Capsule(style: .continuous))
+        // Тинт синим бренда, а не нейтральное стекло: белое с прозрачностью на
+        // почти чёрном фоне даёт серый, из-за которого экран и выглядел мутным.
+        .plinkGlass(.control, in: Capsule(style: .continuous), tint: PlinkBrand.glassTint)
     }
 
     // MARK: Форма
@@ -484,7 +500,9 @@ private struct AuthField<Trailing: View>: View {
             .padding(.trailing, 6)
             // minHeight: при крупном Dynamic Type текст в 56 pt не влезал.
             .frame(minHeight: 56)
-            .plinkGlass(.control, cornerRadius: 18)
+            // Тинт синим бренда: нейтральное стекло на почти чёрном фоне
+            // читалось серым, и весь экран выглядел выцветшим.
+            .plinkGlass(.control, cornerRadius: 18, tint: PlinkBrand.glassTint)
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(borderColor, lineWidth: focused || problem != nil ? 1.3 : 1)

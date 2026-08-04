@@ -272,34 +272,6 @@ private enum SplashPalette {
     static let tealDeep = Color(red: 25 / 255.0, green: 224 / 255.0, blue: 192 / 255.0)     // #0a9a83
 }
 
-/// Play-«кадр»: треугольник со скруглёнными углами.
-/// Логотип Plink = два таких кадра слоями («кадр в кадр»).
-private struct PlayFrameShape: Shape {
-    var cornerRadius: CGFloat = 9
-
-    func path(in rect: CGRect) -> Path {
-        let vertices = [
-            CGPoint(x: rect.minX, y: rect.minY),
-            CGPoint(x: rect.maxX, y: rect.midY),
-            CGPoint(x: rect.minX, y: rect.maxY)
-        ]
-        var path = Path()
-        // Старт с середины левой (плоской) грани, углы скругляются дугами.
-        let first = vertices[0]
-        let last = vertices[vertices.count - 1]
-        path.move(to: CGPoint(x: (first.x + last.x) / 2, y: (first.y + last.y) / 2))
-        for index in 0..<vertices.count {
-            path.addArc(
-                tangent1End: vertices[index],
-                tangent2End: vertices[(index + 1) % vertices.count],
-                radius: cornerRadius
-            )
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Луч проектора: трапеция от узкой «апертуры» сверху к широкому основанию.
 private struct ProjectorBeamShape: Shape {
     func path(in rect: CGRect) -> Path {
@@ -399,10 +371,14 @@ struct CinematicSplashView: View {
             logoMark
                 .scaleEffect(pulsing ? 1.04 : 1.0)
 
-            Text("Plink")
-                .font(.system(size: 30, weight: .bold))
+            // Вордмарк тот же, что на экране входа: плотный, с отрицательным
+            // трекингом. Раньше здесь было «Plink» обычным полужирным, на входе
+            // — «PLINK» вразрядку, то есть два разных написания подряд.
+            Text("PLINK")
+                .font(.system(size: 34, weight: .black))
+                .tracking(-1)
                 .foregroundStyle(SplashPalette.screenLight)
-                .padding(.top, 24)
+                .padding(.top, 22)
 
             Text("СМОТРИМ ВМЕСТЕ")
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -426,28 +402,13 @@ struct CinematicSplashView: View {
         .accessibilityLabel("Plink. Смотрим вместе. Загрузка")
     }
 
-    /// Логотип: «кадр в кадр» — двойной слоёный play-кадр.
+    /// Логотип сплэша — тот же знак, что на иконке и на экране входа.
+    ///
+    /// Здесь был свой «слоёный play-кадр» в teal-градиенте: третья версия
+    /// логотипа в одном продукте (иконка, вход, сплэш — все разные). Знак
+    /// теперь один.
     private var logoMark: some View {
-        ZStack {
-            // Эхо-кадр: смещённый задний слой.
-            PlayFrameShape(cornerRadius: 9)
-                .fill(SplashPalette.teal.opacity(0.35))
-                .frame(width: 62, height: 70)
-                .offset(x: 8, y: 8)
-
-            // Передний кадр: фирменный teal-градиент с мягким свечением.
-            PlayFrameShape(cornerRadius: 9)
-                .fill(
-                    LinearGradient(
-                        colors: [SplashPalette.tealBright, SplashPalette.tealDeep],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 62, height: 70)
-                .shadow(color: SplashPalette.teal.opacity(0.45), radius: 22, y: 6)
-        }
-        .accessibilityHidden(true)
+        PlinkBrandMark(size: 82)
     }
 }
 

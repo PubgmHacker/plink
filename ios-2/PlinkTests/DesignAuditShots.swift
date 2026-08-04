@@ -162,6 +162,22 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
+    /// Заполненный вход — активная главная кнопка. Пустую форму видно на
+    /// 10-auth-signin, но пользователь бо́льшую часть времени смотрит на
+    /// заполненную, и судить о контрасте кнопки надо по ней.
+    func testAuthFilledShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(
+                prefilledEmail: "kira@plink.app",
+                prefilledPassword: "sunset42",
+                onAuthenticated: {}
+            )
+            .environmentObject(APIClient.shared),
+            named: "12-auth-filled"
+        )
+    }
+
     /// Экран входа с сообщением об истёкшей сессии.
     func testAuthSessionNoticeShot() throws {
         try requireEnabled()

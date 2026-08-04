@@ -37,7 +37,7 @@ struct CinematicAuthContainer<Content: View>: View {
 
     private var hero: some View {
         VStack(spacing: 18) {
-            PlinkFrameMark(size: 72)
+            PlinkBrandMark(size: 76)
             Text(title)
                 .font(.system(size: 24, weight: .heavy))
                 .tracking(-0.5)
@@ -57,39 +57,57 @@ struct CinematicAuthContainer<Content: View>: View {
 // MARK: - Стили кнопок
 
 /// Main action: a restrained cobalt surface with fixed geometry.
+/// Main action: светлая плашка. Раньше была синим градиентом — но после того,
+/// как стеклянные поля получили синий тинт бренда, кнопка перестала от них
+/// отличаться: три синие плашки подряд одного веса. Свет — самый сильный
+/// контраст на тёмном экране, поэтому главное действие берёт его себе.
 struct AuthPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .bold))
-            .foregroundStyle(.white)
+            .font(.system(size: 16.5, weight: .heavy))
+            .foregroundStyle(isEnabled ? PlinkBrand.blueInk : PlinkTheatre.muted)
             .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background(
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.48, blue: 1.0), Color(red: 0.10, green: 0.27, blue: 0.93)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(.white.opacity(0.16), lineWidth: 1)
-            )
+            // minHeight: при крупном Dynamic Type подпись не влезала в 56 pt.
+            .frame(minHeight: 56)
+            .background {
+                // Выключенная кнопка — НЕ полупрозрачная белая: прозрачность на
+                // тёмном фоне даёт ровно тот серый, от которого уходим. Вместо
+                // этого — тёмное стекло в синем бренда: кнопка явно неактивна,
+                // но остаётся частью экрана, а не выцветшим пятном.
+                if isEnabled {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [.white, Color(red: 0.87, green: 0.91, blue: 0.98)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                } else {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(PlinkBrand.glassTint.opacity(0.55))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                        }
+                }
+            }
             .shadow(
-                color: Color(red: 0.04, green: 0.39, blue: 1).opacity(configuration.isPressed ? 0.14 : 0.30),
-                radius: configuration.isPressed ? 8 : 18,
+                color: PlinkBrand.warm.opacity(
+                    isEnabled ? (configuration.isPressed ? 0.10 : 0.22) : 0
+                ),
+                radius: configuration.isPressed ? 8 : 20,
                 y: 8
             )
-            .opacity(isEnabled ? 1 : 0.45)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .animation(
                 reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7),
                 value: configuration.isPressed
             )
+            .animation(.easeOut(duration: 0.2), value: isEnabled)
     }
 }
 
