@@ -392,7 +392,7 @@ struct V4AIChatView: View {
                 HapticManager.impact(.light)
                 Task { await store.send(text) }
             } label: {
-                V4GlyphIcon(glyph: .send, size: 17, weight: .regular, filled: true)
+                V4GlyphIcon(glyph: .send, size: 17, filled: true, weight: .regular)
                     .foregroundStyle(theme.buttonTextColor)
                     .frame(width: 42, height: 42)
                     .background(theme.accentColor, in: Circle())
