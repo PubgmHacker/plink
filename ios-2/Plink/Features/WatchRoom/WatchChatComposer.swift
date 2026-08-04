@@ -17,6 +17,15 @@ struct WatchChatComposer: View {
     @State private var photoDraft: ChatPhotoDraft?
     @State private var photoCaption = ""
     @State private var photoError: String?
+    /// Голосовой ввод в чате комнаты — тот же движок, что на вкладке ИИ.
+    @StateObject private var voiceCapture = V4VoiceCapture()
+
+    /// Тема для орба и кнопки микрофона. Комната читает выбранную тему из
+    /// UserDefaults — так же, как PlinkApprovedV4Root пишет её при смене.
+    private var roomTheme: V4Theme {
+        let raw = UserDefaults.standard.string(forKey: "plink.v4ThemeName") ?? ""
+        return V4Theme(rawValue: raw) ?? .electric
+    }
 
     private var canSend: Bool {
         // M16: ИИ-модератор — при активном муте отправка заблокирована
@@ -160,6 +169,26 @@ struct WatchChatComposer: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            // Панель записи — над полем ввода, а не поверх экрана: кадр и
+            // переписка остаются видны, пока человек говорит.
+            if voiceCapture.isCapturing {
+                V4VoiceDock(
+                    capture: voiceCapture,
+                    theme: roomTheme,
+                    onSend: {
+                        voiceCapture.pressEnded { text in
+                            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !clean.isEmpty else { return }
+                            state.text = clean
+                        }
+                    },
+                    onCancel: { voiceCapture.cancel() }
+                )
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             // Telegram-style: [ + ] [ field ………………… ] [😊] [↑]
             HStack(alignment: .bottom, spacing: 8) {
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
@@ -234,28 +263,44 @@ struct WatchChatComposer: View {
                     )
                 }
 
-                Button {
-                    let value = state.trimmedText
-                    guard !value.isEmpty, !state.isOverLength else { return }
-                    model.sendChat(text: value)
-                    state.clearAfterSend()
-                    showEmojiPanel = false
-                    HapticManager.impact(.light)
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(
-                            (!state.trimmedText.isEmpty && !state.isOverLength)
-                                ? AnyShapeStyle(Cinema2026.accentAction)
-                                : AnyShapeStyle(Cinema2026.raised),
-                            in: Circle()
-                        )
-                        .overlay(Circle().stroke(.white.opacity(0.05), lineWidth: 0.5))
+                // Пустое поле — микрофон, есть текст — отправка. Голос здесь
+                // способ ввода, а не отдельный режим: распознанное садится в
+                // то же поле, его можно поправить перед отправкой.
+                if state.trimmedText.isEmpty {
+                    V4VoiceMicButton(
+                        capture: voiceCapture,
+                        theme: roomTheme,
+                        surface: "room_chat",
+                        chrome: .bare,
+                        onResult: { text in
+                            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !clean.isEmpty else { return }
+                            state.text = clean
+                        }
+                    )
+                } else {
+                    Button {
+                        let value = state.trimmedText
+                        guard !value.isEmpty, !state.isOverLength else { return }
+                        model.sendChat(text: value)
+                        state.clearAfterSend()
+                        showEmojiPanel = false
+                        HapticManager.impact(.light)
+                    } label: {
+                        V4GlyphIcon(glyph: .send, size: 16, filled: true, weight: .regular)
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(
+                                state.isOverLength
+                                    ? AnyShapeStyle(Cinema2026.raised)
+                                    : AnyShapeStyle(Cinema2026.accentAction),
+                                in: Circle()
+                            )
+                            .overlay(Circle().stroke(.white.opacity(0.05), lineWidth: 0.5))
+                    }
+                    .disabled(state.isOverLength)
+                    .accessibilityLabel("Отправить")
                 }
-                .disabled(state.trimmedText.isEmpty || state.isOverLength)
-                .accessibilityLabel("Отправить")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
