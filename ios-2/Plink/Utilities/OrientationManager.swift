@@ -69,7 +69,7 @@ final class OrientationManager {
     // MARK: - Orientation Lock (fix v2)
     //
     // 🔧 FIX v2 (July 2026): AppDelegate-level orientation lock for RoomView.
-    // See PlinkAppDelegate in RaveCloneApp.swift for the full rationale.
+    // See PlinkAppDelegate in PlinkApp.swift for the full rationale.
     //
     // Why both `lockOrientation(_:)` AND `forceLandscape()`/`forcePortrait()`:
     //   - `forceLandscape/Portrait` ROTATES the device NOW (imperative).

@@ -103,7 +103,7 @@ targets:
         NSMicrophoneUsageDescription: Микрофон нужен для голосовых сообщений друзьям и голосового общения в комнате.
         NSCameraUsageDescription: Камера нужна для аватара и видеосообщений, когда вы их включите.
         UILaunchScreen:
-          UIColorName: raveBackground
+          UIColorName: LaunchBackground
         UIRequiresFullScreen: false
         UIBackgroundModes:
           - audio

@@ -500,34 +500,7 @@ enum V4AIState: String, Sendable {
     case idle, listening, thinking, speaking, moderating, offline, failed
 }
 
-// MARK: - Rave Color Aliases (for PaywallView, ProfileView compatibility)
-// These map old rave* names to Cinema2026 equivalents.
-
-extension Color {
-    static var ravePrimary: Color { Cinema2026.accent }
-    static var raveSecondary: Color { Cinema2026.accent }
-    static var raveAccent: Color { Cinema2026.accent }
-    static var raveBackground: Color { Cinema2026.background }
-    static var raveCard: Color { Cinema2026.surface }
-    static var raveSurface: Color { Cinema2026.surface }
-    static var raveRaised: Color { Cinema2026.raised }
-    static var raveDivider: Color { Cinema2026.divider }
-    static var raveTextPrimary: Color { Cinema2026.text }
-    static var raveTextSecondary: Color { Cinema2026.secondary }
-    static var raveTextTertiary: Color { Cinema2026.secondary }
-    static var raveMuted: Color { Cinema2026.secondary }
-    static var raveDanger: Color { Cinema2026.danger }
-    static var raveWarning: Color { Cinema2026.amber }
-    static var raveGreen: Color { Color(red: 0.15, green: 0.85, blue: 0.64) }
-    static var raveCyan: Color { Cinema2026.accent }
-    static var raveCoral: Color { Color(red: 1.0, green: 0.42, blue: 0.42) }
-    static var raveGradient: LinearGradient {
-        LinearGradient(colors: [Cinema2026.accent, Color(red: 0.15, green: 0.85, blue: 0.64)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-}
-
-// MARK: - Bio Color Aliases (for ProfileView, RaveCloneApp compatibility)
+// MARK: - Bio Color Aliases (совместимость с ProfileView)
 extension Color {
     static var bioCyan: Color { Cinema2026.accent }
     static var bioEmerald: Color { Color(red: 0.15, green: 0.85, blue: 0.64) }
@@ -542,7 +515,7 @@ extension Color {
     }
 }
 
-// MARK: - FeatureFlags stub (for PresenceBar, RaveCloneApp)
+// MARK: - FeatureFlags stub (for PresenceBar, точка входа приложения)
 
 // MARK: - Missing types for DiscoveryHomeView
 
