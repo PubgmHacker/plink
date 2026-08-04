@@ -90,6 +90,14 @@ final class DesignAuditShots: XCTestCase {
         try shoot(OnboardingFlow(onFinish: {}, onSkip: {}), named: "04-onboarding")
     }
 
+    /// Второй и третий экраны онбординга. Свайп в офскрин-рендере не
+    /// воспроизвести, поэтому сцены снимаются напрямую.
+    func testOnboardingScenesShot() throws {
+        try requireEnabled()
+        try shoot(OnboardingScenePreview(page: 1), named: "04b-onboarding-reels")
+        try shoot(OnboardingScenePreview(page: 2), named: "04c-onboarding-ai")
+    }
+
     func testAppearanceShot() throws {
         try requireEnabled()
         try shoot(
@@ -126,6 +134,44 @@ final class DesignAuditShots: XCTestCase {
                 openRoom: {}
             ),
             named: "08-home"
+        )
+    }
+
+    // MARK: - Вход и первый запуск
+    //
+    // Эти кадры нужны, чтобы судить о редизайне глазами: UI-тест воронки до
+    // экранов входа доходит, но дальше требует живую базу данных.
+
+    /// Вход — режим по умолчанию единого экрана.
+    func testAuthSignInShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(onAuthenticated: {})
+                .environmentObject(APIClient.shared),
+            named: "10-auth-signin"
+        )
+    }
+
+    /// Регистрация — тот же экран с переключателем в другом положении.
+    func testAuthSignUpShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(initialMode: .signUp, onAuthenticated: {})
+                .environmentObject(APIClient.shared),
+            named: "11-auth-signup"
+        )
+    }
+
+    /// Экран входа с сообщением об истёкшей сессии.
+    func testAuthSessionNoticeShot() throws {
+        try requireEnabled()
+        try shoot(
+            PlinkAuthScreen(
+                sessionMessage: "Сессия истекла. Войдите заново — это защищает ваш аккаунт.",
+                onAuthenticated: {}
+            )
+            .environmentObject(APIClient.shared),
+            named: "13-auth-session-notice"
         )
     }
 

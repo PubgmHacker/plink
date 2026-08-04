@@ -1,218 +1,424 @@
-// Plink/Features/Onboarding2026/OnboardingFlow.swift — 4-step MVP onboarding
-// Fixed: TabView no longer steals taps from Далее/Начать; callbacks always fire.
+// Plink/Features/Onboarding2026/OnboardingFlow.swift
+//
+// Первый запуск: три экрана, каждый продаёт одну мысль — смотрим синхронно,
+// лента трейлеров, ИИ собирает комнату. Четвёртого («все экраны») больше нет:
+// кросс-платформенность — не причина установить приложение, а сноска.
+//
+// Что изменено против прошлой версии и почему:
+//
+//   • Было четыре статичных экрана с иконкой SF Symbols и кнопкой «Далее» —
+//     ровно тот устаревший паттерн, от которого отказываемся. Теперь историю
+//     несёт движение: на каждом экране живёт своя сцена.
+//
+//   • «Пропустить» уехало из правого верхнего угла вниз, к основной кнопке.
+//     Верхний правый угол недосягаем большим пальцем (решение из брифа #1), а
+//     выход должен быть под рукой, а не в самом неудобном месте экрана.
+//
+//   • Разрешение на уведомления раньше запрашивалось молча в конце — системный
+//     диалог без объяснения. Теперь последний экран сам объясняет, зачем оно:
+//     «друг позвал смотреть» — и пользователь нажимает «Разрешить» осознанно.
+//     Кто не хочет, нажимает «Не сейчас» и системного диалога не видит вовсе.
+//
+//   • Свайп между экранами остаётся (TabView), стрелок нет — как в ленте.
 
 import SwiftUI
-
-struct OnboardingPageModel: Identifiable {
-    let id: String
-    let symbol: String
-    let title: String
-    let body: String
-}
+import UserNotifications
 
 struct OnboardingFlow: View {
     let onFinish: () -> Void
     let onSkip: (() -> Void)?
 
-    @State private var selection = 0
+    @State private var page = 0
+    @State private var isAskingPermission = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let pages: [OnboardingPageModel] = [
-        .init(id: "sync", symbol: "play.circle.fill",
-              title: "Смотрите вместе",
-              body: "YouTube, VK, Rutube — один таймкод у всех. Пауза у друга — пауза у вас."),
-        .init(id: "ai", symbol: "sparkles",
-              title: "AI Companion",
-              body: "Подскажет, что включить, и поможет создать комнату."),
-        .init(id: "themes", symbol: "moon.stars.fill",
-              title: "Живые темы",
-              body: "Aurora, Cosmos, Verdant, Magma — атмосфера комнаты в Plink+."),
-        .init(id: "cross", symbol: "iphone.gen3",
-              title: "Все экраны",
-              body: "iOS, Android, Mac, Windows — один код комнаты на всех."),
-    ]
+    private static let pageCount = 3
 
-    private var isLast: Bool { selection >= pages.count - 1 }
+    private var isLast: Bool { page >= Self.pageCount - 1 }
 
     var body: some View {
         ZStack {
-            Cinema2026.background.ignoresSafeArea()
-            CompactLivingBackdrop(primary: Cinema2026.accent, secondary: Cinema2026.amber)
+            PlinkTheatre.velvetDeep.ignoresSafeArea()
+            ProjectorBeamBackground()
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                // Skip
-                HStack {
-                    Spacer()
-                    if let onSkip, !isLast {
-                        Button {
-                            HapticManager.impact(.light)
-                            onSkip()
-                        } label: {
-                            Text("Пропустить")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Cinema2026.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Пропустить онбординг")
-                    }
-                }
-                .frame(height: 48)
-                .padding(.horizontal, 12)
-
-                // Pages — constrained so they cannot cover the bottom CTA
-                TabView(selection: $selection) {
-                    ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
-                        OnboardingPage(page: page)
-                            .tag(index)
-                            .contentShape(Rectangle())
-                    }
+                TabView(selection: $page) {
+                    OnboardingSyncScene().tag(0)
+                    OnboardingReelsScene().tag(1)
+                    OnboardingAIScene().tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Dots
-                HStack(spacing: 7) {
-                    ForEach(pages.indices, id: \.self) { index in
-                        Capsule()
-                            .fill(index == selection ? Cinema2026.accent : Cinema2026.divider)
-                            .frame(width: index == selection ? 22 : 7, height: 7)
-                            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: selection)
-                    }
-                }
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-                .accessibilityLabel("Шаг \(selection + 1) из \(pages.count)")
+                dots
+                    .padding(.bottom, 18)
 
-                // CTA — outside TabView so hits always work
-                Button {
-                    HapticManager.impact(.medium)
-                    advance()
-                } label: {
-                    Text(isLast ? "Начать" : "Далее")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Cinema2026.background)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                .padding(.horizontal, 20)
-                .padding(.bottom, 28)
-                .accessibilityLabel(isLast ? "Начать" : "Далее")
-                .accessibilityAddTraits(.isButton)
+                actions
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 26)
             }
         }
         .preferredColorScheme(.dark)
     }
 
-    private func advance() {
-        if isLast {
-            onFinish()
-            return
-        }
-        let next = min(selection + 1, pages.count - 1)
-        if reduceMotion {
-            selection = next
-        } else {
-            withAnimation(.easeOut(duration: 0.28)) {
-                selection = next
+    // MARK: Индикатор
+
+    private var dots: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<Self.pageCount, id: \.self) { index in
+                Capsule()
+                    .fill(index == page ? PlinkTheatre.screen : PlinkTheatre.hairline)
+                    .frame(width: index == page ? 22 : 7, height: 7)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: page)
             }
         }
+        .accessibilityElement()
+        .accessibilityLabel("Шаг \(page + 1) из \(Self.pageCount)")
+    }
+
+    // MARK: Кнопки
+
+    /// На последнем экране главная кнопка запрашивает уведомления и заходит в
+    /// приложение, вторичная — заходит без них. До последнего экрана — «Далее»
+    /// и «Пропустить» рядом, обе в зоне большого пальца.
+    private var actions: some View {
+        VStack(spacing: 10) {
+            Button {
+                HapticManager.impact(.medium)
+                if isLast {
+                    Task { await finishAllowingNotifications() }
+                } else {
+                    advance()
+                }
+            } label: {
+                ZStack {
+                    Text(isLast ? "Разрешить и начать" : "Далее")
+                        .opacity(isAskingPermission ? 0 : 1)
+                    if isAskingPermission {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(PlinkTheatre.velvetDeep)
+                    }
+                }
+            }
+            .buttonStyle(AuthPrimaryButtonStyle())
+            .disabled(isAskingPermission)
+            .accessibilityLabel(isLast ? "Разрешить уведомления и начать" : "Далее")
+
+            Button {
+                HapticManager.impact(.light)
+                // «Пропустить» и «Не сейчас» ведут в одно место: внутрь
+                // приложения без запроса разрешения.
+                (onSkip ?? onFinish)()
+            } label: {
+                Text(isLast ? "Не сейчас" : "Пропустить")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PlinkTheatre.muted)
+                    .frame(maxWidth: .infinity)
+                    // 44 pt — минимальный хит-таргет, даже у второстепенной кнопки.
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isAskingPermission)
+            .accessibilityLabel(isLast ? "Начать без уведомлений" : "Пропустить знакомство")
+        }
+    }
+
+    private func advance() {
+        let next = min(page + 1, Self.pageCount - 1)
+        if reduceMotion {
+            page = next
+        } else {
+            withAnimation(.easeOut(duration: 0.3)) { page = next }
+        }
+    }
+
+    /// Спрашиваем разрешение здесь, а не молча в гейте: пользователь только что
+    /// прочитал, зачем оно нужно. Отказ — не ошибка, идём дальше молча.
+    private func finishAllowingNotifications() async {
+        isAskingPermission = true
+        _ = try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound, .badge])
+        #if canImport(UIKit)
+        await MainActor.run {
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+        #endif
+        isAskingPermission = false
+        onFinish()
     }
 }
 
-struct OnboardingPage: View {
-    let page: OnboardingPageModel
+// MARK: - Отдельная сцена для рендера кадров
+//
+// Свайп между экранами в офскрин-рендере не воспроизвести, а судить о
+// редизайне надо по всем трём. Точка входа отдаёт одну сцену по номеру.
+
+struct OnboardingScenePreview: View {
+    let page: Int
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer(minLength: 12)
-            if page.id == "sync" {
-                // M14: wow-момент — два телефона с одним таймкодом
-                SyncedPhonesArt()
-                    .accessibilityHidden(true)
-            } else {
-                Image(systemName: page.symbol)
-                    .font(.system(size: 64, weight: .semibold))
-                    .foregroundStyle(Cinema2026.accent)
-                    .symbolRenderingMode(.hierarchical)
-                    .accessibilityHidden(true)
+        ZStack {
+            PlinkTheatre.velvetDeep.ignoresSafeArea()
+            ProjectorBeamBackground().ignoresSafeArea()
+            switch page {
+            case 1:  OnboardingReelsScene()
+            case 2:  OnboardingAIScene()
+            default: OnboardingSyncScene()
             }
-            Text(page.title)
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(Cinema2026.text)
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
+// MARK: - Общая рамка экрана
+
+/// Сцена сверху, текст снизу — одинаково на всех экранах, чтобы при свайпе
+/// заголовки не прыгали по вертикали.
+struct OnboardingScaffold<Scene: View>: View {
+    let title: String
+    let body_: String
+    @ViewBuilder var scene: Scene
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 12)
+
+            scene
+                .frame(height: 240)
+                .accessibilityHidden(true)
+
+            Spacer(minLength: 24)
+
+            Text(title)
+                .font(.system(size: 27, weight: .heavy))
+                .tracking(-0.6)
+                .foregroundStyle(PlinkTheatre.screen)
                 .multilineTextAlignment(.center)
-            Text(page.body)
+                .padding(.bottom, 10)
+
+            Text(body_)
                 .font(.system(size: 15))
-                .foregroundStyle(Cinema2026.secondary)
+                .foregroundStyle(PlinkTheatre.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 12)
+
+            Spacer(minLength: 16)
         }
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). \(body_)")
     }
 }
 
-// MARK: - M14: wow-арт синхронного просмотра (два телефона, один таймкод)
+// MARK: - Экран 1: синхронный просмотр
 
-private struct SyncedPhonesArt: View {
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let progress = (t.truncatingRemainder(dividingBy: 24)) / 24
-            let seconds = Int(t.truncatingRemainder(dividingBy: 24 * 60))
-            HStack(spacing: 16) {
-                phone(progress: progress, seconds: seconds)
-                VStack(spacing: 6) {
-                    Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Cinema2026.accent)
-                    Text("синхронно")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Cinema2026.secondary)
-                }
-                phone(progress: progress, seconds: seconds)
-            }
-        }
-        .frame(height: 190)
+/// Два телефона с одним таймкодом. Смысл — не «две картинки», а то, что
+/// полоса прогресса и время на них идут ОДИНАКОВО: это и есть продукт.
+struct OnboardingSyncScene: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var animated: Bool {
+        !reduceMotion && scenePhase == .active
     }
 
-    private func phone(progress: Double, seconds: Int) -> some View {
-        VStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Cinema2026.accent.opacity(0.22))
-                .frame(width: 96, height: 54)
-                .overlay(
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Cinema2026.accent)
-                )
-            // Общий прогресс — идентичен на обоих «телефонах»
+    var body: some View {
+        OnboardingScaffold(
+            title: "Смотрите вместе — кадр в кадр",
+            body_: "YouTube, VK, Rutube. Один таймкод у всех: поставил на паузу — пауза у друга."
+        ) {
+            if animated {
+                TimelineView(.animation(minimumInterval: 1 / 20)) { context in
+                    phones(at: context.date.timeIntervalSinceReferenceDate)
+                }
+            } else {
+                // Статичный кадр: Reduce Motion и фон приложения.
+                phones(at: 8)
+            }
+        }
+    }
+
+    private func phones(at t: TimeInterval) -> some View {
+        let loop = t.truncatingRemainder(dividingBy: 20) / 20
+        let seconds = Int(loop * 143)
+        // Подпись «синхронно» — под парой, а не между картами: в середине она
+        // налезала на оба телефона и читалась обрезанной.
+        return VStack(spacing: 14) {
+            HStack(spacing: 18) {
+                phone(progress: loop, seconds: seconds, tilt: -4)
+                phone(progress: loop, seconds: seconds, tilt: 4)
+            }
+            HStack(spacing: 7) {
+                V4GlyphIcon(glyph: .watchTogether, size: 14, weight: .regular)
+                Text("один таймкод")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.7)
+            }
+            .foregroundStyle(PlinkTheatre.muted)
+        }
+    }
+
+    private func phone(progress: Double, seconds: Int, tilt: Double) -> some View {
+        VStack(spacing: 9) {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(PlinkTheatre.velvet)
+                .frame(width: 96, height: 56)
+                .overlay {
+                    // Свет экрана — то, что делает картинку «кино», а не схемой.
+                    RadialGradient(
+                        colors: [PlinkTheatre.tealDeep.opacity(0.55), .clear],
+                        center: .center, startRadius: 2, endRadius: 62
+                    )
+                }
+                .overlay {
+                    V4GlyphIcon(glyph: .play, size: 15, filled: true, weight: .regular)
+                        .foregroundStyle(PlinkTheatre.screen)
+                }
+
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.14))
-                Capsule().fill(Cinema2026.accent)
-                    .frame(width: max(6, 96 * progress))
+                Capsule().fill(PlinkTheatre.screen.opacity(0.14))
+                Capsule().fill(PlinkTheatre.screen)
+                    .frame(width: max(5, 96 * progress))
             }
             .frame(width: 96, height: 4)
+
             Text(String(format: "%02d:%02d", seconds / 60, seconds % 60))
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Cinema2026.secondary)
+                .foregroundStyle(PlinkTheatre.muted)
+                .monospacedDigit()
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.white.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        )
+        .padding(11)
+        .plinkGlass(.control, cornerRadius: 20)
+        .rotationEffect(.degrees(tilt))
+    }
+}
+
+// MARK: - Экран 2: лента трейлеров
+
+/// Колода карточек, верхняя чуть отъезжает — намёк на пролистывание лентой.
+/// Стрелок нет: жест показывается движением, а не иконкой (решение брифа #1).
+struct OnboardingReelsScene: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var lift = false
+
+    var body: some View {
+        OnboardingScaffold(
+            title: "Лента трейлеров",
+            body_: "Свайп вверх — следующий трейлер. Понравился — комната собирается одним касанием."
+        ) {
+            ZStack {
+                // Веером и с поворотом, а не строго друг за другом: при
+                // одинаковом центре колода читалась как одна карточка.
+                card(x: -30, y: 20, angle: -8, scale: 0.88, opacity: 0.40)
+                card(x: 30, y: 20, angle: 8, scale: 0.88, opacity: 0.40)
+                card(x: 0, y: lift ? -14 : 0, angle: 0, scale: 1, opacity: 1)
+            }
+            .onAppear {
+                guard !reduceMotion, scenePhase == .active else { return }
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                    lift = true
+                }
+            }
+        }
+    }
+
+    private func card(
+        x: CGFloat,
+        y: CGFloat,
+        angle: Double,
+        scale: CGFloat,
+        opacity: Double
+    ) -> some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(PlinkTheatre.velvet)
+            .frame(width: 128, height: 190)
+            .overlay {
+                RadialGradient(
+                    colors: [PlinkTheatre.tealDeep.opacity(0.42), .clear],
+                    center: UnitPoint(x: 0.5, y: 0.32), startRadius: 4, endRadius: 150
+                )
+            }
+            .overlay(alignment: .bottomLeading) {
+                // Строки-заглушки вместо реального текста: это иллюстрация, а
+                // не превью конкретного фильма.
+                VStack(alignment: .leading, spacing: 5) {
+                    Capsule().fill(PlinkTheatre.screen.opacity(0.85)).frame(width: 70, height: 7)
+                    Capsule().fill(PlinkTheatre.muted.opacity(0.55)).frame(width: 46, height: 5)
+                }
+                .padding(14)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .scaleEffect(scale)
+            .rotationEffect(.degrees(angle))
+            .offset(x: x, y: y)
+            .opacity(opacity)
+    }
+}
+
+// MARK: - Экран 3: ИИ собирает комнату + разрешение на уведомления
+
+/// Здесь же объясняем, зачем нужны уведомления — экран, на котором стоит
+/// главная кнопка «Разрешить и начать».
+struct OnboardingAIScene: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var pulse = false
+
+    var body: some View {
+        OnboardingScaffold(
+            title: "ИИ соберёт комнату",
+            body_: "Скажите, что хочется посмотреть — Plink найдёт видео, создаст комнату и позовёт друзей. Уведомления нужны, чтобы вы не пропустили приглашение."
+        ) {
+            ZStack {
+                ForEach(0..<3, id: \.self) { ring in
+                    Circle()
+                        .strokeBorder(
+                            PlinkTheatre.tealDeep.opacity(0.30 - Double(ring) * 0.08),
+                            lineWidth: 1
+                        )
+                        .frame(width: 108 + CGFloat(ring) * 46)
+                        .scaleEffect(pulse ? 1.06 : 0.98)
+                        .animation(
+                            reduceMotion
+                                ? nil
+                                : .easeInOut(duration: 2.2)
+                                    .repeatForever(autoreverses: true)
+                                    .delay(Double(ring) * 0.28),
+                            value: pulse
+                        )
+                }
+
+                Circle()
+                    .fill(PlinkTheatre.velvet)
+                    .frame(width: 96)
+                    .overlay {
+                        RadialGradient(
+                            colors: [PlinkTheatre.tealDeep.opacity(0.6), .clear],
+                            center: .center, startRadius: 2, endRadius: 70
+                        )
+                    }
+                    .overlay {
+                        V4GlyphIcon(glyph: .sparkle, size: 34, weight: .regular)
+                            .foregroundStyle(PlinkTheatre.screen)
+                    }
+                    .overlay {
+                        Circle().strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+                    }
+            }
+            .onAppear {
+                guard !reduceMotion, scenePhase == .active else { return }
+                pulse = true
+            }
+        }
     }
 }
