@@ -37,6 +37,7 @@ INK = (8, 9, 11)                # «темнота зала»: силуэты и
 SCREEN = (242, 244, 243)
 WARM = (255, 214, 148)          # тёплый свет экрана
 WARM_HOT = (255, 240, 214)
+WARM_SUNSET = (255, 201, 120)   # низ «неба» на экране внутри знака
 
 # Направления B и C — эксперименты, оставлены для сравнения силуэтов и живут
 # на своей синей палитре. В продукт идёт A.
@@ -88,13 +89,41 @@ def direction_couch(with_wordmark: bool = False):
     img = Image.composite(tint, img, mask.point(lambda v: int(v * 0.55)))
     d = ImageDraw.Draw(img)
 
-    d.rounded_rectangle([sx, sy, sx + sw, sy + sh], radius=int(S * 0.035), fill=WARM_HOT)
+    # На экране — КАДР, а не пустая заливка (правка 04.08.2026): ровный
+    # светлый прямоугольник читался ВЫКЛЮЧЕННЫМ экраном, то есть ровно
+    # противоположным тому, что знак должен говорить.
+    #
+    # Сюжет — закат над горизонтом: самый читаемый кадр на такой площади,
+    # всего две зоны и диск. Логотип чужого сервиса (YouTube/VK/Rutube) здесь
+    # не годится — это товарный знак другой компании внутри нашего, то есть
+    # заявка на несуществующее партнёрство (App Review 5.2.5), плюс знак стал
+    # бы принадлежать одной площадке из нескольких.
+    screen = Image.new("RGB", (sw, sh), WARM_HOT)
+    sd = ImageDraw.Draw(screen)
+    # Небо: тёплый уход книзу.
+    for y in range(sh):
+        t = y / max(1, sh - 1)
+        sd.line(
+            [(0, y), (sw, y)],
+            fill=tuple(int(WARM_HOT[i] + (WARM_SUNSET[i] - WARM_HOT[i]) * t) for i in range(3)),
+        )
+    # Солнце над горизонтом.
+    ground_h = int(sh * 0.18)
+    sun_r = int(sh * 0.115)
+    sun_cy = sh - ground_h - int(sh * 0.10)
+    sd.ellipse(
+        [sw // 2 - sun_r, sun_cy - sun_r, sw // 2 + sun_r, sun_cy + sun_r],
+        fill=(255, 255, 255),
+    )
+    # Земля — плотная полоса: она и делает из градиента кадр.
+    sd.rectangle([0, sh - ground_h, sw, sh], fill=INK)
 
-    # Надпись PLINK на экране: то, что показывает «телевизор» в иконке.
-    # Единственное место, где текст в иконке оправдан, — он часть сюжета, а не
-    # подпись поверх знака. Ниже 120 px буквы всё равно нечитаемы, поэтому в
-    # мелких размерах надпись не рисуется вовсе (см. emit): вместо мутной каши
-    # там остаётся чистое световое пятно.
+    mask_screen = Image.new("L", (sw, sh), 0)
+    ImageDraw.Draw(mask_screen).rounded_rectangle(
+        [0, 0, sw - 1, sh - 1], radius=int(S * 0.035), fill=255
+    )
+    img.paste(screen, (sx, sy), mask_screen)
+
     d = ImageDraw.Draw(img)
     if with_wordmark:
         label = "PLINK"

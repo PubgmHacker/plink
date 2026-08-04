@@ -135,6 +135,32 @@ struct PlinkAccessibilityOverride: Equatable {
     var reduceMotion = false
 }
 
+/// «Заморозить анимации» — для офскрин-рендера кадров аудита.
+///
+/// Отдельный ключ, а не `reduceMotion`: это НЕ настройка доступности, и
+/// смешивать их нельзя. Кадр Reduce Transparency обязан сниматься с выключенным
+/// Reduce Motion, иначе тест проверяет две настройки разом и не проверяет ни
+/// одну толком.
+///
+/// Зачем вообще. Экран входа проявляется пружиной, а фон живёт вечной
+/// анимацией. Офскрин-рендер ловил то середину проявления (кадр выглядел
+/// регрессом: «кнопка потемнела»), то вовсе пустой экран. Попытка «снимать,
+/// пока два кадра не совпадут» не помогла: из-за вечной анимации фона кадры не
+/// сходятся никогда, а повторные `drawHierarchy` иногда отдают пустоту.
+///
+/// Поэтому анимации не пережидаются, а ВЫКЛЮЧАЮТСЯ: сцена сразу в конечном
+/// состоянии, рендер один, результат детерминированный.
+struct PlinkFreezeAnimationsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var plinkFreezeAnimations: Bool {
+        get { self[PlinkFreezeAnimationsKey.self] }
+        set { self[PlinkFreezeAnimationsKey.self] = newValue }
+    }
+}
+
 private struct PlinkAccessibilityOverrideKey: EnvironmentKey {
     static let defaultValue = PlinkAccessibilityOverride()
 }
@@ -150,9 +176,12 @@ struct ProjectorBeamBackground: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
     @Environment(\.plinkAccessibilityOverride) private var override
+    @Environment(\.plinkFreezeAnimations) private var freezeAnimations
     @Environment(\.scenePhase) private var scenePhase
 
-    private var reduceMotion: Bool { systemReduceMotion || override.reduceMotion }
+    private var reduceMotion: Bool {
+        systemReduceMotion || override.reduceMotion || freezeAnimations
+    }
     private var reduceTransparency: Bool {
         systemReduceTransparency || override.reduceTransparency
     }
@@ -316,7 +345,8 @@ private struct CinemaAudience: View {
                     top: y0,
                     bottom: y1,
                     depth: Double(row) / Double(rowCount - 1),
-                    pulse: pulse
+                    pulse: pulse,
+                    rowIndex: row
                 )
             }
         }
@@ -324,6 +354,23 @@ private struct CinemaAudience: View {
     }
 
     /// Один ряд кресел.
+    ///
+    /// ПОЧЕМУ ЗДЕСЬ РАЗБРОС, А НЕ РОВНЫЙ РЯД (правка 04.08.2026)
+    ///
+    /// Первая версия рисовала все кресла одинаковыми: один размер, один шаг,
+    /// один цвет, идеально по линейке. Прочли как «сгенерировано» — и это
+    /// точный диагноз. Машинная работа выдаёт себя не темой и не цветом, а
+    /// ОТСУТСТВИЕМ ОТКЛОНЕНИЙ: в реальном зале кресла стоят чуть неровно,
+    /// обиты неодинаково потёртой тканью и освещены пятнами.
+    ///
+    /// Поэтому у каждого кресла свой детерминированный (от сида) сдвиг по
+    /// горизонтали и вертикали, своя ширина, своя яркость. Отклонения мелкие —
+    /// 2–6% — их не замечаешь поштучно, но ряд перестаёт быть чертёжным.
+    ///
+    /// Плюс зал теперь НЕ ПУСТОЙ: примерно в трети кресел сидят люди. Пустой
+    /// кинозал — это закрытый кинозал; приложение про «смотрим вместе» не
+    /// должно показывать на входе безлюдный ряд. Головы дают ещё и вторую
+    /// линию силуэтов, за счёт которой ряд читается объёмным.
     ///
     /// - Parameters:
     ///   - depth: 0 — самый дальний ряд (у экрана), 1 — самый близкий.
@@ -334,16 +381,23 @@ private struct CinemaAudience: View {
         top: CGFloat,
         bottom: CGFloat,
         depth: Double,
-        pulse: Double
+        pulse: Double,
+        rowIndex: Int
     ) {
         let height = bottom - top
         guard height > 1 else { return }
 
+        // Детерминированный шум: одинаковый кадр в снапшот-тестах, разный вид
+        // у соседних кресел.
+        func noise(_ seat: Int, _ salt: Int) -> Double {
+            let x = sin(Double(rowIndex * 977 + seat * 131 + salt * 3571) * 12.9898) * 43758.5453
+            return x - x.rounded(.down)
+        }
+
         // Ближние ряды шире кадра: зал не должен заканчиваться внутри экрана.
         let rowWidth = canvas.width * (1.05 + 0.75 * depth)
-        // Кресел в дальнем ряду больше — они мельче. 14→9, а не 11→6: чем
-        // больше кресел в ряду, тем меньше каждое, и тем очевиднее, что это
-        // зал, а не несколько крупных фигур.
+        // Кресел в дальнем ряду больше — они мельче. Чем больше кресел в ряду,
+        // тем очевиднее, что это зал, а не несколько крупных фигур.
         let seatCount = max(6, Int(14 - depth * 5))
         let pitch = rowWidth / CGFloat(seatCount)
         let originX = (canvas.width - rowWidth) / 2
@@ -351,21 +405,27 @@ private struct CinemaAudience: View {
         // Дальние ряды СВЕТЛЕЕ: на них падает свет экрана. Ближние почти
         // чёрные — они в темноте зала. Это и создаёт глубину.
         let lit = (1.0 - depth)
-        let brightness = 0.040 + lit * lit * (0.125 + 0.04 * pulse)
+        let baseBrightness = 0.040 + lit * lit * (0.125 + 0.04 * pulse)
 
         for seat in 0..<seatCount {
-            let cx = originX + (CGFloat(seat) + 0.5) * pitch
-            // Спинка: ширина чуть меньше шага, между креслами остаётся щель —
-            // именно она не даёт ряду слиться в полосу.
-            let w = pitch * 0.78
-            // Кресло выше своего ряда: спинки перекрывают следующий, как в
-            // настоящем зале, если смотреть сзади. 1.35, а не 1.9: при 1.9
-            // спинка вытягивалась в надгробие. Настоящее кресло почти
-            // квадратное по силуэту.
-            let h = min(height * 1.35, w * 1.15)
+            // Сдвиги: ±3% шага по горизонтали, ±4% высоты по вертикали.
+            let jitterX = (noise(seat, 1) - 0.5) * pitch * 0.06
+            let jitterY = (noise(seat, 2) - 0.5) * height * 0.08
+            let cx = originX + (CGFloat(seat) + 0.5) * pitch + jitterX
 
+            // Ширина гуляет на ±4%: ряд перестаёт быть штампованным.
+            let w = pitch * (0.76 + noise(seat, 3) * 0.08)
+            // Кресло выше своего ряда: спинки перекрывают следующий, как в
+            // настоящем зале сзади. Ограничение по ширине не даёт спинке
+            // вытянуться в надгробие — настоящее кресло почти квадратное.
+            let h = min(height * 1.35, w * (1.08 + noise(seat, 4) * 0.14))
+
+            // Яркость обивки гуляет на ±18% от базовой: свет экрана ложится
+            // пятнами, а не ровным слоем.
+            let b = baseBrightness * (0.82 + noise(seat, 5) * 0.36)
+
+            let rect = CGRect(x: cx - w / 2, y: bottom - h + jitterY, width: w, height: h)
             var seatPath = Path()
-            let rect = CGRect(x: cx - w / 2, y: bottom - h, width: w, height: h)
             // Подголовник — скругление только сверху: снизу кресло уходит в
             // следующий ряд, и там скругление не видно.
             seatPath.addRoundedRect(
@@ -378,34 +438,95 @@ private struct CinemaAudience: View {
                 with: .linearGradient(
                     Gradient(colors: [
                         // Верх спинки ловит свет экрана, низ тонет в темноте.
-                        Color(hue: 0.09, saturation: 0.10, brightness: brightness),
-                        Color(hue: 0.09, saturation: 0.06, brightness: brightness * 0.35),
+                        Color(hue: 0.09, saturation: 0.10, brightness: b),
+                        Color(hue: 0.09, saturation: 0.06, brightness: b * 0.35),
                     ]),
                     startPoint: CGPoint(x: rect.minX, y: rect.minY),
                     endPoint: CGPoint(x: rect.minX, y: rect.maxY)
                 )
             )
 
-            // Тёплый контур по верхней кромке подголовника: контражур от
-            // экрана. Без него ряды сливаются в одно пятно.
+            // Зритель: голова с плечами над спинкой. Не в каждом кресле —
+            // полный зал выглядел бы сплошной стеной, пустой безлюдным.
+            // Порог 0.62 даёт примерно треть занятых мест, и рассадка
+            // получается неровной, как в жизни.
+            let occupied = noise(seat, 6) > 0.62
+            if occupied {
+                let headR = w * (0.19 + noise(seat, 7) * 0.04)
+                let headY = rect.minY - headR * (0.45 + noise(seat, 8) * 0.25)
+                // Головы ТЕМНЕЕ кресел: зритель между нами и экраном, то есть
+                // в контражуре — виден силуэтом, а не освещённым лицом.
+                let headColor = Color(
+                    hue: 0.09,
+                    saturation: 0.08,
+                    brightness: b * 0.42
+                )
+                ctx.fill(
+                    Ellipse().path(in: CGRect(
+                        x: cx - headR, y: headY - headR,
+                        width: headR * 2, height: headR * 2
+                    )),
+                    with: .color(headColor)
+                )
+                // Плечи — короткая широкая капсула, наполовину за спинкой.
+                let shW = headR * 2.5
+                ctx.fill(
+                    Path(roundedRect: CGRect(
+                        x: cx - shW / 2, y: headY + headR * 0.55,
+                        width: shW, height: headR * 1.7
+                    ), cornerRadius: headR * 0.7, style: .continuous),
+                    with: .color(headColor)
+                )
+                // Контражур по макушке — по САМОМУ контуру головы, а не
+                // дугой внутри него: иначе получается нарисованный штрих
+                // поверх силуэта. Обрезаем верхней частью круга.
+                if lit > 0.2 {
+                    ctx.drawLayer { layer in
+                        layer.clip(
+                            to: Path(CGRect(
+                                x: cx - headR - 1, y: headY - headR - 1,
+                                width: headR * 2 + 2, height: headR * 1.15
+                            ))
+                        )
+                        layer.stroke(
+                            Ellipse().path(in: CGRect(
+                                x: cx - headR, y: headY - headR,
+                                width: headR * 2, height: headR * 2
+                            )),
+                            with: .color(PlinkTheatre.warm.opacity(0.26 * lit)),
+                            lineWidth: max(0.4, headR * 0.13)
+                        )
+                    }
+                }
+            }
+
+            // Контражур по кромке спинки.
+            //
+            // Раньше это была дуга радиусом 0.30·w вокруг точки ВНУТРИ
+            // кресла — она висела посреди спинки отдельной «улыбкой» и
+            // читалась именно как рисованный штрих, а не как свет. Теперь
+            // подсвечивается САМ контур кресла, обрезанный по верхней
+            // половине: свет ложится на кромку, потому что кромка — то
+            // единственное, что вообще может поймать луч.
             guard lit > 0.15 else { continue }
-            var rim = Path()
-            rim.addArc(
-                center: CGPoint(x: cx, y: rect.minY + w * 0.30),
-                radius: w * 0.30,
-                startAngle: .degrees(180),
-                endAngle: .degrees(0),
-                clockwise: false
-            )
-            ctx.stroke(
-                rim,
-                with: .color(PlinkTheatre.warm.opacity(0.16 * lit)),
-                lineWidth: max(0.5, w * 0.022)
-            )
+            ctx.drawLayer { layer in
+                layer.clip(
+                    to: Path(CGRect(
+                        x: rect.minX - 1, y: rect.minY - 1,
+                        width: rect.width + 2, height: rect.height * 0.42
+                    ))
+                )
+                layer.stroke(
+                    seatPath,
+                    with: .color(
+                        PlinkTheatre.warm.opacity((0.13 + noise(seat, 9) * 0.10) * lit)
+                    ),
+                    lineWidth: max(0.5, w * 0.020)
+                )
+            }
         }
     }
 }
-
 
 // MARK: - Луч проектора
 

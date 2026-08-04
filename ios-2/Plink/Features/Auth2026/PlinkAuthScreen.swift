@@ -72,7 +72,12 @@ struct PlinkAuthScreen: View {
     var prefilledPassword: String? = nil
     let onAuthenticated: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    /// Рендер кадров аудита: проявление экрана выключено, чтобы снимок не
+    /// поймал середину анимации (см. PlinkFreezeAnimationsKey).
+    @Environment(\.plinkFreezeAnimations) private var freezeAnimations
+
+    private var reduceMotion: Bool { systemReduceMotion || freezeAnimations }
 
     @State private var mode: PlinkAuthMode = .signIn
     @State private var email = ""
