@@ -56,6 +56,12 @@ export const roomJoinBody = z.object({
   password: z.string().max(72).nullish(),
 }).passthrough();
 
+// Порядок очереди: список id в желаемом порядке. Ограничение 50 совпадает с
+// MAX_QUEUE в roomQueueStore — присылать больше бессмысленно.
+export const roomQueueReorderBody = z.object({
+  order: z.array(z.string().min(1).max(128)).min(1).max(50),
+}).passthrough();
+
 // ─── messages ────────────────────────────────────────────────────────────
 
 export const dmSendBody = z.object({

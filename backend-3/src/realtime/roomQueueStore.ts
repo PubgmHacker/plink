@@ -118,6 +118,57 @@ redis.call('SET', KEYS[1], encoded, 'EX', tonumber(ARGV[3]))
 return encoded
 `;
 
+// REORDER: хост присылает желаемый порядок id.
+//   KEYS[1] = roomqueue:<roomId>
+//   ARGV[1] = JSON-массив id, ARGV[2] = TTL сек
+//
+// Порядок применяется как ПЕРЕСТАНОВКА существующих элементов, а не как замена
+// очереди целиком: пока хост тянул строку, кто-то мог добавить или удалить
+// ролик. Элементы из присланного списка встают в заданном порядке, всё, чего в
+// списке нет, дописывается в конец в исходном порядке — так гонка не приводит к
+// потере чужого добавления и не воскрешает удалённое.
+const REORDER = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return '[]' end
+local ok, queue = pcall(cjson.decode, raw)
+if not ok or type(queue) ~= 'table' then
+  redis.call('DEL', KEYS[1])
+  return '[]'
+end
+local okIds, ids = pcall(cjson.decode, ARGV[1])
+if not okIds or type(ids) ~= 'table' then return cjson.encode(queue) end
+
+local byId = {}
+for i = 1, #queue do
+  byId[queue[i].id] = queue[i]
+end
+
+local result = {}
+local taken = {}
+for i = 1, #ids do
+  local id = ids[i]
+  local item = byId[id]
+  if item and not taken[id] then
+    taken[id] = true
+    table.insert(result, item)
+  end
+end
+-- Хвост: то, что появилось в очереди уже после снимка на клиенте.
+for i = 1, #queue do
+  if not taken[queue[i].id] then
+    table.insert(result, queue[i])
+  end
+end
+
+if #result == 0 then
+  redis.call('DEL', KEYS[1])
+  return '[]'
+end
+local encoded = cjson.encode(result)
+redis.call('SET', KEYS[1], encoded, 'EX', tonumber(ARGV[2]))
+return encoded
+`;
+
 function parseQueue(raw: string | null): QueuedMedia[] {
   if (!raw) return [];
   try {
@@ -214,6 +265,54 @@ export async function dequeueRoomMedia(roomId: string, itemId: string): Promise<
 /** M17: переместить элемент в начало очереди («включить сейчас»). */
 export async function promoteRoomMedia(roomId: string, itemId: string): Promise<QueuedMedia[]> {
   return mutateRoomQueue(roomId, itemId, 'promote');
+}
+
+/**
+ * Переставить элементы очереди в порядке `orderedIds`.
+ *
+ * Присланный список — не замена очереди, а перестановка: неизвестные id
+ * игнорируются, а элементы, которых нет в списке (кто-то добавил, пока хост
+ * тянул строку), дописываются в конец. Так одновременное добавление не
+ * теряется, а удалённое не воскресает.
+ */
+export async function reorderRoomQueue(
+  roomId: string,
+  orderedIds: string[],
+): Promise<QueuedMedia[]> {
+  if (redis) {
+    await flushPendingEnqueues(roomId);
+    try {
+      const encoded = (await redis.eval(
+        REORDER,
+        1,
+        redisKey(roomId),
+        JSON.stringify(orderedIds),
+        String(QUEUE_TTL_SECONDS),
+      )) as string;
+      const queue = parseQueue(encoded);
+      fallbackQueues.set(roomId, queue);
+      return queue;
+    } catch (e: any) {
+      console.warn('[roomQueue] reorder via Redis failed, using memory:', e?.message || e);
+    }
+  }
+  // Аварийный путь повторяет ту же семантику, что и Lua выше.
+  const current = fallbackQueues.get(roomId) ?? [];
+  const byId = new Map(current.map((i) => [i.id, i]));
+  const taken = new Set<string>();
+  const result: QueuedMedia[] = [];
+  for (const id of orderedIds) {
+    const item = byId.get(id);
+    if (item && !taken.has(id)) {
+      taken.add(id);
+      result.push(item);
+    }
+  }
+  for (const item of current) {
+    if (!taken.has(item.id)) result.push(item);
+  }
+  fallbackQueues.set(roomId, result);
+  return result;
 }
 
 async function mutateRoomQueue(

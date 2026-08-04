@@ -84,6 +84,28 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
+    /// Хост переставил элементы очереди. Сервер применяет присланный порядок
+    /// как перестановку и рассылает канонический результат бродкастом —
+    /// локально порядок не трогаем, иначе список дёрнется дважды.
+    func reorderQueue(_ ordered: [RoomQueueWire.Item]) {
+        guard isHost else { return }
+        let rid = _roomId
+        let ids = ordered.map(\.id)
+        Task {
+            struct Body: Encodable { let order: [String] }
+            struct Resp: Decodable { let queue: [RoomQueueWire.Item] }
+            do {
+                let _: Resp = try await APIClient.shared.request(
+                    "rooms/\(rid)/queue",
+                    method: .patch,
+                    body: Body(order: ids)
+                )
+            } catch {
+                // тихо — очередь синхронизируется бродкастом
+            }
+        }
+    }
+
     // M14: синхронный отсчёт 3-2-1 перед стартом
     public private(set) var countdownRemaining: Int? = nil
     private var countdownTask: Task<Void, Never>?

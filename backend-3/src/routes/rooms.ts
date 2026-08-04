@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { hashRoomPassword, verifyRoomPassword, requireHost } from '../middleware/security.js';
 import { validateBody } from '../middleware/validate.js';
-import { roomCreateBody, roomJoinBody } from '../schemas/requests.js';
+import { roomCreateBody, roomJoinBody, roomQueueReorderBody } from '../schemas/requests.js';
 import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
 import {
@@ -27,6 +27,7 @@ import {
     enqueueRoomMedia,
     dequeueRoomMedia,
     promoteRoomMedia,
+    reorderRoomQueue,
     buildQueueWirePayload,
 } from '../realtime/roomQueueStore.js';
 
@@ -253,6 +254,52 @@ export default async function roomRoutes(fastify, _options) {
             });
         } catch { /* noop */ }
         return reply.send({ queue, nowPlaying });
+    });
+
+    // PATCH /api/rooms/:id/queue — хост меняет порядок очереди (+ broadcast).
+    //
+    // Присланный список — перестановка, а не замена: элементы, добавленные
+    // пока хост тянул строку, дописываются в конец, неизвестные id
+    // игнорируются. Иначе гонка стирала бы чужое добавление.
+    fastify.patch('/rooms/:id/queue', {
+        preHandler: [fastify.authenticate, validateBody(roomQueueReorderBody)],
+        config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    }, async (request, reply) => {
+        const roomId = request.params.id;
+        const { order } = request.body as { order: string[] };
+
+        const isMember = await prisma.roomParticipant.findFirst({
+            where: { roomID: roomId, userID: request.user.id },
+        });
+        if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
+
+        // Порядок воспроизведения — управление плеером, поэтому только хост
+        // (та же логика, что у .../queue/:itemId/play).
+        const room = await prisma.room.findUnique({
+            where: { id: roomId },
+            select: { hostID: true, isActive: true },
+        });
+        if (!room || !room.isActive) {
+            return reply.status(404).send({ error: 'Комната не найдена' });
+        }
+        if (room.hostID !== request.user.id) {
+            return reply.status(403).send({ error: 'Только хост может менять порядок очереди' });
+        }
+
+        const queue = await reorderRoomQueue(roomId, order);
+        try {
+            await (fastify as any).gateway?.publishChatMessage?.({
+                kind: 'chat.broadcast' as const,
+                roomId,
+                messageId: crypto.randomUUID(),
+                clientMessageId: crypto.randomUUID(),
+                senderId: 'plink-ai',
+                senderName: 'Plink AI',
+                text: buildQueueWirePayload(queue),
+                createdAtMs: Date.now(),
+            });
+        } catch { /* noop */ }
+        return reply.send({ queue });
     });
 
     // POST /api/rooms — Создание комнаты

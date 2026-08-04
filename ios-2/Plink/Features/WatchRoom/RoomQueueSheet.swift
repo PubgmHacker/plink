@@ -7,18 +7,11 @@
 // открывать было нечего.
 //
 // Здесь очередь становится настоящим списком: что играет сейчас, кто добавил,
-// свайп для удаления и «включить сейчас» у хоста.
+// перетаскивание у хоста и свайп для удаления.
 //
-// Про перетаскивание. В задании оно есть, но на сервере ему нечего вызвать:
-// backend-3/src/routes/rooms.ts знает только POST .../queue (в конец),
-// DELETE .../queue/:id и POST .../queue/:id/play (промоут в начало) —
-// эндпоинта записи произвольного порядка нет. Жест, который молча не
-// сохраняется, хуже отсутствующего, поэтому вместо него у хоста есть
-// «включить сейчас»: то же намерение — поднять ролик наверх — но оно
-// реально доезжает до сервера и до остальных участников.
-//
-// Права: включать ролик может только хост — те же правила на сервере,
-// поэтому гостю кнопку не показываем, а не показываем и получаем 403.
+// Права: менять порядок и включать ролик может только хост — те же правила на
+// сервере (PATCH /rooms/:id/queue, POST .../play), поэтому гостю кнопки и
+// ручки перетаскивания не показываем, а не показываем и получаем 403.
 
 import SwiftUI
 
@@ -26,8 +19,13 @@ struct RoomQueueSheet: View {
     @Bindable var model: WatchRoomModel
     @Environment(\.dismiss) private var dismiss
 
+    /// Локальный порядок на время перетаскивания: пока палец держит строку,
+    /// список не должен прыгать от входящих бродкастов.
+    @State private var draftOrder: [RoomQueueWire.Item] = []
+    @State private var isReordering = false
+
     private var items: [RoomQueueWire.Item] {
-        model.roomQueue
+        isReordering ? draftOrder : model.roomQueue
     }
 
     var body: some View {
@@ -72,9 +70,10 @@ struct RoomQueueSheet: View {
                             }
                         }
                 }
+                .onMove(perform: model.isHost ? move : nil)
             } footer: {
                 Text(model.isHost
-                     ? "Смахните влево, чтобы убрать. «Играть» поднимает ролик в начало очереди."
+                     ? "Перетащите, чтобы изменить порядок. Смахните влево, чтобы убрать."
                      : "Порядок воспроизведения меняет хост комнаты.")
                     .font(.system(size: 12))
                     .foregroundStyle(V4.muted)
@@ -82,6 +81,7 @@ struct RoomQueueSheet: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .environment(\.editMode, .constant(model.isHost ? .active : .inactive))
     }
 
     private func row(_ item: RoomQueueWire.Item, isNowPlaying: Bool) -> some View {
@@ -176,9 +176,25 @@ struct RoomQueueSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Позиция
+    // MARK: - Позиция и перестановка
 
     private func indexOf(_ item: RoomQueueWire.Item) -> Int {
         items.firstIndex(where: { $0.id == item.id }) ?? 0
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        if !isReordering {
+            draftOrder = model.roomQueue
+            isReordering = true
+        }
+        draftOrder.move(fromOffsets: source, toOffset: destination)
+        HapticManager.selection()
+        model.reorderQueue(draftOrder)
+        // Отпускаем локальный порядок, когда сервер пришлёт канонический
+        // бродкастом. Раньше отпустить — список моргнёт старым порядком.
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            await MainActor.run { isReordering = false }
+        }
     }
 }
