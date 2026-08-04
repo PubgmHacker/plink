@@ -153,7 +153,7 @@ struct V4RoomControlsRow: View {
             }
             .foregroundStyle(V4.ink.opacity(0.82))
             .padding(.horizontal, 11)
-            .frame(height: 30)
+            .frame(minHeight: 30)
             .background(
                 Capsule().fill(Color.white.opacity(0.08))
             )
@@ -288,7 +288,7 @@ struct V4RoomPrivacySheet: View {
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(V4.canvas)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 46)
+                    .frame(minHeight: 46)
                     .background(Capsule().fill(accent))
             }
             .buttonStyle(.plain)
@@ -373,7 +373,7 @@ struct V4RoomPrivacySheet: View {
                 }
                 .foregroundStyle(V4.ink)
                 .padding(.horizontal, 13)
-                .frame(height: 34)
+                .frame(minHeight: 34)
                 .background(Capsule().fill(Color.white.opacity(0.09)))
                 .contentShape(Capsule())
             }

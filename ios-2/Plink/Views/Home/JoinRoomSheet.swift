@@ -34,7 +34,7 @@ struct JoinRoomSheet: View {
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
                             .padding(.horizontal, 20)
-                            .frame(height: 64)
+                            .frame(minHeight: 64)
                             .background(Cinema2026.surface, in: RoundedRectangle(cornerRadius: 16))
                             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Cinema2026.divider, lineWidth: 0.5))
                             .onChange(of: roomCode) { _, new in
@@ -52,7 +52,7 @@ struct JoinRoomSheet: View {
                                 .font(.system(size: 16))
                                 .foregroundStyle(Cinema2026.text)
                                 .padding(.horizontal, 16)
-                                .frame(height: 52)
+                                .frame(minHeight: 52)
                                 .background(Cinema2026.surface, in: RoundedRectangle(cornerRadius: 14))
                                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Cinema2026.divider, lineWidth: 0.5))
                         }
@@ -90,7 +90,7 @@ struct JoinRoomSheet: View {
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Cinema2026.background)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 52)
+                        .frame(minHeight: 52)
                         .background(roomCode.count == 6 ? Cinema2026.accent : Cinema2026.surface, in: RoundedRectangle(cornerRadius: 16))
                     }
                     .buttonStyle(.plain)

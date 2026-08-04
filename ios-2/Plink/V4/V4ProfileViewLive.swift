@@ -533,7 +533,7 @@ struct AvatarPickerSheet: View {
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(Cinema2026.background)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 52)
+                        .frame(minHeight: 52)
                         .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)

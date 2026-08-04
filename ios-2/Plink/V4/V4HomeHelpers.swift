@@ -28,7 +28,7 @@ struct HomeFallbackPlaceholder: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(V4.accentInk)
                     .padding(.horizontal, 18)
-                    .frame(height: 40)
+                    .frame(minHeight: 40)
                     .background(V4.accent, in: Capsule())
             }
             .buttonStyle(.plain)
@@ -254,7 +254,7 @@ struct TrendingPreviewSheet: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(V4.accentInk)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 52)
+                            .frame(minHeight: 52)
                             .background(V4.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
@@ -267,7 +267,7 @@ struct TrendingPreviewSheet: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(V4.muted)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 44)
+                                .frame(minHeight: 44)
                                 .background(V4.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         .buttonStyle(.plain)

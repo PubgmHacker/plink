@@ -80,7 +80,7 @@ extension V4FriendsViewLive {
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(theme.accentColor)
                 .padding(.horizontal, 14)
-                .frame(height: 44)
+                .frame(minHeight: 44)
                 .background(theme.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.accentColor.opacity(0.35)))
             }
@@ -199,6 +199,17 @@ extension V4FriendsViewLive {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Состояние «без звука» и счётчик непрочитанных передавались только
+        // цветом иконки и цифрой — для VoiceOver это была просто «кнопка» с
+        // названием беседы. Собираем строку целиком и озвучиваем состояние.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Беседа \(group.title)")
+        .accessibilityValue(
+            [
+                unread > 0 ? "непрочитанных: \(unread)" : nil,
+                muted ? "уведомления выключены" : nil
+            ].compactMap { $0 }.joined(separator: ", ")
+        )
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(unread > 0 && !muted ? theme.accentColor.opacity(0.05) : Color.clear)
         .overlay(alignment: .bottom) {

@@ -34,7 +34,7 @@ struct FriendProfileView: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(Cinema2026.background)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 52)
+                                .frame(minHeight: 52)
                                 .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)

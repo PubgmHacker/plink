@@ -362,7 +362,7 @@ struct ServiceAuthView: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Cinema2026.background)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 50)
+                        .frame(minHeight: 50)
                         .background(service.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)

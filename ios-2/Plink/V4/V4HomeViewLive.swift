@@ -373,7 +373,7 @@ struct V4HomeViewLive: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(active ? activeBtnText : V4.ink)
                             .padding(.horizontal, 14)
-                            .frame(height: 36)
+                            .frame(minHeight: 36)
                             .background {
                                 if active {
                                     Capsule().fill(activeAccent)
@@ -502,7 +502,7 @@ struct V4HomeViewLive: View {
                             .font(.system(size: 11.5, weight: .bold))
                             .foregroundStyle(activeBtnText)
                             .padding(.horizontal, 14)
-                            .frame(height: 34)
+                            .frame(minHeight: 34)
                             .background(activeAccent, in: Capsule())
                     }
                     .padding(10)

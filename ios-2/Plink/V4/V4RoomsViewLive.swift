@@ -332,7 +332,10 @@ struct V4RoomsViewLive: View {
                         .font(.system(size: 12.5, weight: .heavy))
                         .foregroundStyle(isOn ? theme.buttonTextColor : V4.muted)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 38)
+                        // minHeight, а не height: при Dynamic Type XXL текст
+                        // сегмента переставал влезать в 38 pt и обрезался.
+                        .frame(minHeight: 38)
+                        .padding(.vertical, 2)
                         .background {
                             if isOn {
                                 Capsule()
@@ -394,7 +397,7 @@ struct V4RoomsViewLive: View {
                             .font(.system(size: 8, weight: .black))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
-                            .frame(height: 16)
+                            .frame(minHeight: 16)
                             .background(V4.danger, in: Capsule())
                             .padding(6)
                     }
@@ -604,14 +607,14 @@ struct V4RoomsViewLive: View {
                             .font(.system(size: 10, weight: .black))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
-                            .frame(height: 28)
+                            .frame(minHeight: 28)
                             .background(V4.danger, in: Capsule())
                         }
                         Text("\(room.participantCount) смотрят")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
-                            .frame(height: 28)
+                            .frame(minHeight: 28)
                             .plinkGlass(.control, in: Capsule(style: .continuous))
                         Spacer()
                         Image(systemName: "arrow.up.right")

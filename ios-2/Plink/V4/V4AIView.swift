@@ -408,7 +408,7 @@ struct V4AIViewLive: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 16)
-                    .frame(height: 54)
+                    .frame(minHeight: 54)
                     .frame(maxWidth: .infinity)
                     .plinkGlass(.navigation, in: Capsule())
                 }

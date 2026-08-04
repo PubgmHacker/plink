@@ -283,7 +283,7 @@ private struct SettingsChoiceRow: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(selected ? V4.accentInk : V4.ink)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 36)
+                            .frame(minHeight: 36)
                             .background(selected ? V4.accent : V4.raised.opacity(0.8))
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }

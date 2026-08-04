@@ -265,7 +265,7 @@ extension V4FriendsViewLive {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(V4.muted)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 34)
+                    .frame(minHeight: 34)
                     .background(V4.raised.opacity(0.4), in: Capsule())
             } else {
                 HStack(spacing: 8) {

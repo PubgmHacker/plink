@@ -123,7 +123,7 @@ struct ServiceFilterChips: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(filter == f ? V4.canvas : V4.ink)
                             .padding(.horizontal, 15)
-                            .frame(height: 36)
+                            .frame(minHeight: 36)
                             .background {
                                 if filter == f {
                                     Capsule(style: .continuous).fill(V4.accent)

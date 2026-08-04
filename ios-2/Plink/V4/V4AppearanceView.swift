@@ -416,7 +416,7 @@ struct V4AppearanceView: View {
                         .padding(2)
                     }
                 }
-                .frame(height: 48)
+                .frame(minHeight: 48)
                 .opacity(locked ? 0.45 : 1)
 
                 Text(style.title)

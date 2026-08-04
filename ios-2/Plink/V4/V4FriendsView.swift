@@ -431,7 +431,7 @@ struct V4FriendsViewLive: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(theme.buttonTextColor)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 40)
+                        .frame(minHeight: 40)
                         .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
@@ -443,7 +443,7 @@ struct V4FriendsViewLive: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(V4.ink)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 40)
+                        .frame(minHeight: 40)
                         .background(V4.raised.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
@@ -1248,7 +1248,7 @@ private struct FriendRequestsSheet: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(theme.buttonTextColor)
                     .padding(.horizontal, 10)
-                    .frame(height: 34)
+                    .frame(minHeight: 34)
                     .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
@@ -1264,7 +1264,7 @@ private struct FriendRequestsSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(V4.ink)
                     .padding(.horizontal, 10)
-                    .frame(height: 34)
+                    .frame(minHeight: 34)
                     .background(V4.raised.opacity(0.8), in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(V4.line))
             }
@@ -1309,7 +1309,7 @@ private struct AddFriendSheet: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(V4.ink)
                             .padding(.horizontal, 14)
-                            .frame(height: 48)
+                            .frame(minHeight: 48)
                             .background(V4.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(V4.line))
@@ -1424,7 +1424,7 @@ private struct AddFriendSheet: View {
                                                 .font(.system(size: 13, weight: .bold))
                                                 .foregroundStyle(theme.buttonTextColor)
                                                 .padding(.horizontal, 12)
-                                                .frame(height: 34)
+                                                .frame(minHeight: 34)
                                                 .background(theme.accentColor, in: Capsule())
                                         }
                                         .buttonStyle(.plain)

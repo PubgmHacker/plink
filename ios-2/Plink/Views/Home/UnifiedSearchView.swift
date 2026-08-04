@@ -42,7 +42,7 @@ struct UnifiedSearchView: View {
                                         .font(.system(size: 13, weight: .semibold))
                                         .foregroundStyle(selectedChip == chip ? Cinema2026.background : Cinema2026.text)
                                         .padding(.horizontal, 14)
-                                        .frame(height: 32)
+                                        .frame(minHeight: 32)
                                         .background(selectedChip == chip ? Cinema2026.accent : Cinema2026.surface, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
