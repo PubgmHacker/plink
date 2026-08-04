@@ -28,20 +28,33 @@ enum CompactPhoneMetrics {
 
 // MARK: - Cinema2026 neutral palette (§5)
 
+/// Палитра кинематографичных экранов: комната, чат, онбординг, пейволл,
+/// создание комнаты.
+///
+/// Аудит 03.08.2026. Здесь жил ВТОРОЙ акцент приложения — мятный
+/// `rgb(0.355, 0.690, 0.610)`. Вкладки и «Оформление» рисуются палитрой `V4`
+/// с синим акцентом, а онбординг, пейволл и создание комнаты — этой, и на
+/// глаз это выглядело как два разных приложения: пользователь встречал
+/// мятную кнопку «Далее» в онбординге, а сразу после входа — синюю.
+///
+/// Токены сведены к `V4`, чтобы акцент и фон были одни на всё приложение.
+/// Имена и структура сохранены: на `Cinema2026` ссылаются 430 раз в
+/// десятках файлов, и переписывать каждый вызов рискованнее, чем
+/// переопределить источник.
 enum Cinema2026 {
-    static let background = Color(red: 0.055, green: 0.067, blue: 0.075)
-    static let surface = Color(red: 0.092, green: 0.108, blue: 0.118)
-    static let raised = Color(red: 0.135, green: 0.153, blue: 0.163)
-    static let text = Color(red: 0.925, green: 0.918, blue: 0.890)
-    static let secondary = Color(red: 0.650, green: 0.675, blue: 0.680)
-    static let divider = Color(red: 0.205, green: 0.225, blue: 0.232)
-    static let accent = Color(red: 0.355, green: 0.690, blue: 0.610)
-    static let amber = Color(red: 0.845, green: 0.655, blue: 0.315)
-    static let danger = Color(red: 0.820, green: 0.295, blue: 0.270)
+    static let background = V4.canvas
+    static let surface = V4.surface
+    static let raised = V4.raised
+    static let text = V4.ink
+    static let secondary = V4.muted
+    static let divider = Color.oklch(0.30, 0.02, 240)
+    static let accent = V4.accent
+    static let amber = V4.amber
+    static let danger = V4.danger
 
     // Aliases for back-compat with old PlinkRave refs
     static let accentAction = LinearGradient(
-        colors: [accent, Color(red: 0.285, green: 0.550, blue: 0.488)],
+        colors: [accent, Color.oklch(0.55, 0.20, 250)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

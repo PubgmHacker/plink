@@ -29,7 +29,11 @@ enum PlinkTheatre {
     /// Акцент шелла — свет проектора (бывший teal).
     static let teal = Color(hex: 0xF2F4F3)
     static let tealBright = Color.white
-    static let tealDeep = Color(hex: 0x19E0C0)
+    /// Аудит 03.08.2026: был мятный #19E0C0 — последний след третьей палитры.
+    /// Монохром шелла (решение 26.07.2026) сохранён, но точки, где цвет всё
+    /// же появляется — фокус полей, градиент «пуска», — теперь совпадают с
+    /// акцентом приложения, а не спорят с ним.
+    static let tealDeep = Color(hex: 0x2E7BFF)
     /// Янтарь ламп — ТОЛЬКО ошибки и предупреждения, точечно.
     static let amber = Color(hex: 0xF5C26B)
 
@@ -39,13 +43,13 @@ enum PlinkTheatre {
         endPoint: .bottomTrailing
     )
     /// Градиент «пуска» — единственное цветное пятно монохромного шелла.
-    /// Белый переходит в teal только к дальнему углу, поэтому кнопка читается
-    /// как белая с подсветкой, а не как цветная плашка.
+    /// Белый переходит в акцент только к дальнему углу, поэтому кнопка
+    /// читается как белая с подсветкой, а не как цветная плашка.
     static let ignitionGradient = LinearGradient(
         stops: [
             .init(color: .white, location: 0.0),
-            .init(color: Color(hex: 0xEAFBF7), location: 0.42),
-            .init(color: Color(hex: 0x8FEEDC), location: 0.78),
+            .init(color: Color(hex: 0xEAF1FF), location: 0.42),
+            .init(color: Color(hex: 0x9CC2FF), location: 0.78),
             .init(color: tealDeep, location: 1.0),
         ],
         startPoint: .leading,
