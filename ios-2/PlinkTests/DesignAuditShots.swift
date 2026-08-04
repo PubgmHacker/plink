@@ -378,10 +378,38 @@ final class DesignAuditShots: XCTestCase {
         format.scale = Self.scale
         format.opaque = true
         let bounds = CGRect(origin: .zero, size: Self.canvas)
-        let image = UIGraphicsImageRenderer(size: Self.canvas, format: format).image { ctx in
-            UIColor.black.setFill()
-            ctx.fill(bounds)
-            host.view.drawHierarchy(in: bounds, afterScreenUpdates: false)
+
+        func render() -> UIImage {
+            UIGraphicsImageRenderer(size: Self.canvas, format: format).image { ctx in
+                UIColor.black.setFill()
+                ctx.fill(bounds)
+                host.view.drawHierarchy(in: bounds, afterScreenUpdates: false)
+            }
+        }
+
+        // Ждём, пока картинка ПЕРЕСТАНЕТ меняться, а не фиксированную паузу.
+        //
+        // Поймано на редизайне 04.08.2026: экран входа появляется пружиной
+        // 0.62 с с задержкой 0.06, и одного ожидания в 1.2 с не хватало —
+        // примерно один кадр из трёх снимался на середине проявления. Такой
+        // кадр выглядит как настоящий регресс («кнопка потемнела, знак
+        // выцвел»), и на его отладку уходит время, потому что в коде искать
+        // нечего. Хуже того, тихо испорченный кадр может уйти в отчёт.
+        //
+        // Сравниваем два последовательных рендера: совпали — сцена
+        // успокоилась. `while` с потолком, а не `repeat`, чтобы вечная
+        // анимация (мозаика зала «дышит») не подвесила тест: там колебание
+        // очень медленное, поэтому за 8 попыток кадры сходятся.
+        var image = render()
+        for _ in 0..<8 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            CATransaction.flush()
+            let next = render()
+            if next.pngData() == image.pngData() {
+                image = next
+                break
+            }
+            image = next
         }
 
         guard let data = image.pngData() else {
