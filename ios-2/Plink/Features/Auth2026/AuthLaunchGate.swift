@@ -16,7 +16,6 @@ enum LaunchDestination: Equatable {
 
 struct AuthLaunchGate: View {
     @State private var destination: LaunchDestination = .restoringSession
-    @State private var authRoute: AuthRoute = .login
     @State private var authNotice: String?
     @State private var authTransitionNonce = 0
     @EnvironmentObject private var deepLinkRouter: DeepLinkRouter
@@ -88,24 +87,15 @@ struct AuthLaunchGate: View {
         }
     }
 
+    /// Вход и регистрация — один экран с переключателем режима, а не два
+    /// маршрута. Раньше здесь был switch по authRoute, и переход между входом
+    /// и регистрацией менял всю страницу целиком.
     @ViewBuilder
     private var authFlow: some View {
-        switch authRoute {
-        case .login:
-            LoginView2026(
-                sessionMessage: authNotice,
-                onAuthenticated: handleAuthenticated,
-                onRegister: {
-                    authNotice = nil
-                    authRoute = .registration
-                }
-            )
-        case .registration:
-            RegistrationView2026(
-                onRegistered: handleAuthenticated,
-                onLogin: { authRoute = .login }
-            )
-        }
+        PlinkAuthScreen(
+            sessionMessage: authNotice,
+            onAuthenticated: handleAuthenticated
+        )
     }
 
     private func restoreSession() async {
@@ -200,9 +190,14 @@ struct AuthLaunchGate: View {
         flushPendingDeepLink()
     }
 
+    // Разрешение на уведомления больше не запрашивается отсюда. Раньше обе
+    // ветки — «прошёл» и «пропустил» — молча показывали системный диалог, то
+    // есть человек, который только что нажал «Пропустить», всё равно получал
+    // запрос без объяснения. Теперь про уведомления спрашивает последний экран
+    // онбординга, объяснив зачем, и только если пользователь согласился.
+
     @MainActor
     private func completeOnboarding() {
-        requestNotificationPermission()
         onboardingStore.markCompleted(version: OnboardingVersion.current)
         withAnimation(.easeOut(duration: 0.32)) {
             destination = .app
@@ -212,23 +207,11 @@ struct AuthLaunchGate: View {
 
     @MainActor
     private func skipOnboarding() {
-        requestNotificationPermission()
         onboardingStore.markCompleted(version: OnboardingVersion.current)
         withAnimation(.easeOut(duration: 0.32)) {
             destination = .app
         }
         flushPendingDeepLink()
-    }
-
-    private func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            guard granted else { return }
-            #if canImport(UIKit)
-            DispatchQueue.main.async {
-                UIApplication.shared.registerForRemoteNotifications()
-            }
-            #endif
-        }
     }
 
     // MARK: - Отложенные диплинки
@@ -274,11 +257,6 @@ struct AuthLaunchGate: View {
         defaults.removeObject(forKey: Self.pendingDeepLinkKey)
         defaults.removeObject(forKey: Self.pendingDeepLinkDateKey)
     }
-}
-
-enum AuthRoute: Equatable {
-    case login
-    case registration
 }
 
 // MARK: - Cinematic splash («restoring session»)

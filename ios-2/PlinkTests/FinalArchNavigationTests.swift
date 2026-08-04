@@ -157,10 +157,14 @@ final class FinalArchNavigationTests: XCTestCase {
         XCTAssertEqual(destinations.count, 4)
     }
 
-    // MARK: - Auth route
+    // MARK: - Auth mode
 
-    func testAuthRoute_allCases() {
-        let routes: [AuthRoute] = [.login, .registration]
-        XCTAssertEqual(routes.count, 2)
+    /// Вход и регистрация — два режима одного экрана (PlinkAuthScreen).
+    /// Раньше это были два маршрута (AuthRoute), и переключение между ними
+    /// перерисовывало страницу целиком.
+    func testAuthMode_allCases() {
+        XCTAssertEqual(PlinkAuthMode.allCases.count, 2)
+        XCTAssertEqual(PlinkAuthMode.signIn.title, "Вход")
+        XCTAssertEqual(PlinkAuthMode.signUp.title, "Регистрация")
     }
 }

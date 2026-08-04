@@ -56,6 +56,9 @@ enum V4Glyph {
     case shield
     case warning
     case inbox
+    /// Почтовый адрес — поле email на входе. Отдельно от `inbox`: тот про
+    /// «Входящие» в приложении и рисуется лотком.
+    case mail
     case photo
     case requests
     case leave
@@ -97,6 +100,7 @@ enum V4Glyph {
         case .shield:        return "shield.lefthalf.filled"
         case .warning:       return "exclamationmark.triangle"
         case .inbox:         return "tray"
+        case .mail:          return "envelope"
         case .photo:         return "photo.on.rectangle"
         case .requests:      return "person.badge.clock"
         case .leave:         return "rectangle.portrait.and.arrow.right"
@@ -125,6 +129,7 @@ enum V4Glyph {
         case .appearance: return "paintbrush.pointed.fill"
         case .requests:   return "person.badge.clock.fill"
         case .inbox:      return "tray.fill"
+        case .mail:       return "envelope.fill"
         default:          return symbol
         }
     }
