@@ -204,16 +204,16 @@ internal struct AdminRootView: View {
                     Button { module = mod } label: {
                         HStack {
                             Image(systemName: mod.icon)
-                                .foregroundStyle(module == mod ? Color(red:0.20,green:0.82,blue:0.92) : .white.opacity(0.75))
+                                .foregroundStyle(module == mod ? V4.accent : V4.muted)
                                 .frame(width: 20)
                             Text(mod.title)
-                                .foregroundStyle(module == mod ? .white : .white.opacity(0.75))
+                                .foregroundStyle(module == mod ? V4.ink : V4.muted)
                             Spacer()
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(module == mod ? Color(red:0.20,green:0.82,blue:0.92).opacity(0.15) : Color.clear)
+                    .listRowBackground(module == mod ? V4.accent.opacity(0.15) : Color.clear)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -257,13 +257,13 @@ struct AdminShell<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text(title).font(.title2.bold()).foregroundStyle(.white)
+                    Text(title).font(.title2.bold()).foregroundStyle(V4.ink)
                     Spacer()
                     if let refresh = onRefresh {
                         Button { Task { await refresh() } } label: {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 14))
-                                .foregroundStyle(.white.opacity(0.55))
+                                .foregroundStyle(V4.muted)
                         }.buttonStyle(.plain)
                     }
                     if isLoading { ProgressView().tint(.white).scaleEffect(0.7) }
@@ -283,11 +283,11 @@ struct AdminShell<Content: View>: View {
 
 // Stat card
 struct StatCard: View {
-    let label: String; let value: String; var accent: Color = Color(red:0.20,green:0.82,blue:0.92)
+    let label: String; let value: String; var accent: Color = V4.accent
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(value).font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
-            Text(label).font(.caption).foregroundStyle(.white.opacity(0.55))
+            Text(value).font(.system(size: 26, weight: .heavy)).foregroundStyle(V4.ink)
+            Text(label).font(.caption).foregroundStyle(V4.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -315,16 +315,16 @@ struct AdminOverviewView: View {
                 }
             }
             if let h = health {
-                Text("Services").font(.headline).foregroundStyle(.white).padding(.top, 8)
+                Text("Services").font(.headline).foregroundStyle(V4.ink).padding(.top, 8)
                 ForEach(h.services ?? []) { svc in
                     HStack {
                         Circle().fill(svc.healthy ? .green : .red).frame(width: 8, height: 8)
-                        Text(svc.name).font(.subheadline).foregroundStyle(.white)
+                        Text(svc.name).font(.subheadline).foregroundStyle(V4.ink)
                         Spacer()
-                        Text(svc.latencyMs.map { "\($0)ms" } ?? "--").font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.5))
+                        Text(svc.latencyMs.map { "\($0)ms" } ?? "--").font(.caption.monospacedDigit()).foregroundStyle(V4.muted)
                     }
                     .padding(10)
-                    .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .plinkGlass(.control, cornerRadius: 8)
                 }
             }
         }
@@ -355,42 +355,42 @@ struct AdminUsersView: View {
     var body: some View {
         AdminShell(title: "Users", isLoading: loading, errorMsg: err, onRefresh: { await search() }) {
             HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.4))
+                Image(systemName: "magnifyingglass").foregroundStyle(V4.muted)
                 TextField("Search username / email", text: $query)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(V4.ink)
                     .onSubmit { Task { await search() } }
                 if !query.isEmpty {
                     Button { query = ""; Task { await search() } } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.4))
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(V4.muted)
                     }.buttonStyle(.plain)
                 }
             }
             .padding(10)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .plinkGlass(.control, cornerRadius: 10)
 
             ForEach(users) { user in
                 HStack {
                     Circle()
-                        .fill(LinearGradient(colors: [Color(red:0.20,green:0.82,blue:0.92), Color(red:0.28,green:1.0,blue:0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .fill(LinearGradient(colors: [V4.accent, Color(red:0.28,green:1.0,blue:0.72)], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 36, height: 36)
                         .overlay(Text(String(user.username.prefix(1)).uppercased()).font(.system(size: 14, weight: .bold)).foregroundStyle(.black))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(user.username).font(.subheadline.bold()).foregroundStyle(.white)
-                        Text(user.email).font(.caption).foregroundStyle(.white.opacity(0.45))
+                        Text(user.username).font(.subheadline.bold()).foregroundStyle(V4.ink)
+                        Text(user.email).font(.caption).foregroundStyle(V4.muted)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(user.role).font(.caption2.bold())
-                            .foregroundStyle(user.role == "admin" || user.role == "founder" ? Color(red:0.20,green:0.82,blue:0.92) : .white.opacity(0.5))
+                            .foregroundStyle(user.role == "admin" || user.role == "founder" ? V4.accent : V4.muted)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background((user.role == "admin" || user.role == "founder" ? Color(red:0.20,green:0.82,blue:0.92) : Color.white).opacity(0.1), in: Capsule())
+                            .background((user.role == "admin" || user.role == "founder" ? V4.accent : Color.white).opacity(0.1), in: Capsule())
                         if user.banned == true {
                             Text("BANNED").font(.caption2.bold()).foregroundStyle(.red)
                         }
                     }
                 }
                 .padding(10)
-                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .plinkGlass(.control, cornerRadius: 10)
                 .contextMenu {
                     if user.banned == true {
                         Button("Unban") {
@@ -448,22 +448,22 @@ struct AdminRoomsView: View {
             ForEach(rooms) { room in
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(room.name).font(.subheadline.bold()).foregroundStyle(.white)
-                        Text("Host: \(room.hostName ?? "--")  |  \(room.privacy ?? "public")").font(.caption).foregroundStyle(.white.opacity(0.45))
+                        Text(room.name).font(.subheadline.bold()).foregroundStyle(V4.ink)
+                        Text("Host: \(room.hostName ?? "--")  |  \(room.privacy ?? "public")").font(.caption).foregroundStyle(V4.muted)
                     }
                     Spacer()
                     if let cnt = room.participantCount {
                         Label(String(cnt), systemImage: "person.fill")
-                            .font(.caption).foregroundStyle(.white.opacity(0.6))
+                            .font(.caption).foregroundStyle(V4.muted)
                     }
                     Button("Close") { closeTarget = room }
                         .buttonStyle(.bordered).tint(.red).font(.caption)
                 }
                 .padding(10)
-                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .plinkGlass(.control, cornerRadius: 10)
             }
             if rooms.isEmpty && !loading {
-                Text("No active rooms").font(.subheadline).foregroundStyle(.white.opacity(0.35)).frame(maxWidth: .infinity)
+                Text("No active rooms").font(.subheadline).foregroundStyle(V4.muted).frame(maxWidth: .infinity)
             }
         }
         .confirmationDialog("Force close room?", isPresented: Binding(get: { closeTarget != nil }, set: { if !$0 { closeTarget = nil } })) {
@@ -497,20 +497,20 @@ struct AdminModerationView: View {
         AdminShell(title: "Report Queue", isLoading: loading, errorMsg: err, onRefresh: load) {
             ForEach(items) { r in
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(r.targetPreview ?? "(no preview)").font(.subheadline).foregroundStyle(.white)
-                    Text(r.reason ?? "No reason").font(.caption).foregroundStyle(.white.opacity(0.5))
+                    Text(r.targetPreview ?? "(no preview)").font(.subheadline).foregroundStyle(V4.ink)
+                    Text(r.reason ?? "No reason").font(.caption).foregroundStyle(V4.muted)
                     HStack(spacing: 8) {
                         Button("Resolve") { Task { await resolve(r.id) } }
-                            .buttonStyle(.borderedProminent).tint(Color(red:0.20,green:0.82,blue:0.92)).font(.caption)
+                            .buttonStyle(.borderedProminent).tint(V4.accent).font(.caption)
                         Button("Dismiss") { Task { await resolve(r.id) } }
                             .buttonStyle(.bordered).font(.caption)
                     }
                 }
                 .padding(10)
-                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .plinkGlass(.control, cornerRadius: 10)
             }
             if items.isEmpty && !loading {
-                Text("Queue is empty").font(.subheadline).foregroundStyle(.white.opacity(0.35)).frame(maxWidth: .infinity)
+                Text("Queue is empty").font(.subheadline).foregroundStyle(V4.muted).frame(maxWidth: .infinity)
             }
         }
         .task { await load() }
@@ -539,21 +539,21 @@ struct AdminFlagsView: View {
             ForEach(flags) { f in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(f.key).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white)
-                        if let owner = f.owner { Text(owner).font(.caption).foregroundStyle(.white.opacity(0.4)) }
+                        Text(f.key).font(.system(size: 13, design: .monospaced)).foregroundStyle(V4.ink)
+                        if let owner = f.owner { Text(owner).font(.caption).foregroundStyle(V4.muted) }
                     }
                     Spacer()
                     Text(f.enabled ? "ON" : "OFF")
                         .font(.caption2.bold())
-                        .foregroundStyle(f.enabled ? .green : .white.opacity(0.4))
+                        .foregroundStyle(f.enabled ? .green : V4.muted)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background((f.enabled ? Color.green : Color.white).opacity(0.1), in: Capsule())
                 }
                 .padding(10)
-                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .plinkGlass(.control, cornerRadius: 10)
             }
             if flags.isEmpty && !loading {
-                Text("No flags configured").font(.subheadline).foregroundStyle(.white.opacity(0.35)).frame(maxWidth: .infinity)
+                Text("No flags configured").font(.subheadline).foregroundStyle(V4.muted).frame(maxWidth: .infinity)
             }
         }
         .task { await load() }
@@ -609,20 +609,20 @@ struct AdminSystemView: View {
             if let h = health {
                 StatCard(label: "Overall status", value: h.status?.uppercased() ?? "--",
                          accent: h.status == "ok" ? .green : .red)
-                Text("Services").font(.headline).foregroundStyle(.white).padding(.top, 4)
+                Text("Services").font(.headline).foregroundStyle(V4.ink).padding(.top, 4)
                 ForEach(h.services ?? []) { svc in
                     HStack {
                         Circle().fill(svc.healthy ? .green : .red).frame(width: 8, height: 8)
-                        Text(svc.name).foregroundStyle(.white)
+                        Text(svc.name).foregroundStyle(V4.ink)
                         Spacer()
                         Text(svc.latencyMs.map { "\($0)ms" } ?? "--")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.45))
+                            .font(.caption.monospacedDigit()).foregroundStyle(V4.muted)
                     }
                     .padding(10)
-                    .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .plinkGlass(.control, cornerRadius: 8)
                 }
             }
-            Divider().overlay(.white.opacity(0.1)).padding(.vertical, 4)
+            Divider().overlay(V4.line).padding(.vertical, 4)
             Button { showMaintenance = true } label: {
                 Label("Toggle Maintenance Mode", systemImage: "wrench.and.screwdriver")
                     .font(.subheadline).foregroundStyle(.orange)
@@ -659,15 +659,15 @@ struct AdminAuditView: View {
         AdminShell(title: "Audit Log", isLoading: loading, errorMsg: err, onRefresh: load) {
             ForEach(logs) { e in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(e.action).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Color(red:0.20,green:0.82,blue:0.92))
-                    if let t = e.createdAt { Text(t).font(.caption2).foregroundStyle(.white.opacity(0.35)) }
+                    Text(e.action).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(V4.accent)
+                    if let t = e.createdAt { Text(t).font(.caption2).foregroundStyle(V4.muted) }
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .plinkGlass(.control, cornerRadius: 8)
             }
             if logs.isEmpty && !loading {
-                Text("No audit events").font(.subheadline).foregroundStyle(.white.opacity(0.35)).frame(maxWidth: .infinity)
+                Text("No audit events").font(.subheadline).foregroundStyle(V4.muted).frame(maxWidth: .infinity)
             }
         }
         .task { await load() }
@@ -695,12 +695,12 @@ struct AdminBroadcastsView: View {
         AdminShell(title: "Broadcasts", isLoading: loading, errorMsg: err, onRefresh: loadHistory) {
             // Composer
             VStack(alignment: .leading, spacing: 10) {
-                Text("New broadcast").font(.headline).foregroundStyle(.white)
+                Text("New broadcast").font(.headline).foregroundStyle(V4.ink)
                 TextField("Message text", text: $message, axis: .vertical)
                     .lineLimit(3...6)
                     .padding(10)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .foregroundStyle(.white)
+                    .plinkGlass(.control, cornerRadius: 10)
+                    .foregroundStyle(V4.ink)
                 Picker("Audience", selection: $audience) {
                     Text("All users").tag("all")
                     Text("Plink+ only").tag("plus")
@@ -714,25 +714,25 @@ struct AdminBroadcastsView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color(red:0.20,green:0.82,blue:0.92))
+                .tint(V4.accent)
                 .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
                 if sentBanner {
                     Text("Broadcast sent!").font(.caption).foregroundStyle(.green)
                 }
             }
             .padding(14)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .plinkGlass(.control, cornerRadius: 14)
 
             if !history.isEmpty {
-                Text("Recent broadcasts").font(.headline).foregroundStyle(.white).padding(.top, 8)
+                Text("Recent broadcasts").font(.headline).foregroundStyle(V4.ink).padding(.top, 8)
                 ForEach(history) { b in
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(b.action).font(.caption.bold()).foregroundStyle(Color(red:0.20,green:0.82,blue:0.92))
-                        if let t = b.createdAt { Text(t).font(.caption2).foregroundStyle(.white.opacity(0.4)) }
+                        Text(b.action).font(.caption.bold()).foregroundStyle(V4.accent)
+                        if let t = b.createdAt { Text(t).font(.caption2).foregroundStyle(V4.muted) }
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .plinkGlass(.control, cornerRadius: 8)
                 }
             }
         }
@@ -779,20 +779,20 @@ struct AdminPremiumView: View {
                     StatCard(label: "Churned today", value: d.churnedToday.map(String.init) ?? "--", accent: .red)
                 }
             }
-            Divider().overlay(.white.opacity(0.1)).padding(.vertical, 8)
-            Text("Comp subscription").font(.headline).foregroundStyle(.white)
+            Divider().overlay(V4.line).padding(.vertical, 8)
+            Text("Comp subscription").font(.headline).foregroundStyle(V4.ink)
             TextField("User ID", text: $compUserId)
-                .padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .foregroundStyle(.white)
+                .padding(10).plinkGlass(.control, cornerRadius: 10)
+                .foregroundStyle(V4.ink)
             HStack {
                 TextField("Days (default 30)", text: $compDays)
                     .keyboardType(.numberPad)
-                    .padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .foregroundStyle(.white)
+                    .padding(10).plinkGlass(.control, cornerRadius: 10)
+                    .foregroundStyle(V4.ink)
                 Button("Grant") {
                     Task { await grantComp() }
                 }
-                .buttonStyle(.borderedProminent).tint(Color(red:0.20,green:0.82,blue:0.92))
+                .buttonStyle(.borderedProminent).tint(V4.accent)
                 .disabled(compUserId.isEmpty)
             }
             if compSent { Text("Subscription granted!").font(.caption).foregroundStyle(.green) }
