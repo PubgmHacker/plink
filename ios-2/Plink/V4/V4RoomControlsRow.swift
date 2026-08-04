@@ -100,7 +100,8 @@ struct V4RoomControlsRow: View {
 
             HStack(spacing: 6) {
                 V4RoomIconButton(
-                    systemName: micEnabled ? "mic.fill" : "mic.slash",
+                    glyph: .mic,
+                    filled: micEnabled,
                     locked: !hasPlus,
                     accent: accent,
                     action: hasPlus ? onToggleMic : onLockedTap
@@ -108,7 +109,8 @@ struct V4RoomControlsRow: View {
                 .accessibilityLabel(hasPlus ? "Микрофон" : "Микрофон — доступен в Плинк+")
 
                 V4RoomIconButton(
-                    systemName: cameraEnabled ? "video.fill" : "video.slash",
+                    glyph: .camera,
+                    filled: cameraEnabled,
                     locked: !hasPlus,
                     accent: accent,
                     action: hasPlus ? onToggleCamera : onLockedTap
@@ -116,15 +118,15 @@ struct V4RoomControlsRow: View {
                 .accessibilityLabel(hasPlus ? "Видео" : "Видео — доступно в Плинк+")
 
                 V4RoomIconButton(
-                    systemName: "list.bullet",
+                    glyph: .queue,
                     badgeCount: queueCount,
                     accent: accent,
                     action: onOpenQueue
                 )
-                .accessibilityLabel("Очередь")
+                .accessibilityLabel(queueCount > 0 ? "Очередь, \(queueCount)" : "Очередь")
 
                 V4RoomIconButton(
-                    systemName: "person.badge.plus",
+                    glyph: .plus,
                     tinted: true,
                     accent: accent,
                     action: onInvite
@@ -173,7 +175,9 @@ struct V4RoomControlsRow: View {
 /// Визуально кнопки остаются плотными, но промахнуться по ним нельзя —
 /// Apple HIG требует минимум 44 pt на касание.
 struct V4RoomIconButton: View {
-    let systemName: String
+    let glyph: V4Glyph
+    /// Залитое начертание — только для активного состояния (микрофон включён).
+    var filled: Bool = false
     var locked: Bool = false
     var tinted: Bool = false
     var badgeCount: Int = 0
@@ -201,8 +205,7 @@ struct V4RoomIconButton: View {
                     .fill(circleFill)
                     .frame(width: 40, height: 40)
 
-                Image(systemName: systemName)
-                    .font(.system(size: 17, weight: .medium))
+                V4GlyphIcon(glyph: glyph, size: 17, filled: filled, weight: .regular)
                     .foregroundStyle(iconColor)
 
                 if locked {

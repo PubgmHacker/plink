@@ -62,6 +62,7 @@ private struct RoomControlsRowBridge: View {
 
     @State private var privacySheetPresented = false
     @State private var invitePresented = false
+    @State private var queuePresented = false
 
     init(model: WatchRoomModel) {
         self.model = model
@@ -82,10 +83,7 @@ private struct RoomControlsRowBridge: View {
             },
             onToggleMic: { Task { await model.toggleMicrophone() } },
             onToggleCamera: { Task { await model.toggleCamera() } },
-            // Очередь уже живёт лентой над чатом (WatchChatComposer, M16),
-            // второй список был бы дублем — кнопка ведёт в приглашение,
-            // откуда добавляют видео.
-            onOpenQueue: { invitePresented = true },
+            onOpenQueue: { queuePresented = true },
             onInvite: { invitePresented = true },
             onLockedTap: {
                 NotificationCenter.default.post(
@@ -112,6 +110,9 @@ private struct RoomControlsRowBridge: View {
         }
         .sheet(isPresented: $invitePresented) {
             RoomInviteSheet(model: model)
+        }
+        .sheet(isPresented: $queuePresented) {
+            RoomQueueSheet(model: model)
         }
     }
 }
