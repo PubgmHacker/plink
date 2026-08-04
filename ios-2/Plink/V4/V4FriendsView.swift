@@ -517,8 +517,7 @@ struct V4FriendsViewLive: View {
             showRequests = true
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "person.badge.clock.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                V4GlyphIcon(glyph: .requests, size: 17, filled: true, weight: .regular)
                     .foregroundStyle(theme.accentColor)
                     .frame(width: 40, height: 40)
                     .background(theme.accentColor.opacity(0.14), in: Circle())
@@ -534,8 +533,7 @@ struct V4FriendsViewLive: View {
 
                 Spacer(minLength: 8)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                V4GlyphIcon(glyph: .chevronRight, size: 13, weight: .regular)
                     .foregroundStyle(V4.muted)
             }
             .padding(.horizontal, 14)
@@ -604,8 +602,7 @@ struct V4FriendsViewLive: View {
                 HapticManager.impact(.light)
                 showAddFriend = true
             } label: {
-                Image(systemName: "person.badge.plus")
-                    .font(.system(size: 17, weight: .semibold))
+                V4GlyphIcon(glyph: .plus, size: 17, weight: .regular)
                     .foregroundStyle(theme.accentColor)
                     .frame(width: 40, height: 40)
                     .background(V4.surface.opacity(0.5))
@@ -958,8 +955,7 @@ struct V4FriendsViewLive: View {
                         HapticManager.selection()
                         dmFriend = friend
                     } label: {
-                        Image(systemName: "message.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                        V4GlyphIcon(glyph: .chat, size: 13, filled: true, weight: .regular)
                             .foregroundStyle(V4.ink)
                             .frame(maxWidth: .infinity)
                             .frame(height: 34)
@@ -973,8 +969,7 @@ struct V4FriendsViewLive: View {
                         watchWithFriend = friend
                         showCreateRoom = true
                     } label: {
-                        Image(systemName: "film.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                        V4GlyphIcon(glyph: .film, size: 13, filled: true, weight: .regular)
                             .foregroundStyle(theme.buttonTextColor)
                             .frame(maxWidth: .infinity)
                             .frame(height: 34)
@@ -1138,8 +1133,7 @@ struct V4FriendsViewLive: View {
                                 startPoint: .topLeading, endPoint: .bottomTrailing
                             ))
                             .frame(width: 48, height: 48)
-                        Image(systemName: "person.3.fill")
-                            .font(.system(size: 15, weight: .semibold))
+                        V4GlyphIcon(glyph: .people3, size: 15, filled: true, weight: .regular)
                             .foregroundStyle(theme.buttonTextColor)
                     }
                     // 👥 group marker
@@ -1297,8 +1291,7 @@ struct V4FriendsViewLive: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 5) {
                             if pinned {
-                                Image(systemName: "pin.fill")
-                                    .font(.system(size: 9, weight: .bold))
+                                V4GlyphIcon(glyph: .pin, size: 9, filled: true, weight: .regular)
                                     .foregroundStyle(theme.accentColor)
                             }
                             Text(friend.displayTitle)
@@ -1351,8 +1344,7 @@ struct V4FriendsViewLive: View {
                 watchWithFriend = friend
                 showCreateRoom = true
             } label: {
-                Image(systemName: "film.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                V4GlyphIcon(glyph: .film, size: 13, filled: true, weight: .regular)
                     .foregroundStyle(theme.accentColor)
                     .frame(width: 34, height: 34)
                     .background(theme.accentColor.opacity(0.14), in: Circle())
@@ -1563,8 +1555,7 @@ struct V4FriendsViewLive: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                V4GlyphIcon(glyph: .chevronRight, size: 12, weight: .regular)
                     .foregroundStyle(V4.muted)
                     .padding(.top, 8)
             }
@@ -1847,8 +1838,7 @@ private struct AddFriendSheet: View {
                             if isSending {
                                 ProgressView().tint(theme.buttonTextColor).frame(width: 48, height: 48)
                             } else {
-                                Image(systemName: "paperplane.fill")
-                                    .font(.system(size: 16, weight: .semibold))
+                                V4GlyphIcon(glyph: .send, size: 16, filled: true, weight: .regular)
                                     .foregroundStyle(theme.buttonTextColor)
                                     .frame(width: 48, height: 48)
                                     .background(theme.accentColor, in: RoundedRectangle(cornerRadius: 12))

@@ -75,8 +75,7 @@ struct V4RoomsViewLive: View {
                     if !searchExpanded { searchQuery = "" }
                 }
             } label: {
-                Image(systemName: searchExpanded ? "xmark" : "magnifyingglass")
-                    .font(.system(size: 15, weight: .bold))
+                V4GlyphIcon(glyph: searchExpanded ? .close : .search, size: 15, weight: .regular)
                     .foregroundStyle(V4.ink)
                     .frame(width: 44, height: 44)
                     .background(V4.roundBG, in: Circle())
@@ -387,8 +386,7 @@ struct V4RoomsViewLive: View {
                     if room.isLocked {
                         ZStack {
                             Color.black.opacity(0.45)
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 18, weight: .bold))
+                            V4GlyphIcon(glyph: .lock, size: 18, filled: true, weight: .regular)
                                 .foregroundStyle(.white.opacity(0.9))
                         }
                     } else if room.isActive {

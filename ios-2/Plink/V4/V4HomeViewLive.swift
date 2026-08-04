@@ -313,6 +313,7 @@ struct V4HomeViewLive: View {
 
             NotificationInboxButton(
                 unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal,
+                theme: theme,
                 action: { showInbox = true }
             )
         }
@@ -331,8 +332,7 @@ struct V4HomeViewLive: View {
             showUnifiedSearch = true
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .bold))
+                V4GlyphIcon(glyph: .search, size: 15, weight: .regular)
                     .foregroundStyle(V4.muted)
                 Text("Фильм, ссылка или вопрос ИИ")
                     .font(.system(size: 14, weight: .semibold))
@@ -447,8 +447,7 @@ struct V4HomeViewLive: View {
                         startPoint: .center,
                         endPoint: .bottom
                     )
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .black))
+                    V4GlyphIcon(glyph: .play, size: 10, filled: true, weight: .regular)
                         .foregroundStyle(.black)
                         .frame(width: 26, height: 26)
                         .background(.white, in: Circle())
@@ -526,8 +525,7 @@ struct V4HomeViewLive: View {
             openRoomsTab?()
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 15, weight: .bold))
+                V4GlyphIcon(glyph: .people, size: 15, filled: true, weight: .regular)
                     .foregroundStyle(activeAccent)
                     .frame(width: 40, height: 40)
                     .background(activeAccent.opacity(0.12), in: Circle())
@@ -544,8 +542,7 @@ struct V4HomeViewLive: View {
 
                 Spacer(minLength: 6)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .black))
+                V4GlyphIcon(glyph: .chevronRight, size: 13, weight: .regular)
                     .foregroundStyle(V4.muted)
             }
             .padding(13)
@@ -651,8 +648,7 @@ struct V4HomeViewLive: View {
                         startPoint: .center,
                         endPoint: .bottom
                     )
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 11, weight: .black))
+                    V4GlyphIcon(glyph: .play, size: 11, filled: true, weight: .regular)
                         .foregroundStyle(.black)
                         .frame(width: 32, height: 32)
                         .background(.white, in: Circle())
@@ -734,8 +730,7 @@ struct V4HomeViewLive: View {
                         .foregroundStyle(V4.muted)
                 }
                 Spacer()
-                Image(systemName: "play.fill")
-                    .font(.system(size: 14, weight: .bold))
+                V4GlyphIcon(glyph: .play, size: 14, filled: true, weight: .regular)
                     .foregroundStyle(activeBtnText)
                     .frame(width: 36, height: 36)
                     .background(activeAccent, in: Circle())

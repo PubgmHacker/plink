@@ -500,35 +500,24 @@ struct PlinkLiquidTabBar: View {
 
 struct NotificationInboxButton: View {
     let unreadCount: Int
+    var theme: V4Theme = .electric
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: unreadCount > 0 ? "bell.fill" : "bell")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(V4.ink)
-                .frame(width: 44, height: 44)
-                .background(V4.roundBG)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(V4.line, lineWidth: 1)
-                )
-                .overlay(alignment: .topTrailing) {
-                    if unreadCount > 0 {
-                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 4)
-                            .frame(minWidth: 17, minHeight: 17)
-                            .background(Color.accentColor)
-                            .clipShape(Capsule())
-                            .offset(x: 4, y: -4)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Уведомления")
+        // Единый набор вместо ручной сборки: раньше здесь были свои
+        // Image(systemName:), своя подложка V4.roundBG и свой бейдж на
+        // Color.accentColor — системном синем, не совпадающем с акцентом темы.
+        V4GlyphButton(
+            glyph: .bell,
+            theme: theme,
+            kind: .glass,
+            diameter: 44,
+            iconSize: 17,
+            filled: unreadCount > 0,
+            badge: unreadCount > 0 ? unreadCount : nil,
+            accessibility: "Уведомления",
+            action: action
+        )
         .accessibilityValue(unreadCount == 0 ? "Нет новых" : "Новых: \(unreadCount)")
     }
 }

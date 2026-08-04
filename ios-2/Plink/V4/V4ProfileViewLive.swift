@@ -35,8 +35,7 @@ struct V4MyStatsCard: View {
                     Button {
                         Task { await reload() }
                     } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .semibold))
+                        V4GlyphIcon(glyph: .retry, size: 13, weight: .regular)
                             .foregroundStyle(V4.muted)
                             .frame(width: 44, height: 44)
                     }

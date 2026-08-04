@@ -42,6 +42,23 @@ enum V4Glyph {
     case globe
     case camera
     case heart
+    // 03.08.2026: добавлено при переводе вкладок на общий набор. Раньше эти
+    // символы жили как Image(systemName:) прямо в экранах — с разными
+    // размерами и весами в каждом.
+    case chevronRight
+    case person
+    case people3
+    case film
+    case room
+    case pin
+    case bookmark
+    case appearance
+    case shield
+    case warning
+    case inbox
+    case photo
+    case requests
+    case leave
 
     var symbol: String {
         switch self {
@@ -69,23 +86,46 @@ enum V4Glyph {
         case .globe:         return "globe"
         case .camera:        return "video"
         case .heart:         return "heart"
+        case .chevronRight:  return "chevron.right"
+        case .person:        return "person"
+        case .people3:       return "person.3"
+        case .film:          return "film"
+        case .room:          return "play.rectangle"
+        case .pin:           return "pin"
+        case .bookmark:      return "bookmark"
+        case .appearance:    return "paintbrush.pointed"
+        case .shield:        return "shield.lefthalf.filled"
+        case .warning:       return "exclamationmark.triangle"
+        case .inbox:         return "tray"
+        case .photo:         return "photo.on.rectangle"
+        case .requests:      return "person.badge.clock"
+        case .leave:         return "rectangle.portrait.and.arrow.right"
         }
     }
 
     /// Залитый близнец для активного состояния. Где его нет — остаётся линейный.
     var filledSymbol: String {
         switch self {
-        case .chat:    return "bubble.left.and.bubble.right.fill"
-        case .bell:    return "bell.fill"
-        case .bellOff: return "bell.slash.fill"
-        case .mic:     return "mic.fill"
-        case .send:    return "paperplane.fill"
-        case .lock:    return "lock.fill"
-        case .people:  return "person.2.fill"
-        case .camera:  return "video.fill"
-        case .heart:   return "heart.fill"
-        case .trash:   return "trash.fill"
-        default:       return symbol
+        case .chat:       return "bubble.left.and.bubble.right.fill"
+        case .bell:       return "bell.fill"
+        case .bellOff:    return "bell.slash.fill"
+        case .mic:        return "mic.fill"
+        case .send:       return "paperplane.fill"
+        case .lock:       return "lock.fill"
+        case .people:     return "person.2.fill"
+        case .camera:     return "video.fill"
+        case .heart:      return "heart.fill"
+        case .trash:      return "trash.fill"
+        case .person:     return "person.fill"
+        case .people3:    return "person.3.fill"
+        case .film:       return "film.fill"
+        case .room:       return "play.rectangle.fill"
+        case .pin:        return "pin.fill"
+        case .bookmark:   return "bookmark.fill"
+        case .appearance: return "paintbrush.pointed.fill"
+        case .requests:   return "person.badge.clock.fill"
+        case .inbox:      return "tray.fill"
+        default:          return symbol
         }
     }
 }

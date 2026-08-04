@@ -58,8 +58,7 @@ struct PlayerTopChrome: View {
                             model.moderationBarVisible.toggle()
                         }
                     } label: {
-                        Image(systemName: "shield.lefthalf.filled")
-                            .font(.system(size: 14, weight: .semibold))
+                        V4GlyphIcon(glyph: .shield, size: 14, weight: .regular)
                             .foregroundStyle(model.moderationBarVisible ? PlinkRoomAccent.current : Color.white.opacity(0.85))
                             .frame(width: 36, height: 36)
                             .plinkGlass(.overlay, in: Circle())
@@ -74,8 +73,7 @@ struct PlayerTopChrome: View {
                         HapticManager.impact(.light)
                         onOpenAppearance()
                     } label: {
-                        Image(systemName: "paintbrush.pointed.fill")
-                            .font(.system(size: 14, weight: .semibold))
+                        V4GlyphIcon(glyph: .appearance, size: 14, filled: true, weight: .regular)
                             .foregroundStyle(
                                 RoomLiveTheme.isActive(model.appearanceStore.appearance)
                                     ? PlinkRoomAccent.current
@@ -94,8 +92,7 @@ struct PlayerTopChrome: View {
                     HapticManager.impact(.light)
                     showInvite = true
                 } label: {
-                    Image(systemName: "person.badge.plus")
-                        .font(.system(size: 14, weight: .semibold))
+                    V4GlyphIcon(glyph: .plus, size: 14, weight: .regular)
                         .foregroundStyle(PlinkRoomAccent.current)
                         .frame(width: 36, height: 36)
                         .plinkGlass(.overlay, in: Circle())
@@ -545,8 +542,7 @@ struct RoomVoiceButton: View {
                     .plinkGlass(.overlay, in: Circle())
 
                 if showsLock {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 8, weight: .black))
+                    V4GlyphIcon(glyph: .lock, size: 8, filled: true, weight: .regular)
                         .foregroundStyle(.black)
                         .padding(3)
                         .background(PlinkRoomAccent.current, in: Circle())
