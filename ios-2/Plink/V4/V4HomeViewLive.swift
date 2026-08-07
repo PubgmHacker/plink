@@ -16,6 +16,9 @@
 //    центр уведомлений в приложении один.
 // 6) Удалён мёртвый код: promoBanner, releaseNotesCard/releaseNoteRow, showScheduleSheet
 //    — ни одного вызова в теле экрана.
+// 7) 07.08.2026: экран сам грузит свои тренды в .task. Раньше это делал
+//    bootstrap() корневого экрана шестым последовательным запросом, и до
+//    появления баннеров проходило около десяти секунд.
 
 import SwiftUI
 import PhotosUI
@@ -130,6 +133,10 @@ struct V4HomeViewLive: View {
     @State private var showReleaseNotes = false
     @State private var showInbox = false
     @State private var isRefreshing = false
+    /// Первая загрузка трендов завершена — успехом или ошибкой, неважно.
+    /// Пока false, пустая лента означает «ещё грузим», а не «ничего нет»,
+    /// и показывать нужно скелетон, а не заглушку.
+    @State private var didAttemptTrending = false
     @State private var previewItem: V4SearchResult?
     @State private var selectedGenre: String = V4HomeViewLive.genres[0]
 
@@ -220,7 +227,11 @@ struct V4HomeViewLive: View {
                     .padding(.bottom, 18)
 
                 if visibleTrending.isEmpty {
-                    if isRefreshing {
+                    // isRefreshing поднимается только в .refreshable, поэтому
+                    // при первом открытии экрана он false — и без проверки
+                    // didAttemptTrending здесь всегда рисовалась заглушка
+                    // «пусто», пока шла загрузка.
+                    if isRefreshing || !didAttemptTrending {
                         HomeSkeletonView().transition(.opacity)
                     } else {
                         HomeFallbackPlaceholder(theme: theme, openRoom: { showUnifiedSearch = true })
@@ -312,6 +323,13 @@ struct V4HomeViewLive: View {
             .preferredColorScheme(.dark)
         }
         .onAppear { refreshClipboardLink() }
+        // 07.08.2026: «Главная» грузит свои тренды сама и сразу. Эндпоинт
+        // /api/media/trending публичный, ждать гидрации сессии незачем.
+        .task {
+            guard !didAttemptTrending else { return }
+            await searchStore.loadTrending()
+            didAttemptTrending = true
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshClipboardLink() }
         }

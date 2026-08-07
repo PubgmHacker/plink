@@ -397,10 +397,18 @@ struct PlinkApprovedV4Root: View {
             await DMChatService.shared.refreshUnread()
         }
 
-        await roomsStore?.load()
-        await searchStore.loadTrending()
-        await friendsStore?.load()
-        await profileStore?.load()
+        // 07.08.2026: раньше здесь стояли четыре последовательных await, и
+        // searchStore.loadTrending() был шестым сетевым вызовом подряд —
+        // баннеры на «Главной» ждали профиль, тему, presence, бейджи и
+        // комнаты, около десяти секунд на живом устройстве.
+        // Тренды переехали в .task самой «Главной» (грузятся сразу при
+        // появлении экрана), а оставшиеся три запроса идут параллельно.
+        let roomsTask = Task { await roomsStore?.load() }
+        let friendsTask = Task { await friendsStore?.load() }
+        let profileTask = Task { await profileStore?.load() }
+        _ = await roomsTask.value
+        _ = await friendsTask.value
+        _ = await profileTask.value
         PlinkAvatarURL.bumpSessionBust()
     }
 }
