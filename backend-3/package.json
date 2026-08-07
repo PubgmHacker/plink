@@ -3,10 +3,10 @@
   "version": "1.5.2",
   "type": "module",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.6.0"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "./node_modules/.bin/prisma migrate deploy && node dist/server.js",
     "test": "vitest",
