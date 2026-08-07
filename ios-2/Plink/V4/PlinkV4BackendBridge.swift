@@ -92,20 +92,74 @@ final class V4SearchStore {
     enum SearchState: Sendable { case idle, loading, loaded([V4SearchResult]), empty, failed(String) }
     private(set) var state: SearchState = .idle
     private(set) var trending: [V4SearchResult] = []
+    /// Причина, по которой подборка на «Главной» не загрузилась.
+    ///
+    /// FIX (07.08.2026): здесь с самого начала стоял пустой `catch {}`, а
+    /// HTTP-статус не проверялся вовсе. Когда на сервере не был задан
+    /// YOUTUBE_API_KEY, /api/media/trending отвечал 500 с телом
+    /// {"error":"YOUTUBE_API_KEY not configured"} — оно не разбиралось в
+    /// YouTubeSearchResponse, декодер бросал, catch глотал, и `trending`
+    /// молча оставался пустым. Экран показывал заглушку «пусто», хотя на
+    /// самом деле запрос падал. Ни пользователь, ни консоль об этом не знали.
+    private(set) var trendingError: String?
     private var searchTask: Task<Void, Never>?
     private let apiBase = PlinkConfig.baseURLString
 
     func loadTrending() async {
-        guard let url = URL(string: "\(apiBase)/api/media/trending?regionCode=RU&maxResults=20") else { return }
+        guard let url = URL(string: "\(apiBase)/api/media/trending?regionCode=RU&maxResults=20") else {
+            trendingError = "Не удалось загрузить подборку"
+            return
+        }
         do {
             var req = URLRequest(url: url)
             if let token = AuthTokenStore.shared.token {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
-            let (data, _) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            // Статус проверяется до декодирования: тело ошибки — это другой
+            // JSON, и без этой проверки причина сбоя превращалась в
+            // безымянный DecodingError.
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                trendingError = "Сервер ответил \(code)"
+                #if DEBUG
+                let body = String(data: data, encoding: .utf8) ?? "<нечитаемое тело>"
+                print("[V4SearchStore] loadTrending: HTTP \(code) — \(body)")
+                #endif
+                return
+            }
             let resp = try JSONDecoder().decode(YouTubeSearchResponse.self, from: data)
             trending = resp.results.map(V4SearchResult.init)
-        } catch {}
+            trendingError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            trendingError = Self.userFacingTrendingError(error)
+            #if DEBUG
+            print("[V4SearchStore] loadTrending failed: \(error)")
+            #endif
+        }
+    }
+
+    /// Тот же подход, что и в V4RoomsStore.userFacingLoadError: системные
+    /// описания URLError по-английски и пользователю ничего не говорят.
+    private static func userFacingTrendingError(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                return "Нет подключения к интернету"
+            case .timedOut:
+                return "Сервис отвечает слишком долго"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return "Не удалось подключиться к Plink"
+            default:
+                return "Не удалось загрузить подборку"
+            }
+        }
+        if error is DecodingError {
+            return "Сервер вернул неожиданный ответ"
+        }
+        return "Не удалось загрузить подборку"
     }
 
     func search(_ query: String) {
