@@ -38,7 +38,6 @@ RUN apt-get update -y && apt-get install -y \
     python3 \
     curl \
     ca-certificates \
-    sh \
     && curl -fL "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" -o /usr/local/bin/yt-dlp \
     && chmod +x /usr/local/bin/yt-dlp \
     && yt-dlp --version \
