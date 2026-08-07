@@ -5,8 +5,7 @@
     "dockerfilePath": "backend-3/Dockerfile"
   },
   "deploy": {
-    "startCommand": "cd backend-3 && ./start.sh",
-    "healthcheckPath": "/health/ready",
+    "healthcheckPath": "/health/live",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
