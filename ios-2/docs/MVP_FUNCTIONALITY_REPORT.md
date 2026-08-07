@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-16  
 **iOS repo:** `PubgmHacker/repo-d0e90e58-f87bbc` · `main`  
-**Backend:** `https://plink-backend-production-ef31.up.railway.app`  
+**Backend:** `https://plink-production.up.railway.app`  
 **Design rule:** No V4 visual / theme / palette / animation changes
 
 ---

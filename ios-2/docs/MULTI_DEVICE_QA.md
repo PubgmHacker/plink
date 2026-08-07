@@ -1,6 +1,6 @@
 # Human 2-device QA (P0-3)
 
-**Prod API:** `https://plink-backend-production-ef31.up.railway.app`  
+**Prod API:** `https://plink-production.up.railway.app`  
 **Team ID:** `2QAMUC4Z4P`  
 **Devices:** 2 physical iPhones (user ready)
 
@@ -35,7 +35,7 @@
 
 ```bash
 # Replace with test credentials
-BASE=https://plink-backend-production-ef31.up.railway.app
+BASE=https://plink-production.up.railway.app
 curl -sS -X POST "$BASE/api/auth/signin" \
   -H 'Content-Type: application/json' \
   -d '{"email":"REVIEW_EMAIL","password":"REVIEW_PASSWORD"}' | head -c 200

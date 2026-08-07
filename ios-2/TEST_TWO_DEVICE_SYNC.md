@@ -5,7 +5,7 @@
 ## Prerequisites
 - Two physical iOS devices (iPhone/iPad, iOS 17+) signed into same Apple ID or different for TestFlight later.
 - Xcode + ability to build/run Plink on both (or one device + one simulator, note: simulator clock may drift differently).
-- Backend running (production https://plink-backend-production-ef31.up.railway.app or local).
+- Backend running (production https://plink-production.up.railway.app or local).
 - Both devices on same WiFi or good mobile data (for minimal network variance).
 - A YouTube video or public HLS/mp4 for testing (YouTube preferred for embed path).
 

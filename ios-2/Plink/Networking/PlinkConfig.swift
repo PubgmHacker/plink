@@ -15,7 +15,7 @@ enum PlinkConfig {
         if ProcessInfo.processInfo.arguments.contains("-plink.uitest") {
             return "http://localhost:8080"
         }
-        return "https://plink-backend-production-ef31.up.railway.app"
+        return "https://plink-production.up.railway.app"
     }
 
     /// REST API base: <host>/api

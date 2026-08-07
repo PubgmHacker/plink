@@ -143,7 +143,7 @@ data class ApiError(
 )
 
 fun youtubeMediaItem(videoId: String, title: String, thumbnailURL: String? = null): MediaItem {
-    val hosted = "https://plink-backend-production-ef31.up.railway.app/api/media/youtube-player?id=$videoId"
+    val hosted = "https://plink-production.up.railway.app/api/media/youtube-player?id=$videoId"
     return MediaItem(
         id = videoId,
         title = title,

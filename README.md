@@ -33,7 +33,7 @@ open Plink.xcodeproj
 ## Бэкенд — деплой на Railway
 
 `backend-3/` уже настроен на Dockerfile-деплой (см. `railway.json`, `Dockerfile`).
-Production URL зашит в iOS: `https://plink-backend-production-ef31.up.railway.app`.
+Production URL зашит в iOS: `https://plink-production.up.railway.app`.
 
 Подробности по переменным окружения — см. `backend-3/.env.example` и раздел
 «Variables» в этом репозитории.

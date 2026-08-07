@@ -1,7 +1,7 @@
 package com.plink.app.ui.room
 
 object YouTubePlayerHtml {
-    private const val ORIGIN = "https://plink-backend-production-ef31.up.railway.app"
+    private const val ORIGIN = "https://plink-production.up.railway.app"
 
     /** Backend-hosted player (needs Railway deploy of PlinkNative bridge). */
     fun hostedPlayerUrl(videoId: String): String {

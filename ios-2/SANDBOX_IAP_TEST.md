@@ -27,7 +27,7 @@
 
 - Call (with auth token):
   ```
-  GET https://plink-backend-production-ef31.up.railway.app/api/billing/entitlements
+  GET https://plink-production.up.railway.app/api/billing/entitlements
   ```
 - Or use the dev endpoint if you added test helpers.
 - Check `isPremium` and `premiumUntil` on the user.

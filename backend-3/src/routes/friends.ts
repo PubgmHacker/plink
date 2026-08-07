@@ -23,7 +23,7 @@ export default async function friendRoutes(fastify: any) {
       deletedAt: true,
     };
     const publicBase =
-      process.env.PUBLIC_BASE_URL || 'https://plink-backend-production-ef31.up.railway.app';
+      process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app';
 
     // Always expose a loadable avatar endpoint with a version query so clients
     // refetch immediately when a friend changes their photo (stable path, new ?v=).

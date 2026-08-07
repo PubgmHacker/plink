@@ -62,7 +62,7 @@ npx prisma generate
 ## 5. Проверки после деплоя
 
 ```bash
-BASE=https://plink-backend-production-ef31.up.railway.app
+BASE=https://plink-production.up.railway.app
 
 # 1. На лендингах НЕ ДОЛЖНО быть ни одного <script>
 curl -s $BASE/r/ABCD | grep -c '<script'      # ожидаем 0

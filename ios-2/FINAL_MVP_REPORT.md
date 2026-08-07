@@ -2,7 +2,7 @@
 
 **Strategy:** RU first → Global · Messenger + sync player hybrid · Keep all OTT services with App Store framing  
 **iOS:** `repo-d0e58-f87bbc` main · **Backend:** `plink-backend` main  
-**Prod:** https://plink-backend-production-ef31.up.railway.app
+**Prod:** https://plink-production.up.railway.app
 
 ---
 

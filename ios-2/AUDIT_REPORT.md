@@ -130,7 +130,7 @@ Full table: [`COMPETITIVE_MATRIX.md`](./COMPETITIVE_MATRIX.md)
 
 ### 2.1 Backend (production)
 
-**Base:** `https://plink-backend-production-ef31.up.railway.app`  
+**Base:** `https://plink-production.up.railway.app`  
 **Health (2026-07-15):** `status=ok`, DB up, Redis up, `realtimeV2=true`, `livekitSfu=false`, RSS ≈ 96 MB, version `2.0.0-stabilize`.
 
 #### Endpoint smoke (authenticated audit user)

@@ -7,7 +7,7 @@
 
 | Env | API | Notes |
 |-----|-----|-------|
-| Production | `https://plink-backend-production-ef31.up.railway.app` | Smoke only; no wipe |
+| Production | `https://plink-production.up.railway.app` | Smoke only; no wipe |
 | Staging | (create Railway clone) | Preferred for destructive tests |
 
 ## 2. Core happy path (every build)

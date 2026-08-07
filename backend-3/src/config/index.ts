@@ -86,7 +86,7 @@ export const config = {
   isProduction: process.env.NODE_ENV === 'production',
 
   PUBLIC_BASE_URL:
-    process.env.PUBLIC_BASE_URL || 'https://plink-backend-production-ef31.up.railway.app',
+    process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app',
 
   // Dev-only emergency DB wipe (POST /api/dev/wipe-db)
   DEV_WIPE_SECRET: process.env.DEV_WIPE_SECRET || '',

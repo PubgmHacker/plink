@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 
-const API = (process.env.API_BASE || 'https://plink-backend-production-ef31.up.railway.app').replace(/\/$/, '');
+const API = (process.env.API_BASE || 'https://plink-production.up.railway.app').replace(/\/$/, '');
 const VIEWERS = Number(process.env.VIEWERS || 2);
 const RUNS = Number(process.env.RUNS || 10);
 const WS_BASE = API.replace(/^http/, 'ws');

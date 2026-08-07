@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-16  
 **Repo:** `PubgmHacker/repo-d0e90e58-f87bbc` · branch `main`  
-**Backend:** `https://plink-backend-production-ef31.up.railway.app`
+**Backend:** `https://plink-production.up.railway.app`
 
 ---
 

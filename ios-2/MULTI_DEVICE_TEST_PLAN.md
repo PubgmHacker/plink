@@ -1,6 +1,6 @@
 # MULTI_DEVICE_TEST_PLAN — Plink Sync Test
 
-**Backend URL:** `https://plink-backend-production-ef31.up.railway.app`  
+**Backend URL:** `https://plink-production.up.railway.app`  
 **Wipe secret:** `plink-test-2026` (dev only — remove before App Store)
 
 ---
@@ -36,9 +36,9 @@
 Проверка:
 
 ```bash
-curl https://plink-backend-production-ef31.up.railway.app/health
+curl https://plink-production.up.railway.app/health
 
-curl -X POST https://plink-backend-production-ef31.up.railway.app/api/dev/wipe-db \
+curl -X POST https://plink-production.up.railway.app/api/dev/wipe-db \
   -H "Content-Type: application/json" \
   -d '{"secret":"plink-test-2026"}'
 ```
@@ -246,7 +246,7 @@ TEST 8 (30min stability):   ✅ / ❌
 ## Reset между тестами
 
 ```bash
-curl -X POST https://plink-backend-production-ef31.up.railway.app/api/dev/wipe-db \
+curl -X POST https://plink-production.up.railway.app/api/dev/wipe-db \
   -H "Content-Type: application/json" \
   -d '{"secret":"plink-test-2026"}'
 ```

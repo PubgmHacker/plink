@@ -13,7 +13,7 @@
 ```
 
 **iOS:** Xcode 26 (SDK iPhoneSimulator 26.5), Swift 5.9, iOS 17+. Схема `Plink`, проект `ios-2/Plink.xcodeproj`.
-**Бэкенд:** ESM-модули, деплой на Railway → `https://plink-backend-production-ef31.up.railway.app`
+**Бэкенд:** ESM-модули, деплой на Railway → `https://plink-production.up.railway.app`
 
 **Продукт:** совместный просмотр видео («смотрим вместе») с точной синхронизацией, чатом, друзьями, ИИ-компаньоном и живыми темами. Рынок — Россия и СНГ. Конкуренты: Rave, Hearo.
 

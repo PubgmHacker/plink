@@ -124,7 +124,7 @@ targets:
       # После покупки Apple Developer Program вернуть properties:
       #   com.apple.developer.associated-domains:
       #     - applinks:plink.app
-      #     - applinks:plink-backend-production-ef31.up.railway.app
+      #     - applinks:plink-production.up.railway.app
       # Диплинки plink:// работают и без этого (CFBundleURLTypes выше).
 
   PlinkTests:
