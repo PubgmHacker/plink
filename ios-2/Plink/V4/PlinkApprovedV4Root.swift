@@ -70,33 +70,57 @@ struct PlinkApprovedV4Root: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
-            Group {
-                // ZStack with opacity — keeps all tabs alive, no recreation lag
-                V4HomeViewLive(
-                    theme: theme,
-                    searchStore: searchStore,
-                    roomsStore: roomsStore,
-                    openRoom: { openFirstRoom() },
-                    liveThemeIndex: liveThemeIndex,
-                    openRoomsTab: { tab = 1 },
-                    createRoomWithLink: { url, service in
-                        pendingCreateLink = (url, service)
-                        showCreateRoom = true
-                    }
-                )
-                    .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
-                V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
-                    .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
-                V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
-                    .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
-                // isActive: вкладки не уничтожаются при переключении, поэтому
-                // экран «ИИ» узнаёт об уходе только отсюда — и обрывает запись.
-                V4AIViewLive(theme:theme, store:aiStore, isActive: tab == 3)
-                    .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
-                V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
-                    .opacity(tab == 4 ? 1 : 0).allowsHitTesting(tab == 4)
+            // 07.08.2026: жёсткая рамка вокруг вкладок.
+            //
+            // Все пять экранов живут здесь одновременно и гасятся через
+            // .opacity — вкладки не пересоздаются при переключении. Побочный
+            // эффект: ZStack принимает ширину самого широкого ребёнка, поэтому
+            // одна секция на одном экране, вылезшая за границу (ряд с
+            // фиксированными по ширине карточками вне горизонтального
+            // ScrollView, строка без переноса, карусель), растягивала по
+            // горизонтали ВСЁ приложение вместе с таб-баром — и сразу на всех
+            // вкладках, а не только на виноватой.
+            //
+            // GeometryReader сообщает наверх ровно предложенный размер и
+            // никогда не размер своих детей, поэтому содержимое вкладок
+            // физически не может раздуть оболочку. Явный .frame + .clipped()
+            // обрезают вылезающее вбок: промах в вёрстке теперь выглядит как
+            // обрезанная карточка на одном экране, а не как поехавший интерфейс.
+            //
+            // Внимание: .frame(maxWidth: .infinity) здесь НЕ работает — он
+            // задаёт нижнюю границу, а не верхнюю, и ребёнка шире предложенного
+            // размера не ужимает.
+            GeometryReader { geo in
+                Group {
+                    // ZStack with opacity — keeps all tabs alive, no recreation lag
+                    V4HomeViewLive(
+                        theme: theme,
+                        searchStore: searchStore,
+                        roomsStore: roomsStore,
+                        openRoom: { openFirstRoom() },
+                        liveThemeIndex: liveThemeIndex,
+                        openRoomsTab: { tab = 1 },
+                        createRoomWithLink: { url, service in
+                            pendingCreateLink = (url, service)
+                            showCreateRoom = true
+                        }
+                    )
+                        .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
+                    V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
+                        .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
+                    V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
+                        .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
+                    // isActive: вкладки не уничтожаются при переключении, поэтому
+                    // экран «ИИ» узнаёт об уходе только отсюда — и обрывает запись.
+                    V4AIViewLive(theme:theme, store:aiStore, isActive: tab == 3)
+                        .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
+                    V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
+                        .opacity(tab == 4 ? 1 : 0).allowsHitTesting(tab == 4)
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .clipped()
+                .animation(.easeInOut(duration: 0.15), value: tab)
             }
-            .animation(.easeInOut(duration: 0.15), value: tab)
             PlinkLiquidTabBar(
                 selection: $tab,
                 theme: theme,
