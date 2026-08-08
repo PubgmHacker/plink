@@ -586,9 +586,21 @@ struct V4RoomsViewLive: View {
             openRoom(room)
         } label: {
             ZStack(alignment: .bottomLeading) {
-                roomArtwork(room)
+                // roomArtwork отдаёт .aspectRatio(contentMode: .fill). Чтобы закрыть
+                // рамку высотой 268 pt, кадр 16:9 сообщает наверх ширину ~476 pt —
+                // это шире экрана. .frame(maxWidth: .infinity) здесь не помогает:
+                // он задаёт нижнюю границу ширины, а не верхнюю. .clipped() тоже не
+                // спасал — он обрезает отрисовку по уже раздутым границам, а не сам
+                // размер. Поэтому вкладка «Комнаты» ехала по горизонтали.
+                //
+                // Теперь размер задаёт Color.clear, а картинка живёт в overlay:
+                // overlay никогда не влияет на размер родителя, поэтому лишнее по
+                // бокам честно обрезается. В roomRow обложка уже стоит в жёстком
+                // .frame(width: 72, height: 72) — там этой проблемы не было.
+                Color.clear
                     .frame(maxWidth: .infinity)
                     .frame(height: 268)
+                    .overlay { roomArtwork(room) }
                     .clipped()
 
                 LinearGradient(
