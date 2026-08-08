@@ -94,43 +94,55 @@ struct SkeletonGroupRow: View {
     }
 }
 
-// MARK: - Home skeleton (full screen while loading)
+// MARK: - Home skeleton (вставляется в уже существующий ScrollView экрана)
+//
+// 07.08.2026: здесь был собственный вертикальный ScrollView — заглушка
+// задумывалась полноэкранной. Но на «Главной» она рисуется внутри её
+// ScrollView, а вложенный скролл той же оси теряет предложенную ширину:
+// горизонтальная лента ниже отдавала наверх свою полную ширину
+// (4×160 + отступы ≈ 710 pt) вместо ширины экрана.
+//
+// PlinkApprovedV4Root держит все пять вкладок живыми в одном ZStack и гасит
+// их через .opacity. ZStack принимает ширину самого широкого ребёнка —
+// поэтому растягивался весь экран вместе с таб-баром, а не одна секция.
+//
+// Скролл здесь не нужен: заглушку не листают, её показывают.
 struct HomeSkeletonView: View {
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                // Hero placeholder
-                SkeletonRect(height: 200, cornerRadius: 16)
-                    .padding(.horizontal, 13)
-                    .padding(.bottom, 28)
-
-                // Section header
-                HStack {
-                    SkeletonRect(width: 130, height: 18)
-                    Spacer()
-                    SkeletonRect(width: 30, height: 13)
-                }
-                .padding(.horizontal, 19)
-                .padding(.bottom, 12)
-
-                // Horizontal card strip
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 11) {
-                        ForEach(0..<4, id: \.self) { _ in
-                            SkeletonRect(width: 160, height: 100, cornerRadius: 12)
-                        }
-                    }
-                    .padding(.horizontal, 19)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            // Hero placeholder
+            SkeletonRect(height: 200, cornerRadius: 16)
+                .padding(.horizontal, 13)
                 .padding(.bottom, 28)
 
-                // Room list
-                ForEach(0..<4, id: \.self) { _ in
-                    SkeletonRoomCard()
-                }
+            // Section header
+            HStack {
+                SkeletonRect(width: 130, height: 18)
+                Spacer()
+                SkeletonRect(width: 30, height: 13)
             }
-            .padding(.top, 16)
+            .padding(.horizontal, 19)
+            .padding(.bottom, 12)
+
+            // Horizontal card strip
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 11) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        SkeletonRect(width: 160, height: 100, cornerRadius: 12)
+                    }
+                }
+                .padding(.horizontal, 19)
+            }
+            .padding(.bottom, 28)
+
+            // Room list
+            ForEach(0..<4, id: \.self) { _ in
+                SkeletonRoomCard()
+            }
         }
+        .padding(.top, 16)
+        // Страховка: что бы ни выросло внутри, ширина остаётся экранной.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .allowsHitTesting(false)
     }
 }
