@@ -70,8 +70,8 @@ enum FriendPresence {
         // Fresh last-seen wins over a sticky isOnline flag
         if let last = lastSeenAt {
             let sec = Date().timeIntervalSince(last)
-            if sec < 0 || sec < 15 { return "в сети" }
-            if isOnline && sec < 60 { return "в сети" }
+            if sec < 0 || sec < 15 { return "в сети · можно смотреть вместе" }
+            if isOnline && sec < 60 { return "в сети · можно смотреть вместе" }
             // Telegram-style: seconds for very recent
             if sec < 60 {
                 let s = max(1, Int(sec))
@@ -106,14 +106,14 @@ enum FriendPresence {
             df.dateFormat = "d MMM"
             return "был(а) \(df.string(from: last))"
         }
-        if isOnline { return "в сети" }
+        if isOnline { return "в сети · можно смотреть вместе" }
         // Telegram privacy: last-seen hidden → soft status
         return "был(а) недавно"
     }
 
     /// Compact status for the chat header capsule (Telegram 2026 style).
     static func headerStatus(isOnline: Bool, lastSeenAt: Date?) -> String {
-        if isOnline { return "в сети" }
+        if isOnline { return "в сети · смотреть вместе" }
         guard let last = lastSeenAt else { return "был(а) недавно" }
         let sec = Date().timeIntervalSince(last)
         if sec < 90 { return "в сети" }

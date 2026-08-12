@@ -82,6 +82,9 @@ export const config = {
   APNS_BUNDLE_ID: process.env.APNS_BUNDLE_ID || '',
   APNS_PRODUCTION: process.env.APNS_PRODUCTION !== 'false',
 
+  /// Bundle ID / Services ID for Sign in with Apple (JWT `aud`).
+  APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID || process.env.APNS_BUNDLE_ID || 'com.syncwatch.plink',
+
   NODE_ENV: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
 

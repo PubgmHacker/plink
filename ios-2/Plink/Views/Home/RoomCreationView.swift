@@ -185,8 +185,13 @@ struct RoomCreationView: View {
         carouselServices.filter { serviceFilter.matches($0) }
     }
 
-    private var freeFiltered: [VideoService] { filteredServices.filter(\.isFree) }
-    private var paidFiltered: [VideoService] { filteredServices.filter { !$0.isFree } }
+    /// Честная витрина: прямой синх vs «ваш экран» (Netflix/Disney/кино остаются).
+    private var worksNowFiltered: [VideoService] {
+        filteredServices.filter { $0.deliveryBucket == .worksNow }
+    }
+    private var yourScreenFiltered: [VideoService] {
+        filteredServices.filter { $0.deliveryBucket == .yourScreen }
+    }
 
     private var serviceStep: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -243,14 +248,17 @@ struct RoomCreationView: View {
             ServiceFilterChips(filter: $serviceFilter)
                 .padding(.bottom, 18)
 
-            // Без подписки — прямой синхронный поток
-            if !freeFiltered.isEmpty {
-                sectionLabel("БЕЗ ПОДПИСКИ", subtitle: "Прямой синх — жми и смотри")
+            // Прямой синхронный поток (YouTube / VK / Rutube / …)
+            if !worksNowFiltered.isEmpty {
+                sectionLabel(
+                    DeliveryBucket.worksNow.sectionTitle,
+                    subtitle: DeliveryBucket.worksNow.sectionSubtitle
+                )
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(freeFiltered, id: \.self) { svc in
+                        ForEach(worksNowFiltered, id: \.self) { svc in
                             ServiceCarouselCard(service: svc) { selectService(svc) }
                         }
                     }
@@ -261,14 +269,18 @@ struct RoomCreationView: View {
                 .padding(.bottom, 24)
             }
 
-            // Кинотеатры — хост входит в свой аккаунт
-            if !paidFiltered.isEmpty {
-                sectionLabel("С ПОДПИСКОЙ · КИНОТЕАТРЫ", subtitle: "Хост входит в аккаунт — гости смотрят через Plink", accent: true)
+            // Netflix / Disney / кино — остаются в выборе, режим «ваш экран»
+            if !yourScreenFiltered.isEmpty {
+                sectionLabel(
+                    DeliveryBucket.yourScreen.sectionTitle,
+                    subtitle: DeliveryBucket.yourScreen.sectionSubtitle,
+                    accent: true
+                )
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(paidFiltered, id: \.self) { svc in
+                        ForEach(yourScreenFiltered, id: \.self) { svc in
                             ServiceCarouselCard(service: svc) { selectService(svc) }
                         }
                     }

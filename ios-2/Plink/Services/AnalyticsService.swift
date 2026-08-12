@@ -46,14 +46,24 @@ final class AnalyticsService {
 
     func roomCreated(source: String = "unknown") {
         track("room_created", parameters: ["source": source])
+        track("funnel_first_room", parameters: ["source": source])
     }
     func roomJoined(via: String = "code") {
         track("room_joined", parameters: ["via": via])
+        track("funnel_join", parameters: ["via": via])
     }
     func roomLeft() { track("room_left") }
+    /// Воронка: сессия в комнате завершена (выход после просмотра).
+    func roomFinished(driftMs: Int = 0, participantCount: Int = 1) {
+        track("funnel_first_finish", parameters: [
+            "drift_ms": driftMs,
+            "participants": participantCount,
+        ])
+    }
     func messageSent() { track("message_sent") }
     func shareRoom() { track("share_room") }
     func inviteFriend() { track("invite_friend") }
+    func funnelInvite() { track("funnel_invite") }
 
     // MARK: - Media / voice / premium
 

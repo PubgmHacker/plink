@@ -9,7 +9,8 @@ import { ensurePrivilegedRole } from '../utils/privilegedUsers.js';
 import { verifyTOTP } from '../middleware/security.js';
 import { decryptSecret } from '../utils/secretBox.js';
 import { validateBody } from '../middleware/validate.js';
-import { signupBody, signinBody, refreshBody, adminVerifyBody } from '../schemas/requests.js';
+import { signupBody, signinBody, refreshBody, adminVerifyBody, appleAuthBody, guestAuthBody } from '../schemas/requests.js';
+import { usernameFromAppleSub, verifyAppleIdentityToken } from '../utils/appleIdentity.js';
 
 // Сравнение строк за постоянное время; разная длина → false без исключения.
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -509,6 +510,161 @@ export default async function authRoutes(fastify) {
       refreshToken: tokens.refreshToken,
       accessExpiresAt: tokens.accessExpiresAt
     });
+  });
+
+  // POST /api/auth/guest — ephemeral web guest (install-free /w/:code watch)
+  fastify.post('/auth/guest', {
+    preHandler: [validateBody(guestAuthBody)],
+    config: {
+      rateLimit: { max: 30, timeWindow: '10 minutes' },
+    },
+  }, async (request, reply) => {
+    try {
+      const suffix = crypto.randomBytes(4).toString('hex');
+      // Matches signup regex: letter + [A-Za-z0-9_]{4,31}
+      const username = `guest_${suffix}`.slice(0, 32);
+      const email = `guest_${suffix}@plink.guest.local`;
+      const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+      let user = await prisma.user.create({
+        data: {
+          email,
+          username,
+          password: hashedPassword,
+          displayName: 'Гость',
+          isOnline: true,
+        },
+      });
+      user = await ensurePrivilegedRole(user);
+      const tokens = await issueTokenPair(fastify, user.id, user.username, { role: user.role });
+      await logAudit({
+        userId: user.id,
+        action: AuditActions.SIGNUP,
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+        metadata: {
+          provider: 'guest',
+          roomCode: (request.body as { roomCode?: string } | undefined)?.roomCode ?? null,
+        },
+      });
+      const { password: _, ...userWithoutPassword } = user;
+      reply.send({
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accessExpiresAt: tokens.accessExpiresAt,
+        user: userWithoutPassword,
+        guest: true,
+      });
+    } catch (err: any) {
+      console.error('[auth/guest] FATAL:', err?.message || err);
+      return reply.status(500).send({ error: 'Server error during guest sign-in', requestId: request.id });
+    }
+  });
+
+  // POST /api/auth/apple — Sign in with Apple (identityToken → Plink JWT pair)
+  fastify.post('/auth/apple', {
+    preHandler: [validateBody(appleAuthBody)],
+    config: {
+      rateLimit: { max: 20, timeWindow: '10 minutes' },
+    },
+  }, async (request, reply) => {
+    try {
+      const { identityToken, fullName } = request.body as {
+        identityToken: string;
+        fullName?: string | null;
+      };
+
+      let identity;
+      try {
+        identity = await verifyAppleIdentityToken(identityToken);
+      } catch (err: any) {
+        console.warn('[auth/apple] token verify failed:', err?.message || err);
+        return reply.status(401).send({ error: 'Invalid Apple identity token' });
+      }
+
+      let user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { appleSub: identity.sub },
+            ...(identity.email ? [{ email: identity.email }] : []),
+          ],
+        },
+      });
+
+      if (user?.deletedAt) {
+        return reply.status(403).send({ error: 'Account deleted' });
+      }
+
+      if (!user) {
+        const email =
+          identity.email ||
+          `${identity.sub.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24)}@privaterelay.appleid.com`;
+        let username = usernameFromAppleSub(identity.sub);
+        const taken = await prisma.user.findFirst({
+          where: { username: { equals: username, mode: 'insensitive' } },
+        });
+        if (taken) {
+          username = usernameFromAppleSub(`${identity.sub}${Date.now()}`);
+        }
+        // Password is unusable — Apple-only account. Random hash, never logged.
+        const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+        const display =
+          typeof fullName === 'string' && fullName.trim().length > 0
+            ? fullName.trim().slice(0, 64)
+            : null;
+        user = await prisma.user.create({
+          data: {
+            email,
+            username,
+            password: hashedPassword,
+            appleSub: identity.sub,
+            displayName: display,
+            isOnline: true,
+          },
+        });
+        await logAudit({
+          userId: user.id,
+          action: AuditActions.SIGNUP,
+          ip: request.ip,
+          userAgent: request.headers['user-agent'],
+          metadata: { provider: 'apple' },
+        });
+      } else if (!user.appleSub) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { appleSub: identity.sub, isOnline: true, lastSeenAt: new Date() },
+        });
+      } else {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { isOnline: true, lastSeenAt: new Date() },
+        });
+      }
+
+      user = await ensurePrivilegedRole(user);
+      const tokens = await issueTokenPair(fastify, user.id, user.username, { role: user.role });
+
+      await logAudit({
+        userId: user.id,
+        action: AuditActions.LOGIN,
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+        metadata: { provider: 'apple' },
+      });
+
+      const { password: _, ...userWithoutPassword } = user;
+      reply.send({
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accessExpiresAt: tokens.accessExpiresAt,
+        user: userWithoutPassword,
+      });
+    } catch (err: any) {
+      console.error('[auth/apple] FATAL:', err?.message || err);
+      return reply.status(500).send({
+        error: 'Server error during Apple sign-in',
+        requestId: request.id,
+      });
+    }
   });
 
   // ─────────────────────────────────────────────────────────────────────

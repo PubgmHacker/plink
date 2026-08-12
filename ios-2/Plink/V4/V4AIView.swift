@@ -317,6 +317,8 @@ struct V4AIViewLive: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Лента занимает весь экран и сама оставляет место под шапку и док.
+            // Рилсы ВИДНЫ — поверх честный оверлей «будет доступно скоро»,
+            // а не скрытая вкладка и не фейковый продакшен-фид.
             V4ReelsPanel(
                 theme: theme,
                 onWatchTogether: { reel in
@@ -336,6 +338,8 @@ struct V4AIViewLive: View {
                 }
             )
             .ignoresSafeArea()
+
+            reelsComingSoonOverlay
 
             dock
         }
@@ -357,6 +361,33 @@ struct V4AIViewLive: View {
     private func handleVoiceResult(_ text: String) {
         NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
         Task { await store.send(text) }
+    }
+
+    /// Лента остаётся на фоне; действия по плейсхолдерам блокируются оверлеем.
+    private var reelsComingSoonOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text("СКОРО")
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(2)
+                    .foregroundStyle(Color.white.opacity(0.72))
+                Text("Будет доступно скоро")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                Text("Лента трейлеров уже на своём месте — подключаем живой каталог.")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.78))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 72)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Рилсы. Будет доступно скоро")
     }
 
     /// Шапка только называет экран и не перехватывает касания ленты.

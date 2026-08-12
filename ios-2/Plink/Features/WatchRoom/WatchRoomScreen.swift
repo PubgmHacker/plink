@@ -77,6 +77,28 @@ struct WatchRoomScreen: View {
             WatchReactionLayer(events: model.reactions, reduceMotion: reduceMotion)
                 .allowsHitTesting(false)
 
+            if let line = model.screenShareStatusLine {
+                VStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: model.isScreenSharing ? "rectangle.inset.filled.and.person.filled" : "display")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(line)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(3)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Cinema2026.text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Cinema2026.raised.opacity(0.92), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 56)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
             if let toast = ui.activeToast {
                 RoomToastView(toast: toast)
                     .transition(.opacity.combined(with: .move(edge: .top)))

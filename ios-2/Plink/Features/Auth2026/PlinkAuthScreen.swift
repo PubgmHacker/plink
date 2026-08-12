@@ -8,14 +8,10 @@
 // остаются на месте, меняются только поля: пилюля переключателя скользит,
 // поля появляются высотой и прозрачностью. Никакой смены страницы.
 //
-// Что осознанно НЕ сделано:
+// Sign in with Apple: см. AppleSignInButton + POST /auth/apple.
+// Нужен Apple Developer entitlement (com.apple.developer.applesignin).
 //
-//   • Вход через Apple. В проекте нет ни Sign in with Apple, ни серверного
-//     эндпоинта под него (backend-3/src/routes/auth.ts знает только
-//     /auth/signup, /auth/signin, /auth/refresh). Кнопка, которая ничего не
-//     делает, хуже отсутствующей: она выглядит как самый быстрый путь и
-//     упирается в тупик. Чтобы включить — нужен POST /auth/apple, который
-//     проверяет identityToken у Apple и выдаёт нашу пару токенов.
+// Что осознанно НЕ сделано:
 //
 //   • Поля для кода из шести боксов (OTP). Кода в продукте нет: регистрация
 //     не подтверждается ни почтой, ни телефоном. Единственный OTP на сервере —
@@ -395,6 +391,20 @@ struct PlinkAuthScreen: View {
 
             submitButton
                 .padding(.top, 6)
+
+            HStack(spacing: 12) {
+                Rectangle().fill(PlinkTheatre.hairline).frame(height: 1)
+                Text("или")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PlinkTheatre.muted)
+                Rectangle().fill(PlinkTheatre.hairline).frame(height: 1)
+            }
+            .padding(.top, 4)
+
+            AppleSignInButton(
+                onSuccess: onAuthenticated,
+                onError: { errorMessage = $0 }
+            )
         }
     }
 

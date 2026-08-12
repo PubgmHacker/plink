@@ -20,6 +20,8 @@ model User {
   username     String   @unique
   email        String   @unique
   password     String
+  /// Sign in with Apple subject (`sub` from identity token). Null for password users.
+  appleSub     String?  @unique
   avatarURL    String?
   /// Base64 data URL (data:image/jpeg;base64,...) — persisted in DB for Railway ephemeral FS.
   avatarData   String?

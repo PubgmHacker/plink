@@ -1,4 +1,8 @@
-export const APP_STORE_URL = "https://apps.apple.com/app/plink/id0000000000";
+/** Replace id0000000000 when the App Store listing is live (set via env in deploy). */
+export const APP_STORE_URL =
+  process.env.NEXT_PUBLIC_APP_STORE_URL ??
+  "https://apps.apple.com/app/plink/id0000000000";
+export const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_TESTFLIGHT_URL ?? "";
 export const SUPPORT_EMAIL = "support@plink.app";
 
 // Честный статус платформ — iOS готов, остальные в разработке.
@@ -13,11 +17,11 @@ export const ECOSYSTEM_STATUS = [
 export const FAQ_DATA = [
   {
     q: "Нужно ли всем участникам что-то скачивать?",
-    a: "Только тому, кто создаёт комнату. Друзья открывают ссылку или сканируют QR-код — и сразу внутри. Расширений и установок не нужно.",
+    a: "Хосту — да (приложение). Гостям на YouTube достаточно открыть ссылку и нажать «Смотреть в браузере» — синхрон без установки. Для VK, Rutube и кинотеатров удобнее приложение.",
   },
   {
     q: "Какие сервисы поддерживаются?",
-    a: "YouTube, VK Видео, Rutube, Кинопоиск, Okko, Wink, Start, Ivi, Premier, Smotrim, Kion, Disney+, Netflix, Prime Video — 14 всего.",
+    a: "Сразу в синхроне: YouTube, VK Видео, Rutube и прямые ссылки. Netflix, Disney+, Кинопоиск и другие кинотеатры остаются в выборе — режим «ваш экран»: хост входит в свой аккаунт и шарит экран. Plink не обходит DRM и не хранит чужие пароли.",
   },
   {
     q: "Что будет, если кто-то нажмёт на паузу?",

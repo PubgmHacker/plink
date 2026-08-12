@@ -239,6 +239,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var mediaSource: PlaybackSource?
     public private(set) var mediaId: String?  // P1-33: typed media ID for host commands
     public private(set) var roomCode: String?
+
+    /// Хост шарит экран (Netflix/Disney/кино — режим «ваш экран»).
+    public private(set) var isScreenSharing = false
+    /// Короткая подсказка в UI комнаты про режим экрана / DRM.
+    public private(set) var screenShareStatusLine: String?
+    private var screenCapture: ScreenCaptureService?
     public let currentUserId: String  // P1-32: identity via init, not UserDefaults
     public let currentUsername: String  // P1-32
     private var chatCatchupCursor: String?  // P0-59: opaque server cursor
@@ -431,6 +437,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                     await ambientSampler.startSampling()
                     startAmbientPalettePolling()
                 }
+
+                // Netflix/Disney/кино: WebView для входа хоста + ReplayKit.
+                // Кадры уходят в onFrame → будущий LiveKit; пока RTC stub —
+                // захват всё равно стартует честно (не молчим про «ваш экран»).
+                await beginScreenShareIfNeeded(for: source)
             } catch {
                 // P0 FIX: the native AVPlayer path can still fail (expired
                 // stream, poisoned cache, 403). Recover with the official
@@ -647,6 +658,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // Оставленная задача разбудила бы модель уже вне комнаты.
         clearPauseRequest()
         lastPauseRequestAt = nil
+        Task { await stopScreenShare() }
         realtimeClient.disconnect()
         coordinator.teardown()
         syncController.resetCompletely()
@@ -1510,6 +1522,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         if let ask = pendingPauseRequest {
             return String(format: l.string(.presencePauseAsk), ask.username)
         }
+        if isScreenSharing {
+            return isHost ? "Ваш экран в эфире" : "Хост шарит экран"
+        }
+        if screenShareStatusLine != nil, case .embed = mediaSource {
+            return isHost ? "Режим «ваш экран»" : "Кино через экран хоста"
+        }
         if let state = lastAuthoritativeState, !state.playing {
             return l.string(.presencePaused)
         }
@@ -1517,6 +1535,53 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             return l.string(.presenceResyncing)
         }
         return l.string(.presenceWatchingTogether)
+    }
+
+    /// Netflix/Disney/кино → embed: хост включает ReplayKit in-app capture.
+    private func beginScreenShareIfNeeded(for source: PlaybackSource) async {
+        guard case .embed = source else {
+            screenShareStatusLine = nil
+            return
+        }
+        screenShareStatusLine = isHost
+            ? "Кинотеатр / OTT: войдите в свой аккаунт. Экран шарится через ReplayKit — Plink не обходит DRM."
+            : "Хост смотрит через свой экран. Когда LiveKit включён, вы увидите его картинку здесь."
+
+        guard isHost else { return }
+
+        let capture = screenCapture ?? ScreenCaptureService()
+        screenCapture = capture
+        capture.onError = { [weak self] message in
+            Task { @MainActor in
+                self?.screenShareStatusLine = "Шаринг экрана: \(message)"
+                self?.isScreenSharing = false
+            }
+        }
+        do {
+            try await capture.startCapture()
+            isScreenSharing = true
+            AnalyticsService.shared.track("screen_share_started", parameters: ["room_id": _roomId])
+        } catch {
+            isScreenSharing = false
+            screenShareStatusLine =
+                "Не удалось начать шаринг экрана: \(error.localizedDescription). WebView остаётся для вашего входа."
+            Logger.app.warn("[ScreenShare] start failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func stopScreenShare() async {
+        guard let capture = screenCapture else {
+            isScreenSharing = false
+            screenShareStatusLine = nil
+            return
+        }
+        await capture.stopCapture()
+        if isScreenSharing {
+            AnalyticsService.shared.track("screen_share_stopped", parameters: ["room_id": _roomId])
+        }
+        isScreenSharing = false
+        screenShareStatusLine = nil
+        screenCapture = nil
     }
 
     /// P0 12.08.2026: передача роли хоста на живой комнате.
@@ -2122,6 +2187,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
         didLeaveRoom = true
         wantsDismiss = true
+        AnalyticsService.shared.roomFinished(
+            driftMs: Int(lastDriftMs.rounded()),
+            participantCount: max(1, participants.count)
+        )
         disconnect()
         // REST leave — host leave or last person soft-ends room → history only
         if let roomId = roomId {

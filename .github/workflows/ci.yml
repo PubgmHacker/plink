@@ -183,10 +183,8 @@ jobs:
       - name: Сборка debug
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # Тестов пока 0 (находка A2). Шаг не валит сборку, но существует —
-      # как только появится первый *Test.kt, он начнёт бежать сам.
       - name: Юнит-тесты
-        run: ./gradlew testDebugUnitTest --no-daemon || true
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
 
   # ios: job-заглушка.
   # Аудит 26.07.2026: iOS-сборку в CI НЕ добавляем — GitHub-репозиторий бэкенда

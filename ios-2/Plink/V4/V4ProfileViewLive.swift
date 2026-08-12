@@ -145,6 +145,7 @@ struct V4ProfileViewLive: View {
     @State private var showHelp = false
     @State private var showBlocked = false
     @State private var showDeleteAccount = false
+    @State private var showSafer = false
     @State private var showAdminPanel = false
     @State private var showAvatarPicker = false
     @State private var showPremium = false
@@ -311,6 +312,7 @@ struct V4ProfileViewLive: View {
 
                 groupTitle("Безопасность")
                 VStack(spacing:0) {
+                    setting("lock.shield.fill","Почему Plink безопаснее","›"){showSafer = true}
                     setting("nosign","Заблокированные","›"){showBlocked = true}
                     setting("xmark","Удалить аккаунт","›",danger:true){showDeleteAccount = true}
                     // Выйти — synchronous, guaranteed
@@ -376,6 +378,9 @@ struct V4ProfileViewLive: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showSafer) {
+            PlinkSaferScreen()
         }
         .sheet(isPresented: $showDeleteAccount) {
             NavigationStack { DeleteAccountView() }

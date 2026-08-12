@@ -204,20 +204,65 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
     // MARK: - Delete Account
 
-    /// 🔧 Pack v3: DELETE /users/me — полное удаление аккаунта на сервере.
-    /// Fallback на signOut если endpoint не реализован (404).
+    /// App Store 5.1.1(v): удаление обязано уходить на сервер.
+    /// 1) `POST /profile/delete` — 14-дневный grace (основной путь UI).
+    /// 2) `DELETE /users/me` — немедленный soft-tombstone, если grace недоступен.
+    /// Ошибку пробрасываем: локальный logout без сервера больше не маскируем.
     func deleteAccount() async throws {
         do {
+            _ = try await requestAccountDeletion(reason: "user_initiated")
+            AnalyticsService.shared.track("account_delete_scheduled")
+            try await signOut()
+            return
+        } catch {
+            Logger.api.warn("profile/delete failed, trying DELETE /users/me: \(error.localizedDescription)")
+        }
+
+        do {
             try await api.requestNoBody("users/me", method: .delete)
-        } catch APIError.notFound {
-            // Fallback для старого бэкенда без DELETE /users/me
-            Logger.api.warn("DELETE /users/me not implemented — signing out locally only")
-        } catch APIError.unauthorized {
-            Logger.api.warn("Cannot delete account: unauthorized (token expired)")
+            AnalyticsService.shared.track("account_delete_soft")
+            try await signOut()
         } catch {
             Logger.api.error("Account deletion failed: \(error.localizedDescription)")
+            throw error
         }
-        try await signOut()
+    }
+
+    /// Sign in with Apple → `POST /auth/apple` (identityToken от ASAuthorization).
+    func signInWithApple(identityToken: String, fullName: String?) async throws -> User {
+        struct Body: Encodable {
+            let identityToken: String
+            let fullName: String?
+        }
+        let response: AuthResponse = try await api.request(
+            "auth/apple",
+            method: .post,
+            body: Body(identityToken: identityToken, fullName: fullName)
+        )
+        let user = User(
+            id: response.user.id,
+            username: response.user.username,
+            email: response.user.email,
+            avatarURL: response.user.avatarURL,
+            avatarData: response.user.avatarData,
+            isOnline: true,
+            isPremium: response.user.isPremium ?? false,
+            premiumUntil: response.user.premiumUntil,
+            role: response.user.role,
+            createdAt: response.user.createdAt ?? Date()
+        )
+        let expiry = response.expiryEpochSeconds
+        await cacheToken(response.token, expiry: expiry, refreshToken: response.refreshToken)
+        cacheUser(user)
+        PremiumStatusManager.shared.syncFromServer(
+            isPremium: user.isPremium,
+            expiry: user.premiumUntil
+        )
+        refreshEntitlementExpiryIfPremium(serverIsPremium: user.isPremium)
+        await registerFCMIfPresent()
+        AnalyticsService.shared.login()
+        AnalyticsService.shared.track("login_apple")
+        return user
     }
 
     // MARK: - Token Management

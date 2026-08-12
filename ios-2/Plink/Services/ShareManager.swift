@@ -36,6 +36,8 @@ final class ShareManager {
 
         // 1. Копируем в буфер обмена
         UIPasteboard.general.string = url.absoluteString
+        AnalyticsService.shared.shareRoom()
+        AnalyticsService.shared.funnelInvite()
 
         // 2. Toast-уведомление
         HapticManager.notification(.success)

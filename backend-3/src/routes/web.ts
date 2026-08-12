@@ -17,6 +17,12 @@ import QRCode from 'qrcode'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '../config/db.js'
 import { WEB_PLANS, webPayConfigured } from './webpay.js'
+import {
+  mediaTitleFromMediaItem,
+  webWatchPageHTML,
+  webWatchUnsupportedHTML,
+  youtubeIdFromMediaItem,
+} from '../web/watchPage.js'
 
 const ROOM_CODE_RE = /^[A-Z0-9]{4,12}$/
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,32}$/
@@ -71,14 +77,26 @@ function icon(name: keyof typeof ICON_PATHS, size = 18): string {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name]}</svg>`
 }
 
-function securityHeaders(reply: FastifyReply, scriptNonce?: string, allowConnect = false) {
+function securityHeaders(
+  reply: FastifyReply,
+  scriptNonce?: string,
+  allowConnect = false,
+  /** /w/:code — fetch API + WS + same-origin YouTube player iframe */
+  watchMode = false,
+) {
   const scriptSrc = scriptNonce ? `script-src 'nonce-${scriptNonce}'; ` : ''
-  // connect-src нужен только /plus: страница дергает fetch('/api/webpay/…').
-  const connectSrc = allowConnect ? "connect-src 'self'; " : ''
+  // connect-src: /plus (webpay) и /w (guest join + realtime ticket + WS).
+  const connectSrc = allowConnect || watchMode
+    ? "connect-src 'self' wss: ws:; "
+    : ''
+  const frameSrc = watchMode ? "frame-src 'self'; " : ''
+  const imgSrc = watchMode
+    ? "img-src 'self' data: https://i.ytimg.com; "
+    : "img-src 'self' data:; "
   // font-src 'self' — шрифты самохостятся из /assets/fonts (routes/assets.ts);
   // внешние источники по-прежнему запрещены, CDN шрифтов не подключается.
   reply.header('Content-Security-Policy',
-    `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; font-src 'self'; ${scriptSrc}${connectSrc}base-uri 'none'; form-action 'none'`)
+    `default-src 'none'; ${imgSrc}style-src 'unsafe-inline'; font-src 'self'; ${scriptSrc}${connectSrc}${frameSrc}base-uri 'none'; form-action 'none'`)
   reply.header('X-Content-Type-Options', 'nosniff')
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
   reply.header('X-Frame-Options', 'DENY')
@@ -829,6 +847,8 @@ async function installLanding(opts: {
   participants: number
   isActive: boolean
   nonce: string
+  /** When set, show install-free browser watch CTA (YouTube rooms). */
+  watchPath?: string | null
 }): Promise<string> {
   const deepLink = `plink://r/${opts.code}`
   const canonical = `${PUBLIC_ORIGIN}/r/${opts.code}`
@@ -902,6 +922,9 @@ ${pageHead({ title, description, ogImage: `${PUBLIC_ORIGIN}/og/r/${opts.code}.pn
         ${ticket}
 
         <a class="btn lg-s" data-reveal data-d="3" id="open" href="${escHTML(ctaLink)}">${icon('play')}${ctaLabel}</a>
+        ${opts.isActive && opts.watchPath
+          ? `<a class="btn lg-s" data-reveal data-d="3" href="${escHTML(opts.watchPath)}" style="margin-top:10px;background:transparent;border:1px solid rgba(255,255,255,.22)">${icon('play')}Смотреть в браузере</a>`
+          : ''}
         <!-- Пусто намеренно: текст пишет скрипт уже после снятия display:none,
              иначе мутации live-региона не происходит и скринридер молчит. -->
         <div id="install-hint" role="status" aria-live="polite"></div>
@@ -1283,14 +1306,81 @@ export async function webRoutes(fastify: FastifyInstance) {
     // Аудит 26.07.2026 P2: без явного Cache-Control прокси кэшировали страницу
     // эвристически и замораживали счётчик зала и название комнаты.
     reply.header('Cache-Control', 'no-store')
+    const ytId = youtubeIdFromMediaItem(room.mediaItem)
+    const mediaTitle = mediaTitleFromMediaItem(room.mediaItem)
     return reply.type('text/html; charset=utf-8').send(await installLanding({
       code,
       roomName: room.name || 'Комната Plink',
       hostName: room.hostName || null,
-      mediaTitle: room.mediaItem || null,
+      mediaTitle,
       participants: room._count?.participants ?? 0,
       isActive: room.isActive,
       nonce,
+      watchPath: room.isActive && ytId ? `/w/${encodeURIComponent(code)}` : null,
+    }))
+  })
+
+  // —— Install-free YouTube watch (guest JWT + sync.v2 follower) ——
+  fastify.get<{ Params: { code: string } }>('/w/:code', async (req, reply) => {
+    const code = String(req.params.code ?? '').toUpperCase()
+    if (!ROOM_CODE_RE.test(code)) {
+      const nonce404 = newNonce()
+      securityHeaders(reply, nonce404)
+      reply.header('Cache-Control', 'no-store')
+      return reply.code(404).type('text/html; charset=utf-8').send(landing({
+        nonce: nonce404,
+        title: 'Plink — комната не найдена',
+        heading: 'Комната не найдена',
+        subheading: 'Ссылка устарела или введена с ошибкой.',
+        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+        canonical: `${PUBLIC_ORIGIN}/w/${encodeURIComponent(code)}`,
+      }))
+    }
+
+    const room = await prisma.room.findFirst({
+      where: { code, hidden: false },
+      select: {
+        name: true,
+        mediaItem: true,
+        isActive: true,
+      },
+    })
+
+    const nonce = newNonce()
+    reply.header('Cache-Control', 'no-store')
+
+    if (!room || !room.isActive) {
+      securityHeaders(reply, nonce)
+      return reply.code(404).type('text/html; charset=utf-8').send(landing({
+        nonce,
+        title: 'Plink — комната закрыта',
+        heading: 'Комната закрыта',
+        subheading: 'Сеанс уже закончился. Создай свою комнату в приложении.',
+        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+        canonical: `${PUBLIC_ORIGIN}/w/${code}`,
+      }))
+    }
+
+    const youtubeId = youtubeIdFromMediaItem(room.mediaItem)
+    if (!youtubeId) {
+      securityHeaders(reply, nonce)
+      return reply.type('text/html; charset=utf-8').send(webWatchUnsupportedHTML({
+        code,
+        roomName: room.name || 'Комната Plink',
+        reason: 'В этой комнате не YouTube. Для VK, Rutube и кинотеатров открой ссылку в приложении Plink — там полный синхрон и режим «ваш экран».',
+        nonce,
+        publicOrigin: PUBLIC_ORIGIN,
+      }))
+    }
+
+    securityHeaders(reply, nonce, false, true)
+    return reply.type('text/html; charset=utf-8').send(webWatchPageHTML({
+      code,
+      roomName: room.name || 'Комната Plink',
+      mediaTitle: mediaTitleFromMediaItem(room.mediaItem),
+      youtubeId,
+      nonce,
+      publicOrigin: PUBLIC_ORIGIN,
     }))
   })
 

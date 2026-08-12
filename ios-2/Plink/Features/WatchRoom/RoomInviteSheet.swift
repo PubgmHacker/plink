@@ -54,11 +54,18 @@ struct RoomInviteSheet: View {
                     .frame(height: 50)
                     .background(accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 }
+                .simultaneousGesture(TapGesture().onEnded {
+                    AnalyticsService.shared.shareRoom()
+                    AnalyticsService.shared.inviteFriend()
+                    AnalyticsService.shared.funnelInvite()
+                })
 
                 Button {
                     UIPasteboard.general.string = model.roomShareText
                     copied = true
                     HapticManager.impact(.light)
+                    AnalyticsService.shared.inviteFriend()
+                    AnalyticsService.shared.funnelInvite()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")

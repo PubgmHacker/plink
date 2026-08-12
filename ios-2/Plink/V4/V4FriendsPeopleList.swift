@@ -316,7 +316,7 @@ extension V4FriendsViewLive {
                     watchWithFriend = friend
                     showCreateRoom = true
                 } label: {
-                    Label("��мотреть вместе", systemImage: "film.fill")
+                    Label("Смотреть вместе", systemImage: "film.fill")
                 }
             }
         }

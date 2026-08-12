@@ -31,6 +31,16 @@ export const adminVerifyBody = z.object({
   code: z.string().min(4).max(64),
 }).passthrough();
 
+export const appleAuthBody = z.object({
+  identityToken: z.string().min(20).max(16_384),
+  fullName: z.string().max(120).nullish(),
+}).passthrough();
+
+/** Anonymous web guest for /w/:code (install-free YouTube watch). */
+export const guestAuthBody = z.object({
+  roomCode: z.string().min(4).max(12).optional(),
+}).passthrough();
+
 // ─── billing ─────────────────────────────────────────────────────────────
 
 export const billingVerifyBody = z.object({

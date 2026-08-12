@@ -103,6 +103,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             "auth/guest",
             "auth/google",
             "auth/apple",
+            "auth/guest",
             "auth/vk",
             "auth/yandex",
         ]
