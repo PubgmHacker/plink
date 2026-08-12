@@ -41,15 +41,18 @@ async function hasActivePlus(userId: string): Promise<boolean> {
 
 /**
  * БЕТА-РЕЖИМ (02.08.2026). На бета-тесте нужно прогнать все экраны,
- * включая экран покупки Плинк+, поэтому пэйволл показывается РАНЬШЕ
+ * включая экран покупки Плинк+, поэтому пэйволл можно показать РАНЬШЕ
  * проверки доступности SFU — даже когда ключей LiveKit ещё нет.
  *
- * ⚠️ ПЕРЕД ОТПРАВКОЙ В APP STORE поставить RTC_PAYWALL_BEFORE_AVAILABILITY=false.
- * Продавать подписку за функцию, которая физически не работает, запрещено
- * App Store Review Guideline 3.1.1 — и приводит к возвратам средств.
- * Переключается переменной окружения, правка кода и релиз не нужны.
+ * Аудит 12.08.2026 (P0): флаг был fail-open — `!== 'false'` означало «включено,
+ * пока явно не выключили». То есть любой свежий деплой (Railway без переменной,
+ * новый стейдж, локальный запуск) по умолчанию ПРОДАВАЛ подписку за неработающую
+ * функцию, а защитой служил комментарий «не забыть перед App Store». Требование
+ * Guideline 3.1.1 нельзя охранять человеческой памятью: теперь режим включается
+ * только явным RTC_PAYWALL_BEFORE_AVAILABILITY=true, а по умолчанию выключен.
+ * Дефолт безопасен, беты — осознанный опт-ин.
  */
-const PAYWALL_BEFORE_AVAILABILITY = process.env.RTC_PAYWALL_BEFORE_AVAILABILITY !== 'false';
+const PAYWALL_BEFORE_AVAILABILITY = process.env.RTC_PAYWALL_BEFORE_AVAILABILITY === 'true';
 
 export const livekitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/rtc/token', {

@@ -198,6 +198,12 @@ export async function buildApp(): Promise<{
   } else {
     fastify.log.info('[iap] самопроверка проверки покупок пройдена');
   }
+  // Самопроверка выше гоняет криптотракт с выключенным обходом, поэтому
+  // включённый ALLOW_UNVERIFIED_IAP больше не маскируется под «проверка
+  // сломана» — но молчать о нём нельзя: подписи покупок реально не проверяются.
+  if (JoseConfig.unverifiedBypassActive()) {
+    fastify.log.warn('[iap] ALLOW_UNVERIFIED_IAP=true — подписи покупок НЕ проверяются (допустимо только в разработке)');
+  }
 
   // ── API routes ────────────────────────────────────────────────────────
   await fastify.register(authRoutes, { prefix: '/api' });

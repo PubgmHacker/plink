@@ -546,7 +546,7 @@ struct RoomCreationView: View {
 
     private static func extractYouTubeID(from raw: String) -> String? {
         guard let url = URL(string: raw) else { return nil }
-        if let host = url.host, host.contains("youtu.be") {
+        if PlinkHost.matches(url.host, domain: "youtu.be") {
             let id = url.lastPathComponent
             return id.isEmpty ? nil : id
         }

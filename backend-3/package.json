@@ -20,16 +20,15 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
-    "@fastify/jwt": "^9.0.0",
+    "@fastify/jwt": "^10.2.1",
     "@fastify/rate-limit": "^10.0.0",
     "@fastify/websocket": "^11.0.0",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.50.0",
     "@prisma/client": "^5.22.0",
-    "@sentry/node": "^8.40.0",
+    "@sentry/node": "^10.70.0",
     "@types/qrcode": "^1.5.6",
     "bcryptjs": "^3.0.3",
-    "fastify": "^5.1.0",
+    "fastify": "^5.11.3",
     "ioredis": "^5.4.1",
     "jose": "^6.2.3",
     "nanoid": "^5.0.9",
@@ -46,8 +45,26 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
-    "@vitest/coverage-v8": "^2.1.5",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.5"
+    "vitest": "^4.1.10"
+  },
+  "comment:overrides": [
+    "Аудит 07.08.2026: 6 high висели в транзитивных зависимостях самого fastify.",
+    "Обновление fastify их НЕ закрывает — 5.11.3 (последняя) сама тянет",
+    "find-my-way@9.6.0 и резолвит fast-uri@3.1.3, то есть уязвимые версии.",
+    "",
+    "fast-uri <3.1.5  — host confusion: обратный слэш как разделитель authority.",
+    "                   Путь: fastify → @fastify/ajv-compiler → ajv,",
+    "                   и fastify → @fastify/fast-json-stringify-compiler.",
+    "find-my-way <=9.6.0 — DDoS по HTTP/2. Прямая зависимость fastify.",
+    "",
+    "Обе правки semver-совместимы, мажоров нет: fastify просит ^9.6.0 (9.7.0",
+    "подходит), ajv и fast-json-stringify просят ^3.0.x (3.1.5 подходит).",
+    "Когда fastify поднимет их сам — блок можно снять и сверить npm audit."
+  ],
+  "overrides": {
+    "fast-uri": "^3.1.5",
+    "find-my-way": "^9.7.0"
   }
 }

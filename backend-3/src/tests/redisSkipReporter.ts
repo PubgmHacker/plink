@@ -5,36 +5,22 @@
 // печатает предупреждение с количеством скипнутых интеграционных тестов.
 //
 // Подключается в vitest.config.ts рядом с default-репортером.
+//
+// 12.08.2026: переписан на reporter-API vitest 4 (onTestRunEnd + TestModule);
+// прежний onFinished(files) в четвёртой мажорной версии больше не вызывается,
+// то есть репортер тихо переставал предупреждать — ровно тот отказ, ради
+// которого он существует.
 
-interface MinimalTask {
-  type: string;
-  mode: string;
-  filepath?: string;
-  tasks?: MinimalTask[];
-  file?: { filepath?: string };
-}
+import type { Reporter, TestModule } from 'vitest/node';
 
-function countSkippedTests(task: MinimalTask, ancestorSkipped = false): number {
-  // Внутри describe.skipIf(...) дочерние тесты считаются скипнутыми,
-  // даже если их собственный mode остался 'run'.
-  const skippedHere = ancestorSkipped || task.mode === 'skip' || task.mode === 'todo';
-  if (task.type === 'test') {
-    return skippedHere ? 1 : 0;
-  }
-  let n = 0;
-  for (const child of task.tasks ?? []) {
-    n += countSkippedTests(child, skippedHere);
-  }
-  return n;
-}
-
-export default class RedisSkipReporter {
-  onFinished(files: MinimalTask[] = []): void {
+export default class RedisSkipReporter implements Reporter {
+  onTestRunEnd(testModules: ReadonlyArray<TestModule> = []): void {
     let skipped = 0;
-    for (const file of files) {
-      const filepath = file.filepath ?? file.file?.filepath ?? '';
-      if (!filepath.includes('tests/integration')) continue;
-      skipped += countSkippedTests(file);
+    for (const mod of testModules) {
+      if (!mod.moduleId.includes('tests/integration')) continue;
+      for (const test of mod.children.allTests()) {
+        if (test.result().state === 'skipped') skipped++;
+      }
     }
     if (skipped === 0) return;
 

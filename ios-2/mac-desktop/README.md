@@ -1,15 +1,41 @@
-# Plink Mac Desktop
+# Plink Mac Desktop — заглушка, кода нет
 
-**Option A (native):** Mac Catalyst from repo root (`Plink/`, `project.yml`). Requires `#if targetEnvironment(macCatalyst)` guards for iOS-only APIs.
+**Статус на 11.08.2026: десктоп-клиента не существует.** В этом каталоге только
+этот файл. Ниже — не инструкция, а два варианта на выбор, когда до десктопа
+дойдут руки.
 
-**Option B (recommended for PRO UI parity):** Use `windows-client/` wrapped with Tauri:
+Предыдущая версия README предлагала «Option B (recommended): обернуть
+`windows-client/` в Tauri». **Каталога `windows-client/` в репозитории нет и
+никогда не было** — это был миф, который аудит 07.08.2026 (находка №19) поймал.
+Скрипты `desktop:dev` / `desktop:build` / `desktop:dmg` в `ios-2/package.json`
+вели туда же и удалены.
 
-```bash
-cd windows-client
-npm run tauri init
-npm run tauri build -- --target aarch64-apple-darwin
-npm run tauri build -- --target x86_64-apple-darwin
-# → Universal .dmg via lipo
-```
+## Вариант A — Mac Catalyst (дешевле всего)
 
-Mac-specific: traffic lights, menu bar, and dock badge ship with Tauri v2 macOS config.
+Добавить `macCatalyst` в существующий таргет `Plink` в `project.yml`. Переиспользует
+все 171 Swift-файл как есть.
+
+Что придётся закрыть guard'ами `#if targetEnvironment(macCatalyst)`:
+
+- `UIDevice.orientation`, haptics (`UIImpactFeedbackGenerator`) — нет на Mac.
+- `AVAudioSession` — другая модель на macOS.
+- Danmaku/Canvas-эффекты — проверить производительность без Metal-путей iOS.
+- Пуши — отдельный APNs-энтайтлмент для Catalyst.
+
+Оценка: 3–5 дней до собираемого билда, ещё столько же на вычистку UI под
+курсор и окно с изменяемым размером.
+
+## Вариант B — веб-обёртка (Tauri/Electron)
+
+Требует сначала **написать** веб-клиент, которого нет. Лендинг в `landing/` —
+это маркетинговый сайт на Next.js, а не приложение: ни плеера, ни WS-синхрона,
+ни чата.
+
+Оценка: 3–4 недели с нуля. Смысл появляется только если веб-клиент нужен
+самостоятельно (браузерный вход без установки).
+
+## Рекомендация
+
+Не начинать до релиза iOS в App Store. Синхрон-протокол ещё не замерен на трёх
+физических устройствах (P0 5.2 из `AGENT_BRIEF.md`) — третья платформа сейчас
+только размножит нестабильность.

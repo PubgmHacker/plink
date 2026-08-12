@@ -33,21 +33,26 @@ extension VideoService {
     var isFree: Bool { !requiresSubscription }
 
     /// Определяем сервис по ссылке (например, из буфера обмена).
+    ///
+    /// Строгий матч домена через PlinkHost. Прошлая версия матчила подстроки и
+    /// была самой слабой из трёх копий этой логики в проекте: `contains("youtu")`
+    /// принимал youtube-clone.ru, `contains("wink")` — любой winkle.io.
+    /// Список доменов один — `PlinkHost`.
     static func detect(fromURL raw: String) -> VideoService? {
-        guard let host = URL(string: raw)?.host?.lowercased() else { return nil }
-        if host.contains("youtu") { return .youtube }
-        if host.contains("vk.com") || host.contains("vkvideo") { return .vk }
-        if host.contains("rutube") { return .rutube }
-        if host.contains("kinopoisk") { return .kinopoisk }
-        if host.contains("ivi.ru") { return .ivi }
-        if host.contains("okko") { return .okko }
-        if host.contains("wink") { return .wink }
-        if host.contains("start.ru") { return .start }
-        if host.contains("premier") { return .premier }
-        if host.contains("smotrim") { return .smotrim }
-        if host.contains("kion") { return .kion }
-        if host.contains("netflix") { return .netflix }
-        if host.contains("disney") { return .disney }
+        guard let host = URL(string: raw)?.host else { return nil }
+        if PlinkHost.matches(host, anyOf: PlinkHost.youtubeDomains)   { return .youtube }
+        if PlinkHost.matches(host, anyOf: PlinkHost.vkDomains)        { return .vk }
+        if PlinkHost.matches(host, anyOf: PlinkHost.rutubeDomains)    { return .rutube }
+        if PlinkHost.matches(host, anyOf: PlinkHost.kinopoiskDomains) { return .kinopoisk }
+        if PlinkHost.matches(host, anyOf: PlinkHost.iviDomains)       { return .ivi }
+        if PlinkHost.matches(host, anyOf: PlinkHost.okkoDomains)      { return .okko }
+        if PlinkHost.matches(host, anyOf: PlinkHost.winkDomains)      { return .wink }
+        if PlinkHost.matches(host, anyOf: PlinkHost.startDomains)     { return .start }
+        if PlinkHost.matches(host, anyOf: PlinkHost.premierDomains)   { return .premier }
+        if PlinkHost.matches(host, anyOf: PlinkHost.smotrimDomains)   { return .smotrim }
+        if PlinkHost.matches(host, anyOf: PlinkHost.kionDomains)      { return .kion }
+        if PlinkHost.matches(host, anyOf: PlinkHost.netflixDomains)   { return .netflix }
+        if PlinkHost.matches(host, anyOf: PlinkHost.disneyDomains)    { return .disney }
         if raw.contains(".mp4") || raw.contains(".m3u8") { return .customURL }
         return nil
     }

@@ -31,6 +31,16 @@ const SWIFT_HANDLED_TYPES = new Set([
   // Аудит 26.07.2026: room.appearance.updated декодируется Swift
   // (RealtimeEnvelope.swift, кейс roomAppearanceUpdated) — переведён из pending.
   'room.appearance.updated',
+  // M26: pause.requested декодируется Swift (кейс pauseRequested) и
+  // обрабатывается в WatchRoomModel.handleOtherMessage.
+  'pause.requested',
+  // M27: pause.resolved декодируется Swift (кейс pauseResolved) и
+  // обрабатывается в WatchRoomModel.handlePauseResolved.
+  'pause.resolved',
+  // P0 12.08.2026: role.changed декодируется Swift (кейс roleChanged) и
+  // применяется в WatchRoomModel.applyRoleChange. Сервер публикует его из
+  // gateway.publishHostMigration при уходе хоста.
+  'role.changed',
 ]);
 
 // Аудит 26.07.2026 P2: типы, которые бэкенд уже шлёт, а iOS-декодер ещё НЕ
@@ -39,12 +49,13 @@ const SWIFT_HANDLED_TYPES = new Set([
 // Слать такие типы безопасно — RealtimeClient.handleIncoming ловит
 // DecodingError и лишь пишет lastError, сокет не рвётся.
 // Убрать отсюда, когда в RealtimeEnvelope.swift появится соответствующий case.
-const PENDING_IOS_DECODER_TYPES = new Set([
-  // Аудит 26.07.2026: role.changed заявлялся как handled (P1-64), но в
-  // RealtimeEnvelope.swift соответствующего case НЕТ — тест зеленел, утверждая
-  // ложное зеркало. Пока сервер это событие и не публикует (bumpEpoch/role.changed
-  // не вызываются из продакшен-кода), честное место — pending.
-  'role.changed',
+// <string> обязателен: пустой Set([]) выводится как Set<never>, и .has(t)
+// перестаёт типизироваться, как только список пустеет.
+const PENDING_IOS_DECODER_TYPES = new Set<string>([
+  // Пусто: role.changed переведён в SWIFT_HANDLED_TYPES 12.08.2026 вместе с
+  // подключением реальной передачи хоста (roomLifecycle.maybeEndAfterLeave →
+  // gateway.publishHostMigration). Раньше он «заявлялся как handled» без case
+  // в Swift — именно поэтому список pending и появился.
 ]);
 
 describe('Backend ↔ iOS contract parity (P0-17 regression)', () => {

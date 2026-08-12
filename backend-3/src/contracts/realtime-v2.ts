@@ -76,12 +76,94 @@ export const ReactionBroadcastSchema = z
   })
   .strict();
 
+/**
+ * M26: просьба о паузе доставлена всем в комнате.
+ *
+ * Уходит ВСЕМ, а не только хосту: остальные гости видят, что пауза уже
+ * запрошена, и не жмут кнопку второй раз. Хост различает свою роль на клиенте
+ * (у него — подтверждение, у гостей — уведомление).
+ */
+export const PauseRequestedSchema = z
+  .object({
+    type: z.literal('pause.requested'),
+    protocolVersion: z.literal(2),
+    roomId: z.string().uuid(),
+    userId: z.string().uuid(),
+    username: z.string().min(1).max(64),
+    reason: z.string().min(1).max(120).nullable(),
+    serverTimeMs: z.number().int(),
+  })
+  .strict();
+
+/**
+ * M27: ответ хоста на просьбу о паузе доставлен всем в комнате.
+ *
+ * Закрывает петлю обратной связи: раньше отклонённая просьба исчезала молча —
+ * гость не знал, увидели её или нет, и после кулдауна просил снова. Сама пауза
+ * при accepted=true по-прежнему едет ОТДЕЛЬНО через sync.command хоста: это
+ * событие — социальный сигнал, не команда плееру.
+ *
+ * `requestUserId` — автор просьбы, которую хост разрешал. nullable: сервер
+ * не хранит очередь просьб, атрибуцию передаёт клиент хоста, а получатели
+ * сверяют её со своей последней увиденной просьбой.
+ */
+export const PauseResolvedSchema = z
+  .object({
+    type: z.literal('pause.resolved'),
+    protocolVersion: z.literal(2),
+    roomId: z.string().uuid(),
+    hostId: z.string().uuid(),
+    hostName: z.string().min(1).max(64),
+    accepted: z.boolean(),
+    requestUserId: z.string().uuid().nullable(),
+    serverTimeMs: z.number().int(),
+  })
+  .strict();
+
+/**
+ * M27: хост отвечает на просьбу о паузе.
+ *
+ * Только хост (isHost в messageRouter) — иначе любой гость мог бы «отклонять»
+ * чужие просьбы от имени комнаты. Плеер не трогается: принятая пауза уходит
+ * обычным sync.command, который и так проверяет роль.
+ */
+export const PauseResolveSchema = z
+  .object({
+    type: z.literal('pause.resolve'),
+    protocolVersion: z.literal(2),
+    roomId: z.string().uuid(),
+    accepted: z.boolean(),
+    requestUserId: z.string().uuid().optional(),
+  })
+  .strict();
+
 /** Clock probe — client→server→client round-trip for ClockSynchronizer. */
 export const ClockProbeSchema = z
   .object({
     type: z.literal('clock.probe'),
     protocolVersion: z.literal(2),
     clientSentMs: z.number().finite(), // Аудит 26.07.2026 P0: .int() отбивал дробные мс из Swift
+  })
+  .strict();
+
+/**
+ * M26: гость просит паузу.
+ *
+ * Управление плеером принадлежит хосту (sync.command проверяет роль), поэтому
+ * до этого гостю оставался только чат: «стоп, я отойду» — сообщение, которое
+ * тонет в потоке реакций. Это не команда плееру: сервер НИЧЕГО не паузит,
+ * он лишь доставляет просьбу. Решение остаётся за хостом — иначе любой гость
+ * получил бы кнопку остановки чужого сеанса.
+ *
+ * `reason` — необязательная короткая пометка («отойду», «не догрузилось»),
+ * чтобы хост понимал, ждать секунду или минуту.
+ */
+export const PauseRequestSchema = z
+  .object({
+    type: z.literal('pause.request'),
+    protocolVersion: z.literal(2),
+    roomId: z.string().uuid(),
+    reason: z.string().min(1).max(120).optional(),
   })
   .strict();
 
@@ -256,6 +338,10 @@ export type SessionReady = z.infer<typeof SessionReadySchema>;
 export type RoleChanged = z.infer<typeof RoleChangedSchema>;
 export type RoomAppearanceUpdated = z.infer<typeof RoomAppearanceUpdatedSchema>;
 export type ServerDraining = z.infer<typeof ServerDrainingSchema>;
+export type PauseRequest = z.infer<typeof PauseRequestSchema>;
+export type PauseRequested = z.infer<typeof PauseRequestedSchema>;
+export type PauseResolve = z.infer<typeof PauseResolveSchema>;
+export type PauseResolved = z.infer<typeof PauseResolvedSchema>;
 
 /** Discriminated union of all client→server messages for type-safe routing. */
 export const ClientMessageSchema = z.discriminatedUnion('type', [
@@ -264,6 +350,8 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   ChatSendSchema,
   ReactionSendSchema,
   ClockProbeSchema,
+  PauseRequestSchema,
+  PauseResolveSchema,  // M27
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -281,6 +369,8 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   RoleChangedSchema,  // P1-64
   RoomAppearanceUpdatedSchema,  // Аудит 26.07.2026 P2
   ServerDrainingSchema,
+  PauseRequestedSchema,  // M26
+  PauseResolvedSchema,  // M27
 ]);
 
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;
@@ -292,6 +382,8 @@ export const CLIENT_MESSAGE_TYPES = [
   'chat.send',
   'reaction.send',
   'clock.probe',
+  'pause.request',
+  'pause.resolve',  // M27
 ] as const;
 
 export const SERVER_MESSAGE_TYPES = [
@@ -307,4 +399,6 @@ export const SERVER_MESSAGE_TYPES = [
   'role.changed',  // P1-64
   'room.appearance.updated',  // Аудит 26.07.2026 P2
   'server.draining',
+  'pause.requested',  // M26
+  'pause.resolved',  // M27
 ] as const;

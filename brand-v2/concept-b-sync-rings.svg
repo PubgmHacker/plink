@@ -1,0 +1,89 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23262B"/>
+      <stop offset="1" stop-color="#0C0E10"/>
+    </linearGradient>
+
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4DF0D4"/>
+      <stop offset="1" stop-color="#19E0C0"/>
+    </linearGradient>
+
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9A7CFF"/>
+      <stop offset="1" stop-color="#7C5CFF"/>
+    </linearGradient>
+
+    <radialGradient id="coreglow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#19E0C0" stop-opacity="0.22"/>
+      <stop offset="0.6" stop-color="#7C5CFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-40%" y="-20%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="20" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+
+    <filter id="ringGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="16" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Маска: скрываем часть заднего кольца под передним -->
+    <mask id="interlock">
+      <rect width="1024" height="1024" fill="white"/>
+      <circle cx="560" cy="512" r="215" fill="black"/>
+    </mask>
+  </defs>
+
+  <!-- Корпус -->
+  <g filter="url(#shadow)">
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#body)"/>
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#coreglow)"/>
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="none" stroke="url(#rim)" stroke-width="2.5"/>
+  </g>
+
+  <!--
+    ГЛАВНАЯ ИДЕЯ «СИНХРОН-КОЛЬЦА»:
+    Два кольца, сцепленные как звенья цепи — два зрителя,
+    подключённых друг к другу в один сеанс. Пересечение
+    читается как «синхронно», а не просто «двое рядом».
+    Кольцо teal спереди, violet позади — пересечение честное.
+    В точке сцепления — точка-пульс (play), как общий ритм.
+  -->
+
+  <!-- ЗАДНЕЕ кольцо (violet), прорезано маской под передним -->
+  <g mask="url(#interlock)" filter="url(#ringGlow)">
+    <circle cx="464" cy="512" r="215" fill="none" stroke="url(#violet)" stroke-width="112"/>
+  </g>
+
+  <!-- ПЕРЕДНЕЕ кольцо (teal) -->
+  <g filter="url(#ringGlow)">
+    <circle cx="560" cy="512" r="215" fill="none" stroke="url(#teal)" stroke-width="112"/>
+  </g>
+
+  <!-- Общий пульс-центр: маленький play в точке сцепления -->
+  <g filter="url(#ringGlow)">
+    <path d="M505 460 L505 564 L585 512 Z" fill="#F5F7F6"/>
+  </g>
+
+  <!-- Точки-пульсы на кольцах (ритм сеанса) -->
+  <circle cx="464" cy="375" r="14" fill="#F5F7F6" opacity="0.85"/>
+  <circle cx="560" cy="649" r="14" fill="#F5F7F6" opacity="0.85"/>
+
+  <!-- Виньетка -->
+  <radialGradient id="vig" cx="50%" cy="46%" r="78%">
+    <stop offset="0.62" stop-color="#000" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0.42"/>
+  </radialGradient>
+  <rect width="1024" height="1024" fill="url(#vig)"/>
+</svg>

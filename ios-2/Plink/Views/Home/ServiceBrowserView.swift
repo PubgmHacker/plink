@@ -398,7 +398,9 @@ extension VideoService {
         switch service {
         case .youtube:
             // youtube.com/watch?v=VIDEO_ID or youtu.be/VIDEO_ID
-            if host.contains("youtube.com") {
+            // Строгий матч домена (PlinkHost): host.contains("youtube.com")
+            // пропускал youtube.com.evil.ru.
+            if PlinkHost.matches(host, anyOf: PlinkHost.youtubeDomains) {
                 if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                    let videoId = components.queryItems?.first(where: { $0.name == "v" })?.value {
                     return DetectedVideo(
@@ -408,10 +410,8 @@ extension VideoService {
                         service: .youtube
                     )
                 }
-            }
-            if host.contains("youtu.be") {
                 let videoId = url.lastPathComponent
-                if !videoId.isEmpty {
+                if !videoId.isEmpty, videoId != "/" {
                     return DetectedVideo(
                         title: title,
                         embedURL: "https://www.youtube.com/embed/\(videoId)",
@@ -423,7 +423,10 @@ extension VideoService {
 
         case .vk:
             // vk.com/video-OWNER_ID_VIDEO_ID or vk.com/video/OWNER_ID_VIDEO_ID
-            if host.contains("vk.com") || host.contains("vk.ru") {
+            // Строгий матч домена обязателен: embedURL здесь = urlString, то
+            // есть чужая страница загрузилась бы в WebView комнаты под видом
+            // видео ВКонтакте (evil-vk.com.ru содержит подстроку vk.com).
+            if PlinkHost.matches(host, anyOf: PlinkHost.vkDomains) {
                 let path = url.path
                 if path.contains("/video") {
                     // For VK, we use the original URL — VK's player works in WebView
@@ -438,7 +441,7 @@ extension VideoService {
 
         case .rutube:
             // rutube.ru/video/VIDEO_ID/
-            if host.contains("rutube.ru") || host.contains("rutube.video") {
+            if PlinkHost.matches(host, anyOf: PlinkHost.rutubeDomains) {
                 let path = url.path
                 if path.contains("/video/") {
                     // Extract video ID from path
@@ -548,8 +551,7 @@ struct ServiceWebView: UIViewRepresentable {
         // scroll glitches on m.youtube.com — m.youtube.com's own CSS handles
         // this fine in 2026, so the safety net is no longer worth the
         // detection cost.
-        if initialURL.host?.contains("youtube.com") != true &&
-           initialURL.host?.contains("youtu.be") != true {
+        if !PlinkHost.isYouTube(initialURL) {
             // For non-YouTube services (Rutube, VK, etc.) we still allow
             // future script injection here — those services don't run the
             // same anti-bot heuristics.
@@ -719,8 +721,7 @@ struct ServiceWebView: UIViewRepresentable {
             // the SPA observer + dark CSS — those services don't run anti-bot
             // heuristics, and some of them (Rutube) genuinely need the
             // observer to detect video page transitions.
-            let isYouTubePage = webView.url?.host?.contains("youtube.com") == true ||
-                                webView.url?.host?.contains("youtu.be") == true
+            let isYouTubePage = PlinkHost.isYouTube(webView.url)
             guard !isYouTubePage else { return }
 
             // 🔧 Pack v3: Inject JS to detect SPA URL changes (Rutube React app
@@ -790,21 +791,26 @@ struct ServiceWebView: UIViewRepresentable {
         }
 
         // 🔧 Helper: determine VideoService from URL host
+        //
+        // Строгий матч домена (PlinkHost). Прошлая версия матчила подстроки и
+        // была строже/слабее самой себя в разных местах: `host.contains("rutube")`
+        // классифицировал rutube.evil.com как Rutube, а `contains("youtube")`
+        // — любой youtube-something.ru. Список доменов теперь один, в PlinkHost.
         private static func serviceFromURL(_ url: URL) -> VideoService? {
-            let host = (url.host ?? "").lowercased()
-            if host.contains("youtube") || host.contains("youtu.be") { return .youtube }
-            if host.contains("vk.com") || host.contains("vk.ru") { return .vk }
-            if host.contains("rutube") { return .rutube }
-            if host.contains("netflix") { return .netflix }
-            if host.contains("disney") { return .disney }
-            if host.contains("kinopoisk") { return .kinopoisk }
-            if host.contains("ivi.ru") || host.contains("ivi.tv") { return .ivi }
-            if host.contains("okko") { return .okko }
-            if host.contains("wink") { return .wink }
-            if host.contains("start.ru") { return .start }
-            if host.contains("premier") { return .premier }
-            if host.contains("smotrim") { return .smotrim }
-            if host.contains("kion") { return .kion }
+            let host = url.host
+            if PlinkHost.matches(host, anyOf: PlinkHost.youtubeDomains)   { return .youtube }
+            if PlinkHost.matches(host, anyOf: PlinkHost.vkDomains)        { return .vk }
+            if PlinkHost.matches(host, anyOf: PlinkHost.rutubeDomains)    { return .rutube }
+            if PlinkHost.matches(host, anyOf: PlinkHost.netflixDomains)   { return .netflix }
+            if PlinkHost.matches(host, anyOf: PlinkHost.disneyDomains)    { return .disney }
+            if PlinkHost.matches(host, anyOf: PlinkHost.kinopoiskDomains) { return .kinopoisk }
+            if PlinkHost.matches(host, anyOf: PlinkHost.iviDomains)       { return .ivi }
+            if PlinkHost.matches(host, anyOf: PlinkHost.okkoDomains)      { return .okko }
+            if PlinkHost.matches(host, anyOf: PlinkHost.winkDomains)      { return .wink }
+            if PlinkHost.matches(host, anyOf: PlinkHost.startDomains)     { return .start }
+            if PlinkHost.matches(host, anyOf: PlinkHost.premierDomains)   { return .premier }
+            if PlinkHost.matches(host, anyOf: PlinkHost.smotrimDomains)   { return .smotrim }
+            if PlinkHost.matches(host, anyOf: PlinkHost.kionDomains)      { return .kion }
             return nil
         }
     }

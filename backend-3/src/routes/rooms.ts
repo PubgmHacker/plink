@@ -787,20 +787,40 @@ export default async function roomRoutes(fastify, _options) {
             where: { roomID: id, userID: request.user.id }
         });
 
-        const { roomEnded } = await maybeEndAfterLeave(prisma, id, request.user.id);
+        const { roomEnded, newHostId, newHostName } = await maybeEndAfterLeave(prisma, id, request.user.id);
+
+        // Аудит 12.08.2026 P0: хост ушёл, но комната жива — надо сказать об этом
+        // тем, кто остался, иначе новый хост узнает о своей роли только при
+        // перезаходе (session.ready читает hostID из БД), а до тех пор плеером
+        // не управляет НИКТО. Публикация best-effort: упавший Redis не должен
+        // отменять уже произошедшую в БД передачу роли — комната в худшем случае
+        // доживёт до реконнекта, а не закроется.
+        let hostEpoch: number | undefined;
+        if (!roomEnded && newHostId) {
+            const gateway = (fastify as any).gateway;
+            if (!gateway) {
+                request.log?.warn?.({ roomId: id, newHostId }, 'gateway missing — role.changed push skipped');
+            } else {
+                try {
+                    hostEpoch = await gateway.publishHostMigration(id, newHostId, newHostName ?? 'Хост');
+                } catch (err) {
+                    request.log?.warn?.({ err, roomId: id, newHostId }, 'role.changed publish failed');
+                }
+            }
+        }
 
         await logAudit({
             userId: request.user.id,
             action: AuditActions.ROOM_LEAVE,
             ip: request.ip,
-            metadata: { roomId: id, roomEnded },
+            metadata: { roomId: id, roomEnded, newHostId: newHostId ?? null },
         });
 
         if (roomEnded) {
             await cacheDel(ROOMS_CACHE_KEY);
         }
 
-        return reply.send({ success: true, roomEnded });
+        return reply.send({ success: true, roomEnded, newHostId: newHostId ?? null, epoch: hostEpoch ?? null });
     });
 
     // POST /api/rooms/:id/end — host explicitly ends room (soft, keeps history)

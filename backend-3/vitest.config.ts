@@ -6,6 +6,10 @@ import RedisSkipReporter from './src/tests/redisSkipReporter';
 
 export default defineConfig({
   test: {
+    // Только исходные тесты: vitest 4 иначе подхватывает и их скомпилированные
+    // копии из dist/ — прогон удваивается, а устаревший dist роняет свежие
+    // контракты.
+    include: ['src/tests/**/*.test.ts'],
     reporters: ['default', new RedisSkipReporter()],
   },
 });

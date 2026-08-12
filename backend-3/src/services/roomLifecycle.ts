@@ -9,6 +9,9 @@ export type PrismaLike = {
   };
   roomParticipant: {
     findMany: (args: any) => Promise<any[]>;
+    // Аудит 12.08.2026 P0: нужен для выбора преемника хоста (самый давний
+    // участник комнаты) в maybeEndAfterLeave.
+    findFirst: (args: any) => Promise<any>;
     count: (args: any) => Promise<number>;
     deleteMany: (args: any) => Promise<any>;
   };
@@ -109,7 +112,7 @@ export async function maybeEndAfterLeave(
   prisma: PrismaLike,
   roomId: string,
   leavingUserId: string
-): Promise<{ roomEnded: boolean }> {
+): Promise<{ roomEnded: boolean; newHostId?: string; newHostName?: string }> {
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     select: { id: true, hostID: true, name: true, mediaItem: true, isActive: true },
@@ -130,9 +133,41 @@ export async function maybeEndAfterLeave(
     return { roomEnded: true };
   }
 
-  if (isHost || remaining === 0) {
+  // Комната закрывается только если в ней НИКОГО не осталось.
+  if (remaining === 0) {
     await endRoom(prisma, roomId, { extraUserIds: [leavingUserId] });
     return { roomEnded: true };
+  }
+
+  // Аудит 12.08.2026 P0: раньше здесь стояло `if (isHost || remaining === 0)` —
+  // уход хоста убивал сеанс всем, кто ещё смотрел. Для co-watching это худший
+  // из возможных отказов: у Hearo вся ценность в вечернем ритуале, а у нас
+  // сорванный звонок хоста заканчивал фильм десяти людям. Теперь хост-роль
+  // передаётся самому давнему из оставшихся участников, а комната живёт.
+  if (isHost) {
+    const successor = await prisma.roomParticipant.findFirst({
+      where: { roomID: roomId, userID: { not: leavingUserId } },
+      orderBy: { joinedAt: 'asc' },
+      select: { userID: true, user: { select: { username: true } } },
+    });
+
+    // Участники есть по счётчику, но подходящего преемника нет (например, в
+    // таблице осталась только строка самого уходящего) — тогда закрываем, как раньше.
+    if (!successor) {
+      await endRoom(prisma, roomId, { extraUserIds: [leavingUserId] });
+      return { roomEnded: true };
+    }
+
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { hostID: successor.userID },
+    });
+
+    return {
+      roomEnded: false,
+      newHostId: successor.userID,
+      newHostName: successor.user?.username ?? 'Хост',
+    };
   }
 
   return { roomEnded: false };

@@ -41,6 +41,35 @@ final class FunnelSmokeUITests: XCTestCase {
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Живой ли бэкенд. Без пробы кейс падал на шаге 6 «не нашёл кнопку
+    /// создания комнаты» — хотя настоящая причина была в недоступном сервере:
+    /// trending не загружался, Главная показывала пустое состояние, и постеров,
+    /// через которые создаётся комната, на экране просто не было
+    /// (в логах — HTTP error -1003, хост не разрешается).
+    /// Красный прогон из-за не поднятого сервера прячет настоящие поломки,
+    /// поэтому здесь skip, а не fail.
+    private func backendIsReachable(_ base: String) -> Bool {
+        guard let url = URL(string: base.hasSuffix("/") ? base + "health" : base + "/health") else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var reachable = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            // Любой HTTP-ответ означает, что сервер отвечает. Код не важен:
+            // /health может отдавать 404 на других сборках — это всё равно
+            // живой процесс, в отличие от -1003.
+            if response is HTTPURLResponse { reachable = true }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 6)
+        return reachable
+    }
+
     private func saveShot(_ app: XCUIApplication, _ name: String) {
         let att = XCTAttachment(screenshot: app.screenshot())
         att.name = name
@@ -87,6 +116,9 @@ final class FunnelSmokeUITests: XCTestCase {
     func testRegistrationToRoomFunnel() throws {
         guard let backend = backendURL else {
             throw XCTSkip("PLINK_FUNNEL_BACKEND не задан — воронка требует живого локального бэкенда")
+        }
+        guard backendIsReachable(backend) else {
+            throw XCTSkip("Бэкенд \(backend) не отвечает — воронку прогонять нечем. Поднять: cd backend-3 && npm run dev")
         }
 
         let app = XCUIApplication()
@@ -269,27 +301,49 @@ final class FunnelSmokeUITests: XCTestCase {
         sleep(1)
 
         // ── Шаг 6: создать комнату ───────────────────────────────────────
-        // Ищем кнопку создания комнаты по типовым лейблам.
-        let createRoom = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] 'Создать комнату' OR label CONTAINS[c] 'Новая комната' OR label CONTAINS[c] 'Смотреть' OR identifier == 'home.createRoom'")
-        ).firstMatch
-        if createRoom.waitForExistence(timeout: 10) {
-            forceTap(createRoom)
-            sleep(3)
-            saveShot(app, "ui_04_room_create")
+        // Прямой кнопки «Создать комнату» в продукте НЕТ и не было: путь
+        // всегда контент-первый — выбрал что смотреть, комната создалась.
+        // Раньше тест искал такую кнопку по лейблам и падал на живом,
+        // полностью рабочем приложении (ui_04_no_create_room_button.png).
+        // Теперь идём тем путём, который есть: постер → шторка → «Смотреть
+        // вместе». Если trending пуст, у Главной остаётся вход через поиск.
+        let poster = app.buttons["home.poster"].firstMatch
+        let watchTogether = app.buttons["preview.watchTogether"]
 
-            // Если открылся шит создания — жмём подтверждение.
-            let confirm = app.buttons.matching(
-                NSPredicate(format: "label CONTAINS[c] 'Создать' OR label CONTAINS[c] 'Начать'")
-            ).firstMatch
-            if confirm.exists && confirm.isHittable {
-                forceTap(confirm)
-                sleep(4)
-                saveShot(app, "ui_05_room")
-            }
+        if poster.waitForExistence(timeout: 12) {
+            forceTap(poster)
+            XCTAssertTrue(
+                watchTogether.waitForExistence(timeout: 8),
+                "Шторка превью не показала «Смотреть вместе» — см. ui_04_preview.png"
+            )
+            saveShot(app, "ui_04_preview")
+            forceTap(watchTogether)
         } else {
-            saveShot(app, "ui_04_no_create_room_button")
-            XCTFail("Не нашёл кнопку создания комнаты на главном экране — см. ui_03_home.png/ui_04_no_create_room_button.png")
+            // Пустая подборка — комнату создаём через поиск.
+            saveShot(app, "ui_04_no_trending")
+            let searchEntry = app.buttons["home.searchEntry"]
+            let emptyCTA = app.buttons["home.emptyFindVideo"]
+            let entry = emptyCTA.exists ? emptyCTA : searchEntry
+            XCTAssertTrue(
+                entry.waitForExistence(timeout: 8),
+                "На Главной нет ни постеров, ни входа в поиск — см. ui_04_no_trending.png"
+            )
+            forceTap(entry)
+            sleep(2)
+            saveShot(app, "ui_04_search")
+            let firstResult = app.buttons["home.poster"].firstMatch
+            guard firstResult.waitForExistence(timeout: 8) else {
+                throw XCTSkip("Поиск не вернул результатов — внешние источники недоступны, воронку дальше не проверить")
+            }
+            forceTap(firstResult)
+            XCTAssertTrue(watchTogether.waitForExistence(timeout: 8), "Шторка превью не открылась из поиска")
+            forceTap(watchTogether)
         }
+
+        // Комната открылась — ждём её экран, а не просто «что-то поменялось».
+        let roomScreen = app.descendants(matching: .any)["screen.room"]
+        let roomAppeared = roomScreen.waitForExistence(timeout: 20)
+        saveShot(app, "ui_05_room")
+        XCTAssertTrue(roomAppeared, "Комната не открылась за 20 с — см. ui_05_room.png")
     }
 }

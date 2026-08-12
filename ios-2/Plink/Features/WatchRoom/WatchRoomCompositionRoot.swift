@@ -175,9 +175,15 @@ public enum WatchRoomCompositionRoot {
     }
 
     /// VK: https://vk.com/video_ext.php?... or /video-123_456.
+    ///
+    /// Матч строго по хосту (PlinkHost). Раньше проверка была `lower.contains("vk.com")`
+    /// по ВСЕЙ строке URL — то есть `https://evil.ru/watch?ref=vk.com` проходил
+    /// как видео ВК, и функция возвращала этот же URL (см. fallback `return url`),
+    /// который уходил в `.vk(...)` и грузился в плеер комнаты у всех участников.
     private static func extractVKVideoId(from url: String) -> String? {
+        guard let parsed = URL(string: url),
+              PlinkHost.matches(parsed.host, anyOf: PlinkHost.vkDomains) else { return nil }
         let lower = url.lowercased()
-        guard lower.contains("vk.com") else { return nil }
         if let components = URLComponents(string: url), lower.contains("video_ext.php") {
             let query = components.query ?? ""
             return query.isEmpty ? nil : query
@@ -190,9 +196,12 @@ public enum WatchRoomCompositionRoot {
     }
 
     /// Rutube: https://rutube.ru/video/<32-hex>/ or /play/embed/<id>/
+    ///
+    /// Тот же строгий матч по хосту, что и в VK: подстрока в query или пути
+    /// больше не считается признаком сервиса.
     private static func extractRutubeVideoId(from url: String) -> String? {
-        let lower = url.lowercased()
-        guard lower.contains("rutube.ru") else { return nil }
+        guard let parsed = URL(string: url),
+              PlinkHost.matches(parsed.host, anyOf: PlinkHost.rutubeDomains) else { return nil }
         let parts = url.split(separator: "/").map(String.init)
         for (idx, part) in parts.enumerated() {
             let clean = part.split(separator: "?").first.map(String.init) ?? part
@@ -232,6 +241,11 @@ public enum WatchRoomCompositionRoot {
             baseURL: apiBaseURL,
             authToken: authToken
         )
+        // M28: тот же auth-токен — рекап ходит на /api/ai/room-recap.
+        let recapClient = RESTRoomRecapClient(
+            baseURL: apiBaseURL,
+            authToken: authToken
+        )
 
         let ticketProvider: (String) async throws -> RealtimeTicket = { roomId in
             try await fetchTicket(
@@ -251,6 +265,7 @@ public enum WatchRoomCompositionRoot {
             mediaId: mediaId,
             roomCode: roomCode,
             chatCatchupClient: catchupClient,
+            roomRecapClient: recapClient,
             roomHostId: hostId
         )
     }
@@ -480,6 +495,39 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
             }
         }
         return result
+    }
+}
+
+// MARK: - M28: REST room recap client
+
+public final class RESTRoomRecapClient: RoomRecapClient, @unchecked Sendable {
+    private let baseURL: URL
+    private let authToken: String
+
+    public init(baseURL: URL, authToken: String) {
+        self.baseURL = baseURL
+        self.authToken = authToken
+    }
+
+    public func fetchRecap(roomId: String, sinceMs: Int64) async throws -> RoomRecapResponse {
+        let url = baseURL.appendingPathComponent("api/ai/room-recap")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "roomId": roomId,
+            "sinceMs": sinceMs,
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(RoomRecapResponse.self, from: data)
     }
 }
 

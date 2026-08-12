@@ -238,6 +238,67 @@ enum L10n {
         case wcReport = "wc.report"
         case wcBlock = "wc.block"
         case wcKick = "wc.kick"
+        // Аудит 07.08.2026 (P2 5.15): английский хардкод в русском UI —
+        // WatchChatComposer/PacksPopover показывал «Plink+ packs require subscription».
+        case wcPacksPremiumHint = "wc.packs.premiumHint"
+        case wcPacksTitle = "wc.packs.title"
+
+        // Пилюля синхрона (UX-ревью 26.07.2026 → закрыто 11.08.2026).
+        // Подписи были захардкожены по-русски прямо во вью, а сам дрейф —
+        // главное отличие продукта — на экран не выводился вообще.
+        case syncInSync = "sync.state.inSync"
+        case syncSyncing = "sync.state.syncing"
+        case syncLagging = "sync.state.lagging"
+        case syncResync = "sync.state.resync"
+        case syncOffline = "sync.state.offline"
+        case syncExplainerTitle = "sync.explainer.title"
+        case syncExplainerBody = "sync.explainer.body"
+        case syncExplainerCurrent = "sync.explainer.current"
+        case syncExplainerThreshold = "sync.explainer.threshold"
+        case syncExplainerNoData = "sync.explainer.noData"
+        case syncPillHint = "sync.pill.hint"
+        case syncUnitMs = "sync.unit.ms"
+        case syncUnitSec = "sync.unit.sec"
+        case syncSubMs = "sync.unit.subMs"
+
+        // M26: просьба о паузе. Раньше гость видел мёртвую подпись «Управляет
+        // хост» — констатацию без выхода: отойти на минуту было нельзя,
+        // оставалось писать в чат и надеяться, что хост читает.
+        // Тексты кнопки и баннера здесь, а не во вью — тот же урок, что с
+        // пилюлей синхрона (русский хардкод в англоязычном интерфейсе).
+        case pauseAskAction = "pause.ask.action"
+        case pauseAskSent = "pause.ask.sent"
+        case pauseAskOffline = "pause.ask.offline"
+        case pauseAskThrottled = "pause.ask.throttled"
+        /// Содержит %@ — имя просящего. Порядок слов в языках разный,
+        /// поэтому подстановка через String(format:), а не интерполяция.
+        case pauseAskPrompt = "pause.ask.prompt"
+        case pauseAskAccept = "pause.ask.accept"
+        case pauseAskDismiss = "pause.ask.dismiss"
+        /// M27: вердикт хоста по просьбе о паузе. Содержат %@ — имя хоста;
+        /// порядок слов в языках разный, поэтому String(format:).
+        case pauseResolveAccepted = "pause.resolve.accepted"
+        case pauseResolveDeclined = "pause.resolve.declined"
+        /// Имя-фолбэк, когда hostName в событии пуст.
+        case pauseResolveHostFallback = "pause.resolve.hostFallback"
+        // M28: карточка «что я пропустил»
+        case catchUpTitleLateJoin = "catchup.title.lateJoin"
+        case catchUpTitleReconnect = "catchup.title.reconnect"
+        case catchUpBody = "catchup.body"
+        case catchUpAction = "catchup.action"
+        case catchUpDismiss = "catchup.dismiss"
+        case catchUpEmpty = "catchup.empty"
+        case catchUpFailed = "catchup.failed"
+        case catchUpLoading = "catchup.loading"
+        // Presence — социальный статус (только данные, которые реально есть)
+        case presenceWatchingTogether = "presence.watchingTogether"
+        case presencePaused = "presence.paused"
+        case presencePauseAsk = "presence.pauseAsk"
+        case presenceResyncing = "presence.resyncing"
+        case roomHostControls = "room.hostControls"
+        case roomHostControlsHint = "room.hostControls.hint"
+
+        case close = "common.close"
 
         // Common
         case cancel = "common.cancel"
@@ -525,6 +586,28 @@ enum L10n {
         case plusBenefitVideoFilters = "plus.benefitVideoFilters"
         case plusBenefitCineBubbles = "plus.benefitCineBubbles"
         case plusBenefitVoiceChat = "plus.benefitVoiceChat"
+        // M26: Paywall — заголовки, план-пикер, честный CTA, юр. ссылки.
+        // Раньше всё это было хардкодом по-русски прямо во вьюхе.
+        case plusHeadlineEmoji = "plus.headline.emoji"
+        case plusHeadlineTheme = "plus.headline.theme"
+        case plusHeadlineCapacity = "plus.headline.capacity"
+        case plusHeadlineCameraFilter = "plus.headline.cameraFilter"
+        case plusHeadlineSettings = "plus.headline.settings"
+        case plusHeadlineVoiceChat = "plus.headline.voiceChat"
+        case plusBadgeBestValue = "plus.badge.bestValue"
+        case plusSaveFormat = "plus.save.format"
+        case plusPerMonthFormat = "plus.perMonth.format"
+        case plusTrialFormat = "plus.trial.format"
+        case plusThenPriceFormat = "plus.thenPrice.format"
+        case plusCtaTrial = "plus.cta.trial"
+        case plusCtaSubscribeFormat = "plus.cta.subscribe.format"
+        case plusCtaFallback = "plus.cta.fallback"
+        case plusRestore = "plus.restore"
+        case plusTerms = "plus.terms"
+        case plusPrivacy = "plus.privacy"
+        case plusPlansLoading = "plus.plans.loading"
+        case plusPlansUnavailable = "plus.plans.unavailable"
+        case commonRetry = "common.retry"
 
     }
 
@@ -673,6 +756,138 @@ enum L10n {
         .wcReport: [.russian: "Пожаловаться", .english: "Report", .chinese: "举报"],
         .wcBlock: [.russian: "Заблокировать", .english: "Block", .chinese: "拉黑"],
         .wcKick: [.russian: "Кикнуть", .english: "Kick", .chinese: "踢出"],
+        .wcPacksTitle: [
+            .russian: "Наборы эмодзи", .english: "Emoji packs", .chinese: "表情包"],
+        .wcPacksPremiumHint: [
+            .russian: "Наборы Plink+ доступны по подписке",
+            .english: "Plink+ packs require a subscription",
+            .chinese: "Plink+ 表情包需要订阅"],
+        // Пилюля синхрона. Пороги в подписях НЕ выдуманы — они берутся из
+        // SyncThresholds, чтобы текст не расходился с кодом.
+        .syncInSync: [
+            .russian: "В синхроне", .english: "In sync", .chinese: "已同步"],
+        .syncSyncing: [
+            .russian: "Синхронизация", .english: "Syncing", .chinese: "同步中"],
+        .syncLagging: [
+            .russian: "Отставание", .english: "Lagging", .chinese: "有延迟"],
+        .syncResync: [
+            .russian: "Пересинхрон", .english: "Resyncing", .chinese: "重新同步"],
+        .syncOffline: [
+            .russian: "Нет связи", .english: "Offline", .chinese: "已断开"],
+        .syncExplainerTitle: [
+            .russian: "Вы смотрите один кадр",
+            .english: "You're watching the same frame",
+            .chinese: "你们看的是同一帧"],
+        .syncExplainerBody: [
+            .russian: "Plink сверяет позицию плеера у всех участников несколько раз в секунду и подтягивает отстающих. Цифра рядом — насколько ваш кадр расходится с кадром комнаты прямо сейчас.",
+            .english: "Plink checks every participant's playback position several times a second and pulls stragglers back. The number shows how far your frame is from the room's frame right now.",
+            .chinese: "Plink 每秒多次校对所有参与者的播放位置，并把落后的人拉回来。旁边的数字表示你的画面与房间画面当前的偏差。"],
+        .syncExplainerCurrent: [
+            .russian: "Сейчас расхождение", .english: "Current drift", .chinese: "当前偏差"],
+        .syncExplainerThreshold: [
+            .russian: "Считаем синхроном до", .english: "In sync under", .chinese: "同步阈值"],
+        .syncExplainerNoData: [
+            .russian: "Нет данных — соединение потеряно",
+            .english: "No data — connection lost",
+            .chinese: "无数据 — 连接已断开"],
+        .syncPillHint: [
+            .russian: "Нажмите, чтобы узнать, как работает синхрон",
+            .english: "Tap to see how sync works",
+            .chinese: "点按了解同步原理"],
+        // Единицы дрейфа тоже локализованы: «12 мс» в английском интерфейсе —
+        // ровно та смесь языков, которую этот блок и закрывает.
+        .syncUnitMs: [.russian: "мс", .english: "ms", .chinese: "毫秒"],
+        .syncUnitSec: [.russian: "с", .english: "s", .chinese: "秒"],
+        .syncSubMs: [.russian: "<1 мс", .english: "<1 ms", .chinese: "<1 毫秒"],
+        // M26: просьба о паузе. Формулировки намеренно просящие, а не
+        // командные: сервер плеер не трогает, решение остаётся за хостом.
+        .pauseAskAction: [
+            .russian: "Попросить паузу",
+            .english: "Ask for a pause",
+            .chinese: "请求暂停"],
+        .pauseAskSent: [
+            .russian: "Хост увидит просьбу",
+            .english: "The host will see your request",
+            .chinese: "房主会看到你的请求"],
+        // Честный отказ вместо тихой пропажи: просьба «поставь паузу» имеет
+        // смысл ровно сейчас, поэтому в офлайн-очередь она не складывается.
+        .pauseAskOffline: [
+            .russian: "Нет связи — просьба дойдёт не вовремя",
+            .english: "No connection — the request would arrive too late",
+            .chinese: "无连接 — 请求无法及时送达"],
+        .pauseAskThrottled: [
+            .russian: "Просьба уже отправлена",
+            .english: "Request already sent",
+            .chinese: "已发送请求"],
+        .pauseAskPrompt: [
+            .russian: "%@ просит паузу",
+            .english: "%@ asked for a pause",
+            .chinese: "%@ 请求暂停"],
+        .pauseAskAccept: [
+            .russian: "Пауза", .english: "Pause", .chinese: "暂停"],
+        .pauseAskDismiss: [
+            .russian: "Не сейчас", .english: "Not now", .chinese: "稍后"],
+        .pauseResolveAccepted: [
+            .russian: "%@ ставит паузу по просьбе",
+            .english: "%@ is pausing as requested",
+            .chinese: "%@ 应请求暂停"],
+        .pauseResolveDeclined: [
+            .russian: "%@ отклонил просьбу о паузе",
+            .english: "%@ declined the pause request",
+            .chinese: "%@ 拒绝了暂停请求"],
+        .pauseResolveHostFallback: [
+            .russian: "Хост", .english: "The host", .chinese: "主持人"],
+        .catchUpTitleLateJoin: [
+            .russian: "Сеанс уже идёт %d мин",
+            .english: "Session has been on for %d min",
+            .chinese: "已观看 %d 分钟"],
+        .catchUpTitleReconnect: [
+            .russian: "Вы отсутствовали %d мин",
+            .english: "You were away for %d min",
+            .chinese: "离开了 %d 分钟"],
+        .catchUpBody: [
+            .russian: "Коротко расскажем, о чём говорили, пока вас не было",
+            .english: "A short recap of what you missed in chat",
+            .chinese: "简要回顾你错过的聊天内容"],
+        .catchUpAction: [
+            .russian: "Что я пропустил",
+            .english: "What did I miss",
+            .chinese: "我错过了什么"],
+        .catchUpDismiss: [
+            .russian: "Не сейчас", .english: "Not now", .chinese: "稍后"],
+        .catchUpEmpty: [
+            .russian: "Пока вас не было, в чате почти не писали",
+            .english: "Not much happened in chat while you were away",
+            .chinese: "你离开期间聊天很少"],
+        .catchUpFailed: [
+            .russian: "Не удалось получить пересказ — попробуйте позже",
+            .english: "Couldn't get a recap — try again later",
+            .chinese: "无法获取摘要，请稍后重试"],
+        .catchUpLoading: [
+            .russian: "Собираем…", .english: "Summarizing…", .chinese: "整理中…"],
+        .presenceWatchingTogether: [
+            .russian: "Смотрим вместе",
+            .english: "Watching together",
+            .chinese: "一起看"],
+        .presencePaused: [
+            .russian: "На паузе", .english: "Paused", .chinese: "已暂停"],
+        .presencePauseAsk: [
+            .russian: "%@ просит паузу",
+            .english: "%@ asked for a pause",
+            .chinese: "%@ 请求暂停"],
+        .presenceResyncing: [
+            .russian: "Подстраиваем кадр…",
+            .english: "Resyncing frame…",
+            .chinese: "正在同步画面…"],
+        .roomHostControls: [
+            .russian: "Управляет хост",
+            .english: "Host is in control",
+            .chinese: "由房主控制"],
+        .roomHostControlsHint: [
+            .russian: "Перемоткой управляет хост комнаты",
+            .english: "Only the room host can seek",
+            .chinese: "只有房主可以拖动进度"],
+        .close: [.russian: "Закрыть", .english: "Close", .chinese: "关闭"],
         // DM chat (Telegram-style)
         .dmTyping: [
             .russian: "печатает…", .english: "typing…", .chinese: "正在输入…"],
@@ -1899,6 +2114,116 @@ enum L10n {
             .russian: "Кино-баблы и живые темы",
             .english: "Cine-bubbles and live themes",
             .chinese: "电影气泡和动态主题"
+        ],
+        // M26: у .plusBenefitVoiceChat был ключ без перевода — на пейволле
+        // триггера .voiceChat в списке выгод рисовалась строка
+        // "plus.benefitVoiceChat".
+        .plusBenefitVoiceChat: [
+            .russian: "Голосовой чат в комнате",
+            .english: "In-room voice chat",
+            .chinese: "房间内语音聊天"
+        ],
+        // M26: Paywall — заголовки по триггеру
+        .plusHeadlineEmoji: [
+            .russian: "Реагируйте по-своему.",
+            .english: "React your own way.",
+            .chinese: "用你的方式表达。"
+        ],
+        .plusHeadlineTheme: [
+            .russian: "Сделайте комнату своей.",
+            .english: "Make the room yours.",
+            .chinese: "把房间变成你的。"
+        ],
+        .plusHeadlineCapacity: [
+            .russian: "Соберите всех друзей.",
+            .english: "Bring everyone in.",
+            .chinese: "把所有朋友都叫来。"
+        ],
+        .plusHeadlineCameraFilter: [
+            .russian: "Выглядите лучше в кадре.",
+            .english: "Look better on camera.",
+            .chinese: "在镜头前更好看。"
+        ],
+        .plusHeadlineSettings: [
+            .russian: "Больше характера с Plink+.",
+            .english: "More character with Plink+.",
+            .chinese: "用 Plink+ 展现个性。"
+        ],
+        .plusHeadlineVoiceChat: [
+            .russian: "Голосовой чат в комнате.",
+            .english: "Voice chat in the room.",
+            .chinese: "房间内语音聊天。"
+        ],
+        // M26: Paywall — план-пикер и CTA
+        .plusBadgeBestValue: [
+            .russian: "Выгоднее всего",
+            .english: "Best value",
+            .chinese: "最超值"
+        ],
+        .plusSaveFormat: [
+            .russian: "Экономия %d%%",
+            .english: "Save %d%%",
+            .chinese: "省 %d%%"
+        ],
+        .plusPerMonthFormat: [
+            .russian: "%@ / мес",
+            .english: "%@ / mo",
+            .chinese: "%@ / 月"
+        ],
+        .plusTrialFormat: [
+            .russian: "%@ бесплатно",
+            .english: "%@ free",
+            .chinese: "免费 %@"
+        ],
+        .plusThenPriceFormat: [
+            .russian: "затем %@",
+            .english: "then %@",
+            .chinese: "之后 %@"
+        ],
+        .plusCtaTrial: [
+            .russian: "Начать бесплатно",
+            .english: "Start for free",
+            .chinese: "免费开始"
+        ],
+        .plusCtaSubscribeFormat: [
+            .russian: "Подписаться — %@",
+            .english: "Subscribe — %@",
+            .chinese: "订阅 — %@"
+        ],
+        .plusCtaFallback: [
+            .russian: "Оформить Plink+",
+            .english: "Get Plink+",
+            .chinese: "获取 Plink+"
+        ],
+        .plusRestore: [
+            .russian: "Восстановить покупки",
+            .english: "Restore purchases",
+            .chinese: "恢复购买"
+        ],
+        .plusTerms: [
+            .russian: "Условия",
+            .english: "Terms",
+            .chinese: "条款"
+        ],
+        .plusPrivacy: [
+            .russian: "Конфиденциальность",
+            .english: "Privacy",
+            .chinese: "隐私"
+        ],
+        .plusPlansLoading: [
+            .russian: "Загружаем тарифы…",
+            .english: "Loading plans…",
+            .chinese: "正在加载套餐…"
+        ],
+        .plusPlansUnavailable: [
+            .russian: "Тарифы недоступны. Проверьте соединение.",
+            .english: "Plans unavailable. Check your connection.",
+            .chinese: "套餐不可用。请检查网络连接。"
+        ],
+        .commonRetry: [
+            .russian: "Повторить",
+            .english: "Retry",
+            .chinese: "重试"
         ]
     ]
 }

@@ -190,6 +190,11 @@ struct WatchRoomScreen: View {
             }
         }
         .background(Cinema2026.background.ignoresSafeArea())
+        // M26: единственная стабильная точка, по которой UI-смоук понимает,
+        // что комната действительно открылась. Раньше идентификаторов
+        // screen.* хватало на все табы, кроме самой комнаты — то есть ровно
+        // на конце воронки, который важнее всех остальных.
+        .accessibilityIdentifier("screen.room")
         .preferredColorScheme(.dark)
         .animation(.plinkLayout, value: layoutVariant)
         .onChange(of: layoutVariant) { _, newVariant in
@@ -227,22 +232,52 @@ struct WatchRoomScreen: View {
             .accessibilityLabel("Выйти из комнаты")
         }
         // M13: room polls — card overlay + composer entry point
+        // M26: там же — просьба о паузе. Оба элемента лежат в ОДНОМ оверлее и
+        // складываются в VStack: до этого баннер, поставленный отдельным
+        // оверлеем с тем же выравниванием, наехал бы на карточку голосования.
         .overlay(alignment: .top) {
-            if let poll = model.activePoll {
-                RoomPollCard(
-                    poll: poll,
-                    myUserId: model.currentUserId,
-                    canClose: poll.createdBy == model.currentUserId,
-                    onVote: { model.votePoll(optionIndex: $0) },
-                    onClose: { model.closePoll() },
-                    onDismiss: { model.dismissPoll() }
-                )
-                .padding(.top, 56)
-                .padding(.horizontal, 24)
-                .frame(maxWidth: 420)
-                .zIndex(400)
-                .transition(.move(edge: .top).combined(with: .opacity))
+            VStack(spacing: 10) {
+                if let poll = model.activePoll {
+                    RoomPollCard(
+                        poll: poll,
+                        myUserId: model.currentUserId,
+                        canClose: poll.createdBy == model.currentUserId,
+                        onVote: { model.votePoll(optionIndex: $0) },
+                        onClose: { model.closePoll() },
+                        onDismiss: { model.dismissPoll() }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                if let request = model.pendingPauseRequest {
+                    PauseRequestBanner(
+                        request: request,
+                        onPause: { model.resolvePauseRequest(pause: true) },
+                        onDismiss: { model.resolvePauseRequest(pause: false) }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                // M28: карточка поверх poll/pause — опоздание важнее, чем
+                // просьба о паузе в момент входа (паузу всё равно увидит хост).
+                if let catchUp = model.catchUpPrompt {
+                    CatchUpBanner(
+                        prompt: catchUp,
+                        loading: model.catchUpLoading,
+                        onRequest: { model.requestCatchUp() },
+                        onDismiss: { model.dismissCatchUp() }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
+            .padding(.top, 56)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: 420)
+            .zIndex(400)
+            .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86),
+                       value: model.pendingPauseRequest?.id)
+            .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86),
+                       value: model.catchUpPrompt?.sinceMs)
         }
         .overlay(alignment: .topLeading) {
             if model.activePoll == nil {

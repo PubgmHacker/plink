@@ -311,6 +311,161 @@ export default async function aiRoutes(fastify) {
     }
   });
   
+  // ─────────────────────────────────────────────────────────────────────
+  // M28: POST /api/ai/room-recap — «что я пропустил» для опоздавшего.
+  // ─────────────────────────────────────────────────────────────────────
+  // Пересказывает пропущенный кусок ЧАТА комнаты. Ответ ПРИВАТНЫЙ (в HTTP),
+  // в чат комнаты ничего не публикуется: рекап нужен одному опоздавшему,
+  // остальные ничего не пропускали, и спамить им «краткое содержание
+  // предыдущих серий» — способ отучить людей от фичи.
+  //
+  // Источник — только реальная переписка из БД: сервисные wire-сообщения
+  // (очередь, отсчёт — маркер \u2063plink.*) отфильтровываются, скрытые
+  // модерацией (hidden) не выбираются вовсе. ИИ прямо запрещено выдумывать
+  // события вне переданной переписки.
+  fastify.post('/ai/room-recap', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    // Та же тарифная логика, что у /ai/chat: Plink+ без дневного лимита.
+    {
+      const requester = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { isPremium: true, premiumUntil: true },
+      });
+      const now = new Date();
+      const premiumActive = !!requester?.isPremium
+        && (!requester.premiumUntil || requester.premiumUntil > now);
+      if (!premiumActive && aiFreeQuotaExceeded(request.user.id)) {
+        return reply.status(429).send({
+          error: 'Дневной лимит ИИ на бесплатном тарифе исчерпан. Plink+ снимает лимит.',
+          code: 'AI_DAILY_LIMIT',
+          limit: AI_FREE_DAILY_LIMIT,
+        });
+      }
+    }
+
+    const body = (request.body ?? {}) as { roomId?: string; sinceMs?: number };
+    const roomId = typeof body.roomId === 'string' ? body.roomId : '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId)) {
+      return reply.status(400).send({ error: 'roomId (uuid) обязателен' });
+    }
+
+    // Членство — рекап чужой комнаты равен чтению её переписки.
+    const isMember = await prisma.roomParticipant.findFirst({
+      where: { roomID: roomId, userID: request.user.id },
+    });
+    if (!isMember) {
+      return reply.status(403).send({ error: 'Вы не участник комнаты' });
+    }
+
+    if (!OPENROUTER_API_KEY) {
+      return reply.status(503).send({ error: 'AI not configured. Set OPENROUTER_API_KEY env var.' });
+    }
+
+    // Окно: не старше 4 часов (дальше это не «догнать», а «пересмотреть»),
+    // не свежее 30 секунд (там нечего пересказывать).
+    const nowMs = Date.now();
+    const rawSince = typeof body.sinceMs === 'number' && Number.isFinite(body.sinceMs)
+      ? body.sinceMs
+      : nowMs - 30 * 60_000;
+    const sinceMs = Math.min(Math.max(rawSince, nowMs - 4 * 3600_000), nowMs - 30_000);
+    const windowMinutes = Math.max(1, Math.round((nowMs - sinceMs) / 60_000));
+
+    const rows = await prisma.chatMessage.findMany({
+      where: { roomID: roomId, hidden: false, createdAt: { gt: new Date(sinceMs) } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
+      select: { senderID: true, text: true, createdAt: true },
+    });
+
+    // Wire-пейлоады (очередь, отсчёт) — служебный JSON с маркером
+    // "\u2063plink.": человеку в пересказе они не нужны.
+    const humanRows = rows.filter((r) => !r.text.includes('\u2063plink.'));
+
+    if (humanRows.length === 0) {
+      return reply.send({ recap: null, messageCount: 0, windowMinutes });
+    }
+
+    const senderIds = [...new Set(humanRows.map((r) => r.senderID))];
+    const senders = await prisma.user.findMany({
+      where: { id: { in: senderIds } },
+      select: { id: true, username: true },
+    });
+    const nameById = new Map(senders.map((s) => [s.id, s.username]));
+
+    // Свежие сообщения важнее старых: если переписка не влезает в бюджет,
+    // режем с НАЧАЛА окна, а не с конца.
+    const lines: string[] = [];
+    let budget = 2800;
+    for (let i = humanRows.length - 1; i >= 0; i--) {
+      const row = humanRows[i];
+      const line = `${nameById.get(row.senderID) ?? 'участник'}: ${row.text.slice(0, 280)}`;
+      if (budget - line.length < 0) break;
+      budget -= line.length + 1;
+      lines.unshift(line);
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { name: true, mediaItem: true },
+    });
+    let mediaTitle = '';
+    try {
+      const media = room?.mediaItem ? JSON.parse(room.mediaItem) : null;
+      if (media?.title) mediaTitle = String(media.title).slice(0, 120);
+    } catch { /* mediaItem бывает строкой не-JSON — тогда без названия */ }
+
+    const systemPrompt =
+      'Ты — ИИ-компаньон Plink в комнате совместного просмотра. Участник отсутствовал ' +
+      `${windowMinutes} мин и просит краткий пересказ пропущенной переписки. ` +
+      'Перескажи в 2–5 предложениях: о чём говорили, о чём договорились, что решили смотреть. ' +
+      'Опирайся ТОЛЬКО на переданные сообщения — не выдумывай событий и не пересказывай сюжет фильма. ' +
+      'Отвечай на языке, на котором ведётся переписка.';
+    const userPrompt =
+      (room?.name ? `Комната: «${room.name}». ` : '') +
+      (mediaTitle ? `Сейчас смотрят: «${mediaTitle}». ` : '') +
+      `Пропущенная переписка (${humanRows.length} сообщений):\n${lines.join('\n')}`;
+
+    try {
+      const response = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://plink.app',
+          'X-Title': 'Plink AI Recap',
+        },
+        body: JSON.stringify({
+          model: AI_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.4,
+          max_tokens: 350,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error('OpenRouter recap error', response.status, errText);
+        return reply.status(502).send({ error: 'AI request failed' });
+      }
+
+      const data: any = await response.json();
+      const recap = String(data.choices?.[0]?.message?.content ?? '').trim();
+      return reply.send({
+        recap: recap || null,
+        messageCount: humanRows.length,
+        windowMinutes,
+      });
+    } catch (e: any) {
+      console.error('AI recap error', e);
+      return reply.status(500).send({ error: 'AI request failed: ' + e.message });
+    }
+  });
+
   // POST /api/ai/recommend — recommend movies/shows based on mood
   fastify.post('/ai/recommend', {
     preHandler: [fastify.authenticate],

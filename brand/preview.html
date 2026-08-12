@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plink — Logo System</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,400;1,900&family=Inter:wght@300;500;700&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#050505;color:#F5F7F6;min-height:100vh;padding:60px 40px}
+    .container{max-width:1200px;margin:0 auto}
+    h1{font:italic 400 72px/0.95 'Playfair Display',Georgia,serif;letter-spacing:-0.04em;margin-bottom:12px;background:linear-gradient(92deg,#19e0c0,#7c5cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .subtitle{color:#6F938C;font-size:16px;font-weight:300;margin-bottom:60px}
+    .section{margin-bottom:80px}
+    .section-title{font:700 11px/1 'Inter',sans-serif;letter-spacing:0.2em;text-transform:uppercase;color:#6F938C;margin-bottom:32px;padding-bottom:12px;border-bottom:1px solid rgba(245,247,246,0.08)}
+    .logo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:32px}
+    .logo-card{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:24px;padding:40px;display:flex;flex-direction:column;align-items:center;gap:24px;transition:transform .3s,border-color .3s}
+    .logo-card:hover{transform:translateY(-4px);border-color:rgba(255,214,148,0.2)}
+    .logo-card.light{background:#F5F7F6}
+    .logo-card svg{max-width:100%;height:auto}
+    .logo-label{font:600 13px/1 'Inter',sans-serif;color:#A7B3AF;text-align:center}
+    .logo-meta{font:500 11px/1 'Inter',sans-serif;color:#6F938C}
+    .colors{display:flex;gap:16px;flex-wrap:wrap}
+    .color-chip{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px 16px}
+    .color-swatch{width:40px;height:40px;border-radius:10px;border:1px solid rgba(255,255,255,0.1)}
+    .color-info{display:flex;flex-direction:column;gap:2px}
+    .color-name{font:600 13px/1 'Inter',sans-serif;color:#F5F7F6}
+    .color-hex{font:500 11px/1 monospace;color:#6F938C}
+    .anatomy{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:24px;padding:40px;display:grid;grid-template-columns:1fr 1fr;gap:48px}
+    .anatomy-visual{display:flex;align-items:center;justify-content:center}
+    .anatomy-list{display:flex;flex-direction:column;gap:20px}
+    .anatomy-item{display:flex;gap:16px;align-items:flex-start}
+    .anatomy-num{font:800 12px/1 monospace;color:#19e0c0;letter-spacing:.1em;min-width:24px}
+    .anatomy-text{font:400 14px/1.5 'Inter',sans-serif;color:#A7B3AF}
+    .anatomy-text strong{color:#F5F7F6;font-weight:600}
+    @media(max-width:768px){body{padding:40px 20px}h1{font-size:48px}.anatomy{grid-template-columns:1fr}.logo-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Plink Logo System</h1>
+  <p class="subtitle">Unified visual identity — cinema, warmth, together</p>
+
+  <div class="section">
+    <div class="section-title">01 — Primary Lockups</div>
+    <div class="logo-grid">
+
+      <!-- HORIZONTAL -->
+      <div class="logo-card">
+        <svg width="400" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="h-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3A3C42"/><stop offset="100%" stop-color="#16171B"/></linearGradient>
+            <linearGradient id="h-scr" x1=".3" y1="0" x2=".7" y2="1"><stop offset="0%" stop-color="#FFF0D6"/><stop offset="45%" stop-color="#FFD694"/><stop offset="100%" stop-color="#FFB86C"/></linearGradient>
+            <linearGradient id="h-txt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F5F7F6"/><stop offset="100%" stop-color="#E8DFD2"/></linearGradient>
+            <radialGradient id="h-halo" cx="50%" cy="42%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".35"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+          </defs>
+          <rect x="12" y="16" width="54" height="54" rx="12.4" fill="#FFD694" opacity=".12"/>
+          <rect x="12" y="12" width="54" height="54" rx="12.4" fill="url(#h-body)"/>
+          <rect x="12" y="12" width="54" height="54" rx="12.4" fill="url(#h-halo)"/>
+          <rect x="19.8" y="22.5" width="38.4" height="22.4" rx="1.9" fill="url(#h-scr)"/>
+          <rect x="19.8" y="22.5" width="38.4" height="3.7" rx="1.9" fill="#08090B"/>
+          <rect x="19.8" y="41.2" width="38.4" height="3.7" rx="1.9" fill="#08090B"/>
+          <circle cx="30.2" cy="51.2" r="3.5" fill="#08090B"/>
+          <rect x="26.8" y="54.2" width="6.8" height="5.4" rx="2.8" fill="#08090B"/>
+          <circle cx="47.8" cy="51.2" r="3.5" fill="#08090B"/>
+          <rect x="44.4" y="54.2" width="6.8" height="5.4" rx="2.8" fill="#08090B"/>
+          <rect x="22.4" y="59.4" width="33.2" height="4.6" rx="2" fill="#08090B"/>
+          <text x="80" y="68" font-family="'Playfair Display',Georgia,serif" font-style="italic" font-weight="900" font-size="52" letter-spacing="-1.2" fill="url(#h-txt)">PLINK</text>
+          <text x="80" y="88" font-family="Inter,sans-serif" font-weight="500" font-size="11" letter-spacing=".15em" fill="#6F938C">WATCH TOGETHER</text>
+        </svg>
+        <div class="logo-label">Horizontal Lockup</div>
+        <div class="logo-meta">400 × 120 — Websites, presentations, social</div>
+      </div>
+
+      <!-- STACKED -->
+      <div class="logo-card">
+        <svg width="300" height="320" viewBox="0 0 300 320" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="s-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3A3C42"/><stop offset="100%" stop-color="#16171B"/></linearGradient>
+            <radialGradient id="s-scr" cx="50%" cy="46%" r="55%"><stop offset="0%" stop-color="#FFF0D6"/><stop offset="40%" stop-color="#FFD694"/><stop offset="100%" stop-color="#FFB86C"/></radialGradient>
+            <radialGradient id="s-halo2" cx="50%" cy="40%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".42"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+            <radialGradient id="s-oh" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".22"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+            <linearGradient id="s-txt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F5F7F6"/><stop offset="100%" stop-color="#E8DFD2"/></linearGradient>
+          </defs>
+          <circle cx="150" cy="115" r="115" fill="url(#s-oh)" opacity=".6"/>
+          <g transform="translate(60,25)">
+            <rect width="180" height="180" rx="41" fill="url(#s-body)"/>
+            <rect width="180" height="180" rx="41" fill="url(#s-halo2)"/>
+            <rect x="41.4" y="27.9" width="97.2" height="55.8" rx="6.3" fill="url(#s-scr)"/>
+            <rect x="41.4" y="27.9" width="97.2" height="7.3" rx="6.3" fill="#08090B"/>
+            <rect x="41.4" y="76.4" width="97.2" height="7.3" rx="6.3" fill="#08090B"/>
+            <circle cx="87.3" cy="111.6" r="7.6" fill="#08090B"/>
+            <rect x="79.6" y="118.6" width="15.4" height="12" rx="5" fill="#08090B"/>
+            <circle cx="133.7" cy="111.6" r="7.6" fill="#08090B"/>
+            <rect x="126" y="118.6" width="15.4" height="12" rx="5" fill="#08090B"/>
+            <rect x="21.6" y="138" width="136.8" height="10.8" rx="4.5" fill="#08090B"/>
+          </g>
+          <text x="150" y="258" font-family="'Playfair Display',Georgia,serif" font-style="italic" font-weight="900" font-size="52" letter-spacing=".08em" fill="url(#s-txt)" text-anchor="middle">PLINK</text>
+          <text x="150" y="282" font-family="Inter,sans-serif" font-weight="500" font-size="12" letter-spacing=".2em" fill="#6F938C" text-anchor="middle">WATCH TOGETHER</text>
+        </svg>
+        <div class="logo-label">Stacked Lockup</div>
+        <div class="logo-meta">300 × 320 — App store, splash, posters</div>
+      </div>
+
+      <!-- ICON ONLY -->
+      <div class="logo-card">
+        <svg width="260" height="260" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="i-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3A3C42"/><stop offset="100%" stop-color="#16171B"/></linearGradient>
+            <radialGradient id="i-scr" cx="50%" cy="46%" r="55%"><stop offset="0%" stop-color="#FFF0D6"/><stop offset="40%" stop-color="#FFD694"/><stop offset="100%" stop-color="#FFB86C"/></radialGradient>
+            <radialGradient id="i-halo" cx="50%" cy="40%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".42"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+            <linearGradient id="i-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FFD694" stop-opacity=".34"/><stop offset="100%" stop-color="#FFD694" stop-opacity=".05"/></linearGradient>
+            <filter id="i-sh"><feDropShadow dx="0" dy="6" stdDeviation="18" flood-color="#FFD694" flood-opacity=".18"/><feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity=".55"/></filter>
+            <radialGradient id="i-oh" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".22"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+          </defs>
+          <circle cx="256" cy="256" r="230" fill="url(#i-oh)" opacity=".6"/>
+          <g filter="url(#i-sh)">
+            <rect x="48" y="48" width="416" height="416" rx="96" fill="url(#i-body)"/>
+            <rect x="48" y="48" width="416" height="416" rx="96" fill="url(#i-halo)"/>
+            <rect x="48" y="48" width="416" height="416" rx="96" fill="none" stroke="url(#i-rim)" stroke-width="1.8"/>
+          </g>
+          <rect x="143.7" y="94.5" width="224.6" height="129" rx="18.1" fill="url(#i-scr)"/>
+          <rect x="143.7" y="94.5" width="224.6" height="16.8" rx="18.1" fill="#08090B"/>
+          <rect x="143.7" y="206.7" width="224.6" height="16.8" rx="18.1" fill="#08090B"/>
+          <circle cx="202.2" cy="263.6" r="17.4" fill="#08090B"/>
+          <rect x="184.6" y="279.6" width="35.2" height="27.6" rx="11.4" fill="#08090B"/>
+          <circle cx="309.8" cy="263.6" r="17.4" fill="#08090B"/>
+          <rect x="292.2" y="279.6" width="35.2" height="27.6" rx="11.4" fill="#08090B"/>
+          <rect x="97.3" y="314.3" width="317.4" height="24.6" rx="10.2" fill="#08090B"/>
+        </svg>
+        <div class="logo-label">Icon Mark</div>
+        <div class="logo-meta">512 × 512 — App icon, favicon source</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">02 — Alternatives</div>
+    <div class="logo-grid">
+
+      <!-- LIGHT BG -->
+      <div class="logo-card light">
+        <svg width="400" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="l-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2A2C32"/><stop offset="100%" stop-color="#0E0F12"/></linearGradient>
+            <linearGradient id="l-scr" x1=".3" y1="0" x2=".7" y2="1"><stop offset="0%" stop-color="#FFF0D6"/><stop offset="45%" stop-color="#FFD694"/><stop offset="100%" stop-color="#FFB86C"/></linearGradient>
+            <linearGradient id="l-txt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1A1C20"/><stop offset="100%" stop-color="#2E3036"/></linearGradient>
+            <radialGradient id="l-halo" cx="50%" cy="42%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".35"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+          </defs>
+          <rect x="12" y="16" width="54" height="54" rx="12.4" fill="#000" opacity=".08"/>
+          <rect x="12" y="12" width="54" height="54" rx="12.4" fill="url(#l-body)"/>
+          <rect x="12" y="12" width="54" height="54" rx="12.4" fill="url(#l-halo)"/>
+          <rect x="19.8" y="22.5" width="38.4" height="22.4" rx="1.9" fill="url(#l-scr)"/>
+          <rect x="19.8" y="22.5" width="38.4" height="3.7" rx="1.9" fill="#08090B"/>
+          <rect x="19.8" y="41.2" width="38.4" height="3.7" rx="1.9" fill="#08090B"/>
+          <circle cx="30.2" cy="51.2" r="3.5" fill="#08090B"/>
+          <rect x="26.8" y="54.2" width="6.8" height="5.4" rx="2.8" fill="#08090B"/>
+          <circle cx="47.8" cy="51.2" r="3.5" fill="#08090B"/>
+          <rect x="44.4" y="54.2" width="6.8" height="5.4" rx="2.8" fill="#08090B"/>
+          <rect x="22.4" y="59.4" width="33.2" height="4.6" rx="2" fill="#08090B"/>
+          <text x="80" y="68" font-family="'Playfair Display',Georgia,serif" font-style="italic" font-weight="900" font-size="52" letter-spacing="-1.2" fill="url(#l-txt)">PLINK</text>
+          <text x="80" y="88" font-family="Inter,sans-serif" font-weight="500" font-size="11" letter-spacing=".15em" fill="#8A8E94">WATCH TOGETHER</text>
+        </svg>
+        <div class="logo-label" style="color:#1A1C20">Light Background</div>
+        <div class="logo-meta" style="color:#8A8E94">For white / light surfaces</div>
+      </div>
+
+      <!-- PLAY MARK -->
+      <div class="logo-card">
+        <svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="p-body" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#15181A"/><stop offset="100%" stop-color="#0A0C0D"/></linearGradient>
+            <linearGradient id="p-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,255,255,.22)"/><stop offset="100%" stop-color="rgba(255,255,255,.08)"/></linearGradient>
+          </defs>
+          <rect width="120" height="120" rx="27" fill="url(#p-body)"/>
+          <rect width="120" height="120" rx="27" fill="none" stroke="url(#p-rim)" stroke-width="1"/>
+          <path d="M30 38V82" stroke="#F2F4F3" stroke-width="7" stroke-linecap="round" opacity=".9"/>
+          <polygon points="50 34 88 60 50 86" fill="#F2F4F3"/>
+        </svg>
+        <div class="logo-label">Play Mark</div>
+        <div class="logo-meta">120 × 120 — Website nav, compact spaces</div>
+      </div>
+
+      <!-- WORDMARK -->
+      <div class="logo-card">
+        <svg width="320" height="70" viewBox="0 0 320 70" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="w-txt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F5F7F6"/><stop offset="100%" stop-color="#E8DFD2"/></linearGradient>
+          </defs>
+          <text x="160" y="52" font-family="'Playfair Display',Georgia,serif" font-style="italic" font-weight="900" font-size="58" fill="url(#w-txt)" text-anchor="middle" letter-spacing=".06em">PLINK</text>
+        </svg>
+        <div class="logo-label">Wordmark Only</div>
+        <div class="logo-meta">320 × 70 — Watermarks, minimal contexts</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">03 — Brand Colors</div>
+    <div class="colors">
+      <div class="color-chip"><div class="color-swatch" style="background:linear-gradient(135deg,#3A3C42,#16171B)"></div><div class="color-info"><div class="color-name">Graphite</div><div class="color-hex">#3A3C42 → #16171B</div></div></div>
+      <div class="color-chip"><div class="color-swatch" style="background:#08090B"></div><div class="color-info"><div class="color-name">Ink</div><div class="color-hex">#08090B</div></div></div>
+      <div class="color-chip"><div class="color-swatch" style="background:linear-gradient(135deg,#FFF0D6,#FFD694)"></div><div class="color-info"><div class="color-name">Warm</div><div class="color-hex">#FFD694 — The brand constant</div></div></div>
+      <div class="color-chip"><div class="color-swatch" style="background:#19E0C0"></div><div class="color-info"><div class="color-name">Teal</div><div class="color-hex">#19E0C0</div></div></div>
+      <div class="color-chip"><div class="color-swatch" style="background:#7C5CFF"></div><div class="color-info"><div class="color-name">Violet</div><div class="color-hex">#7C5CFF</div></div></div>
+      <div class="color-chip"><div class="color-swatch" style="background:#F5C26B"></div><div class="color-info"><div class="color-name">Amber</div><div class="color-hex">#F5C26B</div></div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">04 — Icon Anatomy</div>
+    <div class="anatomy">
+      <div class="anatomy-visual">
+        <svg width="280" height="280" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="a-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3A3C42"/><stop offset="100%" stop-color="#16171B"/></linearGradient>
+            <radialGradient id="a-scr" cx="50%" cy="46%" r="55%"><stop offset="0%" stop-color="#FFF0D6"/><stop offset="40%" stop-color="#FFD694"/><stop offset="100%" stop-color="#FFB86C"/></radialGradient>
+            <radialGradient id="a-halo" cx="50%" cy="40%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".42"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+            <linearGradient id="a-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FFD694" stop-opacity=".34"/><stop offset="100%" stop-color="#FFD694" stop-opacity=".05"/></linearGradient>
+            <filter id="a-sh"><feDropShadow dx="0" dy="6" stdDeviation="18" flood-color="#FFD694" flood-opacity=".18"/><feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity=".55"/></filter>
+            <radialGradient id="a-oh" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFD694" stop-opacity=".22"/><stop offset="100%" stop-color="#FFD694" stop-opacity="0"/></radialGradient>
+          </defs>
+          <circle cx="256" cy="256" r="230" fill="url(#a-oh)" opacity=".6"/>
+          <g filter="url(#a-sh)">
+            <rect x="48" y="48" width="416" height="416" rx="96" fill="url(#a-body)"/>
+            <rect x="48" y="48" width="416" height="416" rx="96" fill="url(#a-halo)"/>
+            <rect x="48" y="48" width="416" height="416" rx="96" fill="none" stroke="url(#a-rim)" stroke-width="1.8"/>
+          </g>
+          <rect x="143.7" y="94.5" width="224.6" height="129" rx="18.1" fill="url(#a-scr)"/>
+          <rect x="143.7" y="94.5" width="224.6" height="16.8" rx="18.1" fill="#08090B"/>
+          <rect x="143.7" y="206.7" width="224.6" height="16.8" rx="18.1" fill="#08090B"/>
+          <circle cx="202.2" cy="263.6" r="17.4" fill="#08090B"/>
+          <rect x="184.6" y="279.6" width="35.2" height="27.6" rx="11.4" fill="#08090B"/>
+          <circle cx="309.8" cy="263.6" r="17.4" fill="#08090B"/>
+          <rect x="292.2" y="279.6" width="35.2" height="27.6" rx="11.4" fill="#08090B"/>
+          <rect x="97.3" y="314.3" width="317.4" height="24.6" rx="10.2" fill="#08090B"/>
+          <text x="256" y="430" font-family="'Playfair Display',Georgia,serif" font-style="italic" font-weight="900" font-size="38" letter-spacing=".08em" fill="#F5F7F6" text-anchor="middle" opacity=".9">PLINK</text>
+        </svg>
+      </div>
+      <div class="anatomy-list">
+        <div class="anatomy-item"><div class="anatomy-num">01</div><div class="anatomy-text"><strong>Graphite body</strong> — rounded rectangle (iOS superellipse, 23% radius). Top is noticeably lighter for visibility on dark home screens.</div></div>
+        <div class="anatomy-item"><div class="anatomy-num">02</div><div class="anatomy-text"><strong>Warm screen glow</strong> — the ONLY color in the mark. Universal: an active screen is warm in every theme (Aurora, Magma, Cosmos…).</div></div>
+        <div class="anatomy-item"><div class="anatomy-num">03</div><div class="anatomy-text"><strong>Letterbox bars</strong> — black strips top and bottom. Calculated from 2.35:1 aspect ratio. Makes the glowing rectangle read as "film playing."</div></div>
+        <div class="anatomy-item"><div class="anatomy-num">04</div><div class="anatomy-text"><strong>Two silhouettes</strong> — head (circle) + shoulders (rounded rect). Color: "theater darkness" (#08090B). Figures are cut from light, not drawn on it.</div></div>
+        <div class="anatomy-item"><div class="anatomy-num">05</div><div class="anatomy-text"><strong>Couch</strong> — one dense bar at bottom. Does not reach edges (iOS mask clips them). No legs or details — reads as couch at 60px.</div></div>
+        <div class="anatomy-item"><div class="anatomy-num">06</div><div class="anatomy-text"><strong>Outer halo</strong> — warm radial gradient behind the icon. The mark stands in a projector beam. Without it, graphite disappears on dark backgrounds.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

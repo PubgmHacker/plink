@@ -1,0 +1,94 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Корпус: глубокий графит, светлее к верху -->
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23262B"/>
+      <stop offset="1" stop-color="#0C0E10"/>
+    </linearGradient>
+
+    <!-- Teal — главный цвет бренда -->
+    <linearGradient id="teal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4DF0D4"/>
+      <stop offset="1" stop-color="#19E0C0"/>
+    </linearGradient>
+
+    <!-- Violet — второй цвет -->
+    <linearGradient id="violet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9A7CFF"/>
+      <stop offset="1" stop-color="#7C5CFF"/>
+    </linearGradient>
+
+    <!-- Внутреннее свечение за треугольником -->
+    <radialGradient id="coreglow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#19E0C0" stop-opacity="0.28"/>
+      <stop offset="0.55" stop-color="#7C5CFF" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Верхний блик корпуса -->
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-40%" y="-20%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="20" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+
+    <filter id="triGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="24" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Корпус -->
+  <g filter="url(#shadow)">
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#body)"/>
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#coreglow)"/>
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="none" stroke="url(#rim)" stroke-width="2.5"/>
+  </g>
+
+  <!--
+    ГЛАВНАЯ ИДЕЯ «ДУО-ПЛЕЙ»:
+    Play-треугольник, разрезанный по вертикали на две половины.
+    Левая — teal, правая — violet. Тёмный зазор между ними = «двое»,
+    а вместе они образуют один общий play. Синхронность двух зрителей.
+    У конкурентов (Rave/Kast/Teleparty/Hearo) — однотонный белый play
+    на тёмно-синем. Двухцветный разрез уникален силуэтом даже в 60px.
+  -->
+
+  <!-- Эхо-контур позади (глубина) -->
+  <path d="M392 368 L392 656 L660 512 Z"
+        fill="none" stroke="#F5F7F6" stroke-opacity="0.10" stroke-width="20"
+        stroke-linejoin="round" stroke-linecap="round"
+        transform="translate(34,34)" filter="url(#triGlow)"/>
+
+  <!-- ЛЕВАЯ ПОЛОВИНА (teal) -->
+  <g filter="url(#triGlow)">
+    <path d="M396 372 L398 372 L588 512 L398 652 L396 652 Z"
+          fill="url(#teal)"/>
+  </g>
+
+  <!-- ПРАВАЯ ПОЛОВИНА (violet) -->
+  <path d="M622 512 L432 666 L432 358 Z"
+        fill="url(#violet)"/>
+
+  <!-- Тёмный зазор-разрез: уточняем "двое" -->
+  <path d="M612 512 L452 648 L452 376 Z"
+        fill="none" stroke="#0C0E10" stroke-width="12"
+        stroke-linejoin="round"/>
+
+  <!-- Блик на верхней кромке треугольника -->
+  <path d="M400 372 L586 508"
+        stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- Виньетка -->
+  <radialGradient id="vig" cx="50%" cy="46%" r="78%">
+    <stop offset="0.62" stop-color="#000" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0.42"/>
+  </radialGradient>
+  <rect width="1024" height="1024" fill="url(#vig)"/>
+</svg>

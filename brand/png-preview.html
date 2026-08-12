@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plink — PNG Exports Preview</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,400;1,900&family=Inter:wght@300;500;700&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#050505;color:#F5F7F6;padding:40px 20px}
+    .wrap{max-width:1100px;margin:0 auto}
+    h1{font:italic 400 56px/0.95 'Playfair Display',Georgia,serif;letter-spacing:-0.04em;margin-bottom:8px;
+       background:linear-gradient(92deg,#19e0c0,#7c5cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .sub{color:#6F938C;font-size:14px;font-weight:300;margin-bottom:48px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+    @media(max-width:700px){.grid{grid-template-columns:1fr}}
+    .card{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:20px;padding:28px;display:flex;flex-direction:column;align-items:center;gap:16px}
+    .card.light{background:#F5F7F6}
+    .card.full{grid-column:1/-1}
+    .card img{max-width:100%;height:auto;border-radius:8px}
+    .card .name{font:700 13px/1 'Inter',sans-serif;color:#A7B3AF}
+    .card .meta{font:500 11px/1 monospace;color:#6F938C;letter-spacing:0.05em}
+    .card .size{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:rgba(25,224,192,0.1);color:#19e0c0;font:600 10px/1 monospace;letter-spacing:0.08em}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PNG Exports</h1>
+  <p class="sub">All logos exported via rsvg-convert at production resolution</p>
+  
+  <div class="grid">
+    
+    <div class="card full">
+      <img src="plink-icon-1024.png" alt="Icon 1024" style="max-height:320px">
+      <div class="name">Icon Mark</div>
+      <div class="meta">plink-icon-1024.png</div>
+      <div class="size">1024 × 1024 · 145 KB</div>
+    </div>
+
+    <div class="card">
+      <img src="plink-horizontal-1024.png" alt="Horizontal" style="max-height:200px">
+      <div class="name">Horizontal Lockup</div>
+      <div class="meta">plink-horizontal-1024.png</div>
+      <div class="size">1024 × 320 · 32 KB</div>
+    </div>
+
+    <div class="card">
+      <img src="plink-stacked-1024.png" alt="Stacked" style="max-height:280px">
+      <div class="name">Stacked Lockup</div>
+      <div class="meta">plink-stacked-1024.png</div>
+      <div class="size">600 × 640 · 68 KB</div>
+    </div>
+
+    <div class="card">
+      <img src="plink-play-mark-512.png" alt="Play Mark" style="max-height:160px">
+      <div class="name">Play Mark</div>
+      <div class="meta">plink-play-mark-512.png</div>
+      <div class="size">512 × 512 · 25 KB</div>
+    </div>
+
+    <div class="card light">
+      <img src="plink-light-bg-1024.png" alt="Light BG" style="max-height:200px">
+      <div class="name" style="color:#1A1C20">Light Background</div>
+      <div class="meta" style="color:#8A8E94">plink-light-bg-1024.png</div>
+      <div class="size">1024 × 320 · 31 KB</div>
+    </div>
+
+    <div class="card full">
+      <img src="plink-wordmark-1024.png" alt="Wordmark" style="max-height:140px">
+      <div class="name">Wordmark Only</div>
+      <div class="meta">plink-wordmark-1024.png</div>
+      <div class="size">1024 × 256 · 18 KB</div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

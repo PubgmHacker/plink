@@ -510,7 +510,14 @@ public final class RealtimeClient: NSObject {
     private func isUserMessage(_ msg: RealtimeClientMessage) -> Bool {
         switch msg {
         case .chatSend, .reactionSend: return true
-        case .syncCommand, .stateRequest, .clockProbe: return false
+        // M26: просьба о паузе НЕ копится в офлайн-очереди намеренно.
+        // «Поставь паузу» имеет смысл ровно сейчас; доставленная через
+        // 30 секунд после переподключения, она попросит хоста остановить
+        // совсем другой момент фильма. Лучше не отправить и сказать об этом,
+        // чем отправить не вовремя (см. WatchRoomModel.requestPause).
+        // M27: ответ хоста — по той же причине: вердикт по просьбе, которой
+        // к моменту реконнекта уже никто не ждёт, только запутает комнату.
+        case .syncCommand, .stateRequest, .clockProbe, .pauseRequest, .pauseResolve: return false
         }
     }
 

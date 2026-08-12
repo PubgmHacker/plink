@@ -357,9 +357,32 @@ struct PlinkPlayerControls: View {
 
             HStack(spacing: 10) {
                 if !model.isHost {
-                    Label("Управляет хост", systemImage: "lock.fill")
+                    // M26: раньше здесь стояла только подпись «Управляет хост» —
+                    // констатация без выхода. Гость, которому надо отойти на
+                    // минуту, мог лишь написать в чат и надеяться, что хост его
+                    // прочитает, а не смотрит в кадр. Пока идёт воспроизведение,
+                    // на этом же месте живая кнопка; на паузе останавливать
+                    // нечего, и подпись возвращается.
+                    if model.coordinator.isPlaying {
+                        Button {
+                            HapticManager.impact(.light)
+                            askForPause()
+                        } label: {
+                            pillLabel(
+                                LocalizationManager.shared.string(.pauseAskAction),
+                                icon: "hand.raised.fill"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("room.requestPause")
+                    } else {
+                        Label(
+                            LocalizationManager.shared.string(.roomHostControls),
+                            systemImage: "lock.fill"
+                        )
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.white.opacity(0.55))
+                    }
                 }
 
                 Spacer()
@@ -464,8 +487,31 @@ struct PlinkPlayerControls: View {
 
     // MARK: Вспомогательное
 
+    /// M26: просьба о паузе. Результат обязательно показываем — тихий провал
+    /// здесь худший из возможных: человек уйдёт от экрана, уверенный, что его
+    /// просьбу увидели.
+    private func askForPause() {
+        let l = LocalizationManager.shared
+        switch model.requestPause() {
+        case .sent:
+            ui.activeToast = RoomToast(kind: .success, text: l.string(.pauseAskSent))
+        case .offline:
+            ui.activeToast = RoomToast(kind: .warning, text: l.string(.pauseAskOffline))
+        case .throttled:
+            ui.activeToast = RoomToast(kind: .info, text: l.string(.pauseAskThrottled))
+        case .redundantForHost:
+            // Кнопки у хоста нет — ветка недостижима, но исчерпывающий switch
+            // заставит вернуться сюда, если роль когда-нибудь начнут менять
+            // на живом экране (миграция хоста).
+            break
+        }
+    }
+
     private func showHostHint() {
-        ui.activeToast = RoomToast(kind: .info, text: "Перемоткой управляет хост комнаты")
+        ui.activeToast = RoomToast(
+            kind: .info,
+            text: LocalizationManager.shared.string(.roomHostControlsHint)
+        )
     }
 
     private func flash(_ text: String) {
@@ -645,44 +691,358 @@ struct RTCTokenResponse: Decodable {
     let expiresInSec: Int?
 }
 
+// MARK: - M26: просьба о паузе (баннер хоста)
+//
+// Живёт НЕ внутри хрома плеера намеренно. Хром скрывается по таймеру
+// автоскрытия через несколько секунд — просьба, уехавшая вместе с ним, ничем
+// не отличалась бы от неотправленной. Поэтому баннер рисует сам экран
+// (WatchRoomScreen), рядом с карточкой голосования.
+//
+// Кнопки две и обе честные: «Пауза» действительно ставит паузу штатной
+// sync.command (кадр совпадёт у всей комнаты), «Не сейчас» — отказ, а не
+// откладывание. Гость получит ответ самим фактом: видео либо встало, либо нет.
+
+/// M28: карточка «что я пропустил». Появляется сама при опоздании;
+/// LLM-запрос — только по тапу, чтобы не тратить дневной лимит втихую.
+struct CatchUpBanner: View {
+    let prompt: WatchRoomModel.CatchUpPrompt
+    let loading: Bool
+    let onRequest: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        let l = LocalizationManager.shared
+        let titleKey: L10n.Key = prompt.kind == .lateJoin
+            ? .catchUpTitleLateJoin
+            : .catchUpTitleReconnect
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "text.bubble.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(PlinkRoomAccent.current)
+
+                Text(String(format: l.string(titleKey), prompt.missedMinutes))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 8)
+            }
+
+            Text(l.string(.catchUpBody))
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button {
+                    HapticManager.impact(.medium)
+                    onRequest()
+                } label: {
+                    Group {
+                        if loading {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.black)
+                        } else {
+                            Text(l.string(.catchUpAction))
+                        }
+                    }
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(PlinkRoomAccent.current, in: Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(loading)
+                .accessibilityIdentifier("room.catchUp.request")
+
+                Button {
+                    HapticManager.impact(.light)
+                    onDismiss()
+                } label: {
+                    Text(l.string(.catchUpDismiss))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .plinkGlass(.control, in: Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(loading)
+                .accessibilityIdentifier("room.catchUp.dismiss")
+            }
+        }
+        .padding(14)
+        .plinkGlass(.overlay, cornerRadius: 16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(PlinkRoomAccent.current.opacity(0.35), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("room.catchUp")
+    }
+}
+
+struct PauseRequestBanner: View {
+    let request: WatchRoomModel.PauseRequestPrompt
+    let onPause: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        let l = LocalizationManager.shared
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(PlinkRoomAccent.current)
+
+                Text(String(format: l.string(.pauseAskPrompt), request.username))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 8)
+            }
+
+            if let reason = request.reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    HapticManager.impact(.medium)
+                    onPause()
+                } label: {
+                    Text(l.string(.pauseAskAccept))
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(PlinkRoomAccent.current, in: Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("room.pauseRequest.accept")
+
+                Button {
+                    HapticManager.impact(.light)
+                    onDismiss()
+                } label: {
+                    Text(l.string(.pauseAskDismiss))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .plinkGlass(.control, in: Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("room.pauseRequest.dismiss")
+            }
+        }
+        .padding(14)
+        .plinkGlass(.overlay, cornerRadius: 16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(PlinkRoomAccent.current.opacity(0.35), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("room.pauseRequest")
+    }
+}
+
 // MARK: - Sync health pill
 
+/// Пороги здоровья синхрона — единственный источник истины.
+///
+/// Раньше числа 80/250/750 были зашиты прямо в `SyncHealthPill.color` и
+/// `SyncHealthPill.label`. Как только появился поясняющий текст, это стало
+/// опасно: маркетинговое «держим в пределах 50 мс» из UX-ревью разошлось бы с
+/// реальным порогом 80 мс, и интерфейс начал бы врать. Теперь и цвет, и
+/// подпись, и текст пояснения читают одни и те же константы.
+enum SyncThresholds {
+    /// До этого расхождения считаем, что участники смотрят один кадр.
+    static let inSyncMs: Double = 80
+    /// До этого — подтягиваем, но это ещё рабочее состояние.
+    static let syncingMs: Double = 250
+    /// До этого — заметное отставание. Выше — принудительный пересинхрон.
+    static let laggingMs: Double = 750
+}
+
+/// Индикатор расхождения кадра — главное видимое отличие Plink от Rave и Hearo.
+///
+/// UX-ревью 26.07.2026 назвало этот элемент сильнейшей вещью в продукте, но по
+/// факту он показывал только цветную точку и слово: `driftMs` приходил во вью и
+/// использовался ИСКЛЮЧИТЕЛЬНО для выбора цвета и подписи. То есть те самые
+/// «12 мс», которых нет ни у одного конкурента, на экран не выводились.
+///
+/// Закрыто 11.08.2026: число на экране, тап открывает пояснение, подписи ушли в
+/// LocalizationManager.
 struct SyncHealthPill: View {
     let driftMs: Double
     let connected: Bool
 
+    @State private var showExplainer = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var color: Color {
         guard connected else { return Cinema2026.danger }
-        if driftMs < 80 { return Cinema2026.accent }
-        if driftMs < 250 { return Cinema2026.secondary }
-        if driftMs < 750 { return Cinema2026.amber }
+        if driftMs < SyncThresholds.inSyncMs { return Cinema2026.accent }
+        if driftMs < SyncThresholds.syncingMs { return Cinema2026.secondary }
+        if driftMs < SyncThresholds.laggingMs { return Cinema2026.amber }
         return Cinema2026.danger
     }
 
     private var label: String {
-        // Аудит 26.07.2026: подписи были на английском в русскоязычном
-        // интерфейсе. Это главный видимый элемент нашего отличия от конкурентов —
-        // он не должен выглядеть недоделанным.
-        guard connected else { return "Нет связи" }
-        if driftMs < 80 { return "В синхроне" }
-        if driftMs < 250 { return "Синхронизация" }
-        if driftMs < 750 { return "Отставание" }
-        return "Пересинхрон"
+        let l = LocalizationManager.shared
+        guard connected else { return l.string(.syncOffline) }
+        if driftMs < SyncThresholds.inSyncMs { return l.string(.syncInSync) }
+        if driftMs < SyncThresholds.syncingMs { return l.string(.syncSyncing) }
+        if driftMs < SyncThresholds.laggingMs { return l.string(.syncLagging) }
+        return l.string(.syncResync)
     }
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-                .shadow(color: color.opacity(0.6), radius: 3)
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Cinema2026.text)
+        Button {
+            HapticManager.impact(.light)
+            showExplainer = true
+        } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: color.opacity(0.6), radius: 3)
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Cinema2026.text)
+                if connected {
+                    // Разделитель, а не пробел: без него «В синхроне 12 мс»
+                    // читается как одна фраза, и число теряется.
+                    Text(SyncHealthPill.formatDrift(driftMs))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        // Моноширинные цифры обязательны: дрейф пересчитывается
+                        // несколько раз в секунду, и на пропорциональных цифрах
+                        // пилюля дёргалась бы по ширине при каждом обновлении.
+                        .monospacedDigit()
+                        .foregroundStyle(color)
+                        .contentTransition(.numericText())
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .plinkGlass(.overlay, in: Capsule(style: .continuous))
+            .overlay(Capsule().stroke(.white.opacity(0.06), lineWidth: 0.5))
+            // Сама пилюля остаётся компактной (высота ~28 pt), но зона нажатия
+            // расширена до минимума HIG в 44 pt по вертикали.
+            .contentShape(Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .plinkGlass(.overlay, in: Capsule(style: .continuous))
-        .overlay(Capsule().stroke(.white.opacity(0.06), lineWidth: 0.5))
+        .buttonStyle(.plain)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: driftMs)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(connected ? SyncHealthPill.formatDrift(driftMs) : "")
+        .accessibilityHint(LocalizationManager.shared.string(.syncPillHint))
+        .accessibilityAddTraits(.isButton)
+        .sheet(isPresented: $showExplainer) {
+            SyncExplainerSheet(driftMs: driftMs, connected: connected)
+        }
+    }
+
+    /// Формат расхождения. Ниже миллисекунды показываем «<1 мс», а не «0 мс»:
+    /// ноль читается как «датчик не работает», а не как идеальный синхрон.
+    static func formatDrift(_ ms: Double) -> String {
+        let l = LocalizationManager.shared
+        let value = abs(ms)
+        if value < 1 { return l.string(.syncSubMs) }
+        if value < 1000 { return "\(Int(value.rounded())) \(l.string(.syncUnitMs))" }
+        return String(format: "%.1f %@", value / 1000, l.string(.syncUnitSec))
     }
 }
+
+/// Пояснение к пилюле синхрона.
+///
+/// UX-ревью: «стоит сделать его заметнее, добавить тап с пояснением». Здесь же
+/// закрывается вопрос доверия — пользователь видит не только вердикт, но и
+/// порог, по которому этот вердикт выносится.
+struct SyncExplainerSheet: View {
+    let driftMs: Double
+    let connected: Bool
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let l = LocalizationManager.shared
+
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                Text(l.string(.syncExplainerTitle))
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Cinema2026.text)
+                Spacer()
+                Button { dismiss() } label: {
+                    V4GlyphIcon(glyph: .close, size: 13, weight: .regular)
+                        .foregroundStyle(Cinema2026.secondary)
+                        .frame(width: 32, height: 32)
+                        .plinkGlass(.control, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(l.string(.close))
+            }
+
+            Text(l.string(.syncExplainerBody))
+                .font(.system(size: 15))
+                .foregroundStyle(Cinema2026.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 10) {
+                metricRow(
+                    title: l.string(.syncExplainerCurrent),
+                    value: connected
+                        ? SyncHealthPill.formatDrift(driftMs)
+                        : l.string(.syncExplainerNoData),
+                    highlighted: connected
+                )
+                metricRow(
+                    title: l.string(.syncExplainerThreshold),
+                    value: SyncHealthPill.formatDrift(SyncThresholds.inSyncMs),
+                    highlighted: false
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Cinema2026.bg.ignoresSafeArea())
+        .presentationDetents([.height(340)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func metricRow(title: String, value: String, highlighted: Bool) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 14))
+                .foregroundStyle(Cinema2026.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(highlighted ? Cinema2026.accent : Cinema2026.text)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Cinema2026.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+

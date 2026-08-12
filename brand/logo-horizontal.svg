@@ -1,0 +1,84 @@
+<svg width="400" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Градиент корпуса иконки -->
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3A3C42"/>
+      <stop offset="100%" stop-color="#16171B"/>
+    </linearGradient>
+    
+    <!-- Тёплый свет экрана -->
+    <linearGradient id="screen-glow" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0%" stop-color="#FFF0D6"/>
+      <stop offset="45%" stop-color="#FFD694"/>
+      <stop offset="100%" stop-color="#FFB86C"/>
+    </linearGradient>
+    
+    <!-- Градиент вордмарка: сверху белый, книзу тёплый -->
+    <linearGradient id="text-ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F5F7F6"/>
+      <stop offset="100%" stop-color="#E8DFD2"/>
+    </linearGradient>
+    
+    <!-- Свечение экрана -->
+    <radialGradient id="halo" cx="50%" cy="42%" r="50%">
+      <stop offset="0%" stop-color="#FFD694" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFD694" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ИКОНКА: Графитовый корпус с кадром и двумя зрителями
+       Пропорции: 54×54 (superellipse iOS 23% radius)
+       ═══════════════════════════════════════════════════════════════════ -->
+  
+  <!-- Тень иконки (тёплая, не синяя) -->
+  <rect x="12" y="16" width="54" height="54" rx="12.4" fill="#FFD694" opacity="0.12" filter="url(#icon-shadow)"/>
+  
+  <!-- Корпус -->
+  <rect x="12" y="12" width="54" height="54" rx="12.4" fill="url(#body)"/>
+  
+  <!-- Свечение от экрана на корпусе -->
+  <rect x="12" y="12" width="54" height="54" rx="12.4" fill="url(#halo)"/>
+  
+  <!-- Экран: 54% ширины, 31% высоты -->
+  <rect x="19.8" y="22.5" width="38.4" height="22.4" rx="1.9" fill="url(#screen-glow)"/>
+  
+  <!-- Летербокс: чёрные полосы (2.35:1 кадр) -->
+  <rect x="19.8" y="22.5" width="38.4" height="3.7" rx="1.9" fill="#08090B"/>
+  <rect x="19.8" y="41.2" width="38.4" height="3.7" rx="1.9" fill="#08090B"/>
+  
+  <!-- Силуэт 1: голова -->
+  <circle cx="30.2" cy="51.2" r="3.5" fill="#08090B"/>
+  <!-- Силуэт 1: плечи -->
+  <rect x="26.8" y="54.2" width="6.8" height="5.4" rx="2.8" fill="#08090B"/>
+  
+  <!-- Силуэт 2: голова -->
+  <circle cx="47.8" cy="51.2" r="3.5" fill="#08090B"/>
+  <!-- Силуэт 2: плечи -->
+  <rect x="44.4" y="54.2" width="6.8" height="5.4" rx="2.8" fill="#08090B"/>
+  
+  <!-- Диван -->
+  <rect x="22.4" y="59.4" width="33.2" height="4.6" rx="2.0" fill="#08090B"/>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ВОРДМАРК: PLINK — Playfair Display Black italic
+       Оптическая разрядка вручную по парам
+       ═══════════════════════════════════════════════════════════════════ -->
+  
+  <text x="80" y="68" 
+        font-family="'Playfair Display', 'Didot', 'Bodoni 72', Georgia, serif" 
+        font-style="italic" 
+        font-weight="900" 
+        font-size="52" 
+        letter-spacing="-1.2"
+        fill="url(#text-ink)">PLINK</text>
+
+  <!-- Подпись-слоган (опционально) -->
+  <text x="80" y="88" 
+        font-family="'Inter', -apple-system, sans-serif" 
+        font-weight="500" 
+        font-size="11" 
+        letter-spacing="0.15em"
+        fill="#6F938C"
+        text-transform="uppercase">WATCH TOGETHER</text>
+</svg>

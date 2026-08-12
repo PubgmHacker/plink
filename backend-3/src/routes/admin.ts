@@ -36,6 +36,21 @@ import { invalidateUserSnapshot } from '../middleware/auth.js';
 const RECENT_AUTH_SECONDS = 10 * 60; // 10 minutes
 
 function requireAdmin(fastify: any) {
+  // Аудит 12.08.2026 (P0): этот хук читал request.user, но `authenticate`
+  // здесь не вызывался НИКОГДА — ни хуком, ни preHandler'ом на маршрутах.
+  // request.user всегда оставался пустым, поэтому все 22 маршрута /api/admin/*
+  // отдавали 401 даже основателю: админка в iOS (V5/PlinkAdminRoot) была мертва.
+  // Ровно этот же дефект уже находили и починили в moderation.ts (см. пункт 4
+  // в его шапке), а middleware/auth.ts специально научили прокидывать
+  // mfa/auth_time «чтобы step-up в requireAdmin проходил» — но сам вызов
+  // аутентификации так и не добавили.
+  //
+  // Порядок хуков важен: Fastify выполняет preHandler-хуки в порядке
+  // регистрации и прерывает цепочку, как только хук отправил ответ. Поэтому
+  // authenticate (он сам отвечает 401/403/503) стоит первым, а проверка прав —
+  // второй и уже работает с заполненным request.user.
+  fastify.addHook('preHandler', fastify.authenticate);
+
   fastify.addHook('preHandler', async (request: any, reply: any) => {
     if (!request.user) {
       return reply.status(401).send({ error: 'Authentication required' });

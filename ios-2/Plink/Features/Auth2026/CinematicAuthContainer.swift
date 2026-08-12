@@ -291,10 +291,14 @@ struct LegalConsentFooter: View {
                 .font(.system(size: 11))
                 .foregroundStyle(PlinkTheatre.muted.opacity(0.8))
             HStack(spacing: 6) {
-                Link("Условия", destination: URL(string: "https://plink.app/terms")!)
+                if let terms = PlinkLegal.terms {
+                    Link(L.string(.plusTerms), destination: terms)
+                }
                 Text("·")
                     .foregroundStyle(PlinkTheatre.muted.opacity(0.6))
-                Link("Конфиденциальность", destination: URL(string: "https://plink.app/privacy")!)
+                if let privacy = PlinkLegal.privacy {
+                    Link(L.string(.plusPrivacy), destination: privacy)
+                }
             }
             .font(.system(size: 11, weight: .medium))
             .tint(PlinkTheatre.warmSoft)

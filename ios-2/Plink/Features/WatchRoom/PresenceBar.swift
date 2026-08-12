@@ -52,9 +52,10 @@ struct PresenceBar: View {
                 Text("\(max(1, model.participants.count)) в комнате")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Cinema2026.text)
-                Text(model.activeSpeakerName.map { "\($0) говорит" } ?? "Смотрим вместе")
+                Text(model.activeSpeakerName.map { "\($0) говорит" } ?? model.presenceStatusLine)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Cinema2026.secondary)
+                    .lineLimit(1)
             }
 
             Spacer()

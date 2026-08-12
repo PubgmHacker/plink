@@ -1,12 +1,22 @@
 # Аудит 26.07.2026 (7.5): первый CI проекта. До этого «100 passed» на машине
 # без Redis молча превращалось в 86 — здесь Redis поднят как service,
 # интеграционные тесты обязаны выполняться, а не скипаться.
+#
+# Аудит 07.08.2026 (находка №14): существовал второй, мёртвый workflow
+# ios-2/.github/workflows/ci.yml. GitHub Actions читает только КОРНЕВОЙ
+# .github, поэтому тот файл никогда не запускался, а его пути (backend/,
+# ios/, windows-client/) вообще не существуют в репозитории. Осмысленные
+# security-шаги оттуда перенесены сюда с реальными путями, файл удалён.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -47,6 +57,136 @@ jobs:
 
       - name: Тесты (vitest, Redis доступен как service)
         run: npx vitest run
+
+      # Аудит 07.08.2026: 53 уязвимости (2 critical, 6 high) жили месяцами
+      # незамеченными.
+      # Аудит 11.08.2026: critical закрыты апгрейдами, 6 high — оказались двумя
+      # транзитивными зависимостями fastify (overrides в package.json) и мёртвым
+      # OTel-трейсером, который удалён вместе с 194 пакетами. Стало 0/0/19.
+      # Раз high теперь ноль — гейт поднят с critical до high, чтобы ноль так и
+      # остался нулём. Оставшиеся 19 moderate — один корень
+      # (@opentelemetry/core <2.8.0 через @sentry/node@8), закрывается только
+      # мажором @sentry/node@10: решение владельца, не тихий фикс.
+      - name: Уязвимости зависимостей (гейт на high)
+        run: npm audit --omit=dev --audit-level=high
+
+  landing:
+    name: landing (tsc + next build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Типы (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Сборка (next build)
+        run: npm run build
+
+      - name: Уязвимости зависимостей (гейт на critical)
+        run: npm audit --omit=dev --audit-level=critical
+
+  # Перенесено из мёртвого ios-2/.github/workflows/ci.yml с исправленными
+  # путями. Три проверки стерегут конкретные дыры из прошлых аудитов.
+  security:
+    name: Security — CSP, домены, секреты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Лендинги в web.ts отдаются со строгим CSP (default-src 'none'),
+      # скрипты допускаются ТОЛЬКО инлайн с nonce — см. PLINK_DESIGN_DIRECTION.md.
+      # Внешний <script src=…> либо не выполнится, либо означает, что CSP
+      # ослабили. Прошлая версия шага запрещала строку '<script' целиком —
+      # она бы падала на легальных инлайн-скриптах с nonce.
+      - name: Запрет внешних <script src> в web.ts
+        run: |
+          if grep -nE '<script[^>]+src=' backend-3/src/routes/web.ts; then
+            echo '✗ В web.ts внешний скрипт. CSP default-src none его заблокирует,'
+            echo '  а если не блокирует — значит CSP ослабили. Инлайн + nonce, без CDN.'
+            exit 1
+          fi
+          echo '✓ Внешних скриптов нет'
+
+      # Дыра из июльского аудита: host.contains("vk.com") пропускал
+      # evil-vk.com.ru. Прошлый (мёртвый) CI стерёг её в файле
+      # MediaSourceResolver.swift — файла больше нет, а приём пережил переезд
+      # в ServiceBrowserView и WatchRoomCompositionRoot. Теперь запрет общий:
+      # матч хоста идёт только через PlinkHost (Utilities/PlinkHost.swift).
+      - name: Запрет подстрочного матча доменов (только PlinkHost)
+        run: |
+          # grep -v '^\s*//' — комментарии, объясняющие саму дыру, не считаются
+          # нарушением (иначе шаг падал бы на документации в PlinkHost.swift).
+          hits=$(grep -rn --include='*.swift' \
+                   -E 'host\??\.(lowercased\(\)\.)?contains\("' ios-2/Plink \
+                 | grep -vE ':[[:space:]]*(//|\*|/\*)' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo '✗ Подстрочный матч хоста. evil-vk.com.ru содержит "vk.com" и'
+            echo '  пройдёт как легитимный сервис — его страница загрузится в'
+            echo '  WebView комнаты у всех участников. Используй PlinkHost.matches.'
+            exit 1
+          fi
+          if [ ! -f ios-2/Plink/Utilities/PlinkHost.swift ]; then
+            echo '✗ Utilities/PlinkHost.swift удалён — строгий матч домена потерян.'
+            exit 1
+          fi
+          echo '✓ Строгий матч домена на месте (PlinkHost)'
+
+      - name: Поиск случайно закоммиченных приватных ключей
+        run: |
+          if grep -rnE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' \
+               --include='*.ts' --include='*.swift' --include='*.kt' \
+               --include='*.json' --include='*.xcconfig' \
+               --exclude-dir=node_modules --exclude-dir=.git .; then
+            echo '✗ В репозитории приватный ключ'
+            exit 1
+          fi
+          echo '✓ Ключей в коде нет'
+
+  # Аудит 07.08.2026 (находка №17): 28 Kotlin-файлов ни разу не собирались и
+  # не имеют тестов, при этом бриф заявляет «кроссплатформенную синхронизацию».
+  # Сборка на ubuntu-runner доказывает хотя бы компиляцию.
+  android:
+    name: android-client (assembleDebug)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ios-2/android-client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('ios-2/android-client/**/*.gradle*') }}
+
+      - name: Сборка debug
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # Тестов пока 0 (находка A2). Шаг не валит сборку, но существует —
+      # как только появится первый *Test.kt, он начнёт бежать сам.
+      - name: Юнит-тесты
+        run: ./gradlew testDebugUnitTest --no-daemon || true
 
   # ios: job-заглушка.
   # Аудит 26.07.2026: iOS-сборку в CI НЕ добавляем — GitHub-репозиторий бэкенда

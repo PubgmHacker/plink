@@ -123,6 +123,93 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var reactions: [WatchReactionEvent] = []
     private var reactionExpiryTask: Task<Void, Never>?
 
+    // MARK: - M26: просьба о паузе
+    //
+    // До этого гость мог только смотреть на подпись «Управляет хост». Отойти
+    // на минуту было нельзя: единственный способ — написать в чат и надеяться,
+    // что хост его читает, а не смотрит в кадр.
+    //
+    // Сервер плеер НЕ останавливает — он доставляет просьбу, решение за хостом
+    // (backend-3/src/realtime/messageRouter.ts → case 'pause.request').
+    // Иначе любой гость получил бы кнопку «остановить чужой сеанс».
+
+    /// Просьба о паузе, ожидающая решения хоста. Ненулевая только у хоста.
+    public private(set) var pendingPauseRequest: PauseRequestPrompt?
+    private var pauseRequestExpiryTask: Task<Void, Never>?
+    /// Когда текущий пользователь последний раз просил паузу. Локальный
+    /// кулдаун держим сами: серверный лимит отвечает ошибкой RATE_LIMITED,
+    /// а показывать человеку код ошибки за второй тап — плохой ответ на
+    /// нормальное желание.
+    private var lastPauseRequestAt: Date?
+
+    /// Серверный лимит — 1 просьба в 10 с; локально просим на секунду реже,
+    /// чтобы гонка часов не превращала разрешённый тап в ошибку.
+    private static let pauseRequestCooldownSec: TimeInterval = 11
+
+    /// Сколько просьба живёт у хоста. Просроченная просьба вреднее отсутствующей:
+    /// нажатая через минуту, она остановит совсем другой момент фильма.
+    private static let pauseRequestTTLSec: TimeInterval = 30
+
+    /// Просьба гостя, показываемая хосту.
+    public struct PauseRequestPrompt: Identifiable, Equatable, Sendable {
+        public let id: String
+        public let userId: String
+        public let username: String
+        /// Короткая пометка гостя («отойду на минуту»), может отсутствовать.
+        public let reason: String?
+        public let receivedAt: Date
+    }
+
+    /// Чем закончилась попытка попросить паузу. Вью решает, что показать —
+    /// модель не трогает тосты: они принадлежат вью (WatchRoomUIState).
+    public enum PauseRequestOutcome: Equatable, Sendable {
+        /// Просьба ушла на сервер.
+        case sent
+        /// Хост сам ставит паузу — просить некого.
+        case redundantForHost
+        /// Нет соединения. В офлайн-очередь просьба намеренно не кладётся.
+        case offline
+        /// Локальный кулдаун ещё не истёк.
+        case throttled
+    }
+
+    // MARK: - M28: «что я пропустил»
+    //
+    // Карточка появляется САМА в момент опоздания — поздний вход в идущую
+    // сессию или возврат после долгого разрыва. Запрос к ИИ при этом не
+    // уходит, пока человек не попросил: авто-LLM за его счёт (дневной лимит
+    // бесплатного тарифа) был бы неприятным сюрпризом.
+
+    /// Всплывшая карточка «что я пропустил». nil — нечего догонять.
+    public private(set) var catchUpPrompt: CatchUpPrompt?
+    /// Идёт запрос рекапа — карточка показывает прогресс и глушит повторный тап.
+    public private(set) var catchUpLoading = false
+    /// Момент потери соединения — чтобы отличить моргнувший Wi-Fi от
+    /// «отходил на десять минут».
+    private var lastConnectionLossAt: Date?
+    /// Карточка показывается не чаще раза за жизнь модели: перезаход в ту же
+    /// комнату — новая модель, а вот каждый реконнект дёргать её не должен.
+    private var catchUpShownThisSession = false
+
+    /// Поздний вход: контент идёт уже дольше этого порога.
+    private static let catchUpLateJoinThresholdMs: Int64 = 3 * 60_000
+    /// Реконнект: разрыв дольше этого — уже «отходил», а не «моргнула сеть».
+    private static let catchUpReconnectGapSec: TimeInterval = 90
+
+    public struct CatchUpPrompt: Equatable, Sendable {
+        public enum Kind: Equatable, Sendable {
+            /// Вошёл в сессию, которая идёт давно.
+            case lateJoin
+            /// Вернулся после долгого разрыва.
+            case reconnectGap
+        }
+        public let kind: Kind
+        /// Сколько примерно пропущено, в минутах (для копирайта карточки).
+        public let missedMinutes: Int
+        /// Начало пропущенного окна (мс эпохи) — уходит в /api/ai/room-recap.
+        public let sinceMs: Int64
+    }
+
     // MARK: - Owned components
     public let realtimeClient: RealtimeClient
     public let clock: ClockSynchronizer
@@ -175,6 +262,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
 
     // P0-35: REST client for chat catch-up
     private let chatCatchupClient: ChatCatchupClient?
+    private let roomRecapClient: RoomRecapClient?
     /// Host user id from Room model (presence highlight).
     private let roomHostId: String?
 
@@ -191,6 +279,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         mediaId: String? = nil,
         roomCode: String? = nil,
         chatCatchupClient: ChatCatchupClient? = nil,
+        roomRecapClient: RoomRecapClient? = nil,
         clock: ClockSynchronizer? = nil,
         coordinator: PlaybackCoordinator? = nil,
         roomHostId: String? = nil
@@ -202,6 +291,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         self.mediaId = mediaId
         self.roomCode = roomCode
         self.chatCatchupClient = chatCatchupClient
+        self.roomRecapClient = roomRecapClient
         self.roomHostId = roomHostId
         let resolvedClock = clock ?? ClockSynchronizer()
         self.clock = resolvedClock
@@ -553,6 +643,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         countdownTask?.cancel()
         countdownTask = nil
         countdownRemaining = nil
+        // M26: просьба о паузе живёт ровно столько, сколько длится сеанс.
+        // Оставленная задача разбудила бы модель уже вне комнаты.
+        clearPauseRequest()
+        lastPauseRequestAt = nil
         realtimeClient.disconnect()
         coordinator.teardown()
         syncController.resetCompletely()
@@ -632,6 +726,16 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             guard let self else { return }
             for await state in self.realtimeClient.stateChanges {
                 guard !Task.isCancelled else { return }
+                // M28: фиксируем момент потери связи — при возврате решим,
+                // был ли это моргнувший Wi-Fi или настоящий разрыв.
+                if case .connected = self.connectionState {
+                    switch state {
+                    case .reconnecting, .failed, .idle:
+                        self.lastConnectionLossAt = Date()
+                    default:
+                        break
+                    }
+                }
                 self.connectionState = state
             }
         }
@@ -709,6 +813,154 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             playing: false
         )))
         scheduleActionTimeout(actionId)
+    }
+
+    // MARK: - M26: просьба о паузе
+
+    /// Гость просит хоста поставить паузу.
+    ///
+    /// Возвращает результат, а не молчит: тихий провал здесь — худший из
+    /// возможных, человек ушёл бы от экрана, уверенный, что его просьбу видят.
+    @discardableResult
+    public func requestPause(reason: String? = nil) -> PauseRequestOutcome {
+        // Хосту просить некого — у него есть настоящая кнопка паузы.
+        if isHost { return .redundantForHost }
+
+        // Просьба НЕ идёт в офлайн-очередь (RealtimeClient.isUserMessage):
+        // доставленная через полминуты после переподключения, она попросит
+        // остановить уже другой момент. Поэтому здесь честный отказ.
+        guard connectionState == .connected else { return .offline }
+
+        if let last = lastPauseRequestAt,
+           Date().timeIntervalSince(last) < Self.pauseRequestCooldownSec {
+            return .throttled
+        }
+
+        lastPauseRequestAt = Date()
+        realtimeClient.send(.pauseRequest(.init(roomId: _roomId, reason: reason)))
+        AnalyticsService.shared.track("room_pause_requested", parameters: [
+            "has_reason": reason?.isEmpty == false ? "true" : "false",
+        ])
+        return .sent
+    }
+
+    /// Хост ответил на просьбу. `pause == true` — ставим паузу по-настоящему,
+    /// обычной командой sync.command, чтобы кадр совпал у всей комнаты.
+    ///
+    /// M27: вердикт уходит комнате отдельным pause.resolve. Раньше отклонённая
+    /// просьба исчезала молча — гость не знал, увидели её или нет, и после
+    /// кулдауна просил снова. Принятие тоже объявляется: пауза, наступившая
+    /// без объяснения, читается как сбой синхронизации, а не как ответ.
+    public func resolvePauseRequest(pause: Bool) {
+        guard let prompt = pendingPauseRequest else { return }
+        clearPauseRequest()
+        guard isHost else { return }
+
+        if connectionState == .connected {
+            realtimeClient.send(.pauseResolve(.init(
+                roomId: _roomId,
+                accepted: pause,
+                requestUserId: prompt.userId
+            )))
+            AnalyticsService.shared.track("room_pause_resolved", parameters: [
+                "accepted": pause ? "true" : "false",
+            ])
+        }
+
+        guard pause else { return }
+        if coordinator.isPlaying {
+            sendPauseCommand()
+        }
+    }
+
+    /// Снять просьбу с экрана и погасить таймер её жизни.
+    public func clearPauseRequest() {
+        pauseRequestExpiryTask?.cancel()
+        pauseRequestExpiryTask = nil
+        pendingPauseRequest = nil
+    }
+
+    private func handlePauseRequested(_ event: RealtimeServerMessage.PauseRequested) {
+        let name = event.username.isEmpty ? "Гость" : event.username
+
+        // Системная строка в чате — тем же способом, что муты ИИ-модератора.
+        // Она нужна ВСЕМ: гости видят, что просьба уже висит, и не дублируют
+        // её; у хоста остаётся след после того, как баннер погас.
+        let line = String(
+            format: LocalizationManager.shared.string(.pauseAskPrompt),
+            name
+        )
+        let suffix = event.reason.map { " — \($0)" } ?? ""
+        let sys = ChatMessageInfo(
+            messageId: "pause-\(event.userId)-\(event.serverTimeMs)",
+            clientMessageId: nil,
+            senderId: "plink-system",
+            senderName: "Plink",
+            text: "\u{23F8}\u{FE0E} \(line)\(suffix)",
+            createdAtMs: event.serverTimeMs,
+            isPending: false,
+            bubbleStyle: "bubble-quiet",
+            mediaType: nil,
+            hasMedia: false
+        )
+        chatMessages.append(sys)
+        if chatMessages.count > 200 { chatMessages.removeFirst(chatMessages.count - 200) }
+
+        // Действие предлагаем только хосту: у остальных кнопка «Пауза» ничего
+        // бы не сделала, а неработающая кнопка хуже её отсутствия.
+        guard isHost, event.userId != currentUserId else { return }
+
+        pendingPauseRequest = PauseRequestPrompt(
+            id: "\(event.userId)-\(event.serverTimeMs)",
+            userId: event.userId,
+            username: name,
+            reason: event.reason,
+            receivedAt: Date()
+        )
+        HapticManager.impact(.medium)
+
+        pauseRequestExpiryTask?.cancel()
+        let expectedId = pendingPauseRequest?.id
+        pauseRequestExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pauseRequestTTLSec))
+            guard !Task.isCancelled, let self else { return }
+            // Гасим только СВОЮ просьбу: пока таймер спал, могла прийти новая,
+            // и её нельзя убирать чужим таймаутом.
+            guard self.pendingPauseRequest?.id == expectedId else { return }
+            self.pendingPauseRequest = nil
+            self.pauseRequestExpiryTask = nil
+        }
+    }
+
+    /// M27: комнате объявлен вердикт хоста по просьбе о паузе.
+    ///
+    /// Системная строка — всем, кроме самого хоста (он сам только что нажал
+    /// кнопку и видит результат). Висящая подсказка гасится у ЛЮБОГО клиента:
+    /// если хост ответил с другого устройства или роль мигрировала в момент
+    /// просьбы, баннер с уже решённым вопросом — ложь на экране.
+    private func handlePauseResolved(_ event: RealtimeServerMessage.PauseResolved) {
+        clearPauseRequest()
+        guard event.hostId != currentUserId else { return }
+
+        let host = event.hostName.isEmpty
+            ? LocalizationManager.shared.string(.pauseResolveHostFallback)
+            : event.hostName
+        let key: L10n.Key = event.accepted ? .pauseResolveAccepted : .pauseResolveDeclined
+        let line = String(format: LocalizationManager.shared.string(key), host)
+        let sys = ChatMessageInfo(
+            messageId: "pause-resolved-\(event.hostId)-\(event.serverTimeMs)",
+            clientMessageId: nil,
+            senderId: "plink-system",
+            senderName: "Plink",
+            text: "\u{23F8}\u{FE0E} \(line)",
+            createdAtMs: event.serverTimeMs,
+            isPending: false,
+            bubbleStyle: "bubble-quiet",
+            mediaType: nil,
+            hasMedia: false
+        )
+        chatMessages.append(sys)
+        if chatMessages.count > 200 { chatMessages.removeFirst(chatMessages.count - 200) }
     }
 
     public func sendSeekCommand(to seconds: TimeInterval) async {
@@ -1141,9 +1393,158 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 self.lastDriftMs = self.syncController.lastDriftMs
                 // P0-61: clear pending actions that match this state
                 self.clearPendingActionsIfConfirmed(state: state)
+                // M28: первый авторитетный state — момент, когда видно,
+                // насколько сессия уже ушла вперёд без нас.
+                self.considerCatchUp(after: state)
             }
             self.statePumpTask = nil
         }
+    }
+
+    // MARK: - M28: «что я пропустил»
+
+    /// Решает, показывать ли карточку. Один раз за жизнь модели.
+    private func considerCatchUp(after state: RealtimeRoomState) {
+        guard !catchUpShownThisSession, catchUpPrompt == nil else { return }
+        guard roomRecapClient != nil else { return }
+
+        // Долгий реконнект важнее позднего входа: человек уже был в комнате.
+        if let lostAt = lastConnectionLossAt {
+            let gap = Date().timeIntervalSince(lostAt)
+            if gap >= Self.catchUpReconnectGapSec {
+                let minutes = max(1, Int((gap / 60).rounded()))
+                let sinceMs = Int64(lostAt.timeIntervalSince1970 * 1000)
+                presentCatchUp(.init(kind: .reconnectGap, missedMinutes: minutes, sinceMs: sinceMs))
+                lastConnectionLossAt = nil
+                return
+            }
+        }
+
+        // Поздний вход: контент уже идёт дольше порога.
+        if state.positionMs >= Self.catchUpLateJoinThresholdMs {
+            let minutes = max(1, Int(state.positionMs / 60_000))
+            // Окно рекапа — последние N минут позиции, но не больше 4 часов
+            // (сервер всё равно режет).
+            let lookbackMs = min(state.positionMs, 4 * 3600_000)
+            let sinceMs = Int64(Date().timeIntervalSince1970 * 1000) - lookbackMs
+            presentCatchUp(.init(kind: .lateJoin, missedMinutes: minutes, sinceMs: sinceMs))
+        }
+    }
+
+    private func presentCatchUp(_ prompt: CatchUpPrompt) {
+        catchUpShownThisSession = true
+        catchUpPrompt = prompt
+        HapticManager.impact(.light)
+    }
+
+    /// Человек отказался от рекапа — карточку убираем, запрос не шлём.
+    public func dismissCatchUp() {
+        catchUpPrompt = nil
+        catchUpLoading = false
+    }
+
+    /// Запрашивает рекап у /api/ai/room-recap и кладёт ответ системной строкой
+    /// в чат. Приватный ответ: в комнату ничего не публикуется.
+    public func requestCatchUp() {
+        guard let prompt = catchUpPrompt, let client = roomRecapClient else { return }
+        guard !catchUpLoading else { return }
+        catchUpLoading = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.catchUpLoading = false
+                self.catchUpPrompt = nil
+            }
+            do {
+                let response = try await client.fetchRecap(roomId: self._roomId, sinceMs: prompt.sinceMs)
+                let text: String
+                if let recap = response.recap, !recap.isEmpty {
+                    text = recap
+                } else {
+                    text = LocalizationManager.shared.string(.catchUpEmpty)
+                }
+                let sys = ChatMessageInfo(
+                    messageId: "catchup-\(Int64(Date().timeIntervalSince1970 * 1000))",
+                    clientMessageId: nil,
+                    senderId: "plink-ai",
+                    senderName: "Plink AI",
+                    text: "\u{1F4AC} \(text)",
+                    createdAtMs: Int64(Date().timeIntervalSince1970 * 1000),
+                    isPending: false,
+                    bubbleStyle: "bubble-quiet",
+                    mediaType: nil,
+                    hasMedia: false
+                )
+                self.chatMessages.append(sys)
+                if self.chatMessages.count > 200 {
+                    self.chatMessages.removeFirst(self.chatMessages.count - 200)
+                }
+                AnalyticsService.shared.track("room_catchup_requested", parameters: [
+                    "kind": prompt.kind == .lateJoin ? "late_join" : "reconnect",
+                    "message_count": "\(response.messageCount)",
+                ])
+            } catch {
+                // Честный отказ, а не молчание: человек нажал кнопку.
+                let sys = ChatMessageInfo(
+                    messageId: "catchup-fail-\(Int64(Date().timeIntervalSince1970 * 1000))",
+                    clientMessageId: nil,
+                    senderId: "plink-system",
+                    senderName: "Plink",
+                    text: LocalizationManager.shared.string(.catchUpFailed),
+                    createdAtMs: Int64(Date().timeIntervalSince1970 * 1000),
+                    isPending: false,
+                    bubbleStyle: "bubble-quiet",
+                    mediaType: nil,
+                    hasMedia: false
+                )
+                self.chatMessages.append(sys)
+            }
+        }
+    }
+
+    /// Социальный статус комнаты для PresenceBar — только то, что реально
+    /// известно клиенту. Per-participant дрифт на проводе отсутствует.
+    public var presenceStatusLine: String {
+        let l = LocalizationManager.shared
+        if let ask = pendingPauseRequest {
+            return String(format: l.string(.presencePauseAsk), ask.username)
+        }
+        if let state = lastAuthoritativeState, !state.playing {
+            return l.string(.presencePaused)
+        }
+        if lastDriftMs >= 250 {
+            return l.string(.presenceResyncing)
+        }
+        return l.string(.presenceWatchingTogether)
+    }
+
+    /// P0 12.08.2026: передача роли хоста на живой комнате.
+    ///
+    /// Раньше уход хоста закрывал комнату всем, поэтому клиенту нечего было
+    /// обрабатывать. Теперь сервер (gateway.publishHostMigration) присылает
+    /// role.changed с новой эпохой, и роль надо применить БЕЗ перезахода.
+    ///
+    /// Событие одно на всю комнату: хостом стал тот, чей id совпал с newHostId.
+    /// Остальным оно тоже полезно — узнать, что комната жива и у неё новый
+    /// ведущий, вместо «плеер больше никого не слушает».
+    public func applyRoleChange(_ event: RealtimeServerMessage.RoleChanged) {
+        let iAmHost = event.newHostId == currentUserId
+        role = iAmHost ? .host : .viewer
+        isHost = iAmHost
+        appearanceStore.setHost(iAmHost)
+
+        // Эпоха сменилась: команды, отправленные до передачи роли, сервер уже
+        // не примет. Держать их в pendingActions значит ждать подтверждения,
+        // которое не придёт, и потом откатывать плеер на ровном месте.
+        pendingActions.removeAll()
+
+        // Просьба о паузе адресована прежнему хосту — она больше не актуальна.
+        pendingPauseRequest = nil
+
+        // Забираем авторитетное состояние заново: позиция зафиксирована
+        // bumpEpoch() на сервере, и локальная могла разойтись.
+        realtimeClient.send(.stateRequest(.init(roomId: _roomId, afterSeq: lastSeq)))
     }
 
     // P0-30: sessionDidConnect now carries role
@@ -1212,10 +1613,30 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // отсюда, у хоста и у зрителей одинаково.
         case .roomAppearanceUpdated(let event):
             appearanceStore.applyServerUpdate(RoomAppearance(wire: event.appearance))
+        // M26: гость попросил паузу. Плеер здесь не трогаем — сервер тоже:
+        // решение остаётся за хостом (см. handlePauseRequested).
+        case .pauseRequested(let request):
+            handlePauseRequested(request)
+        // M27: хост ответил на просьбу — закрываем петлю обратной связи.
+        case .pauseResolved(let verdict):
+            handlePauseResolved(verdict)
+        // P0 12.08.2026: хост ушёл, сервер передал роль. До этого уход хоста
+        // просто закрывал комнату всем, поэтому обрабатывать было нечего.
+        case .roleChanged(let event):
+            applyRoleChange(event)
         case .error(let err):
             lastError = "\(err.code): \(err.message)"
-            // P0-54: rollback on rejection errors
-            if err.code == "NOT_HOST" || err.code == "STALE_EPOCH" || err.code == "RATE_LIMITED" {
+            // P0-54: rollback on rejection errors.
+            // M26: откатывать есть смысл ТОЛЬКО когда в полёте висит команда
+            // плеера. Раньше условие смотрело лишь на код: любой RATE_LIMITED
+            // (а его отдают и chat.send, и reaction.send, и pause.request)
+            // прогонял handleActionRejection — то есть за третье сообщение в
+            // чате хосту дёргало позицию плеера и запрашивало снапшот.
+            // Остаточный случай — чат залимитило ровно в окне ожидания
+            // sync.command; там лишний откат безвреден, состояние всё равно
+            // авторитетное.
+            if !pendingActions.isEmpty,
+               err.code == "NOT_HOST" || err.code == "STALE_EPOCH" || err.code == "RATE_LIMITED" {
                 handleActionRejection(err.code)
             }
             // M16: сервер отклонил сообщение из-за мута — синхронизируем таймер локально.
@@ -1746,16 +2167,15 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
     func toggleMicrophone() async {
         // P0 5.1: голос выключен целиком (LiveKit не сконфигурирован).
-        // Кнопка скрыта флагом в PresenceBar; guard — второй барьер.
+        // Кнопка скрыта флагом в PresenceBar и V4RoomControlsRow; guard —
+        // второй барьер.
+        //
+        // M26: раньше здесь открывался пейволл .voiceChat. Это продажа фичи,
+        // которой в сборке нет: LiveKit не подключён (ждём аккаунт Apple
+        // Developer), поэтому оплативший Плинк+ получил бы ровно ничего.
+        // Пока голос недоступен — молча ничего не делаем и пишем в лог.
         guard FeatureFlags.liveKitVoiceEnabled else {
-            // LiveKit disabled — trigger paywall so user knows it's a Plink+ feature
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .showPlinkPlusPaywall,
-                    object: nil,
-                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
-                )
-            }
+            Logger.webrtc.warn("toggleMicrophone(): голос недоступен (LiveKit не подключён) — пейволл не показываем")
             return
         }
         // P0.2: Premium gate for speaking
@@ -1776,15 +2196,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     func toggleCamera() async {
-        // Camera in room — Plink+ only (same as voice)
+        // Camera in room — Plink+ only (same as voice).
+        // M26: тот же дефект, что в toggleMicrophone — пейволл за фичу,
+        // которой нет в сборке. Убран.
         guard FeatureFlags.liveKitVoiceEnabled else {
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .showPlinkPlusPaywall,
-                    object: nil,
-                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.cameraFilter]
-                )
-            }
+            Logger.webrtc.warn("toggleCamera(): видео в комнате недоступно (LiveKit не подключён) — пейволл не показываем")
             return
         }
         guard PremiumStatusManager.shared.isPremium else {
@@ -1911,6 +2327,27 @@ public struct WatchReactionEvent: Identifiable, Sendable, Equatable {
 public protocol ChatCatchupClient: Sendable {
     func fetchMessages(roomId: String, after: String?) async throws -> ChatCatchupResponse
     func fetchParticipants(roomId: String) async throws -> [ParticipantSnapshot]
+}
+
+// MARK: - M28: room recap client protocol
+
+/// REST-клиент «что я пропустил» (POST /api/ai/room-recap). Отдельный от
+/// ChatCatchupClient: догон чата — обязательная механика комнаты, рекап —
+/// опциональная ИИ-фича, у которой клиента может не быть вовсе (тесты,
+/// сборки без ИИ) — модель обязана честно жить с nil.
+public protocol RoomRecapClient: Sendable {
+    func fetchRecap(roomId: String, sinceMs: Int64) async throws -> RoomRecapResponse
+}
+
+public struct RoomRecapResponse: Sendable, Equatable, Decodable {
+    /// nil — в пропущенном окне не было человеческой переписки.
+    public let recap: String?
+    public let messageCount: Int
+
+    public init(recap: String?, messageCount: Int) {
+        self.recap = recap
+        self.messageCount = messageCount
+    }
 }
 
 public struct ChatCatchupResponse: Sendable, Equatable {

@@ -200,12 +200,53 @@ function baseScript(nonce: string): string {
         var x = (e.clientX - r.left) / r.width - 0.5;
         var y = (e.clientY - r.top) / r.height - 0.5;
         wrap.classList.add('tilting');
-        phone.style.transform = 'rotateY(' + (x * 10).toFixed(2) + 'deg) rotateX(' + (-y * 8).toFixed(2) + 'deg)';
+        // Дизайн-реф. §4: наклон <=12°, translateZ 24px, блик radial по --gx/--gy.
+        phone.style.transform = 'translateZ(24px) rotateY(' + (x * 16).toFixed(2) + 'deg) rotateX(' + (-y * 12).toFixed(2) + 'deg)';
+        phone.style.setProperty('--gx', ((x + 0.5) * 100).toFixed(1) + '%');
+        phone.style.setProperty('--gy', ((y + 0.5) * 100).toFixed(1) + '%');
       });
       wrap.addEventListener('mouseleave', function () {
         wrap.classList.remove('tilting');
         phone.style.transform = '';
       });
+    }
+    // Гигантский фоновый текст (дизайн-реф. §3): scaleY тянется за высотой окна.
+    var giant = document.querySelector('.giant');
+    if (giant) {
+      var fitGiant = function () {
+        giant.style.setProperty('--gsy', Math.max(0.75, Math.min(1.7, innerHeight / 860)).toFixed(3));
+      };
+      fitGiant();
+      addEventListener('resize', fitGiant, { passive: true });
+    }
+    // Магнитные кнопки (дизайн-реф. §5): CTA тянется к курсору в зоне ~48px
+    // вокруг кнопки; отпускает той же транзишеной transform, что и hover.
+    var magnets = document.querySelectorAll('a.btn, a.store-badge, a.nav-cta');
+    if (magnets.length && matchMedia('(pointer:fine)').matches
+        && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      var mRaf = 0;
+      addEventListener('mousemove', function (e) {
+        if (mRaf) return;
+        mRaf = requestAnimationFrame(function () {
+          mRaf = 0;
+          magnets.forEach(function (m) {
+            var r = m.getBoundingClientRect();
+            // Расстояние до прямоугольника, не до центра: у широких кнопок
+            // радиус от центра включал бы полэкрана по вертикали.
+            var outX = Math.max(r.left - e.clientX, 0, e.clientX - r.right);
+            var outY = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom);
+            if (outX < 48 && outY < 48) {
+              var dx = e.clientX - (r.left + r.width / 2);
+              var dy = e.clientY - (r.top + r.height / 2);
+              m.style.setProperty('--mx', Math.max(-9, Math.min(9, dx * 0.22)).toFixed(1) + 'px');
+              m.style.setProperty('--my', Math.max(-7, Math.min(7, dy * 0.22)).toFixed(1) + 'px');
+            } else if (m.style.getPropertyValue('--mx') !== '') {
+              m.style.removeProperty('--mx');
+              m.style.removeProperty('--my');
+            }
+          });
+        });
+      }, { passive: true });
     }
   })();
   </script>`
@@ -342,12 +383,15 @@ function pageHead(opts: {
     --teal-soft:rgba(25,224,192,.35);
   }
   * { box-sizing:border-box }
-  html { scroll-behavior:smooth }
+  /* overflow-x:clip, а не hidden: clip не создаёт скролл-контейнер, поэтому
+     мобильный Chrome/Safari не расширяет layout viewport под вылезший контент
+     и position:sticky у потомков продолжает работать. */
+  html { scroll-behavior:smooth; overflow-x:clip }
   body { margin:0; font:16px/1.55 var(--sans);
          background:var(--black); color:var(--ink); min-height:100vh;
          display:flex; flex-direction:column; align-items:center;
          padding:104px 20px calc(30px + env(safe-area-inset-bottom));
-         overflow-x:hidden; -webkit-font-smoothing:antialiased }
+         overflow-x:clip; -webkit-font-smoothing:antialiased }
 
   /* ── Живой фон: цветная аврора + луч + зерно + виньетка ───────────── */
   .bg { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden }
@@ -415,8 +459,11 @@ function pageHead(opts: {
                  white-space:nowrap }
   .nav-links a:hover { color:#fff; background:rgba(255,255,255,.08) }
   .nav-links a.nav-cta { color:#0a0b0b; background:#fff; font-weight:700;
-                 box-shadow:0 8px 24px -8px rgba(255,255,255,.35) }
-  .nav-links a.nav-cta:hover { background:#e9efed; transform:translateY(-1px) }
+                 box-shadow:0 8px 24px -8px rgba(255,255,255,.35);
+                 transform:translate3d(var(--mx,0px),var(--my,0px),0);
+                 transition:color .2s, background .2s, transform .25s var(--ease) }
+  .nav-links a.nav-cta:hover { background:#e9efed;
+                 transform:translate3d(var(--mx,0px),var(--my,0px),0) translateY(-1px) }
 
   .card { position:relative; z-index:2; max-width:560px; width:100%;
           text-align:center; margin:auto; padding-top:22px }
@@ -504,9 +551,11 @@ function pageHead(opts: {
   a.btn { position:relative; display:flex; align-items:center; justify-content:center; gap:10px;
           width:100%; color:#fff; text-decoration:none; border-radius:9999px;
           font-weight:600; font-size:16px; padding:17px 30px;
+          transform:translate3d(var(--mx,0px),var(--my,0px),0);
           transition:transform .25s var(--ease), box-shadow .25s }
-  a.btn:hover { transform:translateY(-2px) scale(1.01); box-shadow:0 24px 56px -18px rgba(25,224,192,.35) }
-  a.btn:active { transform:scale(.99) }
+  a.btn:hover { transform:translate3d(var(--mx,0px),var(--my,0px),0) translateY(-2px) scale(1.01);
+          box-shadow:0 24px 56px -18px rgba(25,224,192,.35) }
+  a.btn:active { transform:translate3d(var(--mx,0px),var(--my,0px),0) scale(.99) }
   #install-hint { display:none; margin-top:16px; color:var(--amber); font-size:14px }
   #install-hint.show { display:block }
 
@@ -523,8 +572,12 @@ function pageHead(opts: {
               font:italic 400 clamp(22px,3.4vw,34px)/1 var(--serif); letter-spacing:-.02em;
               color:rgba(245,247,246,.92) }
 
-  .marquee { position:relative; z-index:2; width:100vw; margin:48px 0 0; padding:13px 0;
-             overflow:hidden; white-space:nowrap;
+  /* margin-left:calc(50% - 50vw) — полноширинная лента из центрированного
+     контейнера. Раньше width:100vw стартовал с padding-кромки .card (x=20),
+     торчал на 20px вправо и раздувал мобильный layout viewport до 410px —
+     весь лендинг на телефоне обрезался по правому краю. */
+  .marquee { position:relative; z-index:2; width:100vw; margin:48px 0 0 calc(50% - 50vw);
+             padding:13px 0; overflow:hidden; white-space:nowrap;
              border-top:1px solid rgba(245,247,246,.07);
              border-bottom:1px solid rgba(245,247,246,.07);
              mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent) }
@@ -550,6 +603,27 @@ function pageHead(opts: {
            letter-spacing:-.02em; color:var(--ink) }
   .frame span.desc { color:var(--mut); font-size:14px; font-weight:300; line-height:1.45;
            margin-top:10px; max-width:34ch }
+  /* Sticky-стек фич (дизайн-реф. §5): на узких экранах карточки складываются
+     одна на другую при скролле. Глубину даёт backdrop-blur самих карточек,
+     непрозрачная подложка — чтобы текст нижней не просвечивал сквозь верхнюю. */
+  @media (max-width:899px) {
+    .frames { --deck:14px }
+    .frames .frame { position:sticky; top:calc(76px + var(--fi,0)*var(--deck));
+                     background:rgba(13,17,18,.88) }
+    .frames .frame:nth-child(1){--fi:0} .frames .frame:nth-child(2){--fi:1}
+    .frames .frame:nth-child(3){--fi:2} .frames .frame:nth-child(4){--fi:3}
+  }
+
+  /* Гигантский фоновый текст (дизайн-реф. §3): призрак вордмарка за контентом,
+     вертикаль тянется за innerHeight через --gsy (ставит baseScript). */
+  .giant { position:fixed; left:50%; bottom:-.12em; z-index:1; pointer-events:none;
+           user-select:none; white-space:nowrap;
+           transform:translateX(-50%) scaleY(var(--gsy,1)); transform-origin:50% 100%;
+           font:italic 700 clamp(150px,26vw,430px)/0.8 var(--serif); letter-spacing:-.05em;
+           color:transparent; -webkit-text-stroke:1px rgba(234,250,247,.055);
+           background:linear-gradient(180deg, rgba(234,250,247,.04), rgba(234,250,247,0) 80%);
+           -webkit-background-clip:text; background-clip:text }
+
   .frame .tag { display:inline-block; margin-left:8px; font:700 9px/1 var(--mono);
                 letter-spacing:.14em; color:var(--amber); border:1px solid rgba(245,194,107,.4);
                 border-radius:5px; padding:3px 6px; vertical-align:6px }
@@ -574,8 +648,9 @@ function pageHead(opts: {
   .store-badge { display:flex; align-items:center; justify-content:center; gap:10px;
                  text-align:left; height:58px; border-radius:9999px;
                  text-decoration:none; color:var(--ink); padding:0 20px;
+                 transform:translate3d(var(--mx,0px),var(--my,0px),0);
                  transition:transform .25s var(--ease) }
-  .store-badge:hover { transform:translateY(-2px) }
+  .store-badge:hover { transform:translate3d(var(--mx,0px),var(--my,0px),0) translateY(-2px) }
   .store-badge small { display:block; font-size:10.5px; color:var(--mut) }
   .store-badge b { display:block; font-size:15.5px; font-weight:600; line-height:1.15 }
   .store-badge.disabled { opacity:.45; pointer-events:none }
@@ -592,15 +667,25 @@ function pageHead(opts: {
   .qr-block b { color:var(--ink) }
 
   .phone-wrap { display:none; perspective:1100px }
-  .phone { width:256px; margin:0 auto; padding:12px; border-radius:40px;
+  .phone { position:relative; width:256px; margin:0 auto; padding:12px; border-radius:40px;
            background:linear-gradient(160deg,#232827,#0b0d0d);
            border:1px solid rgba(245,247,246,.14);
            box-shadow:0 44px 100px -30px rgba(0,0,0,.95), 0 0 90px -24px rgba(25,224,192,.35),
                       0 0 90px -40px rgba(124,92,255,.3);
            transition:transform .35s var(--ease); will-change:transform;
-           animation:float 7s ease-in-out infinite }
+           animation:float 7s ease-in-out infinite;
+           /* Отражение под мокапом (дизайн-реф. §5). Градиент здесь — маска
+              видимости: у корпуса 30% и к 45% высоты сходит в ноль. Работает
+              в WebKit/Blink; Firefox просто не рисует отражение. */
+           -webkit-box-reflect:below 24px linear-gradient(rgba(0,0,0,.3), transparent 45%) }
+  /* Блик, следующий за курсором при тилте; --gx/--gy ставит baseScript. */
+  .phone::after { content:''; position:absolute; inset:12px; border-radius:30px;
+           background:radial-gradient(230px circle at var(--gx,50%) var(--gy,28%),
+             rgba(234,250,247,.17), rgba(234,250,247,.05) 45%, transparent 70%);
+           opacity:0; transition:opacity .35s var(--ease); pointer-events:none }
   @keyframes float { 50%{transform:translateY(-12px)} }
   .phone-wrap.tilting .phone { animation:none }
+  .phone-wrap.tilting .phone::after { opacity:1 }
   @media (prefers-reduced-motion:reduce){ .phone{animation:none} }
   .phone-screen { --teal:#19e0c0; --amber:#f5c26b;
                   border-radius:30px; overflow:hidden; background:#071214;
@@ -1065,6 +1150,7 @@ ${pageHead({
 </head>
 <body>
   ${chrome()}
+  <div class="giant" aria-hidden="true">Plink</div>
   <div class="card wide">
     <div class="hero-grid">
       <div>

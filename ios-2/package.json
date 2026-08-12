@@ -5,12 +5,14 @@
   "description": "Plink MVP scripts",
   "scripts": {
     "drift-lab": "node scripts/drift-lab.mjs",
-    "desktop:dev": "npm --prefix windows-client run dev",
-    "desktop:build": "npm --prefix windows-client run build",
-    "desktop:dmg": "npm --prefix windows-client run tauri:build",
-    "landing:dev": "npm --prefix plink-landing run dev",
+    "ios:gen": "xcodegen generate",
     "android:apk": "cd android-client && ./gradlew assembleDebug",
-    "backend:build": "npm --prefix plink-backend run build"
+    "android:test": "cd android-client && ./gradlew testDebugUnitTest",
+    "landing:dev": "npm --prefix ../landing run dev",
+    "landing:build": "npm --prefix ../landing run build",
+    "backend:dev": "npm --prefix ../backend-3 run dev",
+    "backend:build": "npm --prefix ../backend-3 run build",
+    "backend:test": "npm --prefix ../backend-3 test"
   },
   "devDependencies": {
     "ws": "^8.21.1"

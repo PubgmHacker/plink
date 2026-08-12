@@ -81,6 +81,40 @@ export type RoomEvent =
       intensity: number;
       motionEnabled: boolean;
       serverTimeMs: number;
+    }
+  | {
+      // M26: гость попросил хоста поставить паузу. Сервер не трогает плеер —
+      // только доставляет просьбу (см. PauseRequestSchema).
+      kind: 'pause.requested';
+      roomId: string;
+      userId: string;
+      username: string;
+      reason: string | null;
+      serverTimeMs: number;
+    }
+  | {
+      // M27: хост ответил на просьбу о паузе. Социальный сигнал, не команда
+      // плееру — принятая пауза едет отдельным sync.command (см. PauseResolveSchema).
+      kind: 'pause.resolved';
+      roomId: string;
+      hostId: string;
+      hostName: string;
+      accepted: boolean;
+      requestUserId: string | null;
+      serverTimeMs: number;
+    }
+  | {
+      // Аудит 12.08.2026 (P0): передача хоста. Раньше уход хоста ЗАКРЫВАЛ комнату
+      // всем (roomLifecycle.maybeEndAfterLeave), даже если досматривали ещё десять
+      // человек. Схема role.changed и bumpEpoch() существовали с P1-64, но никто
+      // это событие не публиковал — миграция хоста была собрана и не подключена.
+      // epoch обязателен: он аннулирует команды прежнего хоста, если тот вернётся.
+      kind: 'role.changed';
+      roomId: string;
+      newHostId: string;
+      newHostName: string;
+      epoch: number;
+      serverTimeMs: number;
     };
 
 export type RoomEventListener = (event: RoomEvent) => void;
@@ -152,6 +186,39 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     themeRevision: z.number().int().nonnegative(),
     intensity: z.number().min(0).max(0.44),
     motionEnabled: z.boolean(),
+    serverTimeMs: z.number().int(),
+  }),
+  // M26: просьба о паузе. Границы совпадают с PauseRequestedSchema
+  // (contracts/realtime-v2.ts) — событие, которое не пройдёт wire-контракт,
+  // должно падать у отправителя, а не долетать до клиента.
+  z.object({
+    kind: z.literal('pause.requested'),
+    roomId: z.string().uuid(),
+    userId: z.string().uuid(),
+    username: z.string().min(1).max(64),
+    reason: z.string().min(1).max(120).nullable(),
+    serverTimeMs: z.number().int(),
+  }),
+  // M27: ответ хоста на просьбу о паузе. Границы совпадают с PauseResolvedSchema.
+  z.object({
+    kind: z.literal('pause.resolved'),
+    roomId: z.string().uuid(),
+    hostId: z.string().uuid(),
+    hostName: z.string().min(1).max(64),
+    accepted: z.boolean(),
+    requestUserId: z.string().uuid().nullable(),
+    serverTimeMs: z.number().int(),
+  }),
+  // Аудит 12.08.2026 P0: передача хоста. Границы совпадают с RoleChangedSchema
+  // (contracts/realtime-v2.ts): epoch там positive(), поэтому и здесь — нулевой
+  // epoch означал бы, что состояние комнаты не переинициализировано, и команды
+  // прежнего хоста остались бы валидными.
+  z.object({
+    kind: z.literal('role.changed'),
+    roomId: z.string().uuid(),
+    newHostId: z.string().uuid(),
+    newHostName: z.string().min(1).max(64),
+    epoch: z.number().int().positive(),
     serverTimeMs: z.number().int(),
   }),
 ]);

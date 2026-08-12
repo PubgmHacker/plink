@@ -395,7 +395,7 @@ struct PacksPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Наборы эмодзи")
+            Text(LocalizationManager.shared.string(.wcPacksTitle))
                 .font(.headline)
                 .padding(.horizontal)
 
@@ -427,7 +427,7 @@ struct PacksPopover: View {
             }
 
             if !hasPremium {
-                Text("Plink+ packs require subscription")
+                Text(LocalizationManager.shared.string(.wcPacksPremiumHint))
                     .font(.caption)
                     .foregroundStyle(Cinema2026.secondary)
                     .padding(.horizontal)

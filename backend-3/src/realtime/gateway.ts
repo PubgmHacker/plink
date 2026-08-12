@@ -643,6 +643,32 @@ return count
   }
 
   /**
+   * Аудит 12.08.2026 P0: передача хоста при его уходе.
+   *
+   * Порядок здесь не косметический. Сначала bumpEpoch() — он переинициализирует
+   * авторитетное состояние комнаты новой эпохой и фиксирует позицию на паузе,
+   * поэтому команды прежнего хоста (он мог уйти с зависшим сокетом) отбрасываются
+   * как устаревшие. Только потом публикуем role.changed с УЖЕ актуальной эпохой:
+   * иначе клиент получил бы epoch, который сервер ещё не применил, и первая же
+   * команда нового хоста улетела бы в старую эпоху.
+   *
+   * Возвращает epoch — вызывающий кладёт его в ответ REST-а, чтобы уходящий
+   * клиент не пытался досылать команды.
+   */
+  async publishHostMigration(roomId: string, newHostId: string, newHostName: string): Promise<number> {
+    const epoch = await this.store.bumpEpoch(roomId);
+    await this.eventBus.publish(roomId, {
+      kind: 'role.changed',
+      roomId,
+      newHostId,
+      newHostName,
+      epoch,
+      serverTimeMs: Date.now(),
+    });
+    return epoch;
+  }
+
+  /**
    * Аудит 26.07.2026 P1: отзыв WS-доступа при кике. rooms.ts раньше звал
    * несуществующий broadcastToRoom (no-op за optional chaining) — сокет
    * кикнутого оставался в ConnectionRegistry и продолжал получать
@@ -819,6 +845,46 @@ export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
           intensity: event.intensity,
           motionEnabled: event.motionEnabled,
         },
+        serverTimeMs: event.serverTimeMs,
+      };
+    case 'pause.requested':
+      // M26: просьба о паузе. Уходит всем в комнате — хост решает, гости видят,
+      // что просьба уже отправлена, и не дублируют её.
+      return {
+        type: 'pause.requested',
+        protocolVersion: 2,
+        roomId: event.roomId,
+        userId: event.userId,
+        username: event.username,
+        reason: event.reason,
+        serverTimeMs: event.serverTimeMs,
+      };
+    case 'pause.resolved':
+      // M27: ответ хоста на просьбу. Уходит всем: автор просьбы получает
+      // обратную связь, остальные гости видят, что вопрос закрыт.
+      return {
+        type: 'pause.resolved',
+        protocolVersion: 2,
+        roomId: event.roomId,
+        hostId: event.hostId,
+        hostName: event.hostName,
+        accepted: event.accepted,
+        requestUserId: event.requestUserId,
+        serverTimeMs: event.serverTimeMs,
+      };
+    case 'role.changed':
+      // Аудит 12.08.2026 P0: передача хоста. newRole в контракте — роль
+      // ПОЛУЧАТЕЛЯ, но шина доставляет одно событие всем сокетам комнаты,
+      // поэтому на провод идёт 'host' вместе с newHostId: клиент сравнивает
+      // newHostId со своим id и сам решает, стал ли хостом он (iOS:
+      // RealtimeEnvelope.roleChanged → WatchRoomModel.applyRoleChange).
+      return {
+        type: 'role.changed',
+        protocolVersion: 2,
+        roomId: event.roomId,
+        newHostId: event.newHostId,
+        newRole: 'host',
+        epoch: event.epoch,
         serverTimeMs: event.serverTimeMs,
       };
     default:

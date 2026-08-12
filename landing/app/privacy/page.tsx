@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Конфиденциальность — Plink",
@@ -10,9 +11,9 @@ export default function PrivacyPage() {
     <>
       <header className="border-b border-surface-2">
         <div className="container-main flex h-20 items-center">
-          <a href="/" className="text-display text-2xl font-bold text-text-primary">
+          <Link href="/" className="text-display text-2xl font-bold text-text-primary">
             Plink
-          </a>
+          </Link>
         </div>
       </header>
 

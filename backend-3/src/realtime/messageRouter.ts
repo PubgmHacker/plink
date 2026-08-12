@@ -23,6 +23,8 @@ import {
   ChatSendSchema,
   ReactionSendSchema,
   ClockProbeSchema,
+  PauseRequestSchema,
+  PauseResolveSchema,
   type RoomState,
   type SyncStateMessage,
   type SyncStateSnapshotMessage,
@@ -53,6 +55,13 @@ const RATE_LIMITS = {
   'chat.send': { max: 5, windowMs: 10_000, burst: 8 },
   'reaction.send': { max: 2, windowMs: 1000, burst: 4 },
   'clock.probe': { max: 10, windowMs: 1000, burst: 20 },
+  // M26: просьба о паузе прилетает хосту как заметное уведомление, поэтому
+  // лимит жёстче чата — одна просьба в 10 с. Иначе гость получил бы способ
+  // забить хосту весь экран, не написав ни слова в чат.
+  'pause.request': { max: 1, windowMs: 10_000, burst: 2 },
+  // M27: ответ хоста. Просьб больше одной в 10 с не бывает (лимит выше),
+  // но burst даёт хосту исправить случайный тап «отклонить → принять».
+  'pause.resolve': { max: 2, windowMs: 10_000, burst: 3 },
 } as const;
 
 type RateBucket = { count: number; resetAt: number };
@@ -420,6 +429,67 @@ export function createMessageRouter(deps: RouterDeps) {
           userId: socket.userId!,
           username: socket.username ?? 'unknown',
           emoji: m.emoji,
+          serverTimeMs: Date.now(),
+        });
+        return;
+      }
+
+      // ── pause.request ──────────────────────────────────────────────────
+      // M26: гость просит паузу. Плеер НЕ трогаем: управление принадлежит
+      // хосту (sync.command проверяет роль), здесь только доставка просьбы.
+      case 'pause.request': {
+        if (!checkRateLimit(socket, 'pause.request')) {
+          sendError(socket, 'RATE_LIMITED', 'pause request rate limit exceeded');
+          return;
+        }
+        const m = PauseRequestSchema.parse(parsed);
+        if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
+          sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
+          return;
+        }
+
+        // Причина — свободный текст, поэтому проходит тот же фильтр, что и чат.
+        // Без него «просьба о паузе» стала бы каналом в обход модерации.
+        const rawReason = m.reason?.trim();
+        let reason: string | null = rawReason && rawReason.length > 0 ? rawReason : null;
+        if (reason && containsProfanity(reason)) {
+          sendError(socket, 'PROFANITY', 'Reason contains prohibited language');
+          return;
+        }
+
+        await eventBus.publish(m.roomId, {
+          kind: 'pause.requested',
+          roomId: m.roomId,
+          userId: socket.userId!,
+          username: socket.username ?? 'unknown',
+          reason,
+          serverTimeMs: Date.now(),
+        });
+        return;
+      }
+
+      // ── pause.resolve ──────────────────────────────────────────────────
+      // M27: хост отвечает на просьбу. Только хост — иначе любой гость мог бы
+      // «отклонять» чужие просьбы. Плеер по-прежнему не трогаем: принятая
+      // пауза едет отдельным sync.command, который сам проверяет роль.
+      case 'pause.resolve': {
+        if (!checkRateLimit(socket, 'pause.resolve')) {
+          sendError(socket, 'RATE_LIMITED', 'pause resolve rate limit exceeded');
+          return;
+        }
+        const m = PauseResolveSchema.parse(parsed);
+        if (!(await isHost(prisma, m.roomId, socket.userId!))) {
+          sendError(socket, 'NOT_HOST', 'Only the host can resolve a pause request');
+          return;
+        }
+
+        await eventBus.publish(m.roomId, {
+          kind: 'pause.resolved',
+          roomId: m.roomId,
+          hostId: socket.userId!,
+          hostName: socket.username ?? 'unknown',
+          accepted: m.accepted,
+          requestUserId: m.requestUserId ?? null,
           serverTimeMs: Date.now(),
         });
         return;

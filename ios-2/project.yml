@@ -16,9 +16,9 @@ options:
 # Note: On first enable, Xcode/SPM will download WebRTC (~large). Use stable
 # connection or pre-cache. If network fails, fall back to Agora/Daily.co.
 packages:
-  LiveKit:
-    url: https://github.com/livekit/client-sdk-swift
-    from: 2.0.0
+  # LiveKit:
+  #   url: https://github.com/livekit/client-sdk-swift
+  #   from: 2.0.0
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     from: 10.0.0
@@ -85,7 +85,7 @@ targets:
       - Metal.framework
       - MetalKit.framework
     dependencies:
-      - package: LiveKit
+      # - package: LiveKit — выключен, SFU не используется
       - package: Firebase
         product: FirebaseAnalytics
       - package: Firebase

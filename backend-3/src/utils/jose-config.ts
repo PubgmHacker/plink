@@ -159,7 +159,13 @@ function verifyCertChain(x5c: string[]): X509Certificate | null {
   return certs[0];  // leaf — им проверяем подпись самого JWS
 }
 
-function verifyJWSSignature(jws: string): Record<string, any> | null {
+function verifyJWSSignature(
+  jws: string,
+  // Параметр нужен самопроверке: она обязана тестировать криптотракт
+  // с выключенным dev-обходом, иначе ALLOW_UNVERIFIED_IAP=true в .env
+  // превращает «проверка сломана» и «проверка обойдена» в одну строку лога.
+  allowUnverified: boolean = unverifiedAllowed(),
+): Record<string, any> | null {
   const parts = jws.split('.');
   if (parts.length !== 3) return null;
   const [headerB64, payloadB64, signatureB64] = parts;
@@ -181,7 +187,7 @@ function verifyJWSSignature(jws: string): Record<string, any> | null {
 
   const leaf = verifyCertChain(header.x5c);
   if (!leaf) {
-    if (unverifiedAllowed()) {
+    if (allowUnverified) {
       console.warn('[iap] ALLOW_UNVERIFIED_IAP=true — подпись НЕ проверена (только для разработки)');
       return payload;
     }
@@ -260,10 +266,20 @@ export const JoseConfig = {
   /// Самопроверка на старте: заведомо некорректный JWS обязан быть отвергнут.
   /// Ловит ситуацию «проверка снова стала пропускать всё» до того, как это
   /// обнаружат в проде по бесплатным подпискам.
+  ///
+  /// Обход ALLOW_UNVERIFIED_IAP здесь сознательно выключен: самопроверка
+  /// отвечает на вопрос «цел ли криптотракт», а не «в каком режиме окружение».
+  /// О включённом dev-обходе app.ts предупреждает отдельной строкой.
   selfTest(): boolean {
     const fakeHeader = Buffer.from(JSON.stringify({ alg: 'ES256', x5c: ['AAAA'] })).toString('base64url');
     const fakePayload = Buffer.from(JSON.stringify({ productId: 'x', bundleId: 'y' })).toString('base64url');
     const forged = `${fakeHeader}.${fakePayload}.AAAA`;
-    return this.verifySignedTransaction(forged) === null;
+    return verifyJWSSignature(forged, false) === null;
+  },
+
+  /// Активен ли dev-обход проверки подписи (ALLOW_UNVERIFIED_IAP=true вне
+  /// production). app.ts печатает об этом честный warn на старте.
+  unverifiedBypassActive(): boolean {
+    return unverifiedAllowed();
   },
 };

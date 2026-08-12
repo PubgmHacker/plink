@@ -1,0 +1,72 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2126"/>
+      <stop offset="1" stop-color="#0A0B0D"/>
+    </linearGradient>
+
+    <linearGradient id="w1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5FF2D8"/>
+      <stop offset="1" stop-color="#19E0C0"/>
+    </linearGradient>
+    <linearGradient id="w2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2BD9E0"/>
+      <stop offset="1" stop-color="#1A8FE8"/>
+    </linearGradient>
+    <linearGradient id="w3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9A7CFF"/>
+      <stop offset="1" stop-color="#5A3FD6"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#19E0C0" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#19E0C0" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-40%" y="-20%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="24" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+
+    <filter id="barGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Корпус -->
+  <g filter="url(#shadow)">
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#body)"/>
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#glow)"/>
+    <rect x="48" y="48" width="928" height="928" rx="232" fill="none" stroke="url(#rim)" stroke-width="2.5"/>
+  </g>
+
+  <!--
+    КОНЦЕПТ A · «СИНХРОН-РИТМ»
+    Одна идея — как Spotify (3 волны в круге). Три кадра-волны
+    нарастающего ритма = синхронный сеанс. Аналогичный градиент
+    teal → blue → violet (тренд 2025). Категория вся синяя или красная
+    (Hearo) — наш градиент уникален и читается в 60px как «ритм».
+  -->
+
+  <!-- Волна 1 (teal, низкая) -->
+  <g filter="url(#barGlow)">
+    <rect x="300" y="356" width="90" height="560" rx="45" fill="url(#w1)"/>
+  </g>
+
+  <!-- Волна 2 (blue, средняя) -->
+  <rect x="467" y="246" width="90" height="670" rx="45" fill="url(#w2)"/>
+
+  <!-- Волна 3 (violet, высокая) -->
+  <rect x="634" y="136" width="90" height="780" rx="45" fill="url(#w3)"/>
+
+  <!-- Тонкая подложка-база (пол) -->
+  <path d="M282 930 L752 930" stroke="#F5F7F6" stroke-opacity="0.10" stroke-width="16" stroke-linecap="round"/>
+</svg>

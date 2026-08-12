@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plink — Редизайн лого · на основе референсов</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,400;1,900&family=Inter:wght@300;400;500;700;900&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',-apple-system,sans-serif;background:#050505;color:#F5F7F6;padding:48px 24px 80px}
+  .wrap{max-width:1160px;margin:0 auto}
+  h1{font:italic 400 64px/0.95 'Playfair Display',Georgia,serif;letter-spacing:-0.04em;margin-bottom:14px;
+     background:linear-gradient(92deg,#19e0c0,#7c5cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .sub{color:#6F938C;font-size:15px;font-weight:300;max-width:64ch;line-height:1.6;margin-bottom:16px}
+  .sec-title{font:700 12px/1 'Inter',sans-serif;letter-spacing:0.24em;text-transform:uppercase;color:#6F938C;margin:64px 0 28px;padding-bottom:12px;border-bottom:1px solid rgba(245,247,246,0.08)}
+
+  /* ── Референсы ── */
+  .refs{display:grid;grid-template-columns:repeat(6,1fr);gap:16px}
+  @media(max-width:900px){.refs{grid-template-columns:repeat(3,1fr)}}
+  .ref{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:18px;padding:20px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .ref .tile{width:84px;height:84px;border-radius:21px;display:flex;align-items:center;justify-content:center}
+  .ref .name{font:700 12.5px/1 'Inter',sans-serif;color:#A7B3AF}
+  .ref .palette{font:500 10px/1.4 monospace;color:#5D6A66}
+
+  /* ── Принципы ── */
+  .principles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:800px){.principles{grid-template-columns:repeat(2,1fr)}}
+  .pr{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:18px}
+  .pr b{display:block;font:700 13px/1.3 'Inter',sans-serif;color:#F5F7F6;margin-bottom:8px}
+  .pr span{font:400 12.5px/1.55 'Inter',sans-serif;color:#6F938C}
+
+  /* ── Концепты ── */
+  .concepts{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+  @media(max-width:900px){.concepts{grid-template-columns:1fr}}
+  .concept{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:18px;transition:transform 0.3s,border-color 0.3s}
+  .concept:hover{transform:translateY(-4px);border-color:rgba(255,214,148,0.25)}
+  .concept svg{width:100%;height:auto;border-radius:16px}
+  .concept .tag{font:700 10px/1 monospace;letter-spacing:0.2em;color:#19e0c0;text-transform:uppercase}
+  .concept .title{font:italic 900 30px/1 'Playfair Display',Georgia,serif;letter-spacing:-0.02em}
+  .concept .why{font:400 13.5px/1.6 'Inter',sans-serif;color:#A7B3AF}
+  .concept .why b{color:#F5F7F6;font-weight:600}
+  .concept .ref-line{font:500 11.5px/1.5 'Inter',sans-serif;color:#6F938C;background:rgba(255,255,255,0.03);border-radius:10px;padding:10px 12px}
+  .concept .ref-line b{color:#F5C26B}
+
+  .verdict{background:linear-gradient(135deg,rgba(25,224,192,0.08),rgba(124,92,255,0.08));border:1px solid rgba(25,224,192,0.2);border-radius:24px;padding:32px;margin-top:64px}
+  .verdict h3{font:italic 900 28px/1 'Playfair Display',Georgia,serif;margin-bottom:14px}
+  .verdict p{font:400 14.5px/1.7 'Inter',sans-serif;color:#A7B3AF;max-width:72ch}
+  .verdict b{color:#F5F7F6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Редизайн лого Plink v3</h1>
+  <p class="sub">Сделано по реальным референсам и принципам успешных иконок (Spotify, Twitch, Discord, Plex, TikTok, Netflix). Конкурентный паттерн: Rave/Kast/Teleparty — синий + белый плей, Hearo — чёрный + красный. Мы уходим от обоих.</p>
+
+  <!-- ── Референсы ── -->
+  <div class="sec-title">01 · Референсы успешных иконок</div>
+  <div class="refs">
+    <div class="ref">
+      <div class="tile" style="background:#1ED760"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M4 5v14l12-7z" fill="#000"/></svg></div>
+      <div class="name">Spotify</div>
+      <div class="palette">#1ED760 · волны</div>
+    </div>
+    <div class="ref">
+      <div class="tile" style="background:#9146FF"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M4 4h16v12h-9l-4 4v-4H4z" fill="#fff"/></svg></div>
+      <div class="name">Twitch</div>
+      <div class="palette">#9146FF · глитч</div>
+    </div>
+    <div class="ref">
+      <div class="tile" style="background:#5865F2"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M19 6l-2-2h-3l-2 3-2-3H7L5 6v13h3l1-2h6l1 2h3z" fill="#fff"/></svg></div>
+      <div class="name">Discord</div>
+      <div class="palette">#5865F2 · кайд</div>
+    </div>
+    <div class="ref">
+      <div class="tile" style="background:#282a2d"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M6 4l12 8-12 8z" fill="#e5a00d"/></svg></div>
+      <div class="name">Plex</div>
+      <div class="palette">#E5A00D · монограмма</div>
+    </div>
+    <div class="ref">
+      <div class="tile" style="background:#000"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6z" fill="#fff" opacity=".9"/><path d="M10 6l6 6-6 6z" fill="#69C9FF" opacity=".5" transform="translate(-2,-1)"/></svg></div>
+      <div class="name">TikTok</div>
+      <div class="palette">#000 · неон</div>
+    </div>
+    <div class="ref">
+      <div class="tile" style="background:#FF0000"><svg width="40" height="40" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3" fill="#fff"/><path d="M10 8v8l6-4z" fill="#FF0000"/></svg></div>
+      <div class="name">YouTube</div>
+      <div class="palette">#FF0000 · плей</div>
+    </div>
+  </div>
+
+  <!-- ── Принципы ── -->
+  <div class="sec-title">02 · Почему эти иконки работают</div>
+  <div class="principles">
+    <div class="pr"><b>Одна идея</b><span>Один смелый символ, без деталей. WhatsApp — трубка в пузыре, Pinterest — P-булавка.</span></div>
+    <div class="pr"><b>Читается в 60px</b><span>Жирные формы, толстые штрихи. То, что умирает в маленьком размере, не попадает в иконку.</span></div>
+    <div class="pr"><b>Никакого текста</b><span>Слов в иконке нет. Мозг обрабатывает картинку в 60 000 раз быстрее текста.</span></div>
+    <div class="pr"><b>Цвет-дифференциация</b><span>Все финансы — синие, все стриминг-плеи — красные/белые. Мы — teal→violet, таких нет.</span></div>
+  </div>
+
+  <div class="sec-title">03 · Новые концепты</div>
+  <div class="concepts">
+
+    <!-- A -->
+    <div class="concept">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="a-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E2126"/><stop offset="1" stop-color="#0A0B0D"/></linearGradient>
+          <linearGradient id="a1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5FF2D8"/><stop offset="1" stop-color="#19E0C0"/></linearGradient>
+          <linearGradient id="a2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2BD9E0"/><stop offset="1" stop-color="#1A8FE8"/></linearGradient>
+          <linearGradient id="a3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9A7CFF"/><stop offset="1" stop-color="#5A3FD6"/></linearGradient>
+          <radialGradient id="a-glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#19E0C0" stop-opacity=".22"/><stop offset="1" stop-color="#19E0C0" stop-opacity="0"/></radialGradient>
+          <linearGradient id="a-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF" stop-opacity=".14"/><stop offset="1" stop-color="#FFF" stop-opacity=".02"/></linearGradient>
+        </defs>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#a-body)"/>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#a-glow)"/>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="none" stroke="url(#a-rim)" stroke-width="2.5"/>
+        <rect x="300" y="356" width="90" height="560" rx="45" fill="url(#a1)"/>
+        <rect x="467" y="246" width="90" height="670" rx="45" fill="url(#a2)"/>
+        <rect x="634" y="136" width="90" height="780" rx="45" fill="url(#a3)"/>
+        <path d="M282 930 L752 930" stroke="#F5F7F6" stroke-opacity=".1" stroke-width="16" stroke-linecap="round"/>
+      </svg>
+      <div class="tag">Концепт A</div>
+      <div class="title">Синхрон-Ритм</div>
+      <div class="why">
+        <b>Приём Spotify</b>: одна идея — три волны ритма. Кадры сеанса,
+        идущие в одном темпе. Аналогичный градиент teal → blue → violet
+        — живой, не синий, не красный.
+      </div>
+      <div class="ref-line">Референс: <b>Spotify</b> (волны в круге, читается мгновенно)</div>
+    </div>
+
+    <!-- B -->
+    <div class="concept">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="b-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E2126"/><stop offset="1" stop-color="#0A0B0D"/></linearGradient>
+          <linearGradient id="b1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5FF2D8"/><stop offset="1" stop-color="#19E0C0"/></linearGradient>
+          <linearGradient id="b2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9A7CFF"/><stop offset="1" stop-color="#7C5CFF"/></linearGradient>
+          <radialGradient id="b-glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#19E0C0" stop-opacity=".2"/><stop offset="1" stop-color="#19E0C0" stop-opacity="0"/></radialGradient>
+          <linearGradient id="b-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF" stop-opacity=".14"/><stop offset="1" stop-color="#FFF" stop-opacity=".02"/></linearGradient>
+        </defs>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#b-body)"/>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#b-glow)"/>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="none" stroke="url(#b-rim)" stroke-width="2.5"/>
+        <g transform="rotate(-8 512 512)">
+          <rect x="196" y="196" width="396" height="396" rx="88" fill="url(#b2)" opacity=".92"/>
+          <path d="M236 236 L460 236 L340 420 Z" fill="#FFF" opacity=".18"/>
+        </g>
+        <g transform="rotate(8 512 512)">
+          <rect x="432" y="432" width="396" height="396" rx="88" fill="url(#b1)"/>
+          <path d="M472 472 L696 472 L576 656 Z" fill="#FFF" opacity=".22"/>
+        </g>
+        <path d="M470 486 L470 590 L566 538 Z" fill="#0A0B0D"/>
+      </svg>
+      <div class="tag">Концепт B</div>
+      <div class="title">Два Экрана</div>
+      <div class="why">
+        <b>Мотив «overlapping frames»</b> с Dribbble/Behance: два кадра
+        наезжают друг на друга — два зрителя, два девайса. В зоне
+        пересечения — один общий play. Together + sync.
+      </div>
+      <div class="ref-line">Референс: <b>overlapping frames</b> в watch-party концептах</div>
+    </div>
+
+    <!-- C -->
+    <div class="concept">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="c-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E2126"/><stop offset="1" stop-color="#0A0B0D"/></linearGradient>
+          <linearGradient id="c-mono" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5FF2D8"/><stop offset=".5" stop-color="#19E0C0"/><stop offset="1" stop-color="#7C5CFF"/></linearGradient>
+          <radialGradient id="c-glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#19E0C0" stop-opacity=".2"/><stop offset="1" stop-color="#19E0C0" stop-opacity="0"/></radialGradient>
+          <linearGradient id="c-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF" stop-opacity=".14"/><stop offset="1" stop-color="#FFF" stop-opacity=".02"/></linearGradient>
+        </defs>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#c-body)"/>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="url(#c-glow)"/>
+        <rect x="48" y="48" width="928" height="928" rx="232" fill="none" stroke="url(#c-rim)" stroke-width="2.5"/>
+        <rect x="330" y="180" width="180" height="664" rx="90" fill="url(#c-mono)"/>
+        <path d="M510 200 A 240 240 0 0 1 510 680 L 360 680 L 360 200 Z" fill="url(#c-mono)"/>
+        <g fill="#0A0B0D">
+          <rect x="392" y="252" width="56" height="56" rx="16"/>
+          <rect x="392" y="364" width="56" height="56" rx="16"/>
+          <rect x="392" y="476" width="56" height="56" rx="16"/>
+          <rect x="392" y="588" width="56" height="56" rx="16"/>
+        </g>
+        <path d="M360 210 L440 180" stroke="#FFF" stroke-opacity=".3" stroke-width="14" stroke-linecap="round"/>
+      </svg>
+      <div class="tag">Концепт C</div>
+      <div class="title">П-Монограмма</div>
+      <div class="why">
+        <b>Приём Plex/Notion</b>: буква как знак. P из кинокадров —
+        стебель-плёнка с перфорацией, голова = play. P = Plink + Play.
+        Монограмма переживает любые размеры.
+      </div>
+      <div class="ref-line">Референс: <b>Plex</b> (геометрическая P на тёмном)</div>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <h3>Что я рекомендую</h3>
+    <p>
+      <b>Концепт A «Синхрон-Ритм»</b> — самый честный «одна идея»: читается как ритм
+      синхронного просмотра, градиент teal→violet не пересекается ни с одним
+      конкурентом. <b>B</b> — сильная метафора «вместе», но при -8°/+8° в 60px
+      сложнее. <b>C</b> — самый брендовый (P = Plink), стиль Plex/Notion, премиальный,
+      но в категории стриминга буквы встречаются реже силуэтов.
+    </p>
+  </div>
+</div>
+</body>
+</html>

@@ -82,6 +82,15 @@ struct V4RoomControlsRow: View {
     var micEnabled: Bool = false
     var cameraEnabled: Bool = false
 
+    /// Доступен ли голос/видео в комнате ВООБЩЕ. Пока LiveKit не подключён к
+    /// сборке (ждём аккаунт Apple Developer), кнопок здесь быть не должно.
+    ///
+    /// M26: раньше гейта не было. Кнопки рисовались всегда, а `onLockedTap` у
+    /// пользователя без подписки открывал пейволл триггера .voiceChat —
+    /// то есть приложение продавало голосовой чат, которого в сборке нет.
+    /// PresenceBar.swift:63 такой гейт имел, эта поверхность — нет.
+    var voiceAvailable: Bool = FeatureFlags.liveKitVoiceEnabled
+
     var onTapPrivacy: () -> Void = {}
     var onToggleMic: () -> Void = {}
     var onToggleCamera: () -> Void = {}
@@ -99,23 +108,25 @@ struct V4RoomControlsRow: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 6) {
-                V4RoomIconButton(
-                    glyph: .mic,
-                    filled: micEnabled,
-                    locked: !hasPlus,
-                    accent: accent,
-                    action: hasPlus ? onToggleMic : onLockedTap
-                )
-                .accessibilityLabel(hasPlus ? "Микрофон" : "Микрофон — доступен в Плинк+")
+                if voiceAvailable {
+                    V4RoomIconButton(
+                        glyph: .mic,
+                        filled: micEnabled,
+                        locked: !hasPlus,
+                        accent: accent,
+                        action: hasPlus ? onToggleMic : onLockedTap
+                    )
+                    .accessibilityLabel(hasPlus ? "Микрофон" : "Микрофон — доступен в Плинк+")
 
-                V4RoomIconButton(
-                    glyph: .camera,
-                    filled: cameraEnabled,
-                    locked: !hasPlus,
-                    accent: accent,
-                    action: hasPlus ? onToggleCamera : onLockedTap
-                )
-                .accessibilityLabel(hasPlus ? "Видео" : "Видео — доступно в Плинк+")
+                    V4RoomIconButton(
+                        glyph: .camera,
+                        filled: cameraEnabled,
+                        locked: !hasPlus,
+                        accent: accent,
+                        action: hasPlus ? onToggleCamera : onLockedTap
+                    )
+                    .accessibilityLabel(hasPlus ? "Видео" : "Видео — доступно в Плинк+")
+                }
 
                 V4RoomIconButton(
                     glyph: .queue,

@@ -32,6 +32,8 @@ struct HomeFallbackPlaceholder: View {
                     .background(V4.accent, in: Capsule())
             }
             .buttonStyle(.plain)
+            // Вход в комнату, когда trending пуст (нет сети / пустая подборка).
+            .accessibilityIdentifier("home.emptyFindVideo")
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 34)
@@ -258,6 +260,11 @@ struct TrendingPreviewSheet: View {
                             .background(V4.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
+                        // M26: единственная кнопка, которая реально создаёт
+                        // комнату из Главной. Без идентификатора UI-смоук
+                        // воронки искал «Создать комнату» на самой Главной,
+                        // не находил её (такой кнопки в продукте нет) и падал.
+                        .accessibilityIdentifier("preview.watchTogether")
                         .padding(.top, 10)
 
                         Button {

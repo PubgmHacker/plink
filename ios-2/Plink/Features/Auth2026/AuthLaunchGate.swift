@@ -104,6 +104,7 @@ struct AuthLaunchGate: View {
         // без сети и без валидного токена, чтобы снимать таб-бар и экраны в
         // симуляторе. В релизной сборке флага не существует.
         if ProcessInfo.processInfo.arguments.contains("-plink.designpreview") {
+            setupMocksForPreview()
             authNotice = nil
             destination = .app
             return
@@ -256,6 +257,40 @@ struct AuthLaunchGate: View {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: Self.pendingDeepLinkKey)
         defaults.removeObject(forKey: Self.pendingDeepLinkDateKey)
+    }
+
+    // MARK: - Mock Data for Simulator Testing
+
+    /// Заполняет приложение моковыми данными для тестирования без интернета
+    private func setupMocksForPreview() {
+        // Создаём мокового пользователя
+        let mockUser = User(
+            id: "mock_user_001",
+            username: "mock_alex",
+            email: "alex@mock.com",
+            avatarURL: nil,
+            avatarData: nil,
+            displayName: "Alex Mock",
+            coverURL: nil,
+            isOnline: true,
+            isPremium: false,
+            premiumUntil: nil,
+            role: "USER",
+            createdAt: Date()
+        )
+
+        // Кодируем и сохраняем через стандартный механизм AuthService
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(mockUser) {
+            UserDefaults.standard.set(data, forKey: "rave_saved_user")
+        }
+        AuthTokenStore.shared.save("mock_token_12345")
+        APIClient.shared.authToken = "mock_token_12345"
+        // Перечитываем сессию из хранилища
+        AuthService.shared.rebindSessionFromStorage()
+
+        Logger.app.info("[AuthGate] Mock user injected: \(mockUser.displayTitle)")
     }
 }
 

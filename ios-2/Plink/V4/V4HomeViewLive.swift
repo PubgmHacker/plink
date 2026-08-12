@@ -398,6 +398,7 @@ struct V4HomeViewLive: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Найти фильм, вставить ссылку или спросить ИИ")
+        .accessibilityIdentifier("home.searchEntry")
     }
 
     // MARK: Чипы жанров
@@ -511,6 +512,9 @@ struct V4HomeViewLive: View {
             }
         }
         .buttonStyle(.plain)
+        // Первый шаг пути «выбрал контент → создал комнату». Идентификатор
+        // нужен UI-смоуку: прямой кнопки «Создать комнату» в продукте нет.
+        .accessibilityIdentifier("home.poster")
     }
 
     // MARK: Топ-3

@@ -73,6 +73,8 @@ public enum RealtimeClientMessage: Encodable, Sendable {
     case chatSend(ChatSend)
     case reactionSend(ReactionSend)
     case clockProbe(ClockProbe)
+    case pauseRequest(PauseRequest)
+    case pauseResolve(PauseResolve)
 
     public struct SyncCommand: Encodable, Sendable {
         public let type = "sync.command"
@@ -149,6 +151,71 @@ public enum RealtimeClientMessage: Encodable, Sendable {
         }
     }
 
+    /// M26: гость просит паузу. Это НЕ команда плееру — сервер ничего не
+    /// останавливает, просьба доставляется хосту, решение за ним.
+    /// Схема strict, поэтому `reason` кодируем только когда он есть.
+    public struct PauseRequest: Encodable, Sendable {
+        public let type = "pause.request"
+        public let protocolVersion = 2
+        public let roomId: String
+        public let reason: String?
+
+        public init(roomId: String, reason: String? = nil) {
+            self.roomId = roomId
+            let trimmed = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.reason = (trimmed?.isEmpty ?? true) ? nil : String(trimmed!.prefix(120))
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case type, protocolVersion, roomId, reason
+        }
+
+        /// Ручной encode: дефолтный положил бы `"reason": null`, а серверная
+        /// схема .strict() с .optional() принимает отсутствие поля, но не null.
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(type, forKey: .type)
+            try c.encode(protocolVersion, forKey: .protocolVersion)
+            try c.encode(roomId, forKey: .roomId)
+            if let reason { try c.encode(reason, forKey: .reason) }
+        }
+    }
+
+    /// M27: хост отвечает на просьбу о паузе. Социальный сигнал: принятая
+    /// пауза едет отдельным sync.command, здесь только вердикт для комнаты.
+    /// Схема strict, поэтому `requestUserId` кодируем только когда он есть —
+    /// тот же стык .strict()+.optional(), что и у PauseRequest.reason.
+    public struct PauseResolve: Encodable, Sendable {
+        public let type = "pause.resolve"
+        public let protocolVersion = 2
+        public let roomId: String
+        public let accepted: Bool
+        /// Автор просьбы, на которую отвечает хост (для атрибуции у гостей).
+        public let requestUserId: String?
+
+        public init(roomId: String, accepted: Bool, requestUserId: String? = nil) {
+            self.roomId = roomId
+            self.accepted = accepted
+            let trimmed = requestUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.requestUserId = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case type, protocolVersion, roomId, accepted, requestUserId
+        }
+
+        /// Ручной encode: дефолтный положил бы `"requestUserId": null`,
+        /// а серверная схема .strict() с .optional() null отвергает.
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(type, forKey: .type)
+            try c.encode(protocolVersion, forKey: .protocolVersion)
+            try c.encode(roomId, forKey: .roomId)
+            try c.encode(accepted, forKey: .accepted)
+            if let requestUserId { try c.encode(requestUserId, forKey: .requestUserId) }
+        }
+    }
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
@@ -157,6 +224,8 @@ public enum RealtimeClientMessage: Encodable, Sendable {
         case .chatSend(let m): try container.encode(m)
         case .reactionSend(let m): try container.encode(m)
         case .clockProbe(let m): try container.encode(m)
+        case .pauseRequest(let m): try container.encode(m)
+        case .pauseResolve(let m): try container.encode(m)
         }
     }
 }
@@ -175,6 +244,9 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
     case sessionReady(SessionReady)
     case serverDraining(ServerDraining)
     case roomAppearanceUpdated(RoomAppearanceUpdated)
+    case pauseRequested(PauseRequested)
+    case pauseResolved(PauseResolved)
+    case roleChanged(RoleChanged)
 
     public struct SyncStateMessage: Decodable, Sendable, Equatable {
         public let type: String  // "sync.state"
@@ -246,6 +318,51 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
         public let userId: String
         public let username: String
         public let emoji: String
+        public let serverTimeMs: Int64
+    }
+
+    // M26: pause.requested — гость попросил хоста поставить паузу.
+    // Сервер плеер не трогает: это доставка просьбы, решение за хостом
+    // (backend-3/src/contracts/realtime-v2.ts → PauseRequestedSchema).
+    public struct PauseRequested: Decodable, Sendable, Equatable {
+        public let type: String  // "pause.requested"
+        public let protocolVersion: Int
+        public let roomId: String
+        public let userId: String
+        public let username: String
+        /// Короткая пометка от гостя («отойду»), может отсутствовать.
+        public let reason: String?
+        public let serverTimeMs: Int64
+    }
+
+    // M27: pause.resolved — хост ответил на просьбу о паузе. Социальный сигнал:
+    // сама пауза (если accepted) едет отдельным sync.state, здесь только вердикт
+    // (backend-3/src/contracts/realtime-v2.ts → PauseResolvedSchema).
+    public struct PauseResolved: Decodable, Sendable, Equatable {
+        public let type: String  // "pause.resolved"
+        public let protocolVersion: Int
+        public let roomId: String
+        public let hostId: String
+        public let hostName: String
+        public let accepted: Bool
+        /// Автор просьбы, которую разрешал хост. null — хост не атрибутировал.
+        public let requestUserId: String?
+        public let serverTimeMs: Int64
+    }
+
+    // P0 12.08.2026: role.changed — хост ушёл, роль передана.
+    // Событие ОДНО на всю комнату, поэтому newRole всегда "host": кто именно
+    // стал хостом, определяет newHostId — клиент сверяет его со своим userId.
+    // epoch обязателен: сервер переинициализировал состояние комнаты, и команды
+    // прежней эпохи (в т.ч. от ушедшего хоста) больше не действуют.
+    // (backend-3/src/contracts/realtime-v2.ts → RoleChangedSchema)
+    public struct RoleChanged: Decodable, Sendable, Equatable {
+        public let type: String  // "role.changed"
+        public let protocolVersion: Int
+        public let roomId: String
+        public let newHostId: String
+        public let newRole: String
+        public let epoch: Int
         public let serverTimeMs: Int64
     }
 
@@ -354,6 +471,12 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
             self = .serverDraining(try single.decode(ServerDraining.self))
         case "room.appearance.updated":
             self = .roomAppearanceUpdated(try single.decode(RoomAppearanceUpdated.self))
+        case "pause.requested":
+            self = .pauseRequested(try single.decode(PauseRequested.self))
+        case "pause.resolved":
+            self = .pauseResolved(try single.decode(PauseResolved.self))
+        case "role.changed":
+            self = .roleChanged(try single.decode(RoleChanged.self))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
