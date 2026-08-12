@@ -100,10 +100,9 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             "auth/signup",
             "auth/refresh",
             "auth/fcm-token",   // FCM registration happens after signin but token may be in-flight
-            "auth/guest",
             "auth/google",
             "auth/apple",
-            "auth/guest",
+            // auth/guest — только веб /w/:code, в приложении гостевого входа нет
             "auth/vk",
             "auth/yandex",
         ]
