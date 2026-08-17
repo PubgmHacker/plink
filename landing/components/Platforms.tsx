@@ -1,18 +1,32 @@
-"use client";
+'use client';
 
-import { motion } from "framer-motion";
+import { motion } from 'framer-motion';
 
 // Реальные платформы из приложения (Assets.xcassets + code inspection, 14 всего)
 const platforms = [
-  "YouTube", "VK Видео", "Rutube", "Кинопоиск",
-  "Okko", "Wink", "Start", "Ivi",
-  "Premier", "Smotrim", "Kion", "Disney+",
-  "Netflix", "Prime Video",
+  'YouTube',
+  'VK Видео',
+  'Rutube',
+  'Кинопоиск',
+  'Okko',
+  'Wink',
+  'Start',
+  'Ivi',
+  'Premier',
+  'Smotrim',
+  'Kion',
+  'Disney+',
+  'Netflix',
+  'Prime Video',
 ];
 
 export default function Platforms() {
   return (
-    <section id="platforms" className="relative border-t border-surface-2 py-16 lg:py-24" aria-label="Поддерживаемые платформы">
+    <section
+      id="platforms"
+      className="relative border-t border-surface-2 py-16 lg:py-24"
+      aria-label="Поддерживаемые платформы"
+    >
       <div className="container-main">
         {/* Два уровня входа, не центрирование всего подряд */}
         <div className="mb-12 grid gap-10 lg:grid-cols-12 lg:items-end">

@@ -1,26 +1,26 @@
-"use client";
+'use client';
 
-import { useRef } from "react";
-import { motion, useScroll, useTransform, useReducedMotion } from "framer-motion";
+import { useRef } from 'react';
+import { motion, useScroll, useTransform, useReducedMotion } from 'framer-motion';
 
 const steps = [
   {
-    num: "01",
-    title: "Открой Plink и нажми «Смотреть с друзьями»",
-    desc: "Придумай название — от «фильмы на выходных» до «трейлер в час ночи». Получится короткий код, который можно показать друзьям.",
-    detail: "K7XQ2M",
+    num: '01',
+    title: 'Открой Plink и нажми «Смотреть с друзьями»',
+    desc: 'Придумай название — от «фильмы на выходных» до «трейлер в час ночи». Получится короткий код, который можно показать друзьям.',
+    detail: 'K7XQ2M',
   },
   {
-    num: "02",
-    title: "Скинь ссылку или код в чат",
-    desc: "Друзья кликают и попадают в комнату — ничего не нужно устанавливать. Они могут быть на телефоне, планшете или ноутбуке.",
-    detail: "plink.app/join/K7XQ2M",
+    num: '02',
+    title: 'Скинь ссылку или код в чат',
+    desc: 'Друзья кликают и попадают в комнату — ничего не нужно устанавливать. Они могут быть на телефоне, планшете или ноутбуке.',
+    detail: 'plink.app/join/K7XQ2M',
   },
   {
-    num: "03",
-    title: "Выберите, что смотреть",
-    desc: "Поддерживаются YouTube, VK Видео, Rutube и ещё одиннадцать сервисов. Вставьте ссылку или найдите через поиск — начнётся у всех одновременно.",
-    detail: "Один начал смотреть — смотрите все",
+    num: '03',
+    title: 'Выберите, что смотреть',
+    desc: 'Поддерживаются YouTube, VK Видео, Rutube и ещё одиннадцать сервисов. Вставьте ссылку или найдите через поиск — начнётся у всех одновременно.',
+    detail: 'Один начал смотреть — смотрите все',
   },
 ];
 
@@ -30,10 +30,10 @@ export default function HowItWorks() {
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
-    offset: ["start end", "end start"],
+    offset: ['start end', 'end start'],
   });
 
-  const lineHeight = useTransform(scrollYProgress, [0.1, 0.6], ["0%", "100%"]);
+  const lineHeight = useTransform(scrollYProgress, [0.1, 0.6], ['0%', '100%']);
 
   return (
     <section
@@ -55,7 +55,7 @@ export default function HowItWorks() {
           <div className="absolute left-[19px] top-0 hidden h-full w-px bg-surface-2 md:block lg:left-[23px]">
             <motion.div
               className="w-full bg-accent"
-              style={{ height: prefersReducedMotion ? "100%" : lineHeight }}
+              style={{ height: prefersReducedMotion ? '100%' : lineHeight }}
             />
           </div>
 
@@ -66,7 +66,7 @@ export default function HowItWorks() {
                 key={step.num}
                 initial={{ opacity: 0, x: -40 }}
                 whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, margin: "-100px" }}
+                viewport={{ once: true, margin: '-100px' }}
                 transition={{
                   duration: prefersReducedMotion ? 0.01 : 0.7,
                   delay: prefersReducedMotion ? 0 : i * 0.15,
@@ -76,7 +76,7 @@ export default function HowItWorks() {
               >
                 {/* Step number — offset left */}
                 <div className="relative md:col-span-2">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-accent bg-bg text-display text-sm font-bold text-accent md:sticky md:top-32 lg:h-12 lg:w-12 lg:text-base">
+                  <div className="text-display flex h-10 w-10 items-center justify-center rounded-full border-2 border-accent bg-bg text-sm font-bold text-accent md:sticky md:top-32 lg:h-12 lg:w-12 lg:text-base">
                     {step.num}
                   </div>
                 </div>
@@ -103,12 +103,10 @@ export default function HowItWorks() {
                       ease: [0.32, 0.72, 0, 1],
                     }}
                     className={`surface-card rounded-xl p-5 ${
-                      i === 1 ? "my-8" : i === 2 ? "-my-4" : ""
+                      i === 1 ? 'my-8' : i === 2 ? '-my-4' : ''
                     }`}
                   >
-                    <code className="text-sm font-medium text-accent">
-                      {step.detail}
-                    </code>
+                    <code className="text-sm font-medium text-accent">{step.detail}</code>
                   </motion.div>
                 </div>
               </motion.div>

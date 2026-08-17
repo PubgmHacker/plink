@@ -6,7 +6,7 @@ const nextConfig = {
     // экономит вес на мобильном без потери читаемости UI на превью.
     deviceSizes: [360, 480, 640, 828, 1080, 1200, 1920],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 320],
-    formats: ["image/webp"],
+    formats: ['image/webp'],
     minimumCacheTTL: 31536000,
   },
 };

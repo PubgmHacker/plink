@@ -1,15 +1,15 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { APP_STORE_URL } from "@/lib/constants";
+import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { APP_STORE_URL } from '@/lib/constants';
 
 const links = [
-  { href: "#how-it-works", label: "Как работает" },
-  { href: "#features", label: "Возможности" },
-  { href: "#ecosystem", label: "Экосистема" },
-  { href: "#pricing", label: "Тарифы" },
-  { href: "#faq", label: "FAQ" },
+  { href: '#how-it-works', label: 'Как работает' },
+  { href: '#features', label: 'Возможности' },
+  { href: '#ecosystem', label: 'Экосистема' },
+  { href: '#pricing', label: 'Тарифы' },
+  { href: '#faq', label: 'FAQ' },
 ];
 
 export default function Navigation() {
@@ -18,8 +18,8 @@ export default function Navigation() {
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   return (
@@ -31,9 +31,7 @@ export default function Navigation() {
     >
       <nav
         className={`container-main flex items-center justify-between rounded-full transition-all duration-500 ${
-          scrolled
-            ? "liquid-glass liquid-glass-strong h-16 !px-5 md:!px-6"
-            : "h-16 !px-5 md:!px-6"
+          scrolled ? 'liquid-glass liquid-glass-strong h-16 !px-5 md:!px-6' : 'h-16 !px-5 md:!px-6'
         }`}
       >
         {/* Logo */}
@@ -51,7 +49,7 @@ export default function Navigation() {
             <li key={link.href}>
               <a
                 href={link.href}
-                className="text-sm font-medium text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent inline-block px-2 py-2"
+                className="inline-block px-2 py-2 text-sm font-medium text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 {link.label}
               </a>
@@ -76,7 +74,14 @@ export default function Navigation() {
             aria-expanded={mobileOpen}
             aria-label="Меню"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               {mobileOpen ? (
                 <path d="M18 6L6 18M6 6l12 12" />
               ) : (
@@ -92,7 +97,7 @@ export default function Navigation() {
         {mobileOpen && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
+            animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
             className="border-b border-surface-2 bg-bg/95 backdrop-blur-xl lg:hidden"

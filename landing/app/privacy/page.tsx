@@ -1,9 +1,9 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: "Конфиденциальность — Plink",
-  description: "Политика конфиденциальности Plink",
+  title: 'Конфиденциальность — Plink',
+  description: 'Политика конфиденциальности Plink',
 };
 
 export default function PrivacyPage() {
@@ -23,7 +23,9 @@ export default function PrivacyPage() {
 
         <div className="mt-12 max-w-3xl space-y-8 text-text-secondary">
           <section>
-            <h2 className="text-display mb-4 text-xl text-text-primary">1. Какие данные мы собираем</h2>
+            <h2 className="text-display mb-4 text-xl text-text-primary">
+              1. Какие данные мы собираем
+            </h2>
             <p>
               Аккаунт: email, имя пользователя, аватар (опционально). Контент: история комнат,
               сообщения чата, реакции. Технические данные: модель устройства, версия iOS, анонимная
@@ -32,7 +34,9 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-display mb-4 text-xl text-text-primary">2. Как мы используем данные</h2>
+            <h2 className="text-display mb-4 text-xl text-text-primary">
+              2. Как мы используем данные
+            </h2>
             <p>
               Для работы Сервиса: синхронизация комнат, доставка сообщений, персонализация. Для
               улучшения: анализ сбоев, оптимизация производительности. Мы не продаём ваши данные
@@ -59,7 +63,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-display mb-4 text-xl text-text-primary">5. Ваши права</h2>
             <p>
-              Вы вправе запросить копию своих данных, их исправление или удаление. Напишите нам:{" "}
+              Вы вправе запросить копию своих данных, их исправление или удаление. Напишите нам:{' '}
               <a href="mailto:support@plink.app" className="text-accent underline">
                 support@plink.app
               </a>

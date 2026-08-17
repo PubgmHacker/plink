@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { motion } from "framer-motion";
-import { ECOSYSTEM_STATUS } from "@/lib/constants";
+import { motion } from 'framer-motion';
+import { ECOSYSTEM_STATUS } from '@/lib/constants';
 
 export default function EcosystemStatus() {
   return (
@@ -27,7 +27,7 @@ export default function EcosystemStatus() {
               className="group relative bg-bg px-6 py-6"
             >
               <div className="flex items-center gap-2.5">
-                {item.status === "available" ? (
+                {item.status === 'available' ? (
                   <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
                 ) : (
                   <span
@@ -39,7 +39,7 @@ export default function EcosystemStatus() {
               </div>
               <p
                 className={`mt-2 font-mono text-[11px] ${
-                  item.status === "available" ? "text-accent" : "text-[#B0B7B3]"
+                  item.status === 'available' ? 'text-accent' : 'text-[#B0B7B3]'
                 }`}
               >
                 {item.note}

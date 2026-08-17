@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
 
 /**
  * Aurora Waves — procedural multi-layer gradient mesh.
@@ -15,7 +15,7 @@ export default function AuroraWaves() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d", { alpha: false });
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
     let t = 0;
@@ -27,12 +27,12 @@ export default function AuroraWaves() {
       ctx.scale(DPR, DPR);
     };
     resize();
-    window.addEventListener("resize", resize);
+    window.addEventListener('resize', resize);
 
     const layers = [
-      { ampY: 0.18, offY: 0.55, hue: 158, freq: 1.0, alpha: 0.10 },  // green-blue
-      { ampY: 0.25, offY: 0.72, hue: 178, freq: 0.7, alpha: 0.08 },  // mint
-      { ampY: 0.12, offY: 0.45, hue: 145, freq: 1.3, alpha: 0.11 },  // teal
+      { ampY: 0.18, offY: 0.55, hue: 158, freq: 1.0, alpha: 0.1 }, // green-blue
+      { ampY: 0.25, offY: 0.72, hue: 178, freq: 0.7, alpha: 0.08 }, // mint
+      { ampY: 0.12, offY: 0.45, hue: 145, freq: 1.3, alpha: 0.11 }, // teal
     ];
 
     const render = () => {
@@ -42,8 +42,8 @@ export default function AuroraWaves() {
 
       // Dark base
       const base = ctx.createLinearGradient(0, 0, 0, h);
-      base.addColorStop(0, "#0c0f0e");
-      base.addColorStop(1, "#151d1a");
+      base.addColorStop(0, '#0c0f0e');
+      base.addColorStop(1, '#151d1a');
       ctx.fillStyle = base;
       ctx.fillRect(0, 0, w, h);
 
@@ -75,7 +75,7 @@ export default function AuroraWaves() {
       });
 
       // Grain overlay
-      ctx.fillStyle = "rgba(0, 0, 0, 0.04)";
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
       for (let i = 0; i < w * h * 0.012; i++) {
         const rx = Math.random() * w;
         const ry = Math.random() * h;
@@ -90,7 +90,7 @@ export default function AuroraWaves() {
 
     return () => {
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener('resize', resize);
     };
   }, []);
 
@@ -98,7 +98,7 @@ export default function AuroraWaves() {
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
     />
   );
 }

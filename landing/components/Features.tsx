@@ -1,36 +1,36 @@
-"use client";
+'use client';
 
-import Image from "next/image";
-import { motion, useReducedMotion } from "framer-motion";
+import Image from 'next/image';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const features = [
   {
-    id: "room",
-    title: "Комната",
+    id: 'room',
+    title: 'Комната',
     description:
-      "Видео, чат и участники — в одном экране. Пауза у одного — пауза у всех. Реакции вылетают поверх кадра.",
-    screen: "/screens/room-watching.webp",
+      'Видео, чат и участники — в одном экране. Пауза у одного — пауза у всех. Реакции вылетают поверх кадра.',
+    screen: '/screens/room-watching.webp',
   },
   {
-    id: "chat",
-    title: "Чат",
+    id: 'chat',
+    title: 'Чат',
     description:
-      "Текст идёт рядом с видео, не снизу. Сообщения не тонут в ленте — история сохраняется, можно вернуться к моменту позже.",
-    screen: "/screens/room-chat.webp",
+      'Текст идёт рядом с видео, не снизу. Сообщения не тонут в ленте — история сохраняется, можно вернуться к моменту позже.',
+    screen: '/screens/room-chat.webp',
   },
   {
-    id: "friends",
-    title: "Друзья",
+    id: 'friends',
+    title: 'Друзья',
     description:
-      "Видно, кто онлайн прямо сейчас. Приглашение в комнату — одно касание, не серия форм.",
-    screen: "/screens/friends.webp",
+      'Видно, кто онлайн прямо сейчас. Приглашение в комнату — одно касание, не серия форм.',
+    screen: '/screens/friends.webp',
   },
   {
-    id: "themes",
-    title: "Оформление",
+    id: 'themes',
+    title: 'Оформление',
     description:
-      "Живые темы и кастомные акценты — заходишь и сразу видишь, в чьей комнате находишься.",
-    screen: "/screens/themes.webp",
+      'Живые темы и кастомные акценты — заходишь и сразу видишь, в чьей комнате находишься.',
+    screen: '/screens/themes.webp',
   },
 ];
 
@@ -55,7 +55,8 @@ export default function Features() {
           </div>
           <div className="lg:col-span-4 lg:col-start-9">
             <p className="text-text-secondary">
-              Никаких табов и свернутых окон. Чат живёт под видео, реакции всплывают поверх кадра, участники видны всегда.
+              Никаких табов и свернутых окон. Чат живёт под видео, реакции всплывают поверх кадра,
+              участники видны всегда.
             </p>
           </div>
         </div>
@@ -67,26 +68,26 @@ export default function Features() {
               <div
                 key={feature.id}
                 className={`grid items-center gap-10 lg:grid-cols-12 lg:gap-16 ${
-                  reversed ? "" : ""
+                  reversed ? '' : ''
                 }`}
               >
                 {/* Screenshot */}
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
                   whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-80px" }}
+                  viewport={{ once: true, margin: '-80px' }}
                   transition={{
                     duration: 0.7,
                     delay: prefersReducedMotion ? 0 : 0.05,
                     ease: [0.32, 0.72, 0, 1],
                   }}
                   className={`relative mx-auto w-full max-w-[280px] lg:col-span-5 ${
-                    reversed ? "lg:order-2 lg:col-start-8" : "lg:col-start-1"
+                    reversed ? 'lg:order-2 lg:col-start-8' : 'lg:col-start-1'
                   }`}
                 >
                   <div
                     className="relative aspect-[402/874] overflow-hidden rounded-[2rem] border border-surface-2 bg-black"
-                    style={{ boxShadow: "0 30px 60px -20px rgba(0,0,0,0.6)" }}
+                    style={{ boxShadow: '0 30px 60px -20px rgba(0,0,0,0.6)' }}
                   >
                     <Image
                       src={feature.screen}
@@ -104,18 +105,18 @@ export default function Features() {
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-80px" }}
+                  viewport={{ once: true, margin: '-80px' }}
                   transition={{
                     duration: 0.6,
                     delay: prefersReducedMotion ? 0 : 0.15,
                     ease: [0.32, 0.72, 0, 1],
                   }}
                   className={`lg:col-span-6 ${
-                    reversed ? "lg:order-1 lg:col-start-1" : "lg:col-start-7"
+                    reversed ? 'lg:order-1 lg:col-start-1' : 'lg:col-start-7'
                   }`}
                 >
                   <span className="font-mono text-xs text-[#B0B7B3]">
-                    {String(i + 1).padStart(2, "0")}
+                    {String(i + 1).padStart(2, '0')}
                   </span>
                   <h3 className="text-display mt-3 text-2xl text-text-primary lg:text-3xl">
                     {feature.title}

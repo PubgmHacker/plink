@@ -1,13 +1,13 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { PRICING, APP_STORE_URL } from "@/lib/constants";
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { PRICING, APP_STORE_URL } from '@/lib/constants';
 
-type Period = "monthly" | "yearly";
+type Period = 'monthly' | 'yearly';
 
 export default function Pricing() {
-  const [period, setPeriod] = useState<Period>("yearly");
+  const [period, setPeriod] = useState<Period>('yearly');
   const [isAnimating, setIsAnimating] = useState(false);
 
   const togglePeriod = (p: Period) => {
@@ -44,21 +44,21 @@ export default function Pricing() {
               className="absolute inset-y-1 rounded-lg bg-accent"
               initial={false}
               animate={{
-                left: period === "monthly" ? 4 : "50%",
-                right: period === "monthly" ? "50%" : 4,
+                left: period === 'monthly' ? 4 : '50%',
+                right: period === 'monthly' ? '50%' : 4,
               }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             />
-            {(["monthly", "yearly"] as const).map((p) => (
+            {(['monthly', 'yearly'] as const).map((p) => (
               <button
                 key={p}
                 onClick={() => togglePeriod(p)}
                 className={`relative z-10 rounded-lg px-6 py-2.5 text-sm font-medium transition-colors focus:outline-none ${
-                  period === p ? "text-bg" : "text-text-secondary hover:text-text-primary"
+                  period === p ? 'text-bg' : 'text-text-secondary hover:text-text-primary'
                 }`}
                 aria-pressed={period === p}
               >
-                {p === "monthly" ? "Помесячно" : "На год"}
+                {p === 'monthly' ? 'Помесячно' : 'На год'}
               </button>
             ))}
           </div>
@@ -83,11 +83,11 @@ export default function Pricing() {
 
             <ul className="mt-8 space-y-4">
               {[
-                "Комнаты без ограничений",
-                "Синхронный просмотр",
-                "Чат и базовые реакции",
-                "Друзья и групповые чаты",
-                "YouTube, VK Видео, Rutube",
+                'Комнаты без ограничений',
+                'Синхронный просмотр',
+                'Чат и базовые реакции',
+                'Друзья и групповые чаты',
+                'YouTube, VK Видео, Rutube',
               ].map((item, i) => (
                 <li key={i} className="flex items-center gap-3 text-sm text-text-primary">
                   <svg
@@ -127,7 +127,7 @@ export default function Pricing() {
             {/* Тёплая подсветка снизу — платный тариф должен читаться как
                 другой уровень, а не как копия бесплатного с другим текстом. */}
             <div
-              className="pointer-events-none absolute -bottom-24 left-1/2 h-56 w-[78%] -translate-x-1/2 rounded-full bg-accent/12 blur-[70px]"
+              className="bg-accent/12 pointer-events-none absolute -bottom-24 left-1/2 h-56 w-[78%] -translate-x-1/2 rounded-full blur-[70px]"
               aria-hidden="true"
             />
             <div
@@ -136,7 +136,9 @@ export default function Pricing() {
             />
 
             <h3 className="text-display text-xl font-semibold text-text-primary">Plink+</h3>
-            <p className="mt-2 text-text-secondary">Живые темы, премиальные реакции, кастомизация</p>
+            <p className="mt-2 text-text-secondary">
+              Живые темы, премиальные реакции, кастомизация
+            </p>
 
             {/* Animated price */}
             <div className="mt-8 flex h-16 items-baseline gap-2 overflow-hidden">
@@ -150,7 +152,7 @@ export default function Pricing() {
                   className="flex items-baseline gap-2"
                 >
                   <span className="font-mono text-5xl font-medium text-accent">
-                    {current.price.toLocaleString("ru-RU")}
+                    {current.price.toLocaleString('ru-RU')}
                   </span>
                   <span className="text-lg text-text-secondary">₽/{current.period}</span>
                 </motion.div>
@@ -167,7 +169,7 @@ export default function Pricing() {
                   exit={{ opacity: 0 }}
                   className="text-sm text-[#B0B7B3]"
                 >
-                  {period === "yearly" ? (
+                  {period === 'yearly' ? (
                     <>
                       ~{PRICING.yearly.monthlyEquivalent} ₽/мес · {current.usd}
                       <span className="ml-2 rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
@@ -183,10 +185,10 @@ export default function Pricing() {
 
             <ul className="mt-8 space-y-4">
               {[
-                "Всё из бесплатного",
-                "Живые темы оформления комнат",
-                "Премиальные реакции",
-                "Кастомные темы приложения",
+                'Всё из бесплатного',
+                'Живые темы оформления комнат',
+                'Премиальные реакции',
+                'Кастомные темы приложения',
               ].map((item, i) => (
                 <li key={i} className="flex items-center gap-3 text-sm text-text-primary">
                   <svg
@@ -215,8 +217,8 @@ export default function Pricing() {
             </a>
 
             <p className="mt-4 text-center text-xs text-[#B0B7B3]">
-              Подписка оформляется в приложении через App Store.
-              Автопродление. Отмена — Настройки → Apple ID → Подписки.
+              Подписка оформляется в приложении через App Store. Автопродление. Отмена — Настройки →
+              Apple ID → Подписки.
             </p>
           </motion.div>
         </div>

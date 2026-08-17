@@ -3,17 +3,17 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0A0C0D;           /* фон приложения */
-  --surface: #161B1E;
-  --surface-2: #2A3233;
-  --accent: #FFB800;       /* emerald из приложения (raveGreen/bioEmerald) */
-  --accent-dim: #D99A00;   /* приглушённый ховер */
-  --text-primary: #F0F2F1;
-  --text-secondary: #9A9E9C;
-  --text-muted: #B0B7B3;
-  --sync: #FFB800;
+  --bg: #0a0c0d; /* фон приложения */
+  --surface: #161b1e;
+  --surface-2: #2a3233;
+  --accent: #ffb800; /* emerald из приложения (raveGreen/bioEmerald) */
+  --accent-dim: #d99a00; /* приглушённый ховер */
+  --text-primary: #f0f2f1;
+  --text-secondary: #9a9e9c;
+  --text-muted: #b0b7b3;
+  --sync: #ffb800;
   --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
-  --font-serif-accent: "Instrument Serif", Georgia, serif;
+  --font-serif-accent: 'Instrument Serif', Georgia, serif;
 }
 
 html {
@@ -55,9 +55,9 @@ body {
   border-radius: 4px;
 }
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
-  }
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
@@ -73,8 +73,13 @@ body {
 /* Hero shimmer — тонкий градиентный блеск по заголовку при загрузке.
    Применяется только к элементу с .shimmer, а не ко всем заголовкам. */
 @keyframes shimmer {
-  0%, 100% { background-position: 200% center; }
-  50% { background-position: -200% center; }
+  0%,
+  100% {
+    background-position: 200% center;
+  }
+  50% {
+    background-position: -200% center;
+  }
 }
 
 .shimmer {
@@ -129,7 +134,7 @@ body {
 /* Кромка: градиент по диагонали, а не однородная белая рамка на 20% —
    именно она создаёт ощущение преломляющего света на грани. */
 .liquid-glass::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -140,7 +145,9 @@ body {
     rgba(255, 255, 255, 0.06) 42%,
     rgba(255, 255, 255, 0.22) 100%
   );
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -156,7 +163,7 @@ body {
 /* Интерактивное стекло: блик смещается к курсору. Координаты пишет
    пользовательский хук через CSS-переменные. */
 .liquid-glass-interactive::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -211,7 +218,7 @@ body {
     position: relative;
   }
   .grain::after {
-    content: "";
+    content: '';
     position: absolute;
     inset: 0;
     pointer-events: none;

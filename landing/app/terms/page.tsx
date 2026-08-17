@@ -1,9 +1,9 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: "Условия использования — Plink",
-  description: "Условия использования сервиса Plink",
+  title: 'Условия использования — Plink',
+  description: 'Условия использования сервиса Plink',
 };
 
 export default function TermsPage() {
@@ -31,7 +31,9 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-display mb-4 text-xl text-text-primary">2. Использование сервиса</h2>
+            <h2 className="text-display mb-4 text-xl text-text-primary">
+              2. Использование сервиса
+            </h2>
             <p>
               Сервис предназначен для личного некоммерческого использования. Вы обязуетесь не
               использовать Сервис для распространения контента, нарушающего авторские права или
@@ -43,8 +45,8 @@ export default function TermsPage() {
             <h2 className="text-display mb-4 text-xl text-text-primary">3. Подписка Plink+</h2>
             <p>
               Plink+ — дополнительная подписка с расширенными функциями. Оплата производится через
-              App Store. Подписка продлевается автоматически, если не отменена минимум за 24 часа
-              до окончания текущего периода. Отменить подписку можно в настройках Apple ID.
+              App Store. Подписка продлевается автоматически, если не отменена минимум за 24 часа до
+              окончания текущего периода. Отменить подписку можно в настройках Apple ID.
             </p>
           </section>
 
@@ -59,7 +61,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-display mb-4 text-xl text-text-primary">5. Контакты</h2>
             <p>
-              По вопросам, связанным с настоящими Условиями, обращайтесь:{" "}
+              По вопросам, связанным с настоящими Условиями, обращайтесь:{' '}
               <a href="mailto:support@plink.app" className="text-accent underline">
                 support@plink.app
               </a>
