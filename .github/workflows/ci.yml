@@ -1,12 +1,6 @@
-# Аудит 26.07.2026 (7.5): первый CI проекта. До этого «100 passed» на машине
-# без Redis молча превращалось в 86 — здесь Redis поднят как service,
-# интеграционные тесты обязаны выполняться, а не скипаться.
-#
-# Аудит 07.08.2026 (находка №14): существовал второй, мёртвый workflow
-# ios-2/.github/workflows/ci.yml. GitHub Actions читает только КОРНЕВОЙ
-# .github, поэтому тот файл никогда не запускался, а его пути (backend/,
-# ios/, windows-client/) вообще не существуют в репозитории. Осмысленные
-# security-шаги оттуда перенесены сюда с реальными путями, файл удалён.
+# CI for the Plink monorepo: backend, landing, Android client, and the
+# cross-cutting security gates. See docs/qa/testing-strategy.md for what each
+# job is responsible for and what it deliberately does not cover.
 name: CI
 
 on:
@@ -20,11 +14,14 @@ concurrency:
 
 jobs:
   backend:
-    name: backend-3 (tsc + vitest)
+    name: backend (typecheck + tests)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend-3
+        working-directory: backend
+    # Redis is a service, not an optional extra. The integration suite skips
+    # itself when REDIS_URL is absent, so without this block the run still goes
+    # green while silently testing less than it reports.
     services:
       redis:
         image: redis:7
@@ -44,34 +41,40 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: backend-3/package-lock.json
+          cache-dependency-path: backend/package-lock.json
 
-      - name: Установка зависимостей
+      - name: Install dependencies
         run: npm ci
 
-      - name: Prisma client (нужен для типов до tsc)
+      # Prisma Client is generated code. tsc cannot resolve the model types
+      # until it exists, so this runs before the typecheck, not with the build.
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Типы (tsc --noEmit)
+      - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Тесты (vitest, Redis доступен как service)
+      # ESLint carries two invariants that documentation cannot: configuration is
+      # read only in src/config/, and output goes through the Fastify logger
+      # rather than console.*. Files that predate both are listed explicitly in
+      # eslint.config.js as a baseline that may shrink and must never grow, so a
+      # new violation in any other file fails here.
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
         run: npx vitest run
 
-      # Аудит 07.08.2026: 53 уязвимости (2 critical, 6 high) жили месяцами
-      # незамеченными.
-      # Аудит 11.08.2026: critical закрыты апгрейдами, 6 high — оказались двумя
-      # транзитивными зависимостями fastify (overrides в package.json) и мёртвым
-      # OTel-трейсером, который удалён вместе с 194 пакетами. Стало 0/0/19.
-      # Раз high теперь ноль — гейт поднят с critical до high, чтобы ноль так и
-      # остался нулём. Оставшиеся 19 moderate — один корень
-      # (@opentelemetry/core <2.8.0 через @sentry/node@8), закрывается только
-      # мажором @sentry/node@10: решение владельца, не тихий фикс.
-      - name: Уязвимости зависимостей (гейт на high)
+      # The gate is `high` because the count is currently zero, and a zero is
+      # only worth having if something keeps it there. The remaining moderate
+      # advisories share one root (@opentelemetry/core via @sentry/node 8) and
+      # clear only on a major upgrade — a deliberate decision, not a silent
+      # exception, so the gate stays above them.
+      - name: Dependency audit
         run: npm audit --omit=dev --audit-level=high
 
   landing:
-    name: landing (tsc + next build)
+    name: landing (typecheck + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -85,85 +88,152 @@ jobs:
           cache: npm
           cache-dependency-path: landing/package-lock.json
 
-      - name: Установка зависимостей
+      - name: Install dependencies
         run: npm ci
 
-      - name: Типы (tsc --noEmit)
+      - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Сборка (next build)
+      - name: Lint
+        run: npm run lint
+
+      # This package is fully formatted, so the check is absolute here rather
+      # than limited to changed files the way the `format` job below is.
+      - name: Format
+        run: npm run format:check
+
+      - name: Build
         run: npm run build
 
-      - name: Уязвимости зависимостей (гейт на critical)
+      - name: Dependency audit
         run: npm audit --omit=dev --audit-level=critical
 
-  # Перенесено из мёртвого ios-2/.github/workflows/ci.yml с исправленными
-  # путями. Три проверки стерегут конкретные дыры из прошлых аудитов.
+  # Formatting is enforced on what a change touches, not on the whole tree.
+  # backend/src predates the Prettier config by about 13,000 lines of pure
+  # whitespace; reformatting it in one commit would bury every real change under
+  # it and break `git blame` for the entire route layer. So the formatted share
+  # of the repository grows monotonically instead: a file you edit has to come
+  # out formatted. See CONTRIBUTING.md for how to clear a directory deliberately.
+  format:
+    name: format (files changed by this PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The diff needs the base branch, which a shallow clone does not have.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # Prettier lives in backend; the root has no package.json. Only Prettier
+      # itself is needed, so this skips the rest of the backend's dependencies.
+      - name: Install Prettier
+        run: npm ci --ignore-scripts
+        working-directory: backend
+
+      - name: Check formatting of changed files
+        env:
+          # Via env rather than inlined into the script: the base branch is
+          # attacker-controlled text on a fork PR, and `${{ }}` interpolation
+          # pastes it into the shell before bash sees it.
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+          list="${RUNNER_TEMP:-/tmp}/changed-files.txt"
+
+          # ACMR: added, copied, modified, renamed. Deleted files have nothing to
+          # check. landing/ is excluded because its own job checks it in full, and
+          # because its Prettier config resolves a plugin out of landing/
+          # node_modules, which this job does not install.
+          #
+          # Written to a file rather than read into an array: `mapfile` needs bash
+          # 4, and the bash on a macOS developer machine is 3.2, so the array form
+          # runs here and fails for anyone reproducing it locally.
+          git diff --name-only --diff-filter=ACMR "origin/$BASE_REF...HEAD" \
+            | grep -v '^landing/' > "$list" || true
+
+          if [ ! -s "$list" ]; then
+            echo '✓ No files to check'
+            exit 0
+          fi
+
+          cat "$list"
+
+          # NUL-delimited so a path containing a space is one argument, and
+          # --ignore-unknown skips Swift, Kotlin, shell, and everything else
+          # Prettier has no parser for instead of failing on the first one.
+          tr '\n' '\0' < "$list" \
+            | xargs -0 ./backend/node_modules/.bin/prettier --check --ignore-unknown
+
+  # Three invariants that are cheap to check here and expensive to notice in
+  # production. Each one guards a property the code depends on but cannot
+  # express in its own types.
   security:
-    name: Security — CSP, домены, секреты
+    name: security invariants
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Лендинги в web.ts отдаются со строгим CSP (default-src 'none'),
-      # скрипты допускаются ТОЛЬКО инлайн с nonce — см. PLINK_DESIGN_DIRECTION.md.
-      # Внешний <script src=…> либо не выполнится, либо означает, что CSP
-      # ослабили. Прошлая версия шага запрещала строку '<script' целиком —
-      # она бы падала на легальных инлайн-скриптах с nonce.
-      - name: Запрет внешних <script src> в web.ts
+      # The pages served from web.ts run under a strict CSP: default-src 'none',
+      # scripts allowed only inline with a per-response nonce. An external
+      # <script src=…> therefore either does nothing or means the CSP was
+      # loosened. Matching on `src=` rather than on `<script` keeps legitimate
+      # nonced inline scripts passing.
+      - name: No external scripts in server-rendered pages
         run: |
-          if grep -nE '<script[^>]+src=' backend-3/src/routes/web.ts; then
-            echo '✗ В web.ts внешний скрипт. CSP default-src none его заблокирует,'
-            echo '  а если не блокирует — значит CSP ослабили. Инлайн + nonce, без CDN.'
+          if grep -nE '<script[^>]+src=' backend/src/routes/web.ts; then
+            echo '✗ External script in web.ts.'
+            echo '  CSP default-src none blocks it; if it loads, the CSP was weakened.'
+            echo '  Use an inline script with the response nonce.'
             exit 1
           fi
-          echo '✓ Внешних скриптов нет'
+          echo '✓ No external scripts'
 
-      # Дыра из июльского аудита: host.contains("vk.com") пропускал
-      # evil-vk.com.ru. Прошлый (мёртвый) CI стерёг её в файле
-      # MediaSourceResolver.swift — файла больше нет, а приём пережил переезд
-      # в ServiceBrowserView и WatchRoomCompositionRoot. Теперь запрет общий:
-      # матч хоста идёт только через PlinkHost (Utilities/PlinkHost.swift).
-      - name: Запрет подстрочного матча доменов (только PlinkHost)
+      # Substring host matching is an open redirect into the room WebView:
+      # evil-vk.com.ru contains "vk.com", so a substring check accepts it and
+      # every participant loads the attacker's page. All host comparison goes
+      # through PlinkHost.matches, which compares registrable domains.
+      - name: Host matching goes through PlinkHost
         run: |
-          # grep -v '^\s*//' — комментарии, объясняющие саму дыру, не считаются
-          # нарушением (иначе шаг падал бы на документации в PlinkHost.swift).
+          # Comments that describe the hazard are not violations of it, so lines
+          # that are themselves comments are excluded from the match.
           hits=$(grep -rn --include='*.swift' \
-                   -E 'host\??\.(lowercased\(\)\.)?contains\("' ios-2/Plink \
+                   -E 'host\??\.(lowercased\(\)\.)?contains\("' ios/Plink \
                  | grep -vE ':[[:space:]]*(//|\*|/\*)' || true)
           if [ -n "$hits" ]; then
             echo "$hits"
-            echo '✗ Подстрочный матч хоста. evil-vk.com.ru содержит "vk.com" и'
-            echo '  пройдёт как легитимный сервис — его страница загрузится в'
-            echo '  WebView комнаты у всех участников. Используй PlinkHost.matches.'
+            echo '✗ Substring host match. Use PlinkHost.matches instead.'
             exit 1
           fi
-          if [ ! -f ios-2/Plink/Utilities/PlinkHost.swift ]; then
-            echo '✗ Utilities/PlinkHost.swift удалён — строгий матч домена потерян.'
+          if [ ! -f ios/Plink/Utilities/PlinkHost.swift ]; then
+            echo '✗ Utilities/PlinkHost.swift is gone — strict host matching lost.'
             exit 1
           fi
-          echo '✓ Строгий матч домена на месте (PlinkHost)'
+          echo '✓ Strict host matching in place'
 
-      - name: Поиск случайно закоммиченных приватных ключей
+      - name: No committed private keys
         run: |
           if grep -rnE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' \
                --include='*.ts' --include='*.swift' --include='*.kt' \
                --include='*.json' --include='*.xcconfig' \
                --exclude-dir=node_modules --exclude-dir=.git .; then
-            echo '✗ В репозитории приватный ключ'
+            echo '✗ Private key committed to the repository'
             exit 1
           fi
-          echo '✓ Ключей в коде нет'
+          echo '✓ No private keys in tracked sources'
 
-  # Аудит 07.08.2026 (находка №17): 28 Kotlin-файлов ни разу не собирались и
-  # не имеют тестов, при этом бриф заявляет «кроссплатформенную синхронизацию».
-  # Сборка на ubuntu-runner доказывает хотя бы компиляцию.
   android:
     name: android-client (assembleDebug)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ios-2/android-client
+        working-directory: ios/android-client
     steps:
       - uses: actions/checkout@v4
 
@@ -178,16 +248,17 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('ios-2/android-client/**/*.gradle*') }}
+          key: gradle-${{ hashFiles('ios/android-client/**/*.gradle*') }}
 
-      - name: Сборка debug
+      - name: Build debug
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Юнит-тесты
+      - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
 
-  # ios: job-заглушка.
-  # Аудит 26.07.2026: iOS-сборку в CI НЕ добавляем — GitHub-репозиторий бэкенда
-  # устарел относительно локального монорепо, macos-runner не настроен,
-  # и xcodegen-проект живёт только локально. Когда репо синхронизируют:
-  # runs-on: macos-14, шаги xcodegen generate → xcodebuild -scheme Plink build.
+  # The iOS build and unit tests live in .github/workflows/ios.yml, not here.
+  #
+  # This repository is private, so macOS runner minutes bill at 10× the Linux rate. Every
+  # job in this file is cheap enough to run on every push; the Xcode build is not, so it
+  # is path-filtered to changes under ios/ and kept in its own workflow where that
+  # filter cannot accidentally skip the backend checks too.

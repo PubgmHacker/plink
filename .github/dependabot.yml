@@ -1,0 +1,155 @@
+version: 2
+
+updates:
+  # ─── Backend ────────────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    labels:
+      - dependencies
+      - backend
+    groups:
+      # One PR per concern instead of one per package — a reviewer can actually
+      # read a grouped bump, and the suite runs once.
+      fastify:
+        patterns:
+          - fastify
+          - "@fastify/*"
+      prisma:
+        patterns:
+          - prisma
+          - "@prisma/*"
+      observability:
+        patterns:
+          - "@sentry/*"
+          - "@opentelemetry/*"
+          - prom-client
+          - pino*
+      types:
+        patterns:
+          - "@types/*"
+        dependency-type: development
+      test-tooling:
+        patterns:
+          - vitest
+          - "@vitest/*"
+        dependency-type: development
+      # Same pairing as landing: typescript-eslint gates on the ESLint major, so
+      # bumping one without the other produces a config that will not load.
+      lint-tooling:
+        patterns:
+          - eslint
+          - "@eslint/*"
+          - typescript-eslint
+          - prettier
+        dependency-type: development
+    ignore:
+      # Node major upgrades are a deployment decision, not a dependency bump:
+      # the Dockerfile base image, Railway runtime, and CI matrix move together.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+
+  # ─── Landing / web join flow ────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /landing
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    labels:
+      - dependencies
+      - landing
+    groups:
+      # React and Next move together: a Next major pins a React minimum, and
+      # @next/eslint-plugin-next ships from the Next release, so its version
+      # tracks the framework rather than the linter.
+      next:
+        patterns:
+          - next
+          - react
+          - react-dom
+          - "@next/eslint-plugin-next"
+      # ESLint and typescript-eslint are bumped as a pair — typescript-eslint
+      # gates on the ESLint major, and this package's config is composed by hand
+      # for exactly that reason (see landing/eslint.config.mjs).
+      lint-tooling:
+        patterns:
+          - eslint
+          - "@eslint/*"
+          - typescript-eslint
+          - eslint-plugin-*
+          - prettier
+          - prettier-plugin-*
+        dependency-type: development
+      types:
+        patterns:
+          - "@types/*"
+        dependency-type: development
+
+  # ─── GitHub Actions ─────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Moscow
+    commit-message:
+      prefix: "ci(deps)"
+      include: scope
+    labels:
+      - dependencies
+      - ci
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # ─── iOS (Swift Package Manager) ────────────────────────────────────────────
+  # Resolved versions live in project.yml; Dependabot opens the bump, and CI
+  # regenerates the Xcode project to prove it still builds.
+  - package-ecosystem: swift
+    directory: /ios
+    schedule:
+      interval: monthly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+      - ios
+
+  # ─── Android client ─────────────────────────────────────────────────────────
+  - package-ecosystem: gradle
+    directory: /ios/android-client
+    schedule:
+      interval: monthly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+      - android

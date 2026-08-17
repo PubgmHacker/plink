@@ -1,0 +1,49 @@
+# EditorConfig — https://editorconfig.org
+# Baseline whitespace rules for every editor. Language-specific formatting is
+# owned by Prettier (TypeScript) and SwiftFormat (Swift); this file only settles
+# what those tools do not: indentation, line endings, and trailing whitespace.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+[*.swift]
+indent_size = 4
+max_line_length = 120
+
+[*.{kt,kts,gradle}]
+indent_size = 4
+
+[*.{py,sh,bash}]
+indent_size = 4
+
+[*.{md,markdown}]
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2
+
+[Makefile]
+# Recipe lines must begin with a literal tab.
+indent_style = tab
+
+[*.{pbxproj,xcscheme,plist,entitlements,strings,xcstrings}]
+# Generated or tool-owned files: do not reformat.
+indent_style = unset
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[**/{node_modules,dist,build,.next,DerivedData,.venv}/**]
+indent_style = unset
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

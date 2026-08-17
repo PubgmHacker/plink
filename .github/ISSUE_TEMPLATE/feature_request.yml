@@ -1,0 +1,75 @@
+name: Feature request
+description: Propose new behaviour, or a change to how something works today.
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem, not the solution. A well-stated problem usually has more
+        than one answer, and the one you have in mind may not be the cheapest.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Who hits it, how often, and what they do today instead.
+      placeholder: |
+        When the host's connection drops mid-film the room ends, and everyone has to
+        re-create it and find their place again. On mobile networks this happens often
+        enough that groups have started assigning "the person with good Wi-Fi" as host.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: Sketch the behaviour. UI mockups welcome, not required.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where this lands
+      multiple: true
+      options:
+        - iOS app
+        - Backend / API
+        - Realtime sync
+        - Landing / web join flow
+        - Android client
+        - Design system
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including doing nothing. Say why it is not good enough.
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: What this does not include
+      description: |
+        Drawing the boundary is the most useful part of a feature request. It is what
+        keeps the first version shippable.
+      placeholder: |
+        Not included: host migration during screen share, or picking the new host
+        manually. Automatic hand-off to the longest-present participant only.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for this
+          required: true
+        - label: This does not require circumventing DRM or a platform's terms of service
+          required: true

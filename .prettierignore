@@ -1,0 +1,43 @@
+# Prettier ignore — see .prettierrc.json for the rules themselves.
+#
+# Two categories live here: generated output, which Prettier would reformat only
+# to have it overwritten on the next build, and files whose formatting is owned
+# by another tool.
+
+# ── Dependencies and build output ──────────────────────────────────────────
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# ── Generated code ─────────────────────────────────────────────────────────
+# Prisma client is emitted into node_modules, but keep the guard explicit.
+backend/src/generated/
+backend/prisma/migrations/
+landing/.next/
+
+# ── Tool-owned or non-Prettier languages ───────────────────────────────────
+# Swift is SwiftFormat's; see ios/.swiftformat.
+*.swift
+*.pbxproj
+*.xcscheme
+*.strings
+*.xcstrings
+*.entitlements
+*.plist
+Makefile
+
+# ── Xcode ──────────────────────────────────────────────────────────────────
+*.xcodeproj/
+DerivedData/
+
+# ── Local scratch ──────────────────────────────────────────────────────────
+.venv/
+*.log
+
+# ── Lockfiles ──────────────────────────────────────────────────────────────
+# Owned by npm; reformatting them produces a diff on every install.
+package-lock.json

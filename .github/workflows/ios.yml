@@ -1,0 +1,200 @@
+# iOS build and unit tests.
+#
+# Separate from ci.yml, and path-filtered, on purpose. This repository is private, so
+# macOS runner minutes bill at 10× the Linux rate; running a full Xcode build on a PR
+# that only touches the backend would cost more than it tells us. Every other job is
+# cheap enough to run unconditionally and lives in ci.yml.
+#
+# ⚠️ Do NOT make this a required status check while it is path-filtered. A filtered job
+# does not run at all on a PR that touches nothing under ios/, and a required check
+# that never runs blocks the PR forever. If it should gate merges, drop the paths filter
+# first and accept the per-PR cost.
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '!ios/android-client/**'
+      - '!ios/docs/**'
+      - '!ios/mac-desktop/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '!ios/android-client/**'
+      - '!ios/docs/**'
+      - '!ios/mac-desktop/**'
+      - '.github/workflows/ios.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: build + unit tests (simulator, unsigned)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      # Printed rather than pinned. project.yml asks for Xcode 16, the runner image
+      # ships it by default, and pinning a path like /Applications/Xcode_16.2.app breaks
+      # silently when the image is updated. If the version here ever drops below 16, the
+      # log says so on the line above the failure.
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The .xcodeproj is generated, not committed (ADR-0007). Nothing downstream of
+      # this step exists until it runs.
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      # Keyed on project.yml because that is where the package versions are declared.
+      # There is no committed Package.resolved: it lives inside the generated
+      # .xcodeproj, which is gitignored.
+      - name: Cache resolved Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ios/.spm-cache
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      # Chosen at runtime rather than hardcoded. A device name like "iPhone 17 Pro" is a
+      # property of whichever Xcode the image happens to ship, so hardcoding it turns an
+      # image update into an unexplained build failure. Any available iPhone runtime
+      # satisfies the iOS 17 deployment target.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          for rt in sorted(runtimes, reverse=True):
+              if "iOS" not in rt:
+                  continue
+              for dev in runtimes[rt]:
+                  if dev["name"].startswith("iPhone"):
+                      print(dev["udid"])
+                      sys.exit(0)
+          sys.exit(1)')
+          if [ -z "$udid" ]; then
+            echo "✗ No iPhone simulator available on this runner image."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$udid"
+
+      # CODE_SIGNING_ALLOWED=NO is what makes this job possible without secrets. A
+      # simulator build needs no provisioning profile and no certificate, so the absence
+      # of signing credentials in CI — long cited as the blocker here — does not apply.
+      # Device builds and archives still happen locally; see
+      # docs/runbooks/ios-build-and-release.md.
+      - name: Build for testing
+        run: |
+          xcodebuild build-for-testing \
+            -project Plink.xcodeproj \
+            -scheme Plink \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGNING_ALLOWED=NO
+
+      # No -only-testing needed: the Plink scheme's test action names PlinkTests
+      # explicitly (project.yml → schemes:). PlinkUITests is deliberately excluded — it
+      # drives the real UI against a backend on localhost and would fail here for a
+      # reason that is not a defect. It has its own scheme, Plink-UITests.
+      #
+      # Output is teed because the next step reads the summary line out of it. Without
+      # `set -o pipefail` a failing xcodebuild would be masked by tee's exit code.
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project Plink.xcodeproj \
+            -scheme Plink \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/test.log"
+
+      # 32 of the 450 tests skip themselves, all opt-in behind an environment flag and
+      # all printing their reason (docs/qa/testing-strategy.md). The count is asserted
+      # because a test that starts skipping itself has stopped running, and a run where
+      # that happened looks exactly like a green one.
+      #
+      # A skip count that DROPS is fine and does not fail here — that means a suite was
+      # made hermetic. Only growth is a regression. Update the number in the same commit
+      # that changes the suites, never to make a red job go green.
+      - name: Assert the skip count has not grown
+        if: success()
+        env:
+          MAX_SKIPS: '32'
+        run: |
+          summary=$(grep -oE 'Executed [0-9]+ tests, with ([0-9]+ tests skipped and )?[0-9]+ failures' \
+                      "$RUNNER_TEMP/test.log" | tail -1)
+          if [ -z "$summary" ]; then
+            echo "✗ No test summary line in the output. The suite did not run to completion."
+            exit 1
+          fi
+          echo "$summary"
+
+          skipped=$(printf '%s' "$summary" | grep -oE '[0-9]+ tests skipped' | grep -oE '^[0-9]+' || echo 0)
+          if [ "$skipped" -gt "$MAX_SKIPS" ]; then
+            echo "✗ $skipped tests skipped, expected at most $MAX_SKIPS."
+            echo "  A newly-skipping test is a test that stopped running. Which one, and why?"
+            grep -E 'was skipped|skipped:' "$RUNNER_TEMP/test.log" | head -40
+            exit 1
+          fi
+          echo "✓ $skipped skipped, within the expected $MAX_SKIPS"
+
+  lint:
+    name: SwiftLint + SwiftFormat
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The format check compares against the base branch, which a shallow clone
+          # does not have.
+          fetch-depth: 0
+
+      - name: Install tools
+        run: brew install swiftlint swiftformat
+
+      # `make lint-ios` and `make format-check-ios` print "not found — skipping" and exit
+      # 0 when the tool is absent. That is right for a Linux dev machine, and wrong here:
+      # a failed brew install would make both steps below pass without checking anything.
+      # So the presence of the binaries is asserted separately from their verdict.
+      - name: Assert the tools are actually installed
+        run: |
+          for tool in swiftlint swiftformat; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "✗ $tool is not on PATH. The lint steps would skip and report success."
+              exit 1
+            fi
+            echo "✓ $tool $("$tool" --version)"
+          done
+
+      # Errors gate, warnings are reported. Same split as `make lint-ios`.
+      - name: SwiftLint
+        run: make lint-ios
+
+      # Swift formatting is a ratchet, like Prettier in ci.yml: only files the change
+      # touches have to come out formatted. See CONTRIBUTING.md.
+      - name: SwiftFormat (files changed by this PR)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          make format-check-ios BASE_REF="origin/$BASE_REF"

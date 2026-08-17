@@ -1,0 +1,210 @@
+# SwiftFormat configuration for the Plink iOS client.
+#
+# Companion to .swiftlint.yml in this directory. The split:
+#
+#   SwiftFormat owns whitespace, layout and mechanical redundancy. It rewrites files.
+#   SwiftLint owns semantics and project policy. It reports and does not rewrite.
+#
+# Anything enabled here is disabled in .swiftlint.yml's disabled_rules, so the two
+# tools cannot disagree about the same character. Two exceptions are deliberate and
+# marked below (isEmpty/empty_count, redundantNilInit/implicit_optional_initialization):
+# there SwiftFormat fixes and SwiftLint verifies, which is what makes the SwiftLint
+# warning actionable rather than noise.
+#
+# Repeated `--disable X` lines DO accumulate, and so does a single comma-separated
+# `--disable a,b,c`. Either form works; one rule per line is used here so each can
+# carry its own reason.
+#
+# `swiftformat --rules` does NOT read this file — it prints default enablement and
+# will happily show a rule as enabled that this config disables. Verify an edit by
+# running the linter and checking the rule is absent from its output:
+#
+#   swiftformat . --lint 2>&1 | grep -c '(docComments)'
+#
+# Scope: `make format-ios` runs this over files changed against origin/main, not the
+# whole tree. A full pass reports 1,946 findings across 140 of the 218 files it reads
+# (219 Swift files, less the one excluded by name below), and rewrites `git blame` for
+# more than half the client. If a full pass is ever wanted, do it as a commit that
+# changes nothing else and add its SHA to .git-blame-ignore-revs.
+#
+# The largest contributors, for anyone deciding where a full pass would actually help:
+#
+#   indent 807 · redundantSelf 217 · spaceAroundOperators 141 · hoistPatternLet 108
+#   semicolons 104 · unusedArguments 65 · blankLinesBetweenScopes 64
+
+--swiftversion 5.9
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layout. Each of these corresponds to a rule disabled in .swiftlint.yml.
+# ─────────────────────────────────────────────────────────────────────────────
+--indent 4
+--tabwidth 4
+--trimwhitespace always
+--linebreaks lf
+--semicolons never
+--ranges spaced
+--operatorfunc spaced
+--elseposition same-line
+--guardelse same-line
+--indentcase false
+
+# Do NOT add an indent level inside `#if`. Several files wrap their entire body in
+# `#if canImport(UIKit)` (OrientationManager) or interleave `#if DEBUG` through a
+# view (PlinkApp, DMChatView). The default `indent` mode wants to re-indent every one
+# of those files end to end: 531 of 1,338 indent findings were that and nothing else.
+#
+# The 807 that remain are real. 676 of them are in four files — DMChatView (220),
+# PlinkApprovedV4Root (184), V4ProfileViewLive (170), FunnelSmokeUITests (102) —
+# where a scope opener and its contents sit at the same level, e.g. a
+# `VStack(spacing: 0) {` whose children are not indented under it.
+--ifdef no-indent
+
+# Trailing commas in multi-line literals: the client already uses them in 84 places,
+# and they keep a one-element addition to a one-line diff.
+--commas always
+
+# Nothing wraps long lines automatically. A machine-chosen break in a SwiftUI
+# modifier chain reads worse than a long line, so SwiftLint reports line_length as
+# a warning and a human decides. Existing wrapping is preserved as written.
+--maxwidth none
+--wraparguments preserve
+--wrapparameters preserve
+--wrapcollections preserve
+--closingparen balanced
+--funcattributes preserve
+--typeattributes preserve
+--varattributes preserve
+
+# `self.` is mandatory in escaping closures and initialisers and optional elsewhere;
+# the compiler enforces the mandatory cases, so this cannot change capture
+# semantics. 217 sites carry a `self.` that is not required. This option configures
+# the redundantSelf rule, so that rule must stay enabled for it to have any effect.
+--self remove
+
+# Header comments are load-bearing: several files open with a paragraph explaining
+# an invariant callers depend on (APIClient's three guarantees, AuthService's
+# refresh contract). Stripping or templating them deletes the only place that
+# reasoning is written down.
+--header ignore
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Disabled — layout rules that produce a large diff for no readability gain.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1,128 findings between them. Each forces a single-line body onto three lines:
+# `if x { return }` becomes a paragraph. Applied across the client that is a
+# multi-thousand-line diff that changes no behaviour and makes short guards longer.
+--disable wrapIfStatementBodies
+--disable wrapLoopBodies
+--disable wrapFunctionBodies
+--disable wrapPropertyBodies
+--disable wrapIfExpressionBodies
+--disable wrapMultilineStatementBraces
+
+# Would reflow the explanatory comment blocks this codebase relies on, breaking
+# sentences mid-clause at an arbitrary column.
+--disable wrapSingleLineComments
+
+# The `// MARK:` blocks are hand-spaced to group related members; these flatten
+# that, and SwiftUI `body` blocks intentionally open with a blank line.
+--disable blankLinesAroundMark
+--disable blankLinesAtStartOfScope
+
+# Collapses runs of spaces, which throws away deliberate column alignment: the
+# switch tables in RegressionMatrix.swift (84 sites) and PlinkBubbleStyle.swift, the
+# namespace bodies in Logger.swift, the domain table in PlinkHost.swift, and the
+# glyph maps in V4Glyph.swift / ReactionPalette.swift / ServiceLogoView.swift. 554
+# findings, and collapsing them makes every one of those tables harder to read. The
+# cost of leaving this off is tolerating the occasional stray double space.
+--disable consecutiveSpaces
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Disabled — reordering. These move code without changing it, which produces a
+# diff nobody can review and separates members from the comments above them.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# On WatchRoomModel.swift (2,497 lines) organizeDeclarations alone is a ~2,000-line
+# reshuffle.
+--disable organizeDeclarations
+--disable sortDeclarations
+--disable sortTypealiases
+--disable markTypes
+
+# Imports are grouped (system, then internal) rather than sorted; alphabetising
+# mixes the groups.
+--disable sortImports
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Disabled — rewrites that change semantics, type signatures, or rendering.
+# A formatter must not be the thing that changes behaviour.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Message, DirectMessage and Room hand-write `==` over a deliberate SUBSET of their
+# fields (DirectMessage compares 8 of 18, skipping timestamp and reply metadata).
+# Synthesising Equatable would compare everything and change SwiftUI's diffing —
+# re-rendering message lists on fields that do not affect the bubble.
+--disable redundantEquatable
+
+# Rewrites `{ Foo() }` to `Foo()`, changing WHEN a SwiftUI view is constructed.
+--disable redundantClosure
+
+# SwiftUI structural rewrites: Group removal and @ViewBuilder elision change the
+# view identity SwiftUI uses for animation and state.
+--disable redundantSwiftUIGroup
+--disable redundantViewBuilder
+--disable redundantEmptyView
+
+# Change type signatures and initialiser availability across module boundaries.
+--disable redundantMemberwiseInit
+--disable opaqueGenericParameters
+--disable enumNamespaces
+--disable environmentEntry
+
+# Would rename senderID/conversationID style properties. Those match the wire
+# format decoded in Models/, and renaming them breaks Codable key inference.
+--disable acronyms
+
+# Converts `//` to `///` above declarations. Many of those blocks are notes to the
+# next reader, not API docs, and promoting them puts internal reasoning about past
+# incidents into Quick Help.
+--disable docComments
+
+# Rewrites `forEach` to `for in`. Correct, but `forEach` is deliberate in the
+# reactive chains and this is a style preference, not a defect.
+--disable preferForLoop
+
+# Rewrites if/else into `let x = if …` (72 sites). Changing control-flow shape is
+# not formatting.
+--disable conditionalAssignment
+
+# Rewrites `if a && b` to `if a, b` (60 sites). OrientationManager carries a comment
+# specifically about `??` binding looser than `&&` at one of these conditions;
+# having the formatter rewrite that exact line undermines the warning.
+--disable andOperator
+
+# Force unwrapping is SwiftLint's (force_unwrapping, force_cast, force_try). A
+# formatter silently rewriting a `!` in a test would change what the test asserts.
+--disable noForceUnwrapInTests
+--disable noForceTryInTests
+
+# --header ignore covers this; disabling both makes it explicit that no tool
+# generates or checks a file header.
+--disable fileHeader
+--disable headerFileName
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Enabled beyond the defaults. Both are deliberate overlaps with SwiftLint.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pairs with SwiftLint's empty_count: SwiftFormat rewrites `.count == 0` to
+# `.isEmpty`, SwiftLint reports any that survive.
+--enable isEmpty
+
+# Pairs with SwiftLint's implicit_optional_initialization (76 sites). SwiftFormat
+# clears `var x: T? = nil`; SwiftLint is what tells you it is worth clearing.
+--enable redundantNilInit
+
+--exclude Plink.xcodeproj,.build,DerivedData,Pods,android-client,Plink/Localization/LocalizationManager.swift
+
+# LocalizationManager.swift is a 2,235-line string catalog. Reformatting a table of
+# literals produces a diff the size of the file and reviews as noise.

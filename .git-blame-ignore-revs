@@ -1,0 +1,24 @@
+# Revisions git blame should look through rather than at.
+#
+# A commit that only reformats code makes `git blame` useless: every line points
+# at the reformat instead of at the change that introduced it. Listing the commit
+# here restores the real answer.
+#
+# Enable it once per clone (it is a local setting, not a repository one):
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub reads this file automatically in its blame view.
+#
+# Rules for adding a line
+#   - The commit must change formatting and nothing else. If it also fixes a bug,
+#     the bug fix becomes invisible to blame — split it first.
+#   - Full 40-character SHA. Abbreviated hashes are rejected by git.
+#   - One commit per line, with a comment saying what it reformatted.
+#
+# PENDING: backend/src has not been formatted yet. It predates .prettierrc.json
+# by roughly 13,000 lines of whitespace, and CI enforces formatting only on the
+# files a change touches (the `format` job in .github/workflows/ci.yml) so the
+# formatted share grows instead of arriving in one commit nobody can review.
+# When that reformat is finally run — `make format`, on its own branch, with no
+# other change in it — add its SHA below.

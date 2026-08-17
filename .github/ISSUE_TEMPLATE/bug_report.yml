@@ -1,0 +1,137 @@
+name: Bug report
+description: Something behaves incorrectly. Use this for crashes, sync problems, and wrong UI.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do **not** use this form for a security issue — see
+        [SECURITY.md](../blob/main/SECURITY.md) and email `security@plink.app` instead.
+
+        Sync bugs need at least two devices to describe. If you only saw it on one,
+        say so — that is still useful, just note it.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - iOS app
+        - Backend / API
+        - Realtime sync
+        - Landing / web join flow
+        - Android client
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, not your theory about the cause.
+      placeholder: |
+        The drift badge stayed on "syncing" for the whole film and never showed a value.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Number them. Include which account or device did what.
+      placeholder: |
+        1. Device A (host): create a room, paste a YouTube link, start playback
+        2. Device B: join by link, wait ~30 s
+        3. Device A: seek forward ~2 min
+        4. Device B: badge shows "syncing" and never resolves
+    validations:
+      required: true
+
+  - type: input
+    id: frequency
+    attributes:
+      label: How often
+      placeholder: every time · about 1 in 3 attempts · saw it once
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        App version and build (Settings → About), OS version, device model.
+        For backend issues: the deployment and roughly when it happened, with a timezone.
+      placeholder: |
+        Host:        iPhone 15 Pro, iOS 18.2, Plink 1.0 (142)
+        Participant: iPhone 12, iOS 17.6, Plink 1.0 (142)
+        Network:     host on Wi-Fi, participant on LTE
+        When:        2026-08-14 around 21:30 MSK
+    validations:
+      required: true
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: Which side saw the problem
+      options:
+        - Host
+        - Participant
+        - Both
+        - Not applicable
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Video source (if playback related)
+      options:
+        - YouTube
+        - VK Video
+        - Rutube
+        - Direct media URL
+        - Screen share
+        - Not playback related
+    validations:
+      required: false
+
+  - type: input
+    id: room
+    attributes:
+      label: Room code and participant count
+      description: The code lets us find the session in the logs. Do not include invite links.
+      placeholder: "ABC123 · 3 participants"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, crash report, or recording
+      description: |
+        Attach a screen recording for UI and sync bugs — it is usually faster than any
+        description. Redact tokens, emails, and invite links before pasting.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I am on the latest available build, or I noted the version above
+          required: true
+        - label: I removed tokens, credentials, and personal data from anything I pasted
+          required: true

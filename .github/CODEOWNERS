@@ -1,0 +1,44 @@
+# Code owners
+#
+# Every path needs an owner so review requests route automatically instead of
+# being asked for in chat. Later rules win, so the specific entries at the bottom
+# override the broad ones above.
+#
+# Syntax: https://docs.github.com/articles/about-code-owners
+
+# Default owner for anything not matched below.
+*                               @PubgmHacker
+
+# ─── iOS client ───────────────────────────────────────────────────────────────
+/ios/                           @PubgmHacker
+/ios/Plink/Design/              @PubgmHacker
+/ios/Plink/Realtime/            @PubgmHacker
+/ios/project.yml                @PubgmHacker
+
+# ─── Backend ──────────────────────────────────────────────────────────────────
+/backend/                       @PubgmHacker
+/backend/prisma/                @PubgmHacker
+/backend/src/config/            @PubgmHacker
+/backend/src/realtime/          @PubgmHacker
+
+# ─── Web ──────────────────────────────────────────────────────────────────────
+/landing/                       @PubgmHacker
+
+# ─── Android ──────────────────────────────────────────────────────────────────
+/ios/android-client/            @PubgmHacker
+
+# ─── Anything that changes how the project is built, shipped, or governed ─────
+# These carry blast radius beyond the diff, so they are called out explicitly.
+/.github/                       @PubgmHacker
+/Makefile                       @PubgmHacker
+/railway.json                   @PubgmHacker
+/backend/Dockerfile             @PubgmHacker
+/.editorconfig                  @PubgmHacker
+/backend/prisma/migrations/     @PubgmHacker
+
+# ─── Decisions, contracts, and legal ─────────────────────────────────────────
+/docs/adr/                      @PubgmHacker
+/docs/runbooks/                 @PubgmHacker
+/LICENSE                        @PubgmHacker
+/SECURITY.md                    @PubgmHacker
+/CONTRIBUTING.md                @PubgmHacker

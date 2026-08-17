@@ -1,0 +1,58 @@
+Plink — Proprietary License
+
+Copyright (c) 2026 Plink. All rights reserved.
+
+This repository and everything in it — source code, configuration, documentation,
+brand assets, and design files — is confidential and proprietary property of Plink
+(the "Owner"). It is not open source.
+
+1. Grant
+
+   No license, right, or interest in this software is granted to anyone except by a
+   separate written agreement signed by the Owner. Access to this repository does
+   not by itself grant any such right.
+
+2. Permitted use
+
+   Employees and contractors of the Owner, and third parties operating under a
+   signed agreement with the Owner, may use, copy, and modify this software solely
+   to develop, test, operate, and support Plink products, and solely for the
+   duration of that employment, contract, or agreement.
+
+3. Restrictions
+
+   Except as expressly permitted above, no person may copy, modify, merge,
+   publish, distribute, sublicense, sell, disclose, or create derivative works
+   from any part of this software, nor use it to build a competing product, nor
+   remove or alter any copyright or proprietary notice.
+
+4. Third-party components
+
+   This software incorporates third-party open-source components, each governed by
+   its own license. Those licenses are unaffected by this one. Attributions and
+   license texts are collected in docs/legal/third-party-notices.md.
+
+5. Brand
+
+   "Plink", the Plink wordmark, and the Plink logo are trademarks of the Owner.
+   Nothing in this license grants any right to use them.
+
+6. No warranty
+
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+7. Limitation of liability
+
+   IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+   OUT OF, OR IN CONNECTION WITH THIS SOFTWARE OR ITS USE.
+
+8. Termination
+
+   Permission under section 2 terminates automatically when the underlying
+   employment, contract, or agreement ends. On termination, all copies in the
+   holder's possession must be destroyed or returned.
+
+Questions about licensing: legal@plink.app

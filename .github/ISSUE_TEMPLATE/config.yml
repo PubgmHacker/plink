@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/PubgmHacker/plink/blob/main/SECURITY.md
+    about: Never file a public issue. Email security@plink.app — response targets are in the policy.
+
+  - name: Help using Plink
+    url: https://github.com/PubgmHacker/plink/blob/main/SUPPORT.md
+    about: Account problems, billing, and "how do I" questions go through support, not the tracker.
+
+  - name: Contributing guide
+    url: https://github.com/PubgmHacker/plink/blob/main/CONTRIBUTING.md
+    about: Branch naming, commit format, code style, and the review bar.

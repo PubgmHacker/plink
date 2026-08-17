@@ -2,9 +2,9 @@
 .DS_Store
 .AppleDouble
 .LSOverride
-# Файл кастомной иконки папки в Finder называется "Icon\r" — ровно пять
-# символов. Без якоря шаблон `Icon?` съедал и каталог docs/icons целиком,
-# из-за чего направления иконки молча не попадали в репозиторий.
+# Finder's custom folder icon is a file literally named "Icon\r" — five
+# characters. The pattern must stay anchored: an unanchored `Icon?` also
+# matches directories such as docs/icons and silently drops them.
 /Icon?
 ._*
 .Spotlight-V100
@@ -29,6 +29,13 @@ Build/
 .swiftpm/
 Package.resolved
 .build/
+# Resolved dependency checkouts. Both CI and the local build commands in
+# docs/runbooks/ios-build-and-release.md pass
+# `-clonedSourcePackagesDirPath .spm-cache`, so this directory appears as soon as
+# anyone builds — 1.4 GB across ~29,500 files, none of it ours. It was not ignored,
+# which meant a single `git add -A` would try to commit all of it; GitHub rejects
+# blobs over 100 MB, and anything that did land would stay in history permanently.
+.spm-cache/
 
 # ─── Node / backend ─────────────────────────────────────
 node_modules/
@@ -61,27 +68,41 @@ AuthKey_*.p8
 logs/
 .env.local
 
-# локальные скретч-скрипты с ключами — никогда не коммитить
+# Local scratch scripts — they tend to hold real keys. Never commit.
 test.py
 *.local.py
 
-# локальный конфиг агента с ключами — никогда не коммитить
+# Local tool configuration that holds real keys. Never commit.
 opencode.json
 check.sh
 
-# ─── Python (скрипты сборки ассетов) ────────────────────
+# ─── Python (asset build scripts) ───────────────────────
 __pycache__/
 *.pyc
 
-# ─── Аудит 07.08.2026 (находка №16): репо-мусор ──────────
-# .freebuff/ — локальная SQLite агента (desktop-v2.db + WAL/SHM, ~14 МБ).
-# Не наш артефакт и не должен попасть в историю.
+# ─── Local editor / tooling artifacts ───────────────────
+# .freebuff/ is a third-party editor's local SQLite store (desktop-v2.db plus
+# its WAL/SHM files, ~14 MB). Not an artifact of this project.
 .freebuff/
 
-# Бэкапы конфигов (project.yml.bak и подобные) — рабочий мусор,
-# история версий живёт в git, а не в суффиксе .bak.
+# Config backups (project.yml.bak and friends). Version history lives in git,
+# not in a .bak suffix.
 *.bak
 *.orig
 
-# macOS
-.DS_Store
+# ─── Generated preview / QA artifacts ───────────────────
+# Both directories hold rendered PNGs and one-off HTML pages produced by the
+# screenshot tests (see ios/PlinkTests/DesignAuditShots.swift and MarketingShots.swift).
+# They were tracked once, which meant every render churned binary diffs; the tests
+# write them on demand and nothing reads them from version control.
+#
+# Anchored with a leading slash, and it matters: unanchored `qa/` matches a directory
+# named qa at ANY depth, which silently swallowed docs/qa/ — the QA strategy simply
+# never got committed and `git add` reported nothing wrong. Both artifact directories
+# live at the repository root; keep these anchored. Same hazard as /Icon? above.
+/output/
+/qa/
+plink-tap-mock.html
+
+# Redis dump written by a locally-run redis-server. Not an artifact of this project.
+dump.rdb
