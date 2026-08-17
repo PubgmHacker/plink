@@ -16,7 +16,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
-    "lint": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
@@ -42,26 +46,32 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
     "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.1",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.10"
   },
   "comment:overrides": [
-    "Аудит 07.08.2026: 6 high висели в транзитивных зависимостях самого fastify.",
-    "Обновление fastify их НЕ закрывает — 5.11.3 (последняя) сама тянет",
-    "find-my-way@9.6.0 и резолвит fast-uri@3.1.3, то есть уязвимые версии.",
+    "Six high-severity advisories resolve inside fastify's own transitive tree.",
+    "Upgrading fastify does not clear them: 5.11.3 (latest) still pulls",
+    "find-my-way@9.6.0 and resolves fast-uri@3.1.3, both affected versions.",
     "",
-    "fast-uri <3.1.5  — host confusion: обратный слэш как разделитель authority.",
-    "                   Путь: fastify → @fastify/ajv-compiler → ajv,",
-    "                   и fastify → @fastify/fast-json-stringify-compiler.",
-    "find-my-way <=9.6.0 — DDoS по HTTP/2. Прямая зависимость fastify.",
+    "fast-uri <3.1.5      — host confusion: a backslash is treated as an",
+    "                       authority delimiter. Reached via",
+    "                       fastify -> @fastify/ajv-compiler -> ajv and",
+    "                       fastify -> @fastify/fast-json-stringify-compiler.",
+    "find-my-way <=9.6.0  — HTTP/2 denial of service. Direct fastify dependency.",
     "",
-    "Обе правки semver-совместимы, мажоров нет: fastify просит ^9.6.0 (9.7.0",
-    "подходит), ajv и fast-json-stringify просят ^3.0.x (3.1.5 подходит).",
-    "Когда fastify поднимет их сам — блок можно снять и сверить npm audit."
+    "Both pins are semver-compatible, no major bumps: fastify asks for ^9.6.0",
+    "(9.7.0 satisfies it), ajv and fast-json-stringify ask for ^3.0.x (3.1.5",
+    "satisfies it). Drop this block once fastify raises the floor itself, and",
+    "re-run npm audit to confirm."
   ],
   "overrides": {
     "fast-uri": "^3.1.5",
