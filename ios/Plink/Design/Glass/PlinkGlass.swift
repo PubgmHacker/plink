@@ -75,15 +75,15 @@ private struct PlinkGlassSurface<S: InsettableShape>: ViewModifier {
             // за compile-time проверкой версии компилятора. `if #available` тут
             // не спасает: он гейтит рантайм, но не подставляет отсутствующий в
             // SDK тип, и сборка падает с `cannot find type 'Glass'`.
-#if compiler(>=6.2)
+            #if compiler(>=6.2)
             if #available(iOS 26.0, *) {
                 content.modifier(NativeGlass(role: role, shape: shape, tint: tint, isInteractive: isInteractive))
             } else {
                 content.modifier(HandRolledGlass(role: role, shape: shape, tint: tint))
             }
-#else
+            #else
             content.modifier(HandRolledGlass(role: role, shape: shape, tint: tint))
-#endif
+            #endif
         }
     }
 
@@ -164,7 +164,7 @@ private struct HandRolledGlass<S: InsettableShape>: ViewModifier {
                         colors: [
                             .white.opacity(0.55),
                             .white.opacity(0.06),
-                            .white.opacity(0.22)
+                            .white.opacity(0.22),
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -226,15 +226,15 @@ struct PlinkGlassGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-#if compiler(>=6.2)
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) { content }
         } else {
             content
         }
-#else
+        #else
         content
-#endif
+        #endif
     }
 }
 
@@ -300,7 +300,7 @@ struct PlinkProminentButtonStyle: ButtonStyle {
 
 /// Вторичное действие — стеклянная кнопка без заливки акцентом.
 struct PlinkGlassButtonStyle: ButtonStyle {
-    var tint: Color? = nil
+    var tint: Color?
     var height: CGFloat = 52
     var cornerRadius: CGFloat = 18
     var fillsWidth: Bool = true
@@ -327,7 +327,7 @@ struct PlinkGlassButtonStyle: ButtonStyle {
 struct PlinkGlassIconButtonStyle: ButtonStyle {
     var diameter: CGFloat = 44
     var role: PlinkGlassRole = .control
-    var tint: Color? = nil
+    var tint: Color?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

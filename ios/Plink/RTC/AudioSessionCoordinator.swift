@@ -47,11 +47,19 @@ public final class AudioSessionCoordinator {
     public func configureForVoiceChat() {
         do {
             let session = AVAudioSession.sharedInstance()
+            // `.allowBluetooth` переименован в `.allowBluetoothHFP` в SDK iOS 26.
+            // Тулчейн CI (Xcode 16.4 / iOS 18 SDK) знает только прежнее имя — выбираем
+            // символ по версии компилятора. Чистое переименование, поведение то же.
+            #if compiler(>=6.2)
+            let bluetoothOption: AVAudioSession.CategoryOptions = .allowBluetoothHFP
+            #else
+            let bluetoothOption: AVAudioSession.CategoryOptions = .allowBluetooth
+            #endif
             try session.setCategory(
                 .playAndRecord,
                 mode: .voiceChat,
                 options: [
-                    .allowBluetoothHFP,
+                    bluetoothOption,
                     .defaultToSpeaker,
                     .duckOthers,  // Duck media by 30% during voice
                 ]

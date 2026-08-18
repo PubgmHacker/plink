@@ -55,10 +55,10 @@ final class VoiceNoteRecorder: NSObject {
             // AAC in .m4a — widely playable on iOS AVAudioPlayer + server stream
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 44_100,
+                AVSampleRateKey: 44100,
                 AVNumberOfChannelsKey: 1,
                 AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-                AVEncoderBitRateKey: 64_000,
+                AVEncoderBitRateKey: 64000,
             ]
 
             let rec = try AVAudioRecorder(url: url, settings: settings)
@@ -137,15 +137,24 @@ final class VoiceNoteRecorder: NSObject {
 
     private func requestMicPermission() async -> Bool {
         // Central helper — system dialog once (NSMicrophoneUsageDescription in Info.plist)
-        return await PlinkPermissions.requestMicrophoneIfNeeded()
+        await PlinkPermissions.requestMicrophoneIfNeeded()
     }
 
     private func configureSession() throws {
         let session = AVAudioSession.sharedInstance()
+        // `.allowBluetooth` переименован в `.allowBluetoothHFP` в SDK iOS 26.
+        // Тулчейн CI (Xcode 16.4 / iOS 18 SDK) знает только прежнее имя, поэтому
+        // символ выбирается по версии компилятора. Это чистое переименование —
+        // значение опции и поведение не меняются.
+        #if compiler(>=6.2)
+        let bluetoothOption: AVAudioSession.CategoryOptions = .allowBluetoothHFP
+        #else
+        let bluetoothOption: AVAudioSession.CategoryOptions = .allowBluetooth
+        #endif
         try session.setCategory(
             .playAndRecord,
             mode: .default,
-            options: [.defaultToSpeaker, .allowBluetoothHFP, .duckOthers, .mixWithOthers]
+            options: [.defaultToSpeaker, bluetoothOption, .duckOthers, .mixWithOthers]
         )
         try session.setActive(true)
         try? session.overrideOutputAudioPort(.speaker)
@@ -210,7 +219,7 @@ final class VoiceNoteRecorder: NSObject {
 }
 
 extension VoiceNoteRecorder: AVAudioRecorderDelegate {
-    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+    nonisolated func audioRecorderDidFinishRecording(_: AVAudioRecorder, successfully flag: Bool) {
         Task { @MainActor in
             if !flag, case .recording = self.state {
                 self.state = .failed("Запись прервана")
@@ -218,7 +227,7 @@ extension VoiceNoteRecorder: AVAudioRecorderDelegate {
         }
     }
 
-    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+    nonisolated func audioRecorderEncodeErrorDidOccur(_: AVAudioRecorder, error: Error?) {
         Task { @MainActor in
             self.state = .failed(error?.localizedDescription ?? "Ошибка кодирования")
         }
