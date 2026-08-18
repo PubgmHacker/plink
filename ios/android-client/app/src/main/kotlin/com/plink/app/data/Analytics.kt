@@ -21,4 +21,8 @@ object Analytics {
     fun roomLeft() = track("room_left")
     fun messageSent() = track("message_sent")
     fun syncDrift(ms: Long) = track("sync_drift", mapOf("drift_ms" to ms))
+
+    fun onboardingStep(page: Int) = track("onboarding_step", mapOf("page" to page))
+    fun onboardingComplete(page: Int) = track("onboarding_complete", mapOf("page" to page))
+    fun onboardingSkipped(page: Int) = track("onboarding_skipped", mapOf("page" to page))
 }

@@ -15,18 +15,18 @@ on:
   push:
     branches: [main]
     paths:
-      - 'ios/**'
-      - '!ios/android-client/**'
-      - '!ios/docs/**'
-      - '!ios/mac-desktop/**'
-      - '.github/workflows/ios.yml'
+      - "ios/**"
+      - "!ios/android-client/**"
+      - "!ios/docs/**"
+      - "!ios/mac-desktop/**"
+      - ".github/workflows/ios.yml"
   pull_request:
     paths:
-      - 'ios/**'
-      - '!ios/android-client/**'
-      - '!ios/docs/**'
-      - '!ios/mac-desktop/**'
-      - '.github/workflows/ios.yml'
+      - "ios/**"
+      - "!ios/android-client/**"
+      - "!ios/docs/**"
+      - "!ios/mac-desktop/**"
+      - ".github/workflows/ios.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -139,7 +139,7 @@ jobs:
       - name: Assert the skip count has not grown
         if: success()
         env:
-          MAX_SKIPS: '32'
+          MAX_SKIPS: "32"
         run: |
           summary=$(grep -oE 'Executed [0-9]+ tests, with ([0-9]+ tests skipped and )?[0-9]+ failures' \
                       "$RUNNER_TEMP/test.log" | tail -1)

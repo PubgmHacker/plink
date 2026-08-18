@@ -163,9 +163,12 @@ final class ProfileViewModel {
         }
     }
 
-    nonisolated deinit {
+    deinit {
         // Remove the notification observer to avoid leaks / zombie callbacks.
-        // nonisolated to match Swift 6 pattern — safe for Swift 6 strict concurrency.
+        // deinit is implicitly nonisolated in Swift 6 — safe for strict concurrency
+        // (Foundation's removeObserver is thread-safe). NB: spelling it as an
+        // explicit `nonisolated deinit` needs the Swift 6.2 IsolatedDeinit feature,
+        // which the CI toolchain (Xcode 16.4 / Swift 6.1) rejects outright.
         if let avatarObserver {
             NotificationCenter.default.removeObserver(avatarObserver)
         }

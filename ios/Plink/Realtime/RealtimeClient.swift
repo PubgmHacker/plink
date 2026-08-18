@@ -559,7 +559,9 @@ public final class RealtimeClient: NSObject {
         snapshotTimeoutTask?.cancel(); snapshotTimeoutTask = nil
     }
 
-    nonisolated deinit {
+    deinit {
+        // Implicitly nonisolated. An explicit `nonisolated deinit` is a Swift 6.2
+        // feature (IsolatedDeinit) the CI toolchain (Swift 6.1) does not accept.
         transport.cancel()
     }
 }

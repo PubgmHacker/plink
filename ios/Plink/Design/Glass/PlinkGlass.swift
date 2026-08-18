@@ -68,10 +68,22 @@ private struct PlinkGlassSurface<S: InsettableShape>: ViewModifier {
     func body(content: Content) -> some View {
         if reduceTransparency {
             content.background(opaqueFallback, in: shape).overlay(hairline)
-        } else if #available(iOS 26.0, *) {
-            content.modifier(NativeGlass(role: role, shape: shape, tint: tint, isInteractive: isInteractive))
         } else {
+            // Нативное стекло iOS 26 (Glass / glassEffect) существует только в
+            // SDK Xcode 26 (Swift 6.2). Под более старым тулчейном (CI — Xcode
+            // 16.4 / Swift 6.1) этого символа в SDK нет, поэтому весь путь скрыт
+            // за compile-time проверкой версии компилятора. `if #available` тут
+            // не спасает: он гейтит рантайм, но не подставляет отсутствующий в
+            // SDK тип, и сборка падает с `cannot find type 'Glass'`.
+#if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                content.modifier(NativeGlass(role: role, shape: shape, tint: tint, isInteractive: isInteractive))
+            } else {
+                content.modifier(HandRolledGlass(role: role, shape: shape, tint: tint))
+            }
+#else
             content.modifier(HandRolledGlass(role: role, shape: shape, tint: tint))
+#endif
         }
     }
 
@@ -87,6 +99,7 @@ private struct PlinkGlassSurface<S: InsettableShape>: ViewModifier {
     }
 }
 
+#if compiler(>=6.2)
 @available(iOS 26.0, *)
 private struct NativeGlass<S: InsettableShape>: ViewModifier {
     let role: PlinkGlassRole
@@ -110,6 +123,7 @@ private struct NativeGlass<S: InsettableShape>: ViewModifier {
         return base
     }
 }
+#endif
 
 /// Ручная аппроксимация Liquid Glass для iOS 17–25.
 ///
@@ -212,11 +226,15 @@ struct PlinkGlassGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+#if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) { content }
         } else {
             content
         }
+#else
+        content
+#endif
     }
 }
 
