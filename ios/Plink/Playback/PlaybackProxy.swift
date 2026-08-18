@@ -1,9 +1,10 @@
 // Plink/Playback/PlaybackProxy.swift
-// Stable proxy for OrderedSyncController (Brain Review 5 P0-29, 7 P0-53)
+// Stable proxy for OrderedSyncController
 //
-// P0-53 fix: proxy no longer silently succeeds when target is nil.
-// seek returns .unavailable, play/pause throw if no target.
-// Latest pending state is stored and replayed after target attachment.
+// The proxy never silently reports success while no target is attached:
+// prepare() throws and seek() returns .unavailable. play()/pause() are
+// no-ops because their signatures cannot throw. The latest pending seek is
+// stored and replayed once a target is attached.
 
 import Foundation
 import Observation
@@ -13,14 +14,14 @@ import Observation
 public final class PlaybackProxy: PlaybackControlling {
     public weak var target: PlaybackControlling?
 
-    // P0-53: pending state replay — store latest target after attach
+    // Pending state replay — store latest target after attach
     private var pendingSeek: (seconds: TimeInterval, precise: Bool)?
 
     public init(target: PlaybackControlling? = nil) {
         self.target = target
     }
 
-    // P0-53: attach target and replay pending seek
+    // Attach target and replay pending seek
     public func attachTarget(_ newTarget: PlaybackControlling?) {
         self.target = newTarget
         // Replay pending seek if any
@@ -30,7 +31,7 @@ public final class PlaybackProxy: PlaybackControlling {
         }
     }
 
-    // P0-53: clear target on teardown
+    // Clear target on teardown
     public func clearTarget() {
         self.target = nil
     }
@@ -49,7 +50,7 @@ public final class PlaybackProxy: PlaybackControlling {
     }
 
     public func play() async {
-        // P0-53: no-op if no target — but don't throw (play is not throwing)
+        // no-op if no target — but don't throw (play is not throwing)
         await target?.play()
     }
 
@@ -59,7 +60,7 @@ public final class PlaybackProxy: PlaybackControlling {
 
     public func seek(to seconds: TimeInterval, precise: Bool) async -> SeekResult {
         guard let target else {
-            // P0-53: store pending seek for replay after target attachment
+            // Store pending seek for replay after target attachment
             pendingSeek = (seconds, precise)
             return .unavailable
         }

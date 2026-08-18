@@ -1,4 +1,4 @@
-// PlinkTests/DMTests.swift — PATCH 20: dms system tests
+// Dms system tests
 //
 // Closes the "dms" red system in RegressionMatrix.
 

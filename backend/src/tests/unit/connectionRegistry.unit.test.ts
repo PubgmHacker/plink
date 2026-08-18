@@ -1,5 +1,5 @@
 // src/tests/unit/connectionRegistry.unit.test.ts
-// Аудит 26.07.2026 P2: broadcastLocal раньше молча пропускал сокеты с
+// broadcastLocal раньше молча пропускал сокеты с
 // bufferedAmount > 256KB и никогда их не закрывал — пассивный зритель навсегда
 // оставался в комнате, теряя sync.state и чат (входящий checkSlowConsumer к нему
 // не применялся, потому что он ничего не отправляет). Здесь проверяем эвикцию.
@@ -103,8 +103,8 @@ describe('ConnectionRegistry.broadcastLocal — slow consumer', () => {
     expect(socket.closes).toEqual([{ code: 1011, reason: 'Slow consumer' }]);
   });
 
-  // Ревью P2: в тихой комнате пропуски могут стоять в десятках секунд друг от
-  // друга — это не «непрерывный затык», выкидывать клиента нельзя.
+  // In a quiet room, skips can be tens of seconds apart. That is not a
+  // sustained stall and must not evict the client.
   it('does not evict when skips are separated by long silence', () => {
     const registry = new ConnectionRegistry();
     const socket = makeSocket(300 * 1024);

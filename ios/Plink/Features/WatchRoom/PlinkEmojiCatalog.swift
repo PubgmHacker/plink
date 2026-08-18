@@ -117,9 +117,16 @@ enum PlinkEmojiCatalog {
     }
 
     /// Whether a pack uses custom PNG art (vs SF Symbol renders)
+    ///
+    /// The unicode packs are excluded by not being on this list. An explicit
+    /// `packName != "Базовые" && packName != "Кино"` used to follow, which could
+    /// never change the result — neither name is in the array — and put display
+    /// copy into a predicate. Those two names are wire format, not just copy: they
+    /// are the `pack` half of the `:pack/name:` token in `encodeToken`, so a message
+    /// sent last year still carries them and they cannot be renamed or translated
+    /// without a migration.
     static func usesCustomArt(_ packName: String) -> Bool {
-        return ["Cute Faces", "Pepe", "Stickers", "Cats", "Le Pepe", "Plink+", "Fun", "Reactions"].contains(packName)
-            && packName != "Базовые" && packName != "Кино"
+        ["Cute Faces", "Pepe", "Stickers", "Cats", "Le Pepe", "Plink+", "Fun", "Reactions"].contains(packName)
     }
 
     // MARK: - DM packs (unicode free + Plink+ art)

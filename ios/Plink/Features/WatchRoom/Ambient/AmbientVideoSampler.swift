@@ -1,13 +1,11 @@
-// Plink/Features/WatchRoom/Ambient/AmbientVideoSampler.swift — PATCH 06
-//
-// GLM-5.2 master implementation patch — Commit Group 7.
+// Plink/Features/WatchRoom/Ambient/AmbientVideoSampler.swift
 //
 // Actor-isolated sampler that extracts a color palette from the currently
 // playing native video (AVPlayer). The palette drives the ambient
 // backdrop's primaryColor + secondaryColor, so the room's haze breathes
 // with the movie.
 //
-// PATCH 06 spec compliance:
+// Sampling contract:
 //   - Sampling via AVPlayerItemVideoOutput every 500ms (on dedicated actor)
 //   - Downsample to 48x27 before processing (5x compute reduction vs full frame)
 //   - CIAreaAverage filter extracts average color in O(1) per region
@@ -43,7 +41,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
 import Observation
-import SwiftUI  // PATCH 16: Color type used in AmbientPalette extension
+import SwiftUI  // Color type used in AmbientPalette extension
 
 // MARK: - Public types
 
@@ -70,7 +68,7 @@ actor AmbientVideoSampler {
     /// Latest palette. Polled by subscribers via currentPalette().
     private var latest: AmbientPalette = .defaultPalette
 
-    /// M27: latest tiny (64px wide) frame of the video. UI blurs it heavily
+    /// Latest tiny (64px wide) frame of the video. UI blurs it heavily
     /// (Rave-style live backdrop behind chat), so resolution barely matters.
     private var latestFrame: UIImage?
 
@@ -130,7 +128,7 @@ actor AmbientVideoSampler {
         latest
     }
 
-    /// M27: returns the latest tiny video frame for the live blurred backdrop.
+    /// Returns the latest tiny video frame for the live blurred backdrop.
     func currentFrame() -> UIImage? {
         latestFrame
     }
@@ -174,7 +172,7 @@ actor AmbientVideoSampler {
         latestFrame = renderTinyFrame(from: pixelBuffer)
     }
 
-    /// M27: renders a tiny 64px-wide frame of the current video for the
+    /// Renders a tiny 64px-wide frame of the current video for the
     /// Rave-style live backdrop. CIContext render of ~2300px costs ~1-2ms
     /// per 500ms tick — stays inside the sampler's 2% CPU budget.
     /// Same safety rules as the palette: native AVPlayer only, never DRM.

@@ -1,13 +1,13 @@
-// Аудит 12.08.2026 P0 — передача хоста при его уходе.
+// Host handoff when the host leaves.
 //
-// До этого `maybeEndAfterLeave` содержала `if (isHost || remaining === 0)`:
-// уход хоста закрывал комнату ВСЕМ, кто ещё смотрел. Схема `role.changed`
-// (contracts/realtime-v2.ts, P1-64) и `bumpEpoch()` (roomStateStore) были
-// написаны под миграцию хоста, но её никто не вызывал — фича была собрана
-// и не подключена.
+// `maybeEndAfterLeave` closes a room only when nobody is left in it: a host
+// leaving hands the host role to the longest-present remaining participant
+// instead of ending the session for everyone still watching. The
+// `role.changed` schema (contracts/realtime-v2.ts) and `bumpEpoch()`
+// (roomStateStore) exist for that migration and must stay wired to it.
 //
-// Тест закрепляет ровно то поведение, из-за которого сеанс раньше умирал:
-// хост уходит, а комната живёт и получает нового хоста.
+// This test pins the behaviour a live session depends on: the host leaves,
+// the room survives and gets a new host.
 import { describe, it, expect } from 'vitest';
 import { maybeEndAfterLeave, type PrismaLike } from '../../services/roomLifecycle.js';
 import { RoomEventSchema } from '../../realtime/roomEventBus.js';

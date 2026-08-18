@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-// MARK: - Room Countdown Wire (M14: отсчёт 3-2-1 перед стартом)
+// MARK: - Room Countdown Wire (отсчёт 3-2-1 перед стартом)
 // Ездит по чат-каналу с invisible-separator маркером — как RoomPollWire.
 // Бэкенд менять не нужно: обычный chat.send / chat.broadcast.
 
@@ -46,7 +46,7 @@ struct RoomCountdownOverlay: View {
     }
 }
 
-// MARK: - Room Accent (M14: V4-тема продолжается в комнате)
+// MARK: - Room Accent (V4-тема продолжается в комнате)
 /// Комната читает акцент выбранной V4-темы — интерфейс перестаёт «прыгать»
 /// между двумя дизайн-мирами при входе в просмотр.
 enum PlinkRoomAccent {

@@ -1,4 +1,6 @@
-// Plink/Features/WatchRoom/WatchChatView.swift — PATCH 02 polish + P0 report/block/kick
+// Plink/Features/WatchRoom/WatchChatView.swift
+// Room chat transcript: clustered message bubbles with report / block /
+// host-kick actions in each message's context menu.
 
 import SwiftUI
 #if canImport(UIKit)

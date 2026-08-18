@@ -1,23 +1,26 @@
-// src/middleware/auth.ts — обновлённый с access token (коротким)
+// HTTP authentication: verify the bearer token, then verify the user against the
+// database on every request.
 //
-// ⚠️ АУДИТ 26.07.2026 (P0): раньше здесь БЕЗОГОВОРОЧНО доверяли claim'ам JWT.
+// The second half is the point. This middleware used to trust the JWT claims
+// unconditionally, which meant every authorization decision was frozen at the moment
+// the token was issued:
 //
-// Что это означало на практике:
-//   • бан пользователя не действовал до истечения токена — забаненный
-//     спокойно продолжал писать в чат и создавать комнаты;
-//   • разжалование администратора не отбирало права;
-//   • удалённый аккаунт продолжал работать по старому токену;
-//   • роль бралась из токена, а не из БД, поэтому когда-то выданное
-//     повышение прав переживало свой отзыв.
+//   - A ban did not take effect until the token expired. A banned user kept posting
+//     in chat and creating rooms.
+//   - Demoting an administrator did not remove their privileges.
+//   - A deleted account kept working on its old token.
+//   - `role` came from the token rather than from the database, so a privilege grant
+//     outlived its own revocation.
 //
-// В связке со сломанным сроком жизни токена (см. utils/tokens.ts, где exp
-// фактически не выставлялся) окно «до истечения» было бесконечным — то есть
-// бан не срабатывал вообще никогда. Websocket-шлюз при этом всё делал
-// правильно и сверялся с БД; расходился именно HTTP-слой.
+// Combined with a separate defect in token lifetime — `utils/tokens.ts` was not
+// setting `exp` at all — the "until it expires" window was unbounded, so a ban never
+// took effect at any point. The websocket gateway was doing this correctly and
+// checking the database; only the HTTP layer had drifted.
 //
-// Теперь на каждый запрос сверяемся с БД, но с коротким кэшем (30 с), чтобы
-// не превращать каждый вызов API в лишний запрос к Postgres. Бан вступает
-// в силу максимум через 30 секунд, а при явном сбросе кэша — мгновенно.
+// Every request now reconciles against the database, behind a 30-second cache so that
+// an API call does not become an extra Postgres round trip. A ban therefore lands
+// within 30 seconds, or immediately when the cache is invalidated explicitly
+// (`invalidateUserSnapshot`, called from the ban, role-change and delete paths).
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/db.js';
@@ -32,7 +35,7 @@ interface UserSnapshot {
 }
 
 const SNAPSHOT_TTL_MS = 30_000;
-/// Ограничиваем размер кэша, чтобы он не рос бесконечно на большом трафике.
+/// Bound the cache so it cannot grow without limit under heavy traffic.
 const MAX_SNAPSHOTS = 10_000;
 
 const snapshots = new Map<string, UserSnapshot>();
@@ -71,8 +74,8 @@ async function loadSnapshot(userId: string): Promise<UserSnapshot | null> {
   return snapshot;
 }
 
-/// Сбросить кэш для пользователя — вызывать после бана, смены роли и удаления,
-/// чтобы решение вступало в силу мгновенно, а не через TTL.
+/// Drop one user's cached snapshot. Call this after a ban, a role change or a
+/// delete, so the decision takes effect immediately instead of after the TTL.
 export function invalidateUserSnapshot(userId: string): void {
   snapshots.delete(userId);
 }
@@ -86,8 +89,8 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     }
     const token = authHeader.substring(7);
 
-    // Access tokens теперь действительно короткие: exp выставляется явно
-    // в utils/tokens.ts (раньше claim не проставлялся вовсе).
+    // Access tokens really are short-lived now: `exp` is set explicitly in
+    // utils/tokens.ts. It used to not be set at all, which made them permanent.
     payload = request.server.jwt.verify(token) as any;
   } catch (err: any) {
     if (err.message === 'Unauthorized' || err.code?.includes('JWT') || err.name === 'TokenExpiredError') {
@@ -103,14 +106,15 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     return reply.status(401).send({ error: 'No token' });
   }
 
-  // ── Сверка с текущим состоянием в БД ─────────────────────────────────
+  // ── Reconcile against current database state ─────────────────────────
   let snapshot: UserSnapshot | null;
   try {
     snapshot = await loadSnapshot(payload.id);
   } catch (err) {
-    // БД недоступна: не пускаем по одному лишь токену, но и не отдаём 401,
-    // иначе клиент разлогинит пользователя из-за проблем инфраструктуры.
-    request.log.error({ err }, '[auth] не удалось проверить пользователя в БД');
+    // Database unreachable. Do not fall back to trusting the token alone — but do
+    // not answer 401 either, or the client signs the user out over an infrastructure
+    // problem. 503 tells it to retry.
+    request.log.error({ err }, '[auth] could not verify user against the database');
     return reply.status(503).send({ error: 'Сервис временно недоступен', code: 'AUTH_BACKEND_DOWN' });
   }
 
@@ -130,18 +134,20 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     id: payload.id,
     username: snapshot.username,
     email: snapshot.email,
-    // Роль — ТОЛЬКО из БД. Значение из токена намеренно игнорируется:
-    // иначе отозванные права продолжали бы действовать.
+    // Role comes from the database ONLY. The value in the token is deliberately
+    // ignored; honouring it is what let revoked privileges keep working.
     role: snapshot.role,
-    // Аудит 26.07.2026 P1: mfa/auth_time — из ПОДПИСАННОГО токена (в БД их
-    // нет и быть не должно: это свойства сессии). Раньше claims терялись,
-    // и step-up 2FA в админке (requireAdmin) не проходил никогда.
+    // mfa/auth_time come from the SIGNED token, not the database — they are
+    // properties of the session, not of the user, and have no business being stored.
+    // These claims used to be dropped here, which meant the step-up 2FA check in the
+    // admin panel (`requireAdmin`) could never pass.
     mfa: payload.mfa === true,
     auth_time: typeof payload.auth_time === 'number' ? payload.auth_time : undefined,
   };
 }
 
-// Optional auth — не падает если нет токена
+// Optional auth: populates request.user when a valid token is present, and does
+// nothing at all when it is absent or unusable. Never rejects the request.
 export async function optionalAuth(request: FastifyRequest, reply: FastifyReply) {
   try {
     const authHeader = request.headers.authorization;
@@ -150,8 +156,8 @@ export async function optionalAuth(request: FastifyRequest, reply: FastifyReply)
     const payload = request.server.jwt.verify(token) as any;
     if (!payload?.id) return;
 
-    // Здесь тоже сверяемся с БД, но молча: авторизация необязательная,
-    // и забаненный либо удалённый пользователь просто считается гостем.
+    // Reconciled against the database here too, but silently: authentication is
+    // optional on these routes, so a banned or deleted user is simply a guest.
     const snapshot = await loadSnapshot(payload.id);
     if (!snapshot || snapshot.deletedAt) return;
     if (snapshot.bannedUntil && snapshot.bannedUntil.getTime() > Date.now()) return;
@@ -161,7 +167,7 @@ export async function optionalAuth(request: FastifyRequest, reply: FastifyReply)
       username: snapshot.username,
       email: snapshot.email,
       role: snapshot.role,
-      // Аудит 26.07.2026 P1: те же session-claims, что и в authenticate.
+      // The same session claims as in authenticate() above.
       mfa: payload.mfa === true,
       auth_time: typeof payload.auth_time === 'number' ? payload.auth_time : undefined,
     };

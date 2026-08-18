@@ -4,7 +4,7 @@ import XCTest
 /// Регрессия на дыру, которая пережила два аудита и один переезд файла.
 ///
 /// Июль 2026: аудит нашёл `host.contains("vk.com")` в `MediaSourceResolver.swift`.
-/// Мёртвый CI (`ios-2/.github/workflows/ci.yml`) стерёг именно тот путь.
+/// Мёртвый CI (`ios/.github/workflows/ci.yml`) стерёг именно тот путь.
 /// К августу файл удалили, а приём разошёлся по четырём местам:
 /// `ServiceBrowserView.detectVideoURL`, `ServiceBrowserView.serviceFromURL`,
 /// `ServicePickerCarousel.detect`, `WatchRoomCompositionRoot.extractVKVideoId`

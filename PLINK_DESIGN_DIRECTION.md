@@ -19,7 +19,7 @@
 **никаких внешних шрифтов** (Google Fonts запрещён) — сериф = системный
 `'Didot','Bodoni 72','Playfair Display',Georgia,serif` italic. Все приёмы
 референсов воспроизводятся чистым CSS/JS — уже сделано в
-`backend-3/src/routes/web.ts` (v5, см. блок `<style>`).
+`backend/src/routes/web.ts` (v5, см. блок `<style>`).
 
 ## Реализованная дизайн-система v5 (web.ts)
 
@@ -59,7 +59,7 @@
 
 ## Иконка приложения
 
-`ios-2/Plink/Resources/plink-icon-source.svg` (+ AppIcon-1024.png, RGB без
+`ios/Plink/Resources/plink-icon-source.svg` (+ AppIcon-1024.png, RGB без
 альфы!). Композиция: чёрный фон, двойной слоёный play-кадр («кадр в кадр»),
 передний — белый→teal градиент. Альтернативы в scratchpad старой сессии
 (icon-a кинозал, icon-b неон-билет) — пересоздаваемы по описанию в журнале.

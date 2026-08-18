@@ -1,41 +1,55 @@
-# Plink Mac Desktop — заглушка, кода нет
+# Plink for macOS — not built
 
-**Статус на 11.08.2026: десктоп-клиента не существует.** В этом каталоге только
-этот файл. Ниже — не инструкция, а два варианта на выбор, когда до десктопа
-дойдут руки.
+There is no desktop client. This directory contains this file and nothing else; it
+exists to hold the decision, not an implementation. What follows is two options for
+whenever desktop is picked up, with the reasoning that applies today.
 
-Предыдущая версия README предлагала «Option B (recommended): обернуть
-`windows-client/` в Tauri». **Каталога `windows-client/` в репозитории нет и
-никогда не было** — это был миф, который аудит 07.08.2026 (находка №19) поймал.
-Скрипты `desktop:dev` / `desktop:build` / `desktop:dmg` в `ios-2/package.json`
-вели туда же и удалены.
+An earlier version of this file recommended "Option B: wrap `windows-client/` in
+Tauri." **There has never been a `windows-client/` directory in this repository.** The
+`desktop:dev`, `desktop:build`, and `desktop:dmg` scripts in `ios/package.json` pointed
+at it and have been removed. Treat any surviving reference to a Windows client as
+fiction.
 
-## Вариант A — Mac Catalyst (дешевле всего)
+## Option A — Mac Catalyst
 
-Добавить `macCatalyst` в существующий таргет `Plink` в `project.yml`. Переиспользует
-все 171 Swift-файл как есть.
+Add `macCatalyst` to the existing `Plink` target in `project.yml`. This reuses all 174
+Swift files in `ios/Plink/` as they are, which is what makes it the cheap option.
 
-Что придётся закрыть guard'ами `#if targetEnvironment(macCatalyst)`:
+Guards needed behind `#if targetEnvironment(macCatalyst)`:
 
-- `UIDevice.orientation`, haptics (`UIImpactFeedbackGenerator`) — нет на Mac.
-- `AVAudioSession` — другая модель на macOS.
-- Danmaku/Canvas-эффекты — проверить производительность без Metal-путей iOS.
-- Пуши — отдельный APNs-энтайтлмент для Catalyst.
+- `UIDevice.orientation` and haptics (`UIImpactFeedbackGenerator`) — neither exists on
+  macOS.
+- `AVAudioSession` — a different model on macOS.
+- Danmaku and canvas effects — measure before shipping; the iOS Metal paths are not a
+  given here.
+- Push notifications — Catalyst needs its own APNs entitlement.
 
-Оценка: 3–5 дней до собираемого билда, ещё столько же на вычистку UI под
-курсор и окно с изменяемым размером.
+Rough cost: 3–5 days to a build that runs, and about as long again to make the UI
+behave for a cursor and a resizable window. The second half is the part that gets
+underestimated: a phone layout that merely compiles on a Mac is not a Mac app.
 
-## Вариант B — веб-обёртка (Tauri/Electron)
+## Option B — web wrapper (Tauri or Electron)
 
-Требует сначала **написать** веб-клиент, которого нет. Лендинг в `landing/` —
-это маркетинговый сайт на Next.js, а не приложение: ни плеера, ни WS-синхрона,
-ни чата.
+The premise here has changed and the old estimate no longer applies. A web guest player
+now exists — `backend/src/web/watchPage.ts`, served from `backend/src/routes/web.ts`. It
+renders a YouTube IFrame and follows the host's timeline over the realtime socket, so
+the hard part (sync in a browser) is already solved and tested.
 
-Оценка: 3–4 недели с нуля. Смысл появляется только если веб-клиент нужен
-самостоятельно (браузерный вход без установки).
+What it is not is a full client. It is a guest surface: no chat, no sign-in, no room
+creation. Wrapping it as-is produces a viewer, not Plink. Closing that gap is the real
+work in this option, and it means building web UI for features that currently exist only
+in Swift.
 
-## Рекомендация
+Prefer this only if a browser client is wanted for its own sake — joining a room with no
+install is a genuinely different product capability from a Mac app.
 
-Не начинать до релиза iOS в App Store. Синхрон-протокол ещё не замерен на трёх
-физических устройствах (P0 5.2 из `AGENT_BRIEF.md`) — третья платформа сейчас
-только размножит нестабильность.
+## Recommendation
+
+Do not start either before the iOS app ships.
+
+The synchronisation protocol has not yet been measured across three physical devices;
+the closed-beta gate still asks only for two, and that gate is not met yet — see
+[the release runbook § 6](../../docs/runbooks/ios-build-and-release.md#6-closed-beta) and
+[ADR-0005](../../docs/adr/0005-drift-as-a-user-facing-metric.md) for the drift targets
+and the harness they are measured with. A third platform added now would multiply an
+instability that has not been characterised on the first one.

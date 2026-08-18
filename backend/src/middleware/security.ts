@@ -221,7 +221,7 @@ export function requireHost(prisma) {
 }
 
 export async function sanitizeChatMessage(clientMsg: any, user: { id: string; username: string; role: string }, prisma?: any) {
-  // 🔧 FIX: fetch avatarURL + isPremium + displayName so chat bubbles can show
+  // Fetch avatarURL + isPremium + displayName so chat bubbles can show
   // avatars, names, AND we can validate bubble style permissions server-side.
   let avatarURL: string | null = null;
   let displayName: string | null = null;
@@ -234,7 +234,7 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
       });
       avatarURL = userData?.avatarURL || null;
       displayName = userData?.displayName || null;
-      // 🔧 v10 (bubble styles): premium is active only if isPremium=true AND
+      // Premium is active only if isPremium=true AND
       // premiumUntil is in the future (or null = lifetime).
       const now = new Date();
       isPremium = !!userData?.isPremium && (
@@ -243,7 +243,7 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
     } catch {}
   }
 
-  // 🔧 v10 (bubble styles): validate requested bubble style against user's
+  // Validate requested bubble style against user's
   // permissions. processMessageStyle() returns a guaranteed-safe style id
   // that the client is allowed to use. NEVER trust the client's style id
   // directly — always re-derive it here.
@@ -259,19 +259,19 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
     roomID: clientMsg.roomID,
     id: clientMsg.id || crypto.randomUUID(),
     senderID: user.id,
-    senderName: user.username,  // 🔧 v11: keep @username for compatibility
-    senderDisplayName: displayName,  // 🔧 v11: Telegram-style display name (nil on old clients)
+    senderName: user.username,  // Keep @username for compatibility
+    senderDisplayName: displayName,  // Telegram-style display name (nil on old clients)
     senderRole: user.role,
     senderAvatarURL: avatarURL,
     text: sanitizeText(clientMsg.text),
     timestamp: Date.now(),
-    // 🔧 v10: confirmed bubble style — client uses this for rendering.
+    // Confirmed bubble style — client uses this for rendering.
     bubbleStyle: confirmedStyleId,
   };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 🔧 v10 (July 2026): Chat Bubble Styles — server-side validation
+// Chat Bubble Styles — server-side validation
 // ═══════════════════════════════════════════════════════════════════════
 //
 // Permission matrix:

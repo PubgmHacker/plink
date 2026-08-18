@@ -2,8 +2,8 @@
 //  SyncTelemetryCollector.swift
 //  Plink
 //
-//  B3 (GPT-5.6 ADR-004/005): Client-side sync drift telemetry.
-//  Collects samples every 2s + on playback events, sends to backend.
+//  Client-side sync drift telemetry: samples every 2s and on playback events,
+//  reported to the backend.
 //
 
 import Foundation

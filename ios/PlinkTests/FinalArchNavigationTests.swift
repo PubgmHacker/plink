@@ -1,4 +1,3 @@
-// PlinkTests/FinalArchNavigationTests.swift — §15 Final Unified
 //
 // Tests for final architecture: 5 tabs, navigation invariants,
 // create room flow, onboarding versioning.
@@ -157,6 +156,11 @@ final class FinalArchNavigationTests: XCTestCase {
         XCTAssertEqual(destinations.count, 4)
     }
 
+    func testLaunchDestination_afterAuthentication_showsOnboardingWhenNeeded() {
+        XCTAssertEqual(LaunchDestination.afterAuthentication(needsOnboarding: true), .onboarding)
+        XCTAssertEqual(LaunchDestination.afterAuthentication(needsOnboarding: false), .app)
+    }
+
     // MARK: - Auth mode
 
     /// Вход и регистрация — два режима одного экрана (PlinkAuthScreen).
@@ -166,5 +170,15 @@ final class FinalArchNavigationTests: XCTestCase {
         XCTAssertEqual(PlinkAuthMode.allCases.count, 2)
         XCTAssertEqual(PlinkAuthMode.signIn.title, "Вход")
         XCTAssertEqual(PlinkAuthMode.signUp.title, "Регистрация")
+    }
+
+    func testHomeTitleFilter_captionDoesNotClaimCatalog() {
+        XCTAssertTrue(HomeTitleFilter.caption(chip: HomeTitleFilter.allChip).contains("не каталог"))
+        XCTAssertTrue(HomeTitleFilter.caption(chip: "Аниме").contains("названии"))
+    }
+
+    func testHomeTitleFilter_allChipKeepsItems() {
+        XCTAssertEqual(HomeTitleFilter.chips.first, HomeTitleFilter.allChip)
+        XCTAssertEqual(HomeTitleFilter.apply(chip: HomeTitleFilter.allChip, items: []).count, 0)
     }
 }

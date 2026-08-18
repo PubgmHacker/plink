@@ -1,8 +1,7 @@
-// Plink/Design/Cinematic/CompactLivingBackdrop.swift — §7 Final Unified + Brain Phase 8
 //
 // Subtle ambient backdrop with accessibility + power gating.
 //
-// Brain Phase 8: backdrop is driven by an artwork palette (extracted from
+// Backdrop is driven by an artwork palette (extracted from
 // a thumbnail) when available, falling back to a flat color pair when not.
 // Never captures YouTube/WKWebView/DRM frames — palette comes from a
 // separate thumbnail AsyncImage load.
@@ -121,7 +120,7 @@ struct CompactLivingBackdrop: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var phase = false
 
-    /// Brain Phase 8: respect Low Power Mode and thermal state.
+    /// Respect Low Power Mode and thermal state.
     private var isLowPower: Bool {
         ProcessInfo.processInfo.isLowPowerModeEnabled
     }

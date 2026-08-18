@@ -1,14 +1,11 @@
-// Plink/Features/WatchRoom/WatchRoomUIState.swift — PATCH 02: UI state shell
-//
-// Commit Group 1: minimum fields required for the new WatchRoomScreen
-// scaffolding from PATCH 02, while preserving the existing fields used by
-// the current WatchRoomScreen / WatchLayouts / PlayerStage implementation.
+// Plink/Features/WatchRoom/WatchRoomUIState.swift
+// Ephemeral view state shared by WatchRoomScreen, WatchLayouts and PlayerStage.
 //
 // Fields that exist on the model (reactions, participants, etc.) are NOT
-// duplicated here; they remain on WatchRoomModel.ui-reachable via direct
-// model access. The fields here are pure UI ephemerals (control visibility,
-// scrubbing state, chat drawer) plus the ambient state shell that PATCH 06
-// will populate.
+// duplicated here; they stay on WatchRoomModel and are read through direct
+// model access. What belongs here is presentation-only — control visibility,
+// scrubbing state, chat drawer — plus the inert ambient / identity / presence
+// defaults described below.
 
 import Foundation
 import SwiftUI
@@ -28,8 +25,10 @@ struct WatchRoomUIState: Equatable {
     /// панель схлопывалась прямо под пальцем хоста.
     var appearancePanelPresented = false
 
-    // PATCH 02 scaffolding — ambient + identity + presence shell.
-    // Commit 7 (PATCH 06) replaces AmbientState defaults with sampled palette.
+    // The ambient palette, room identity and presence list are owned by
+    // WatchRoomModel (ambient is fed by AmbientVideoSampler). The values below
+    // are inert defaults kept for source compatibility — read the model, never
+    // treat these as a second source of truth.
     var ambient: AmbientState = AmbientState()
     var roomTitle: String = ""
     var hostDisplayName: String = ""

@@ -1,5 +1,5 @@
 // Plink/Realtime/RealtimeEnvelope.swift
-// Protocol v2 wire types (runbook §3, §5)
+// Protocol v2 wire types
 //
 // Single source of truth for all realtime payloads between iOS and backend.
 // Mirror of src/contracts/realtime-v2.ts. Field names are camelCase on both
@@ -151,7 +151,7 @@ public enum RealtimeClientMessage: Encodable, Sendable {
         }
     }
 
-    /// M26: гость просит паузу. Это НЕ команда плееру — сервер ничего не
+    /// Гость просит паузу. Это НЕ команда плееру — сервер ничего не
     /// останавливает, просьба доставляется хосту, решение за ним.
     /// Схема strict, поэтому `reason` кодируем только когда он есть.
     public struct PauseRequest: Encodable, Sendable {
@@ -181,7 +181,7 @@ public enum RealtimeClientMessage: Encodable, Sendable {
         }
     }
 
-    /// M27: хост отвечает на просьбу о паузе. Социальный сигнал: принятая
+    /// Хост отвечает на просьбу о паузе. Социальный сигнал: принятая
     /// пауза едет отдельным sync.command, здесь только вердикт для комнаты.
     /// Схема strict, поэтому `requestUserId` кодируем только когда он есть —
     /// тот же стык .strict()+.optional(), что и у PauseRequest.reason.
@@ -310,7 +310,7 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
         public let serverTimeMs: Int64
     }
 
-    // P0-17: reaction.broadcast — was missing, decode would fail
+    // reaction.broadcast — was missing, decode would fail
     public struct ReactionBroadcast: Decodable, Sendable, Equatable {
         public let type: String  // "reaction.broadcast"
         public let protocolVersion: Int
@@ -321,9 +321,9 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
         public let serverTimeMs: Int64
     }
 
-    // M26: pause.requested — гость попросил хоста поставить паузу.
+    // pause.requested — гость попросил хоста поставить паузу.
     // Сервер плеер не трогает: это доставка просьбы, решение за хостом
-    // (backend-3/src/contracts/realtime-v2.ts → PauseRequestedSchema).
+    // (backend/src/contracts/realtime-v2.ts → PauseRequestedSchema).
     public struct PauseRequested: Decodable, Sendable, Equatable {
         public let type: String  // "pause.requested"
         public let protocolVersion: Int
@@ -335,9 +335,9 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
         public let serverTimeMs: Int64
     }
 
-    // M27: pause.resolved — хост ответил на просьбу о паузе. Социальный сигнал:
+    // pause.resolved — хост ответил на просьбу о паузе. Социальный сигнал:
     // сама пауза (если accepted) едет отдельным sync.state, здесь только вердикт
-    // (backend-3/src/contracts/realtime-v2.ts → PauseResolvedSchema).
+    // (backend/src/contracts/realtime-v2.ts → PauseResolvedSchema).
     public struct PauseResolved: Decodable, Sendable, Equatable {
         public let type: String  // "pause.resolved"
         public let protocolVersion: Int
@@ -355,7 +355,7 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
     // стал хостом, определяет newHostId — клиент сверяет его со своим userId.
     // epoch обязателен: сервер переинициализировал состояние комнаты, и команды
     // прежней эпохи (в т.ч. от ушедшего хоста) больше не действуют.
-    // (backend-3/src/contracts/realtime-v2.ts → RoleChangedSchema)
+    // (backend/src/contracts/realtime-v2.ts → RoleChangedSchema)
     public struct RoleChanged: Decodable, Sendable, Equatable {
         public let type: String  // "role.changed"
         public let protocolVersion: Int
@@ -366,7 +366,7 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
         public let serverTimeMs: Int64
     }
 
-    // P0-17: server.draining — sent on graceful shutdown
+    // server.draining — sent on graceful shutdown
     public struct ServerDraining: Decodable, Sendable, Equatable {
         public let type: String  // "server.draining"
         public let protocolVersion: Int
@@ -377,7 +377,7 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
     // P1 5.11: room.appearance.updated — живая тема комнаты.
     // Хост сохраняет вид через PATCH /rooms/:id/appearance, сервер публикует
     // событие в RoomEventBus, и каждая реплика рассылает его своим сокетам
-    // (backend-3/src/contracts/realtime-v2.ts → RoomAppearanceUpdatedSchema).
+    // (backend/src/contracts/realtime-v2.ts → RoomAppearanceUpdatedSchema).
     public struct RoomAppearanceUpdated: Decodable, Sendable, Equatable {
         /// Полезная нагрузка вида. ОДНА структура на два источника:
         ///   1) провод — strict, ровно четыре поля;
@@ -438,7 +438,7 @@ public enum RealtimeServerMessage: Decodable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DiscriminatorKey.self)
         let type = try container.decode(String.self, forKey: .type)
-        // P1-21: validate protocolVersion == 2 — reject v1/unknown envelopes
+        // Validate protocolVersion == 2 — reject v1/unknown envelopes
         // instead of silently decoding with mismatched assumptions.
         if let pv = try? container.decode(Int.self, forKey: .protocolVersion), pv != 2 {
             throw DecodingError.dataCorruptedError(

@@ -1,21 +1,22 @@
-// src/realtime/gateway.ts — WebSocket gateway (runbook §5 + Brain Review 2 fixes)
+// src/realtime/gateway.ts — WebSocket gateway
 //
-// Brain Review 2 fixes:
+// Connection lifecycle invariants:
 //
-// P0-15: cleanup handlers registered IMMEDIATELY after onConnection entry,
-//   before any await. Idempotent cleanup tracks what was committed
-//   (presence, metrics, registry, listeners) and only rolls back what
-//   actually happened. Rejection paths (no room, ticket mismatch, banned,
-//   not member, PubSub failure) no longer leak presence/metrics/registry.
+// Cleanup handlers are registered IMMEDIATELY after onConnection entry,
+//   before any await. Cleanup is idempotent: it tracks what was actually
+//   committed (presence, metrics, registry, listeners) and rolls back only
+//   that. Rejection paths (no room, ticket mismatch, banned, not member,
+//   PubSub failure) therefore leak no presence/metrics/registry state.
 //
-// P0-16: session.ready role derived from CURRENT DB query, not stale ticket
-//   claim. isMemberOrHost() now returns { allowed, isHost } from a single
-//   DB check, and that current isHost is used for session.ready.
+// The session.ready role comes from a CURRENT DB query, never from the
+//   ticket claim. isMemberOrHost() returns { allowed, isHost } from a single
+//   DB check, and that current isHost is what session.ready reports.
 //
-// P1-12: participant events use Redis-backed presence count. We publish
-//   participant.joined only when the user's first connection for this room
-//   joins (count 0 → 1), and participant.left only when the last connection
-//   leaves (count 1 → 0). Multi-device users no longer spam join/leave.
+// Participant events are driven by the Redis-backed presence count.
+//   participant.joined is published only when the user's first connection for
+//   this room joins (count 0 → 1), and participant.left only when the last
+//   connection leaves (count 1 → 0), so multi-device users do not spam
+//   join/leave.
 
 import type { WebSocketServer } from 'ws';
 import type { FastifyInstance } from 'fastify';
@@ -68,7 +69,7 @@ export class RealtimeGateway {
         return s?.epoch ?? 1;
       },
     });
-    // P0-25: Heartbeat now takes callbacks for presence lease refresh.
+    // Heartbeat now takes callbacks for presence lease refresh.
     // onPong refreshes the lease; onDead is informational only (finalize
     // handles cleanup via 'close' event).
     this.heartbeat = new Heartbeat(deps.wss, {
@@ -83,7 +84,7 @@ export class RealtimeGateway {
         }
       },
       onDead: (socket) => {
-        // P1-28: do NOT disconnect registry here — finalize does it.
+        // Do NOT disconnect registry here — finalize does it.
         // Just log for observability.
         console.debug('[Heartbeat] dead socket terminated:', socket.userId);
       },
@@ -98,7 +99,7 @@ export class RealtimeGateway {
       return;
     }
 
-    // ── P0-15/P0-22/P0-23: register finalize handler IMMEDIATELY, before
+    // ── register finalize handler IMMEDIATELY, before
     // any await. Single socket.once('close', finalize) for entire lifecycle.
     // No removeAllListeners. Idempotent. Tracks ALL committed state.
     let finalized = false;
@@ -106,7 +107,7 @@ export class RealtimeGateway {
     let incrementedMetrics = false;
     let joinedRoomId: string | undefined;
     let retainedRoom = false;
-    let presenceCountBumped = false;  // P0-22
+    let presenceCountBumped = false;  //
     let presenceBumpedFor: { roomId: string; userId: string; connectionId?: string } | undefined;
     // capturedUser is set after banned check — finalize uses it for username
     let capturedUser: { id: string; username: string } | undefined;
@@ -114,7 +115,7 @@ export class RealtimeGateway {
     const finalize = async () => {
       if (finalized) return;
       finalized = true;
-      // P1-27: local synchronous cleanup FIRST — never block on Redis.
+      // Local synchronous cleanup FIRST — never block on Redis.
       // Registry disconnect, presence/metrics decrement, listener release
       // all happen synchronously before any Redis call.
       if (joinedRoomId) {
@@ -131,14 +132,14 @@ export class RealtimeGateway {
       if (joinedRoomId) {
         await this.releaseRoomIfEmpty(joinedRoomId).catch(() => {});
       }
-      // P0-22/P1-27: distributed cleanup (Redis presence + event bus publish)
+      // Distributed cleanup (Redis presence + event bus publish)
       // with bounded timeout — don't let Redis hang block local cleanup.
       if (presenceCountBumped && presenceBumpedFor) {
         const { roomId: prid, userId: puid, connectionId } = presenceBumpedFor;
         let cleanupSettled = false;
         const distributedCleanup = (async () => {
           const count = await this.decrementRoomPresence(prid, puid, connectionId).catch((err) => {
-            // Аудит 26.07.2026 P2: молчаливый catch скрывал недоступность Redis —
+            // Молчаливый catch скрывал недоступность Redis —
             // participant.left не уходил, а в логах не было ни строки.
             console.warn(
               `[RealtimeGateway] presence decrement failed (room=${prid} user=${puid}):`,
@@ -165,7 +166,7 @@ export class RealtimeGateway {
           distributedCleanup,
           new Promise<void>((resolve) => setTimeout(resolve, 2000)),
         ]).catch(() => {});
-        // Аудит 26.07.2026 P2: раньше «брошенный на полпути» decrement
+        // Раньше «брошенный на полпути» decrement
         // проходил бесследно. Логируем: lease доживёт до истечения TTL,
         // participant.left в этом случае не публикуется.
         if (!cleanupSettled) {
@@ -175,7 +176,7 @@ export class RealtimeGateway {
         }
       }
     };
-    // P0-23: single 'close' listener for entire lifecycle. No replacement.
+    // Single 'close' listener for entire lifecycle. No replacement.
     socket.once('close', () => void finalize());
     // Error event logs and triggers close — does NOT do partial cleanup.
     socket.on('error', (err: Error) => {
@@ -183,7 +184,7 @@ export class RealtimeGateway {
       // socket error is followed by close — finalize runs there.
     });
 
-    // ── GPT-5 BE-P0-06: Origin validation ───────────────────────────────
+    // ── Origin validation ───────────────────────────────
     // Reject WebSocket connections from unknown origins (CSRF protection).
     // Allow native iOS origins (null, app://, capacitor://, localhost) +
     // configured web origins via CORS_ORIGIN env.
@@ -202,7 +203,7 @@ export class RealtimeGateway {
       }
     }
 
-    // ── Auth via Sec-WebSocket-Protocol (runbook §2) ────────────────────
+    // ── Auth via Sec-WebSocket-Protocol ────────────────────
     const protocols = (req.headers['sec-websocket-protocol'] as string | undefined)
       ?.split(',')
       .map((s) => s.trim()) ?? [];
@@ -289,7 +290,7 @@ export class RealtimeGateway {
       return;
     }
 
-    // P0-1: ticket is bound to roomId — WS path must match ticket.roomId.
+    // Ticket is bound to roomId — WS path must match ticket.roomId.
     if (wsRoomId !== ticketPayload.roomId) {
       sendError(socket, 'ROOM_MISMATCH', 'Ticket roomId does not match WS path roomId');
       socket.close(4003, 'Ticket room mismatch');
@@ -298,7 +299,7 @@ export class RealtimeGateway {
     }
     const roomId = wsRoomId;
 
-    // P0-16: derive current role from DB, not stale ticket claim.
+    // Derive current role from DB, not stale ticket claim.
     // isMemberOrHost returns { allowed, isHost } from single DB check.
     const membership = await this.isMemberOrHost(user.id, roomId);
     if (!membership.allowed) {
@@ -320,7 +321,7 @@ export class RealtimeGateway {
     presence.joinRoom(socket, roomId);
     joinedRoomId = roomId;
 
-    // P0-2: retain ONE pubsub listener for this room on this replica.
+    // Retain ONE pubsub listener for this room on this replica.
     try {
       await this.retainRoom(roomId);
       retainedRoom = true;
@@ -331,14 +332,14 @@ export class RealtimeGateway {
       return;
     }
 
-    // P0-22/P1-12/P0-24/P0-25: Redis ZSET presence leases with proper cleanup tracking.
+    // Redis ZSET presence leases with proper cleanup tracking.
     // If bumpRoomPresence succeeds but eventBus.publish throws, finalize()
     // will decrement the count — no stale presence.
     try {
       const presence = await this.bumpRoomPresence(roomId, user.id);
-      // P0-25: store connectionId on socket so heartbeat can refresh lease
+      // Store connectionId on socket so heartbeat can refresh lease
       socket.connectionId = presence.connectionId;
-      presenceCountBumped = true;  // P0-22: track for cleanup
+      presenceCountBumped = true;  // Track for cleanup
       presenceBumpedFor = { roomId, userId: user.id, connectionId: presence.connectionId };
       if (presence.count === 1) {
         const joinTimestamp = Date.now();
@@ -348,10 +349,10 @@ export class RealtimeGateway {
             roomId,
             userId: user.id,
             username: user.username,
-            timestampMs: joinTimestamp,  // P1-22/P1-26: preserve original timestamp
+            timestampMs: joinTimestamp,  // Preserve original timestamp
           });
         } catch (publishErr) {
-          // P0-22: publish failed — finalize() will decrement presence count
+          // Publish failed — finalize() will decrement presence count
           console.error('[RealtimeGateway] participant.joined publish failed:', publishErr);
           sendError(socket, 'PUBLISH_FAILED', 'Failed to announce join');
           socket.close(1011, 'Join publish failed');
@@ -360,7 +361,7 @@ export class RealtimeGateway {
         }
       }
     } catch (bumpErr) {
-      // P0-22: bumpRoomPresence itself failed — no presence to clean up
+      // bumpRoomPresence itself failed — no presence to clean up
       console.error('[RealtimeGateway] bumpRoomPresence failed:', bumpErr);
       sendError(socket, 'PRESENCE_FAILED', 'Failed to track presence');
       socket.close(1011, 'Presence tracking failed');
@@ -368,7 +369,7 @@ export class RealtimeGateway {
       return;
     }
 
-    // P0-16: session.ready role from CURRENT DB state, not ticket claim.
+    // session.ready role from CURRENT DB state, not ticket claim.
     socket.send(JSON.stringify(makeSessionReady(roomId, currentIsHost ? 'host' : 'viewer')));
 
     socket.on('message', (raw: Buffer) => {
@@ -379,7 +380,7 @@ export class RealtimeGateway {
       });
     });
 
-    // P0-23: NO removeAllListeners. The single socket.once('close', finalize)
+    // NO removeAllListeners. The single socket.once('close', finalize)
     // registered at the top handles all cleanup — including presence
     // decrement and participant.left publish. No late handler replacement.
   }
@@ -393,7 +394,7 @@ export class RealtimeGateway {
     }
   }
 
-  // ── P0-24: Redis ZSET connection leases with heartbeat refresh ────────
+  // ── Redis ZSET connection leases with heartbeat refresh ────────
   // Each connection gets a unique connectionId (UUID). ZSET member is the
   // connectionId; score is leaseExpiresAtMs. Heartbeat refreshes the lease.
   // Atomic Lua: remove expired members + count active.
@@ -407,13 +408,13 @@ export class RealtimeGateway {
     const roomIndexKey = `plink:room:${roomId}:activeUsers`;
     const now = Date.now();
     const expiresAt = now + RealtimeGateway.PRESENCE_LEASE_TTL_MS;
-    // P0-56: maintain BOTH per-user ZSET and room-level index ZSET
+    // Maintain BOTH per-user ZSET and room-level index ZSET
     const pipeline = this.deps.redis.multi();
     pipeline.zremrangebyscore(key, '-inf', now);  // remove expired from user key
     pipeline.zadd(key, expiresAt, connectionId);   // add new connection
     pipeline.pexpire(key, RealtimeGateway.PRESENCE_LEASE_TTL_MS * 2);
     pipeline.zcount(key, now, '+inf');              // count active connections
-    // P0-56: update room-level index — userId → latestLeaseExpiresAtMs
+    // Update room-level index — userId → latestLeaseExpiresAtMs
     pipeline.zadd(roomIndexKey, expiresAt, userId);
     pipeline.pexpire(roomIndexKey, RealtimeGateway.PRESENCE_LEASE_TTL_MS * 2);
     const results = await pipeline.exec();
@@ -421,7 +422,7 @@ export class RealtimeGateway {
     return { count, connectionId };
   }
 
-  // Аудит 26.07.2026 P2: снятие lease было неатомарным (ZREM, потом ZCOUNT
+  // Снятие lease было неатомарным (ZREM, потом ZCOUNT
   // отдельными командами) — два одновременно закрывающихся сокета одного
   // юзера могли ОБА увидеть count 0 и оба опубликовать participant.left.
   // Теперь ровно один вызывающий получает 0: удаление, чистка просроченных,
@@ -478,12 +479,12 @@ return count
     return Number(count);
   }
 
-  // P0-24: refresh presence lease on heartbeat — called from Heartbeat class
+  // Refresh presence lease on heartbeat — called from Heartbeat class
   async refreshPresenceLease(roomId: string, userId: string, connectionId: string): Promise<void> {
     const key = RealtimeGateway.PRESENCE_LEASE_KEY(roomId, userId);
     const roomIndexKey = `plink:room:${roomId}:activeUsers`;
     const expiresAt = Date.now() + RealtimeGateway.PRESENCE_LEASE_TTL_MS;
-    // P0-56: refresh BOTH per-user ZSET and room-level index
+    // Refresh BOTH per-user ZSET and room-level index
     const pipeline = this.deps.redis.multi();
     pipeline.zadd(key, expiresAt, connectionId);
     pipeline.pexpire(key, RealtimeGateway.PRESENCE_LEASE_TTL_MS * 2);
@@ -492,25 +493,25 @@ return count
     await pipeline.exec();
   }
 
-  // ── P0-2 + GPT-5 BE-P0-02: ref-counted room listeners with race-free retain/release ──
+  // ── ref-counted room listeners with race-free retain/release ──
   //
-  // GPT-5 BE-P0-02: previous Map.has() then awaited subscribe() pattern was
+  // Previous Map.has() then awaited subscribe() pattern was
   // race-prone under concurrent joins. Now we store the in-flight promise and
   // reference count before awaiting. This guarantees exactly one Redis
   // subscription pair per room per replica, even under 100 concurrent joins.
   private roomRefs = new Map<string, number>();
   private roomRetainInFlight = new Map<string, Promise<void>>();
-  // Аудит 26.07.2026 P1: явный признак «подписка реально установлена».
+  // Явный признак «подписка реально установлена».
   // roomListeners заполняется ДО await внутри doRetainRoom, поэтому сам по
   // себе он не доказывает завершённую Redis-подписку.
   private readonly roomSubscribed = new Set<string>();
 
   private async retainRoom(roomId: string): Promise<void> {
-    // GPT-5 BE-P0-02: increment ref count FIRST, before any async work.
+    // Increment ref count FIRST, before any async work.
     const currentRefs = this.roomRefs.get(roomId) ?? 0;
     this.roomRefs.set(roomId, currentRefs + 1);
 
-    // Аудит 26.07.2026 P1: быстрый выход только если подписка РЕАЛЬНО
+    // Быстрый выход только если подписка РЕАЛЬНО
     // установлена. Раньше `currentRefs > 0` отпускал второй конкурентный
     // join до завершения in-flight подписки (session.ready до fanout), а
     // ошибка doRetainRoom навсегда отравляла refcount — комната на реплике
@@ -538,7 +539,7 @@ return count
     await inFlight;
   }
 
-  // Аудит 26.07.2026 P1: убрать листенеры, созданные упавшим doRetainRoom,
+  // Убрать листенеры, созданные упавшим doRetainRoom,
   // чтобы повторный retain заново выполнил Redis SUBSCRIBE.
   private rollbackPartialRetain(roomId: string): void {
     this.roomSubscribed.delete(roomId);
@@ -572,7 +573,7 @@ return count
 
     if (!this.roomEventListeners.has(roomId)) {
       const eventListener: RoomEventListener = (event) => {
-        // Аудит 26.07.2026 P1: кик — закрываем локальные сокеты кикнутого,
+        // Кик — закрываем локальные сокеты кикнутого,
         // а не броадкастим (отзыв доступа, presence чистит finalize).
         if (event.kind === 'participant.kicked') {
           this.closeKickedSockets(event.roomId, event.userId);
@@ -587,7 +588,7 @@ return count
   }
 
   private async releaseRoomIfEmpty(roomId: string): Promise<void> {
-    // GPT-5 BE-P0-02: decrement ref count. Only unsubscribe when refs hit 0.
+    // Decrement ref count. Only unsubscribe when refs hit 0.
     const currentRefs = this.roomRefs.get(roomId) ?? 0;
     if (currentRefs > 1) {
       this.roomRefs.set(roomId, currentRefs - 1);
@@ -595,7 +596,7 @@ return count
     }
 
     // Refs would hit 0 — wait for any in-flight retain first.
-    // Аудит 26.07.2026 P1: ошибка чужого in-flight retain не должна ронять release.
+    // Ошибка чужого in-flight retain не должна ронять release.
     const inFlight = this.roomRetainInFlight.get(roomId);
     if (inFlight) {
       await inFlight.catch(() => {});
@@ -614,7 +615,7 @@ return count
     // Double-check no local sockets remain.
     if (this.registry.getRoomSockets(roomId).length > 0) return;
 
-    // Аудит 26.07.2026 P1: снимаем признак установленной подписки при teardown
+    // Снимаем признак установленной подписки при teardown
     this.roomSubscribed.delete(roomId);
     const stateListener = this.roomListeners.get(roomId);
     if (stateListener) {
@@ -633,7 +634,7 @@ return count
   }
 
   /**
-   * Аудит 26.07.2026 P2: живая доставка темы комнаты. rooms.ts после успешного
+   * Живая доставка темы комнаты. rooms.ts после успешного
    * сохранения appearance зовёт этот метод; событие уходит в RoomEventBus, и
    * каждая реплика с сокетами комнаты сама рассылает room.appearance.updated
    * своим клиентам (публикатор НЕ шлёт локально — иначе двойная доставка).
@@ -643,7 +644,7 @@ return count
   }
 
   /**
-   * Аудит 12.08.2026 P0: передача хоста при его уходе.
+   * Передача хоста при его уходе.
    *
    * Порядок здесь не косметический. Сначала bumpEpoch() — он переинициализирует
    * авторитетное состояние комнаты новой эпохой и фиксирует позицию на паузе,
@@ -669,7 +670,7 @@ return count
   }
 
   /**
-   * Аудит 26.07.2026 P1: отзыв WS-доступа при кике. rooms.ts раньше звал
+   * Отзыв WS-доступа при кике. rooms.ts раньше звал
    * несуществующий broadcastToRoom (no-op за optional chaining) — сокет
    * кикнутого оставался в ConnectionRegistry и продолжал получать
    * chat.broadcast/sync.state. Публикуем типизированное событие через
@@ -686,7 +687,7 @@ return count
     });
   }
 
-  // Аудит 26.07.2026 P1: закрыть локальные сокеты кикнутого пользователя
+  // Закрыть локальные сокеты кикнутого пользователя
   private closeKickedSockets(roomId: string, userId: string): void {
     for (const s of this.registry.getRoomSockets(roomId)) {
       if (s.userId !== userId) continue;
@@ -698,7 +699,7 @@ return count
     }
   }
 
-  // ── P0-16: isMemberOrHost returns { allowed, isHost } from single DB check ─
+  // ── isMemberOrHost returns { allowed, isHost } from single DB check ─
   private async isMemberOrHost(userId: string, roomId: string): Promise<{ allowed: boolean; isHost: boolean }> {
     const [participant, room] = await Promise.all([
       this.deps.prisma.roomParticipant
@@ -752,12 +753,12 @@ return count
     };
   }
 
-  /** Graceful shutdown (runbook §5, P1-6). */
+  /* * Graceful shutdown. */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
     this.heartbeat.close();
 
-    // P1-20: typed ServerDraining message (was inline JSON)
+    // Typed ServerDraining message (was inline JSON)
     const drainMessage: ServerMessage = {
       type: 'server.draining',
       protocolVersion: 2,
@@ -793,7 +794,7 @@ return count
 /**
  * Событие шины → wire-сообщение протокола v2.
  *
- * Аудит 26.07.2026 P2: раньше это был приватный метод класса, и единственный
+ * Раньше это был приватный метод класса, и единственный
  * способ его «проверить» был ручной копией в тесте — то есть тест зеленел даже
  * когда реальный маппинг ломался. Функция чистая (никакого this), поэтому
  * вынесена на уровень модуля и экспортируется: контрактные тесты гоняют
@@ -802,7 +803,7 @@ return count
 export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
   switch (event.kind) {
     case 'participant.joined':
-      // P1-26: preserve original event timestampMs
+      // Preserve original event timestampMs
       return makeParticipantEvent('participant.joined', event.roomId, event.userId, event.username, event.timestampMs);
     case 'participant.left':
       return makeParticipantEvent('participant.left', event.roomId, event.userId, event.username, event.timestampMs);
@@ -831,7 +832,7 @@ export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
         serverTimeMs: event.serverTimeMs,
       };
     case 'room.appearance.updated':
-      // Аудит 26.07.2026 P2: живая тема комнаты. Событие приходит из шины на
+      // Живая тема комнаты. Событие приходит из шины на
       // ВСЕ реплики, каждая разворачивает плоские поля в wire-формат v2 и
       // отдаёт своим локальным сокетам — хост больше не единственный, кто
       // видит новую тему до перезахода в комнату.
@@ -848,7 +849,7 @@ export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
         serverTimeMs: event.serverTimeMs,
       };
     case 'pause.requested':
-      // M26: просьба о паузе. Уходит всем в комнате — хост решает, гости видят,
+      // Просьба о паузе. Уходит всем в комнате — хост решает, гости видят,
       // что просьба уже отправлена, и не дублируют её.
       return {
         type: 'pause.requested',
@@ -860,7 +861,7 @@ export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
         serverTimeMs: event.serverTimeMs,
       };
     case 'pause.resolved':
-      // M27: ответ хоста на просьбу. Уходит всем: автор просьбы получает
+      // Ответ хоста на просьбу. Уходит всем: автор просьбы получает
       // обратную связь, остальные гости видят, что вопрос закрыт.
       return {
         type: 'pause.resolved',
@@ -873,7 +874,7 @@ export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
         serverTimeMs: event.serverTimeMs,
       };
     case 'role.changed':
-      // Аудит 12.08.2026 P0: передача хоста. newRole в контракте — роль
+      // Передача хоста. newRole в контракте — роль
       // ПОЛУЧАТЕЛЯ, но шина доставляет одно событие всем сокетам комнаты,
       // поэтому на провод идёт 'host' вместе с newHostId: клиент сравнивает
       // newHostId со своим id и сам решает, стал ли хостом он (iOS:

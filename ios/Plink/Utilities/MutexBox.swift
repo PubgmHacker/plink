@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - MutexBox
 //
-// 🔧 SWIFT 6 strict-mode workaround for mutable state accessed from nonisolated
+// SWIFT 6 strict-mode workaround for mutable state accessed from nonisolated
 // contexts (deinit, nonisolated methods, background queues).
 //
 // PROBLEM:

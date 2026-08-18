@@ -1,6 +1,6 @@
 // Plink/AppShell/AppDependencies.swift — Dependency injection container
 //
-// PLINK_UNIFIED_IOS_MAC_CINEMATIC_PATCH §2: AppDependencies wraps existing services.
+// PLINK_UNIFIED_IOS_MAC_CINEMATIC_PATCH: AppDependencies wraps existing services.
 // Does NOT create new singletons — just bundles existing ones for the shell.
 
 import Foundation
@@ -11,7 +11,7 @@ final class AppDependencies {
     let authService: AuthService
     let roomService: RoomService
     let mediaService: MediaService
-    // Аудит 26.07.2026: discoveryService удалён вместе с Features/Discovery —
+    // discoveryService удалён вместе с Features/Discovery —
     // фейковый каталог заменён живыми V4-экранами в PlinkSidebarShell.
     let premiumStatusManager: PremiumStatusManager
     let friendManager: FriendManager?

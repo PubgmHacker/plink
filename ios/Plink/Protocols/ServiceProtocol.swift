@@ -22,7 +22,7 @@ protocol AuthServiceProtocol: AnyObject {
 protocol RoomServiceProtocol: AnyObject {
     func fetchActiveRooms() async throws -> [Room]
     func fetchMyRooms() async throws -> [Room]
-    // Аудит 26.07.2026: fetchPublicRooms удалён из протокола — серверный роут
+    // fetchPublicRooms удалён из протокола — серверный роут
     // /rooms/public мёртв, потребителей не осталось.
     func createRoom(_ request: CreateRoomRequest) async throws -> Room
     func joinRoom(code: String, password: String?) async throws -> Room

@@ -10,7 +10,7 @@ struct MediaItem: Codable, Identifiable, Sendable, Equatable, Hashable {
     let duration: TimeInterval?
     let mediaType: MediaType
     let source: MediaSource
-    /// 🔧 v97: YouTube video ID for server-side extraction.
+    /// YouTube video ID for server-side extraction.
     /// instead of ?b64url=... — backend extracts URL with its own IP.
     var videoId: String?
 
@@ -49,7 +49,7 @@ struct MediaItem: Codable, Identifiable, Sendable, Equatable, Hashable {
         #endif
     }
 
-    /// 🔧 FIX: Determines how this media should be played back.
+    /// Determines how this media should be played back.
     /// - YouTube embed URLs → WebView (official IFrame / player API).
     /// - Direct stream URLs (.mp4, .m3u8, HLS) → AVPlayer.
     /// - Cinema / OTT pages → WebView (host subscription).

@@ -1,11 +1,11 @@
-// src/realtime/messageRouter.ts — Type-based WS message router (runbook §5)
+// src/realtime/messageRouter.ts — Type-based WS message router
 //
-// FIXES the §19 bug: 'stateRequest должен обрабатываться до generic command
+// FIXES the bug: 'stateRequest должен обрабатываться до generic command
 // routing'. The old ws-handler.ts checked `msg.command && msg.roomID` BEFORE
 // `msg.command === 'stateRequest' && msg.roomID` — so stateRequest was
 // shadowed and never reached.
 //
-// v2 design (runbook §5):
+// V2 design:
 //   1. Single JSON parse, single schema validation, single switch on `type`.
 //   2. membership check BEFORE any room-scoped action.
 //   3. host check with 1-2s cache + invalidation.
@@ -37,7 +37,7 @@ import type { RoomStateStore } from './roomStateStore.js';
 import type { RoomPubSub } from './roomPubSub.js';
 import type { ConnectionRegistry, PlinkSocket } from './connectionRegistry.js';
 import { filterChatMessage } from '../utils/chatFilter.js';
-// M16: ИИ-модератор — муты за маты, системные сообщения в чат
+// ИИ-модератор — муты за маты, системные сообщения в чат
 import {
   containsProfanity,
   muteUser,
@@ -55,11 +55,11 @@ const RATE_LIMITS = {
   'chat.send': { max: 5, windowMs: 10_000, burst: 8 },
   'reaction.send': { max: 2, windowMs: 1000, burst: 4 },
   'clock.probe': { max: 10, windowMs: 1000, burst: 20 },
-  // M26: просьба о паузе прилетает хосту как заметное уведомление, поэтому
+  // Просьба о паузе прилетает хосту как заметное уведомление, поэтому
   // лимит жёстче чата — одна просьба в 10 с. Иначе гость получил бы способ
   // забить хосту весь экран, не написав ни слова в чат.
   'pause.request': { max: 1, windowMs: 10_000, burst: 2 },
-  // M27: ответ хоста. Просьб больше одной в 10 с не бывает (лимит выше),
+  // Ответ хоста. Просьб больше одной в 10 с не бывает (лимит выше),
   // но burst даёт хосту исправить случайный тап «отклонить → принять».
   'pause.resolve': { max: 2, windowMs: 10_000, burst: 3 },
 } as const;
@@ -146,7 +146,7 @@ function checkRateLimit(socket: PlinkSocket, type: keyof typeof RATE_LIMITS): bo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Slow consumer guard (runbook §5)
+// Slow consumer guard
 // ─────────────────────────────────────────────────────────────────────────────
 function checkSlowConsumer(socket: PlinkSocket): boolean {
   const buffered = (socket.bufferedAmount ?? 0) as number;
@@ -167,7 +167,7 @@ export interface RouterDeps {
   pubsub: RoomPubSub;
   registry: ConnectionRegistry;
   /**
-   * P0-3: typed event bus for chat/reaction/participant distribution
+   * Typed event bus for chat/reaction/participant distribution
    * across replicas. Router PUBLISHES to this bus; gateway subscribes
    * per-room and fans out to local sockets.
    */
@@ -187,7 +187,7 @@ export function createMessageRouter(deps: RouterDeps) {
    * All control flow is type-based — no `msg.command && msg.roomID` shadowing.
    */
   async function handleMessage(socket: PlinkSocket, raw: Buffer): Promise<void> {
-    // §5: payload size guard
+    // Payload size guard
     if (raw.byteLength > 64 * 1024) {
       socket.close(1009, 'Payload too large');
       return;
@@ -216,7 +216,7 @@ export function createMessageRouter(deps: RouterDeps) {
 
     switch (msg.type) {
       // ── sync.state.request ─────────────────────────────────────────────
-      // CRITICAL: handled FIRST in v2 (the §19 bug fix). The old code's
+      // CRITICAL: handled FIRST in v2 (the bug fix). The old code's
       // `msg.command && msg.roomID` shadowed this case.
       case 'sync.state.request': {
         if (!checkRateLimit(socket, 'sync.state.request')) {
@@ -224,7 +224,7 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
         const m = StateRequestSchema.parse(parsed);
-        // Membership check (§5)
+        // Membership check
         if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
@@ -300,7 +300,7 @@ export function createMessageRouter(deps: RouterDeps) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
         }
-        // M16: активный мут от ИИ-модератора — сообщения не принимаются
+        // Активный мут от ИИ-модератора — сообщения не принимаются
         const mutedSec = muteRemainingSec(m.roomId, socket.userId!);
         if (mutedSec > 0) {
           sendError(socket, 'MUTED', `Вы замучены модератором ещё на ${mutedSec} сек`);
@@ -311,7 +311,7 @@ export function createMessageRouter(deps: RouterDeps) {
           sendError(socket, 'MESSAGE_BLOCKED', filtered.reason);
           return;
         }
-        // M16: маты → временный мут; сообщение НЕ сохраняется и НЕ рассылается,
+        // Маты → временный мут; сообщение НЕ сохраняется и НЕ рассылается,
         // в чат уходит системное уведомление ИИ-модератора
         if (containsProfanity(m.text)) {
           const seconds = muteUser(m.roomId, socket.userId!, 'profanity');
@@ -350,7 +350,7 @@ export function createMessageRouter(deps: RouterDeps) {
             text: filtered.text,
           },
         });
-        // P0-3: publish to event bus — ALL replicas (including this one)
+        // Publish to event bus — ALL replicas (including this one)
         // receive via subscriber and fan out to local sockets. We do NOT
         // also call registry.broadcastLocal — that would double-deliver
         // to local sockets on this replica.
@@ -368,7 +368,7 @@ export function createMessageRouter(deps: RouterDeps) {
       }
 
       // ── reaction.send ──────────────────────────────────────────────────
-      // GPT-5 BE-P0-05: server-side validation — grapheme count, allowlisted
+      // server-side validation — grapheme count, allowlisted
       // emoji, entitlement check for premium reactions.
       case 'reaction.send': {
         if (!checkRateLimit(socket, 'reaction.send')) {
@@ -381,7 +381,7 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
 
-        // GPT-5 BE-P0-05: validate emoji is in allowlist (prevent arbitrary
+        // Validate emoji is in allowlist (prevent arbitrary
         // text/bidi abuse). Allow common emoji + a premium set.
         const ALLOWED_FREE_EMOJIS = new Set([
           '❤️', '😂', '😍', '👍', '🔥', '😮', '😢', '👏', '🎉', '💯',
@@ -392,7 +392,7 @@ export function createMessageRouter(deps: RouterDeps) {
         ]);
         const allAllowed = new Set([...ALLOWED_FREE_EMOJIS, ...ALLOWED_PREMIUM_EMOJIS]);
 
-        // GPT-5.6 SOL fix: Array.from() counts UTF-16 code units, not grapheme clusters.
+        // Array.from() counts UTF-16 code units, not grapheme clusters.
         // ❤️ = U+2764 U+FE0F → Array.from gives 2 elements, but it's 1 grapheme cluster.
         // Use Intl.Segmenter (Node 16+) for correct grapheme cluster counting.
         const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
@@ -402,13 +402,13 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
 
-        // GPT-5 BE-P0-05: must be in allowlist.
+        // Must be in allowlist.
         if (!allAllowed.has(m.emoji)) {
           sendError(socket, 'INVALID_REACTION', 'Emoji not in allowlist');
           return;
         }
 
-        // GPT-5 BE-P0-05: premium emoji requires entitlement.
+        // Premium emoji requires entitlement.
         if (ALLOWED_PREMIUM_EMOJIS.has(m.emoji)) {
           const user = await prisma.user.findUnique({
             where: { id: socket.userId! },
@@ -422,7 +422,7 @@ export function createMessageRouter(deps: RouterDeps) {
           }
         }
 
-        // P0-3: publish via event bus — same fanout rule as chat.
+        // Publish via event bus — same fanout rule as chat.
         await eventBus.publish(m.roomId, {
           kind: 'reaction.broadcast',
           roomId: m.roomId,
@@ -435,7 +435,7 @@ export function createMessageRouter(deps: RouterDeps) {
       }
 
       // ── pause.request ──────────────────────────────────────────────────
-      // M26: гость просит паузу. Плеер НЕ трогаем: управление принадлежит
+      // Гость просит паузу. Плеер НЕ трогаем: управление принадлежит
       // хосту (sync.command проверяет роль), здесь только доставка просьбы.
       case 'pause.request': {
         if (!checkRateLimit(socket, 'pause.request')) {
@@ -451,7 +451,7 @@ export function createMessageRouter(deps: RouterDeps) {
         // Причина — свободный текст, поэтому проходит тот же фильтр, что и чат.
         // Без него «просьба о паузе» стала бы каналом в обход модерации.
         const rawReason = m.reason?.trim();
-        let reason: string | null = rawReason && rawReason.length > 0 ? rawReason : null;
+        const reason: string | null = rawReason && rawReason.length > 0 ? rawReason : null;
         if (reason && containsProfanity(reason)) {
           sendError(socket, 'PROFANITY', 'Reason contains prohibited language');
           return;
@@ -469,7 +469,7 @@ export function createMessageRouter(deps: RouterDeps) {
       }
 
       // ── pause.resolve ──────────────────────────────────────────────────
-      // M27: хост отвечает на просьбу. Только хост — иначе любой гость мог бы
+      // Хост отвечает на просьбу. Только хост — иначе любой гость мог бы
       // «отклонять» чужие просьбы. Плеер по-прежнему не трогаем: принятая
       // пауза едет отдельным sync.command, который сам проверяет роль.
       case 'pause.resolve': {
@@ -543,7 +543,7 @@ export function makeSyncStateMessage(roomId: string, state: RoomState): SyncStat
   };
 }
 
-// P1-26: timestampMs parameter — preserve original event timestamp
+// timestampMs parameter — preserve original event timestamp
 // instead of regenerating Date.now() at conversion time.
 export function makeParticipantEvent(
   kind: 'participant.joined' | 'participant.left',

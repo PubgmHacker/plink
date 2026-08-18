@@ -27,12 +27,12 @@ struct DMChatView: View {
     @State private var editTarget: DirectMessage?
     @State private var deleteTarget: DirectMessage?
     @FocusState private var isInputFocused: Bool
-    /// Аудит 26.07.2026 P2: серверный лимит 280 считается по wire-строке, куда
+    /// Серверный лимит 280 считается по wire-строке, куда
     /// входит маркер стиля пузыря. Раньше UI обещал 280, а сервис молча срезал
     /// хвост под маркер — считаем лимит там же, где его применяет отправка.
     private var charLimit: Int { DMChatService.textLimit(forStyleID: editTarget?.bubbleStyle) }
     @State private var lastSendTime: Date = .distantPast
-    /// Аудит 26.07.2026 P1: id нижнего сообщения при последнем автоскролле —
+    /// id нижнего сообщения при последнем автоскролле —
     /// защищает читателя истории от сброса вниз на каждый historyEpoch.
     @State private var lastAutoScrollBottomID: String?
     @State private var wallpaper = PlinkChatWallpaperPrefs.current
@@ -75,7 +75,10 @@ struct DMChatView: View {
 
     private var headerIsOnline: Bool {
         if liveFriend.deleted { return false }
-        return liveFriend.isOnline || headerPresence == "в сети"
+        return FriendPresence.isEffectivelyOnline(
+            isOnline: liveFriend.isOnline,
+            lastSeenAt: liveFriend.lastSeenAt
+        )
     }
 
     /// Live friend snapshot (avatarURL updates when they change photo).
@@ -128,7 +131,7 @@ struct DMChatView: View {
                     }
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            // Аудит 26.07.2026 P1: пагинация — подгрузка страницы старше
+                            // Пагинация — подгрузка страницы старше
                             // (before = createdAt верхнего сообщения, ISO8601).
                             if dmService.hasMoreHistory(for: friend.id), !messages.isEmpty {
                                 ProgressView()
@@ -221,7 +224,7 @@ struct DMChatView: View {
                                 }
                             }
                     )
-                    // Аудит 26.07.2026 P1: не дёргаем читателя вниз по глобальному
+                    // Не дёргаем читателя вниз по глобальному
                     // historyEpoch (isRead-флипы, реакции, loadHistory чужих чатов) —
                     // скроллим только когда внизу ЭТОГО чата появилось новое сообщение.
                     .onChange(of: dmService.historyEpoch) { _, _ in
@@ -446,7 +449,7 @@ struct DMChatView: View {
                 quiet: false
             )
             await dmService.loadPins(friendId: friend.id)
-            // Аудит 26.07.2026 P2: список друзей и закрепления не нужны каждые 5 с —
+            // Список друзей и закрепления не нужны каждые 5 с —
             // это лишние 2 запроса на тик поверх истории и typing.
             var tick = 0
             while !Task.isCancelled {
@@ -902,8 +905,8 @@ struct DMChatView: View {
 
     private var glassInputBar: some View {
         VStack(spacing: 0) {
-        // M16: баннер ИИ-модератора (мут за маты / отклонённое фото).
-        // Аудит 26.07.2026 P1: показываем ЛЮБУЮ ошибку сервиса — раньше фильтр по
+        // Баннер ИИ-модератора (мут за маты / отклонённое фото).
+        // Показываем ЛЮБУЮ ошибку сервиса — раньше фильтр по
         // ключевым словам скрывал сетевые сбои, и отправка падала «молча».
         if let modMsg = dmService.errorMessage {
             HStack(spacing: 8) {
@@ -1379,7 +1382,7 @@ private struct DMMessageRow: View {
     var onQuoteTap: (String) -> Void = { _ in }
     var onEdit: () -> Void = {}
     var onDelete: () -> Void = {}
-    // Аудит 26.07.2026 P1: маркер «не отправлено» + повтор отправки
+    // Маркер «не отправлено» + повтор отправки
     var isFailed: Bool = false
     var onRetry: () -> Void = {}
 
@@ -1443,7 +1446,7 @@ private struct DMBubble: View {
     var onQuoteTap: (String) -> Void = { _ in }
     var onEdit: () -> Void = {}
     var onDelete: () -> Void = {}
-    // Аудит 26.07.2026 P1: маркер «не отправлено» + повтор отправки
+    // Маркер «не отправлено» + повтор отправки
     var isFailed: Bool = false
     var onRetry: () -> Void = {}
 
@@ -1614,7 +1617,7 @@ private struct DMBubble: View {
                     .padding(.horizontal, 2)
                 }
 
-                // Аудит 26.07.2026 P1: неотправленное сообщение — красный маркер
+                // Неотправленное сообщение — красный маркер
                 // с кнопкой «Повторить» (медиа не ретраим — исходных байтов нет).
                 if isFailed {
                     let retryable = !message.isVoiceNote && !message.isPhotoMessage

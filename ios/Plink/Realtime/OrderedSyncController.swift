@@ -1,23 +1,23 @@
 // Plink/Realtime/OrderedSyncController.swift
-// Authoritative state → player bridge (runbook §5 + Brain Review P1-1, P1-2)
+// Authoritative state → player bridge
 //
-// Brain P1-1 fix: rate correction returns to 1.0 reliably.
-//   - Store the LAST applied authoritative state — recompute drift from
+// Rate correction — playback rate returns to the authoritative rate reliably:
+//   - The LAST applied authoritative state is stored; drift is recomputed from
 //     current player position vs projected target on each re-evaluation.
-//   - Respect state.rate (use it as the base rate, not always 1.0).
-//   - After correction window (2s), if drift < 80ms → setRate(state.rate).
-//   - If drift still > 80ms after window → continue nudging but increment
-//     a counter; after 3 windows, fall back to precise seek.
+//   - state.rate is the base rate for corrections, never a hardcoded 1.0.
+//   - After the correction window (2s), if drift < 80ms → setRate(state.rate).
+//   - If drift is still > 80ms after the window → keep nudging but increment
+//     a counter; after 3 windows, fall back to a precise seek.
 //
-// Brain P1-2 fix: effectiveAt transition.
+// effectiveAt transition:
 //   - Server sets effectiveAtServerMs = now + 80ms (slightly in the future).
 //   - Client computes elapsed = max(0, serverNow - effectiveAt). If
 //     effectiveAt is in the future, elapsed is 0 — but the client must NOT
 //     apply play/pause/seek until the effectiveAt deadline arrives.
-//   - We schedule a Task that sleeps until effectiveAtServerMs (converted
-//     to local time via clock.offsetMs) before applying the transition.
-//   - For non-transition states (drift correction only), no wait — we
-//     apply immediately because the player is already playing.
+//   - A Task sleeps until effectiveAtServerMs (converted to local time via
+//     clock.offsetMs) before the transition is applied.
+//   - For non-transition states (drift correction only) there is no wait —
+//     it applies immediately because the player is already playing.
 //
 // All player interactions are async — the player is the single source of
 // truth for current position.
@@ -25,7 +25,7 @@
 import Foundation
 import Observation
 
-// P1-18: ContinuousClock for monotonic waits (immune to system clock changes).
+// ContinuousClock for monotonic waits (immune to system clock changes).
 // ClockSynchronizer still uses wall clock for server epoch mapping, but local
 // duration waits use ContinuousClock.
 
@@ -43,13 +43,13 @@ public final class OrderedSyncController {
     private let clock: ClockSynchronizer
     private let player: PlaybackControlling
 
-    // P1-1: store last applied state for re-evaluation
+    // Store last applied state for re-evaluation
     private var lastAppliedState: RealtimeRoomState?
     private var rateCorrectionTask: Task<Void, Never>?
     private var effectiveAtWaitTask: Task<Void, Never>?
     private var correctionWindowCount = 0
 
-    // M12: EMA of measured precise-seek latency (ms). Used to "lead" the
+    // EMA of measured precise-seek latency (ms). Used to "lead" the
     // target position on hard seeks while playing so the player lands
     // closer to the authoritative position after the seek completes.
     public private(set) var seekLatencyEmaMs: Double = 0
@@ -70,11 +70,11 @@ public final class OrderedSyncController {
         hasAppliedAnyState = true
         lastAppliedState = state
 
-        // ── 2. P1-2: wait for effectiveAt deadline if it's in the future ──
+        // ── 2. Wait for the effectiveAt deadline if it's in the future ──
         // The server sets effectiveAtServerMs = now + 80ms so all clients
         // apply the transition at the same wall-clock moment. We must NOT
         // apply play/pause/seek before that moment.
-        // P1-18: use ContinuousClock for monotonic wait (immune to system clock changes).
+        // Use ContinuousClock for monotonic wait (immune to system clock changes).
         let serverNow = clock.serverNowMs
         let waitMs = Double(state.effectiveAtServerMs) - serverNow
         if waitMs > 0 {
@@ -100,7 +100,7 @@ public final class OrderedSyncController {
         if state.playing {
             elapsed = max(0, clock.serverNowMs - Double(state.effectiveAtServerMs)) / 1000.0
         } else {
-            elapsed = 0  // §19: pause does NOT extrapolate
+            elapsed = 0  // Pause does NOT extrapolate
         }
         let target = Double(state.positionMs) / 1000.0 + elapsed
         let driftMs = (target - player.position) * 1000
@@ -112,11 +112,11 @@ public final class OrderedSyncController {
 
         if playingMismatch || absDrift >= 750 {
             cancelRateCorrection()
-            // M12: lead the target by measured seek latency while playing —
+            // Lead the target by measured seek latency while playing —
             // remote playback keeps advancing while our precise seek runs.
             let compensatedTarget = state.playing ? target + seekLatencyEmaMs / 1000.0 : target
             let seekStart = ContinuousClock.now
-            // P0-27: only proceed with play/pause if our seek was APPLIED.
+            // Only proceed with play/pause if our seek was APPLIED.
             // If superseded by a newer seek, that seek's caller owns the
             // next action — we must NOT call play() on stale target.
             let seekResult = await player.seek(to: compensatedTarget, precise: true)
@@ -125,7 +125,7 @@ public final class OrderedSyncController {
                 return
             }
             if seekResult == .unavailable {
-                // P0-53: proxy has no target — skip transition, state will replay
+                // Proxy has no target — skip transition, state will replay
                 return
             }
             if state.playing {
@@ -133,7 +133,7 @@ public final class OrderedSyncController {
             } else {
                 player.pause()
             }
-            // P1-1: return to state.rate (not always 1.0)
+            // Return to state.rate (not always 1.0)
             player.setRate(Float(state.rate))
             if absDrift >= 750 { hardCorrectionCount += 1 }
             correctionWindowCount = 0
@@ -144,7 +144,7 @@ public final class OrderedSyncController {
             if absDrift >= 80 {
                 cancelRateCorrection()
                 let seekResult = await player.seek(to: target, precise: true)
-                if seekResult == .superseded || seekResult == .unavailable { return }  // P0-27, P0-53
+                if seekResult == .superseded || seekResult == .unavailable { return }  //
                 player.setRate(Float(state.rate))
             }
             return
@@ -159,8 +159,8 @@ public final class OrderedSyncController {
             return
         }
 
-        // P1-1: base rate is state.rate, not always 1.0
-        // M12: proportional (P) controller — correction scales with drift,
+        // Base rate is state.rate, not always 1.0
+        // Proportional (P) controller — correction scales with drift,
         // clamped to ±5% so it stays imperceptible to viewers.
         let baseRate = Float(state.rate)
         player.setRate(correctionRate(baseRate: baseRate, driftMs: driftMs))
@@ -174,7 +174,7 @@ public final class OrderedSyncController {
         }
     }
 
-    // P1-1: recompute drift from CURRENT player position vs projected
+    // Recompute drift from CURRENT player position vs projected
     // target. If drift < 80ms → reset to state.rate. If 3 correction
     // windows have passed without convergence → fall back to precise seek.
     private func reEvaluateRate() async {
@@ -199,18 +199,18 @@ public final class OrderedSyncController {
         }
         if correctionWindowCount >= 3 {
             cancelRateCorrection()
-            // M12: lead the fallback seek by measured seek latency
+            // Lead the fallback seek by measured seek latency
             let compensatedTarget = state.playing ? target + seekLatencyEmaMs / 1000.0 : target
             let seekStart = ContinuousClock.now
             let seekResult = await player.seek(to: compensatedTarget, precise: true)
             recordSeekLatency(from: seekStart)
-            if seekResult == .superseded || seekResult == .unavailable { return }  // P0-27, P0-53
+            if seekResult == .superseded || seekResult == .unavailable { return }  //
             player.setRate(baseRate)
             hardCorrectionCount += 1
             correctionWindowCount = 0
             return
         }
-        // M12: continue nudging with recomputed proportional rate
+        // Continue nudging with recomputed proportional rate
         player.setRate(correctionRate(baseRate: baseRate, driftMs: driftMs))
         let windowNs = correctionWindowNs(absDrift: absDrift)
         rateCorrectionTask = Task { [weak self] in
@@ -261,7 +261,7 @@ public final class OrderedSyncController {
         } else {
             player.setRate(1.0)
         }
-        // P1-8: preserve watermark — used as afterSeq in snapshot request.
+        // Preserve watermark — used as afterSeq in snapshot request.
         // Do NOT reset lastEpoch/lastSeq.
     }
 

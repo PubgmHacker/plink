@@ -1,12 +1,12 @@
-// src/realtime/roomEventBus.ts — Typed room event bus (Brain Review P0-3 + P1-10)
+// src/realtime/roomEventBus.ts — Typed room event bus
 //
 // Distributes ALL room-scoped events across replicas, not just sync.state.
 // Used for: chat.broadcast, reaction.broadcast, participant.joined,
 // participant.left, participant.kicked, room.appearance.updated.
 //
-// P1-10 fix: incoming events are validated with Zod before dispatch. A
-// malformed event from a compromised publisher is dropped with a warning,
-// not cast blindly to RoomEvent.
+// Incoming events are validated with Zod before dispatch. A malformed event
+// from a compromised publisher is dropped with a warning, not cast blindly
+// to RoomEvent.
 //
 // Each replica runs ONE subscriber per room it has local sockets in.
 // When a router on replica A wants to broadcast a chat message:
@@ -62,7 +62,7 @@ export type RoomEvent =
       timestampMs: number;
     }
   | {
-      // Аудит 26.07.2026 P1: отзыв WS-доступа при кике — реплики закрывают
+      // Отзыв WS-доступа при кике — реплики закрывают
       // локальные сокеты кикнутого пользователя (см. gateway.kickUser).
       kind: 'participant.kicked';
       roomId: string;
@@ -71,7 +71,7 @@ export type RoomEvent =
       timestampMs: number;
     }
   | {
-      // Аудит 26.07.2026 P2: живая доставка темы комнаты. Поля плоские (как у
+      // Живая доставка темы комнаты. Поля плоские (как у
       // остальных событий шины); в вложенный wire-формат room.appearance.updated
       // их сворачивает gateway.eventToServerMessage.
       kind: 'room.appearance.updated';
@@ -83,7 +83,7 @@ export type RoomEvent =
       serverTimeMs: number;
     }
   | {
-      // M26: гость попросил хоста поставить паузу. Сервер не трогает плеер —
+      // Гость попросил хоста поставить паузу. Сервер не трогает плеер —
       // только доставляет просьбу (см. PauseRequestSchema).
       kind: 'pause.requested';
       roomId: string;
@@ -93,7 +93,7 @@ export type RoomEvent =
       serverTimeMs: number;
     }
   | {
-      // M27: хост ответил на просьбу о паузе. Социальный сигнал, не команда
+      // Хост ответил на просьбу о паузе. Социальный сигнал, не команда
       // плееру — принятая пауза едет отдельным sync.command (см. PauseResolveSchema).
       kind: 'pause.resolved';
       roomId: string;
@@ -104,11 +104,8 @@ export type RoomEvent =
       serverTimeMs: number;
     }
   | {
-      // Аудит 12.08.2026 (P0): передача хоста. Раньше уход хоста ЗАКРЫВАЛ комнату
-      // всем (roomLifecycle.maybeEndAfterLeave), даже если досматривали ещё десять
-      // человек. Схема role.changed и bumpEpoch() существовали с P1-64, но никто
-      // это событие не публиковал — миграция хоста была собрана и не подключена.
-      // epoch обязателен: он аннулирует команды прежнего хоста, если тот вернётся.
+      // Transfers host ownership of the room. epoch is mandatory: it
+      // invalidates commands from the previous host if that client returns.
       kind: 'role.changed';
       roomId: string;
       newHostId: string;
@@ -119,10 +116,10 @@ export type RoomEvent =
 
 export type RoomEventListener = (event: RoomEvent) => void;
 
-// ── P1-10: Zod validation for incoming events ──────────────────────────
+// ── Zod validation for incoming events ──────────────────────────
 // Any publisher with Redis access can send malformed events. Validate
 // before dispatch — don't trust JSON.parse(raw) as RoomEvent.
-// Аудит 26.07.2026 P2: схема экспортируется — контрактные тесты раньше
+// Схема экспортируется — контрактные тесты раньше
 // держали её РУЧНУЮ копию и успели разойтись с оригиналом (uuid у
 // clientMessageId/senderId, лимит text). Проверяем настоящую схему.
 export const RoomEventSchema = z.discriminatedUnion('kind', [
@@ -130,15 +127,15 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     kind: z.literal('chat.broadcast'),
     roomId: z.string().uuid(),
     messageId: z.string().min(1),
-    // Аудит 26.07.2026 P1: clientMessageId клиента — произвольная строка
+    // clientMessageId клиента — произвольная строка
     // (rooms.ts photo-роут), не обязательно UUID; uuid() молча дропал событие.
     clientMessageId: z.string().min(1).max(128).nullable(),
-    // Аудит 26.07.2026 P1: senderId бывает сервисным ('plink-ai',
+    // senderId бывает сервисным ('plink-ai',
     // 'plink-ai-moderator') — строгий uuid() молча дропал все системные
     // броадкасты (очередь видео, ИИ-ассистент, уведомления о мутах).
     senderId: z.string().min(1).max(64),
     senderName: z.string().min(1).max(64),
-    // Аудит 26.07.2026 P1: системные wire-пейлоады (очередь до 50 элементов)
+    // Системные wire-пейлоады (очередь до 50 элементов)
     // превышают 2000 символов; лимит юзерского чата обеспечивает ChatSendSchema.
     text: z.string().max(100_000),
     createdAtMs: z.number().int(),
@@ -167,7 +164,7 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     username: z.string().min(1).max(64),
     timestampMs: z.number().int(),
   }),
-  // Аудит 26.07.2026 P1: событие кика для отзыва WS-доступа
+  // Событие кика для отзыва WS-доступа
   z.object({
     kind: z.literal('participant.kicked'),
     roomId: z.string().uuid(),
@@ -175,7 +172,7 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     byUserId: z.string().uuid(),
     timestampMs: z.number().int(),
   }),
-  // Аудит 26.07.2026 P2: тема комнаты. Границы полей совпадают с
+  // Тема комнаты. Границы полей совпадают с
   // RoomAppearanceUpdatedSchema (contracts/realtime-v2.ts) — если роут
   // однажды перестанет резать intensity до 0.44, publish() упадёт у
   // отправителя, а не отдаст клиенту значение вне контракта.
@@ -188,7 +185,7 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     motionEnabled: z.boolean(),
     serverTimeMs: z.number().int(),
   }),
-  // M26: просьба о паузе. Границы совпадают с PauseRequestedSchema
+  // Просьба о паузе. Границы совпадают с PauseRequestedSchema
   // (contracts/realtime-v2.ts) — событие, которое не пройдёт wire-контракт,
   // должно падать у отправителя, а не долетать до клиента.
   z.object({
@@ -199,7 +196,7 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     reason: z.string().min(1).max(120).nullable(),
     serverTimeMs: z.number().int(),
   }),
-  // M27: ответ хоста на просьбу о паузе. Границы совпадают с PauseResolvedSchema.
+  // Ответ хоста на просьбу о паузе. Границы совпадают с PauseResolvedSchema.
   z.object({
     kind: z.literal('pause.resolved'),
     roomId: z.string().uuid(),
@@ -209,7 +206,7 @@ export const RoomEventSchema = z.discriminatedUnion('kind', [
     requestUserId: z.string().uuid().nullable(),
     serverTimeMs: z.number().int(),
   }),
-  // Аудит 12.08.2026 P0: передача хоста. Границы совпадают с RoleChangedSchema
+  // Передача хоста. Границы совпадают с RoleChangedSchema
   // (contracts/realtime-v2.ts): epoch там positive(), поэтому и здесь — нулевой
   // epoch означал бы, что состояние комнаты не переинициализировано, и команды
   // прежнего хоста остались бы валидными.
@@ -230,7 +227,7 @@ export class RoomEventBus {
   private readonly subscribedChannels = new Set<string>();
 
   constructor(redisUrl: string) {
-    // Dedicated subscriber connection (P0-2 rule: separate from publisher)
+    // Dedicated subscriber connection (separate from publisher)
     this.subscriber = new Redis(redisUrl, {
       maxRetriesPerRequest: null,
       lazyConnect: false,
@@ -248,13 +245,13 @@ export class RoomEventBus {
       const roomId = channel.substring('roomEvents:'.length);
       const set = this.listeners.get(roomId);
       if (!set || set.size === 0) return;
-      // P1-10: validate with Zod before dispatch
+      // Validate with Zod before dispatch
       let event: RoomEvent;
       try {
         const parsed = JSON.parse(raw);
         event = RoomEventSchema.parse(parsed) as RoomEvent;
       } catch (err) {
-        // Аудит 26.07.2026 P2: печатаем kind. При rolling deploy старая реплика
+        // Печатаем kind. При rolling deploy старая реплика
         // видит kind, добавленный новой версией схемы, и без этого поля warn не
         // отличить от реального мусора от скомпрометированного публикатора.
         let kind = 'unparsable';
@@ -289,7 +286,7 @@ export class RoomEventBus {
   }
 
   async publish(roomId: string, event: RoomEvent): Promise<void> {
-    // Аудит 26.07.2026 P1: валидируем при публикации — расхождение со схемой
+    // Валидируем при публикации — расхождение со схемой
     // падает у отправителя, а не молча дропается у подписчика.
     const check = RoomEventSchema.safeParse(event);
     if (!check.success) {
@@ -319,7 +316,7 @@ export class RoomEventBus {
     if (set.size === 0) {
       this.listeners.delete(roomId);
       if (this.subscribedChannels.has(roomId)) {
-        // Аудит 26.07.2026 P1: снимаем флаг ДО await — иначе конкурентный
+        // Снимаем флаг ДО await — иначе конкурентный
         // subscribe() в окне await считал канал подписанным, пропускал
         // реальный SUBSCRIBE, и после реконнекта комната теряла события.
         this.subscribedChannels.delete(roomId);

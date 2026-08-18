@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-// MARK: - Pin sync result (Аудит 26.07.2026 P2)
+// MARK: - Pin sync result
 /// Итог закрепления чата: сервер подтвердил / локальный лимит / сервер не ответил.
 enum FriendPinResult: Sendable {
     case synced
@@ -35,7 +35,7 @@ final class FriendManager: ObservableObject {
     /// friendId → last activity we observed (DM message time) — max with server lastSeen.
     private var localActivityAt: [String: Date] = [:]
 
-    /// friendId → желаемое состояние пина, не доехавшее до сервера (Аудит 26.07.2026 P2).
+    /// friendId → желаемое состояние пина, не доехавшее до сервера.
     private var pendingPinSync: [String: Bool] = FriendManager.loadPendingPinSync()
     /// Досылка пинов уже идёт (loadFriends зовут сразу несколько живых циклов).
     private var isReconcilingPins = false
@@ -187,14 +187,14 @@ final class FriendManager: ObservableObject {
                     }
                 }
             }
-            // Аудит 26.07.2026 P2: публикуем только при фактическом изменении —
+            // Публикуем только при фактическом изменении —
             // поллинг иначе гнал перерисовку всего списка на каждом тике.
             if next != friends {
                 friends = next
             }
             saveCachedFriends(next)
             FriendPinStore.shared.mergeFromServer(next)
-            // Аудит 26.07.2026 P2: досылаем пины, не доехавшие до сервера, и
+            // Досылаем пины, не доехавшие до сервера, и
             // сверяем локальное состояние с серверными isPinned/pinOrder.
             await reconcilePendingPins(server: next)
             if anyAvatarChange {
@@ -279,7 +279,7 @@ final class FriendManager: ObservableObject {
     }
 
     /// Pin / unpin friend (Telegram). Updates local store immediately, syncs server.
-    /// Аудит 26.07.2026 P2: раньше возвращали true даже когда сервер не ответил —
+    /// Раньше возвращали true даже когда сервер не ответил —
     /// UI врал «закреплено», а на втором устройстве пина не было.
     @discardableResult
     func setPinned(friendId: String, pinned: Bool) async -> FriendPinResult {
@@ -339,7 +339,7 @@ final class FriendManager: ObservableObject {
         }
     }
 
-    // MARK: - Отложенная синхронизация пинов (Аудит 26.07.2026 P2)
+    // MARK: - Отложенная синхронизация пинов
 
     private static let pendingPinSyncKey = "plink.friend_pins.pendingSync.v1"
 

@@ -1,4 +1,4 @@
-// Plink/RTC/RoomRTCController.swift — PATCH 07: Real LiveKit SDK integration
+// Real LiveKit SDK integration
 //
 // P1/P2 Sprint fix: LiveKit integration disabled due to:
 // 1. Name collision: Plink's `Room` struct vs LiveKit's `Room` class
@@ -21,7 +21,7 @@ import Observation
 /// When LiveKit is re-enabled, replace with real implementation
 /// using `LiveKit.Room` (qualified to avoid Plink's Room collision).
 ///
-/// M26: заглушка больше НЕ врёт. Раньше toggleMicrophone/toggleCamera просто
+/// Заглушка больше НЕ врёт. Раньше toggleMicrophone/toggleCamera просто
 /// переключали локальный флаг — UI показывал «микрофон включён», хотя ни один
 /// трек не публиковался. Спасал только выключенный FeatureFlags
 /// .liveKitVoiceEnabled: стоило кому-то включить флаг, и он получил бы рабочий

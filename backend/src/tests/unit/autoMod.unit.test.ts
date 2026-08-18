@@ -1,5 +1,5 @@
 // autoMod.unit.test.ts — юнит-тесты автомодерации (без БД: prisma замокан).
-// Аудит 26.07.2026 P2: карта strikes росла бесконечно — проверяем ленивую чистку.
+// Карта strikes росла бесконечно — проверяем ленивую чистку.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 

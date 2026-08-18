@@ -1,4 +1,3 @@
-// src/services/moderation/moderationEngine.ts — GPT-5.6 §15
 import { ModerationDecision, FLOOD_RATE_LIMIT, HARASSMENT_HIDE_TTL, SCAM_URL_PATTERNS, MODERATION_POLICY_VERSION } from './moderationPolicy.js';
 import { recordModerationAudit } from './moderationAudit.js';
 import crypto from 'crypto';

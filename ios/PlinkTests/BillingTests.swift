@@ -1,4 +1,4 @@
-// PlinkTests/BillingTests.swift — PATCH 21: billing system tests
+// Billing system tests
 //
 // Tests StoreKit 2 + PremiumTier + PlinkProductID (no real App Store).
 
@@ -115,7 +115,7 @@ final class BillingTests: XCTestCase {
 
     // MARK: - User.premiumUntil (серверная дата окончания Plink+)
     //
-    // Аудит 26.07.2026 (P2): бэкенд отдаёт `premiumUntil` в GET /users/me и
+    // Бэкенд отдаёт `premiumUntil` в GET /users/me и
     // PATCH /users/me, но модель User это поле теряла — PremiumStatusManager
     // никогда не узнавал авторитетную дату истечения подписки.
 

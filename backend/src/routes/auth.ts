@@ -9,8 +9,14 @@ import { ensurePrivilegedRole } from '../utils/privilegedUsers.js';
 import { verifyTOTP } from '../middleware/security.js';
 import { decryptSecret } from '../utils/secretBox.js';
 import { validateBody } from '../middleware/validate.js';
-import { signupBody, signinBody, refreshBody, adminVerifyBody, appleAuthBody, guestAuthBody } from '../schemas/requests.js';
+import { signupBody, signinBody, refreshBody, adminVerifyBody, appleAuthBody, guestAuthBody, forgotPasswordBody, resetPasswordBody } from '../schemas/requests.js';
 import { usernameFromAppleSub, verifyAppleIdentityToken } from '../utils/appleIdentity.js';
+import {
+  generateResetCode,
+  storeResetCode,
+  consumeResetCode,
+  sendPasswordResetEmail,
+} from '../services/passwordReset.js';
 
 // Сравнение строк за постоянное время; разная длина → false без исключения.
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -23,7 +29,7 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 export default async function authRoutes(fastify) {
 
   // POST /api/auth/signup — 5 регистраций за 20 минут
-  // 🔧 FIX: wrapped in try/catch — same 500-protection as signin.
+  // Wrapped in try/catch — same 500-protection as signin.
   fastify.post('/auth/signup', {
     preHandler: [validateBody(signupBody)],
     config: {
@@ -48,7 +54,7 @@ export default async function authRoutes(fastify) {
         });
       }
 
-      // Аудит 26.07.2026 (P2): префикс `deleted_` зарезервирован под
+      // Префикс `deleted_` зарезервирован под
       // tombstone-аккаунты (services/accountTombstone.ts). По нему signin и
       // refresh отличают удалённый аккаунт, а UI рисует «Удалённый аккаунт»,
       // поэтому регистрировать такой ник нельзя: иначе живой пользователь
@@ -102,12 +108,13 @@ export default async function authRoutes(fastify) {
     }
   });
 
-  // POST /api/auth/signin — 10 попыток входа за 5 минут
-  // 🔧 FIX 500-on-signin: wrapped in try/catch with detailed error log.
-  // Previously, when the DB schema was out of sync (e.g. displayName column
-  // missing), prisma.user.findUnique threw "column does not exist" and the
-  // generic error handler returned 500 with no useful context. Now we log
-  // the actual prisma error message so future schema drift is debuggable.
+  // POST /api/auth/signin — 10 attempts per 5 minutes.
+  //
+  // Wrapped in try/catch that logs the underlying Prisma error. When the
+  // database schema lags the client (a migration not yet applied, so a column
+  // is missing), findUnique throws "column does not exist" and the generic
+  // handler turns it into a bare 500 — indistinguishable from a wrong password
+  // in the logs.
   fastify.post('/auth/signin', {
     preHandler: [validateBody(signinBody)],
     config: {
@@ -195,9 +202,82 @@ export default async function authRoutes(fastify) {
     }
   });
 
+  // POST /api/auth/forgot-password — всегда 200, чтобы не светить, есть ли почта.
+  fastify.post('/auth/forgot-password', {
+    preHandler: [validateBody(forgotPasswordBody)],
+    config: { rateLimit: { max: 5, timeWindow: '15 minutes' } },
+  }, async (request, reply) => {
+    const email = String(request.body?.email ?? '').trim().toLowerCase();
+    try {
+      if (email.endsWith('@plink.guest.local')) {
+        return reply.send({ ok: true });
+      }
+      const user = await prisma.user.findFirst({
+        where: {
+          email: { equals: email, mode: 'insensitive' },
+          deletedAt: null,
+        },
+        select: { id: true, email: true },
+      });
+      if (user) {
+        const code = generateResetCode();
+        await storeResetCode(user.email, code);
+        await sendPasswordResetEmail(user.email, code);
+        await logAudit({
+          userId: user.id,
+          action: AuditActions.PASSWORD_RESET_REQUESTED,
+          ip: request.ip,
+        });
+      }
+    } catch (err: any) {
+      console.error('[auth/forgot-password]', err?.message || err);
+    }
+    return reply.send({ ok: true });
+  });
+
+  // POST /api/auth/reset-password — код из письма + новый пароль.
+  fastify.post('/auth/reset-password', {
+    preHandler: [validateBody(resetPasswordBody)],
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+  }, async (request, reply) => {
+    const email = String(request.body?.email ?? '').trim().toLowerCase();
+    const code = String(request.body?.code ?? '').trim();
+    const newPassword = String(request.body?.newPassword ?? '');
+    const user = await prisma.user.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        deletedAt: null,
+      },
+      select: { id: true, email: true },
+    });
+    if (!user) {
+      return reply.status(400).send({ error: 'Неверный или просроченный код' });
+    }
+    const result = await consumeResetCode(user.email, code);
+    if (result !== 'ok') {
+      const message =
+        result === 'locked'
+          ? 'Слишком много попыток. Запросите код заново'
+          : 'Неверный или просроченный код';
+      return reply.status(400).send({ error: message });
+    }
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+    await revokeAllUserTokens(user.id);
+    await logAudit({
+      userId: user.id,
+      action: AuditActions.PASSWORD_RESET,
+      ip: request.ip,
+    });
+    return reply.send({ ok: true });
+  });
+
   // POST /api/auth/admin-verify — step-up 2FA for existing ADMIN/FOUNDER users.
   //
-  // GPT-5.6 SOL fix: this endpoint was previously granting ADMIN role to anyone
+  // This endpoint was previously granting ADMIN role to anyone
   // with the code, which is a privilege escalation. Now it ONLY issues a
   // short-lived mfaVerified=true token to users who ALREADY have ADMIN or
   // FOUNDER role in the DB. Role assignment must happen through a separate,
@@ -217,13 +297,13 @@ export default async function authRoutes(fastify) {
       return reply.status(400).send({ error: 'Email and code required' });
     }
 
-    // GPT-5.6 SOL: require authenticated session — admin-verify is step-up,
+    // Require authenticated session — admin-verify is step-up,
     // not login. The caller must already be signed in.
     if (!request.user || !request.user.id) {
       return reply.status(401).send({ error: 'Authentication required for admin step-up' });
     }
 
-    // GPT-5.6 SOL: load user from DB and verify they ALREADY have ADMIN/FOUNDER role.
+    // Load user from DB and verify they ALREADY have ADMIN/FOUNDER role.
     // This endpoint does NOT grant ADMIN — it only verifies 2FA for existing admins.
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
@@ -236,7 +316,7 @@ export default async function authRoutes(fastify) {
       return reply.status(404).send({ error: 'User not found' });
     }
 
-    // Аудит 26.07.2026 (P1 5.8): статичный код ADM873IN7 удалён из исходников.
+    // Статичный код ADM873IN7 удалён из исходников.
     // Порядок проверки:
     //   1) у пользователя включён TOTP (twofaEnabled + twofaSecret) — проверяем его;
     //      секрет расшифровывается, если зашифрован ключом TWOFA_ENC_KEY;
@@ -268,7 +348,7 @@ export default async function authRoutes(fastify) {
       return reply.status(401).send({ error: 'Invalid admin code' });
     }
 
-    // GPT-5.6 SOL: reject if user is not already ADMIN or FOUNDER.
+    // Reject if user is not already ADMIN or FOUNDER.
     if (user.role !== 'ADMIN' && user.role !== 'FOUNDER') {
       await logAudit({
         userId: user.id,
@@ -281,7 +361,7 @@ export default async function authRoutes(fastify) {
       });
     }
 
-    // GPT-5.6 SOL: verify email matches the authenticated user (extra safety).
+    // Verify email matches the authenticated user (extra safety).
     if (user.email.toLowerCase() !== email.toLowerCase()) {
       return reply.status(403).send({ error: 'Email does not match authenticated user' });
     }
@@ -310,7 +390,7 @@ export default async function authRoutes(fastify) {
   });
 
   // POST /api/auth/refresh — 60 в минуту (часто, т.к. каждый запуск приложения)
-  // 🔧 FIX: wrapped in try/catch — same 500-protection as signin/signup.
+  // Wrapped in try/catch — same 500-protection as signin/signup.
   fastify.post('/auth/refresh', {
     preHandler: [validateBody(refreshBody)],
     config: {
@@ -334,7 +414,7 @@ export default async function authRoutes(fastify) {
         select: {
           id: true, username: true, email: true, role: true, isPremium: true,
           bannedUntil: true,
-          // Аудит 26.07.2026 (P2): deletedAt раньше не выбирался и не
+          // deletedAt раньше не выбирался и не
           // проверялся. tombstoneAccount отзывает токены best-effort
           // (`.catch(() => {})`), поэтому при сбое отзыва удалённый аккаунт
           // продолжал бесконечно обновлять сессию через /auth/refresh.
@@ -423,12 +503,13 @@ export default async function authRoutes(fastify) {
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // V5 endpoints (Phase 4 of PLINK_MASTER_PLAN_10_OF_10.md)
+  // Username availability, session heartbeat, sign-out-other-devices,
+  // guest sign-in and Sign in with Apple
   // ─────────────────────────────────────────────────────────────────────
 
   // GET /api/auth/check-username?username=...
-  // Phase 2.6: returns true if nickname is available for registration.
-  // B6: rate limited to prevent enumeration.
+  // Returns whether a nickname is free. Rate limited: unauthenticated and
+  // exact-match, so without a limit it enumerates the user table.
   fastify.get('/auth/check-username', {
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } }
   }, async (request, reply) => {
@@ -532,6 +613,7 @@ export default async function authRoutes(fastify) {
           password: hashedPassword,
           displayName: 'Гость',
           isOnline: true,
+          scheduledForDeletionAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
       user = await ensurePrivilegedRole(user);
@@ -670,7 +752,7 @@ export default async function authRoutes(fastify) {
   // ─────────────────────────────────────────────────────────────────────
   // B1 REMOVED: POST /api/auth/promote-self
   // ─────────────────────────────────────────────────────────────────────
-  // GPT-5.6 ADR-002: публичный endpoint самоповышения — security blocker.
+  // Публичный endpoint самоповышения — security blocker.
   // Bootstrap admin ролей выполняется через scripts/bootstrap-admin.js
   // (idempotent, allowlist, audit log, требует production secrets access).
   // Дальнейшие изменения ролей — только через admin flow с recent-auth.

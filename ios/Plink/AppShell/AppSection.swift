@@ -1,4 +1,3 @@
-// Plink/AppShell/AppSection.swift — GPT-5.6 Approved Patch §3
 //
 // Canonical tab architecture: Home, Rooms, AI, Friends, Profile.
 // AI stays because it is a domain-specific watch-party companion.

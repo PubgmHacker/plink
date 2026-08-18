@@ -1,31 +1,32 @@
 import Foundation
 
-/// Строгий матч хоста по списку разрешённых доменов.
+/// Host matching against an allowlist of domains.
 ///
-/// Аудит (июль 2026) поймал дыру `host.contains("vk.com")`. Она пережила
-/// переезд кода: `MediaSourceResolver.swift` удалён, но тот же приём остался
-/// в `ServiceBrowserView.detectVideoURL` и `serviceFromURL`.
+/// The match result decides whose URL ends up in `DetectedVideo.embedURL` and
+/// therefore loads in the room's `WKWebView` **for every participant**, which is
+/// why the comparison has to be exact rather than convenient.
 ///
-/// Почему `contains` опасен именно здесь: результат матча решает, чей URL
-/// попадёт в `DetectedVideo.embedURL` и загрузится в WKWebView комнаты для
-/// **всех участников**. Хост `evil-vk.com.ru` содержит подстроку `vk.com`,
-/// то есть страница атакующего проходила как «видео ВКонтакте» — с шапкой
-/// сервиса, иконкой и доверием, которое даёт узнаваемый бренд. Дальше это
-/// обычный фишинг логина VK внутри нашего приложения.
+/// A substring check is not good enough: `evil-vk.com.ru` contains `vk.com`, so
+/// it would pass as a VK video and render with the service's header, icon, and
+/// the trust a recognised brand carries — a VK login phishing page inside the
+/// app. Prefixes fail the same way in the other direction: `notvk.com` is not VK.
 ///
-/// Правильная семантика: хост совпадает с доменом ровно, либо является его
-/// поддоменом — то есть заканчивается на `"." + домен`. Ничего больше.
+/// The correct rule is that a host matches a domain when it *is* that domain or
+/// is a subdomain of it — nothing else.
 ///
-///     PlinkHost.matches("m.vk.com",      anyOf: ["vk.com"])  // true  — поддомен
-///     PlinkHost.matches("vk.com",        anyOf: ["vk.com"])  // true  — сам домен
-///     PlinkHost.matches("evil-vk.com.ru", anyOf: ["vk.com")] // false — фишинг
-///     PlinkHost.matches("notvk.com",     anyOf: ["vk.com"])  // false — префикс
+///     PlinkHost.matches("m.vk.com",       anyOf: ["vk.com"])  // true  — subdomain
+///     PlinkHost.matches("vk.com",         anyOf: ["vk.com"])  // true  — the domain
+///     PlinkHost.matches("evil-vk.com.ru", anyOf: ["vk.com"])  // false
+///     PlinkHost.matches("notvk.com",      anyOf: ["vk.com"])  // false
+///
+/// A CI step rejects any reintroduction of substring host matching in Swift.
+/// See ADR-0004.
 enum PlinkHost {
 
-    /// `true`, если `host` — это `domain` или его поддомен.
+    /// `true` when `host` is `domain` or a subdomain of it.
     ///
-    /// Регистр не важен (DNS-имена case-insensitive), завершающая точка
-    /// («vk.com.» — валидный абсолютный FQDN) отбрасывается.
+    /// Case is irrelevant — DNS names are case-insensitive — and a trailing dot
+    /// is dropped, since `vk.com.` is a valid absolute FQDN for the same host.
     static func matches(_ host: String?, domain: String) -> Bool {
         guard let normalizedHost = normalize(host), let target = normalize(domain) else {
             return false
@@ -34,18 +35,18 @@ enum PlinkHost {
         return normalizedHost.hasSuffix("." + target)
     }
 
-    /// `true`, если `host` совпадает хотя бы с одним доменом из списка.
+    /// `true` when `host` matches at least one domain in the list.
     static func matches(_ host: String?, anyOf domains: [String]) -> Bool {
         domains.contains { matches(host, domain: $0) }
     }
 
-    /// `true`, если хост URL совпадает хотя бы с одним доменом из списка.
+    /// `true` when the URL's host matches at least one domain in the list.
     static func matches(url: URL?, anyOf domains: [String]) -> Bool {
         matches(url?.host, anyOf: domains)
     }
 
-    /// Приводит имя к сравнимому виду: нижний регистр, без завершающей точки.
-    /// Возвращает `nil` для пустого результата — пустой хост не совпадает ни с чем.
+    /// Normalizes a name for comparison: lowercased, no trailing dot.
+    /// Returns `nil` for an empty result — an empty host matches nothing.
     private static func normalize(_ value: String?) -> String? {
         guard var name = value?.lowercased() else { return nil }
         while name.hasSuffix(".") { name.removeLast() }
@@ -53,13 +54,11 @@ enum PlinkHost {
     }
 }
 
-// MARK: - Домены поддерживаемых сервисов
+// MARK: - Supported service domains
 
-/// Единственный список доменов на приложение. Раньше он был размазан по
-/// `switch`-ам в `ServiceBrowserView` в двух несогласованных вариантах:
-/// `detectVideoURL` знал про `rutube.ru` и `rutube.video`, а `serviceFromURL`
-/// матчил просто `"rutube"` — то есть `rutube.evil.com` классифицировался как
-/// Rutube. Теперь оба читают отсюда.
+/// The app's single list of service domains. Both `ServiceBrowserView`
+/// entry points — `detectVideoURL` and `serviceFromURL` — read from here, so a
+/// service added to one is a service known to the other.
 extension PlinkHost {
 
     static let youtubeDomains  = ["youtube.com", "youtu.be", "youtube-nocookie.com"]

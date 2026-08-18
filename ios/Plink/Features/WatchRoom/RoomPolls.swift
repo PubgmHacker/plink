@@ -1,4 +1,4 @@
-// Plink/Features/WatchRoom/RoomPolls.swift — M13: room polls («что смотрим дальше?»)
+// Room polls («что смотрим дальше?»)
 //
 // Polls ride on the existing chat protocol: a poll event is a chat message
 // whose text starts with RoomPollWire.marker followed by a JSON payload.

@@ -24,7 +24,7 @@ export const NATIVE_CLIENT_ORIGINS = [
 
 function parseCorsOrigin(raw: string | undefined): string | string[] {
   if (!raw || raw === '*') {
-    // §2: "*" with credentials is forbidden in production. We allow it only
+    // "*" with credentials is forbidden in production. We allow it only
     // for development to keep local iteration fast; production startup will
     // reject it (see assertProductionInvariants below).
     return '*';
@@ -56,13 +56,13 @@ export const config = {
   ACCESS_TOKEN_TTL: process.env.ACCESS_TOKEN_TTL || '1h',
   REFRESH_TOKEN_TTL_DAYS: parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '90'),
 
-  // Realtime ticket endpoint (§2): short-lived, single-use nonce
+  // Realtime ticket endpoint: short-lived, single-use nonce
   REALTIME_TICKET_TTL_SEC: parseInt(process.env.REALTIME_TICKET_TTL_SEC || '60'),
 
-  // Signed media URL TTL (§6): 60–300 seconds
+  // Signed media URL TTL: 60–300 seconds
   SIGNED_MEDIA_URL_TTL: parseInt(process.env.SIGNED_MEDIA_URL_TTL || '120'),
 
-  // Feature flags — see rollout plan §15
+  // Feature flags — see rollout plan
   APP_STORE_COMPLIANT: process.env.APP_STORE_COMPLIANT !== 'false',
   ENABLE_LEGACY_STREAM_RELAY: process.env.ENABLE_LEGACY_STREAM_RELAY === 'true',
   REALTIME_PROTOCOL_V2: process.env.REALTIME_PROTOCOL_V2 !== 'false',
@@ -97,7 +97,7 @@ export const config = {
 };
 
 /**
- * §2: production startup must refuse to boot on weak/default secrets and on
+ * Production startup must refuse to boot on weak/default secrets and on
  * CORS "*" with credentials. Called from app.ts during bootstrap.
  */
 /**

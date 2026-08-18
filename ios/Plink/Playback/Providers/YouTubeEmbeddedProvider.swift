@@ -1,7 +1,7 @@
 // Plink/Playback/Providers/YouTubeEmbeddedProvider.swift
-// App Store compliant YouTube provider (runbook §7 + Brain Review P0-8)
+// App Store compliant YouTube provider
 //
-// Brain P0-8 fix: this provider is now ONLY a view container. All playback
+// This provider is only a view container. All playback
 // control (play/pause/seek/position/duration/isPlaying/isBuffering) is
 // handled by EmbeddedPlaybackController, which implements PlaybackControlling
 // directly via the YouTube IFrame JS bridge.
@@ -11,7 +11,7 @@
 // PlaybackCoordinator should instantiate EmbeddedPlaybackController
 // instead of going through NativePlayerController + ProviderAdapter.
 //
-// App Store compliance (runbook §7):
+// App Store compliance:
 //   - Official YouTube IFrame API inside WKWebView
 //   - NO server-side extraction (no Innertube, no yt-dlp, no Piped)
 //   - NO cookie relay — cookies never leave the device

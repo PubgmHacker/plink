@@ -64,7 +64,7 @@ struct V4AppearanceView: View {
     @State private var selectedWallpaper = PlinkChatWallpaperPrefs.current
     @State private var toast: String?
     @ObservedObject private var premium = PremiumStatusManager.shared
-    // M13: contextual paywall instead of a dead-end toast
+    // Contextual paywall instead of a dead-end toast
     @State private var showPlusPaywall = false
     @State private var plusPaywallTrigger: PlinkPlusPaywall.Trigger = .theme
 
@@ -288,7 +288,7 @@ struct V4AppearanceView: View {
 
     private func applyRoomTheme(_ theme: RoomTheme) {
         if !PremiumStatusManager.isFreeRoomTheme(theme) && !premium.isPremium {
-            // M13: show the contextual paywall — a dead-end toast converts nobody
+            // Show the contextual paywall — a dead-end toast converts nobody
             plusPaywallTrigger = .theme
             showPlusPaywall = true
             HapticManager.errorOccurred()
@@ -303,7 +303,7 @@ struct V4AppearanceView: View {
 
     private func selectBubbleStyle(_ style: AppearanceDescriptor) {
         if style.premium && !premium.isPremium {
-            // M13: show the contextual paywall — a dead-end toast converts nobody
+            // Show the contextual paywall — a dead-end toast converts nobody
             plusPaywallTrigger = .settings
             showPlusPaywall = true
             HapticManager.errorOccurred()
@@ -311,7 +311,7 @@ struct V4AppearanceView: View {
         }
         selectedBubbleID = style.id
         PlinkBubbleStylePrefs.set(style.id)
-        // Аудит 26.07.2026: бабл-стиль уезжает PUT /api/profile/appearance
+        // бабл-стиль уезжает PUT /api/profile/appearance
         // (кросс-девайс); сбой сети — молча остаёмся на локальном выборе.
         AppearanceStore.shared.syncBubbleStyle(style.id)
         HapticManager.selection()

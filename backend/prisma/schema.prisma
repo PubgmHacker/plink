@@ -1,4 +1,4 @@
-// prisma/schema.prisma — Pack 5: с Referral, FeatureFlag, AdBreak моделями
+// prisma/schema.prisma — Plink data model (PostgreSQL).
 generator client {
   provider = "prisma-client-js"
 }
@@ -27,19 +27,20 @@ model User {
   avatarData   String?
   /// Bumped only when avatar bytes change — used for friend-list cache bust (?v=).
   avatarUpdatedAt DateTime?
-  /// 🔧 v11 (July 2026): Telegram-style display name (separate from @username).
-  /// nil = use username as display name (backward compat).
+  /// Display name shown in the UI, separate from @username.
+  /// Null = fall back to the username.
   displayName  String?
-  /// 🔧 v11: profile cover photo URL — banner shown on profile screen.
+  /// Profile cover photo URL — the banner shown on the profile screen.
   coverURL     String?
   isOnline     Boolean  @default(false)
-  /// Last time the user was seen online (login / WS / heartbeat). Used for «был(а) N мин назад».
+  /// Last time the user was seen online (login / WS / heartbeat). Backs the
+  /// "last seen N minutes ago" label.
   lastSeenAt   DateTime @default(now())
   isPremium    Boolean  @default(false)
   premiumUntil DateTime?
   role         UserRole @default(USER)
   bannedUntil  DateTime?
-  /// Аудит 26.07.2026: теневой бан — человек пишет, но его не видят остальные.
+  /// Shadow ban: the user can still post, but nobody else sees their messages.
   shadowbanned Boolean  @default(false)
   fcmToken     String?
   createdAt    DateTime @default(now())
@@ -51,7 +52,7 @@ model User {
 
   referralCode String?
 
-  // ─── V5 (Phase 4 of PLINK_MASTER_PLAN_10_OF_10.md) ───
+  // ─── Appearance and account lifecycle ───
   /// JSON-stringified { appThemeID, bubbleStyleID, emojiPackID } for
   /// cross-device appearance restore. Null = use client defaults.
   appearancePrefs         String?
@@ -59,8 +60,8 @@ model User {
   /// grace period (14 days). User can cancel by signing in before then.
   /// A cron job (services/gdpr.ts) performs the actual delete.
   scheduledForDeletionAt  DateTime?
-  /// Telegram-style soft delete. When set, profile is «Удалённый аккаунт»:
-  /// PII stripped, login blocked, DMs rejected, UI shows tombstone avatar.
+  /// Soft delete. When set, the profile renders as a deleted account:
+  /// PII stripped, login blocked, DMs rejected, tombstone avatar in the UI.
   deletedAt               DateTime?
 
   hostedRooms      Room[]            @relation("HostRooms")
@@ -85,7 +86,7 @@ model User {
   auditLogs        AuditLog[]
   referralsMade    Referral[] @relation("Referrer")
   referralReceived Referral?  @relation("Referred")
-  // PATCH 16: App Store Server API V2 transaction records
+  // App Store Server API v2 transaction records
   transactions     TransactionRecord[]
 }
 
@@ -98,7 +99,7 @@ model Room {
   code           String   @unique
   mediaItem      String?
   isActive       Boolean  @default(true)
-  /// Аудит 26.07.2026: скрыта до разбора жалоб.
+  /// Hidden from discovery until a moderator resolves the reports against it.
   hidden         Boolean  @default(false)
   maxParticipants Int     @default(10)
   hostIsPremium  Boolean  @default(false)
@@ -106,7 +107,7 @@ model Room {
   privacy        String   @default("public")
   password       String?
 
-  // ─── V5 (Phase 4) ───
+  // ─── Room appearance ───
   /// JSON-stringified RoomAppearance { themeId, themeRevision, intensity,
   /// motionEnabled }. Host-authoritative; broadcast to all participants on
   /// change via WebSocket `room.appearance.updated` event.
@@ -119,8 +120,8 @@ model Room {
   reports        Report[]          @relation("ReportedRoom")
   adBreaks       AdBreak[]
 
-  // GPT-5 BE-P0-07: indexes for hot paths
-  // - isActive+createdAt: Home "Сейчас смотрят" rail
+  // Indexes for hot paths:
+  // - isActive+createdAt: the "watching now" rail on Home
   // - privacy+isActive: public discovery filtering
   // - hostID: "my rooms" query
   // - mediaItem: discovery/popular aggregation
@@ -153,7 +154,7 @@ model ChatMessage {
   /// Optional room-chat attachment: "photo" for image messages (data lives in mediaData).
   mediaType String?
   mediaData String?  @db.Text
-  /// Аудит 26.07.2026: автоскрытие с трёх независимых жалоб — до разбора модератором.
+  /// Auto-hidden once three independent reports land, until a moderator rules.
   hidden    Boolean  @default(false)
 
   @@index([roomID, createdAt])
@@ -273,9 +274,10 @@ model PlaybackState {
   isPlaying   Boolean  @default(false)
   updatedAt   DateTime @updatedAt
 
-  // P1-39: removed @@unique([roomID, userID]) from schema — migration uses
-  // partial unique indexes instead (WHERE userID IS NOT NULL / IS NULL).
-  // Prisma migrate diff now produces empty diff against fresh DB.
+  // Uniqueness is enforced by two partial unique indexes created in the
+  // migration (WHERE userID IS NOT NULL / WHERE userID IS NULL), which a
+  // Prisma @@unique cannot express. Adding @@unique([roomID, userID]) here
+  // makes `prisma migrate diff` report permanent drift.
   @@index([roomID, updatedAt])
 }
 
@@ -287,10 +289,10 @@ model Subscription {
   isActive              Boolean  @default(true)
   expiresAt             DateTime
   createdAt             DateTime @default(now())
-  // PATCH 16: App Store Server API V2 fields
-  /// Аудит 26.07.2026 (P2): @unique — ключ идемпотентности. Без него upsert в
-  /// billing.ts плодил новую активную строку на каждый verify/renew, а веб-грант
-  /// ЮKassa выдавался дважды при повторной доставке вебхука.
+  // App Store Server API v2 fields
+  /// Idempotency key for the upsert in billing.ts — @unique is load-bearing.
+  /// Without it every verify/renew inserts another active row, and a
+  /// redelivered YooKassa webhook grants the web subscription twice.
   originalTransactionId String?  @unique // stable across renewals
   environment           String?  // "Sandbox" | "Production"
   revokedAt             DateTime?
@@ -298,8 +300,8 @@ model Subscription {
   @@index([userID, isActive])
 }
 
-/// PATCH 16: Signed transaction records (JWS) from App Store Server API V2.
-/// One row per verified transaction. Used for audit trail + revocation.
+/// Signed transaction records (JWS) from App Store Server API v2.
+/// One row per verified transaction, backing the audit trail and revocation.
 model TransactionRecord {
   id                    String   @id @default(uuid())
   userId                String
@@ -318,10 +320,10 @@ model TransactionRecord {
   @@index([productId])
 }
 
-/// Аудит 26.07.2026 (P2): обработанные App Store Server Notifications V2.
-/// Apple ретраит доставку на любой не-2xx, поэтому один и тот же
-/// notificationUUID приходит несколько раз; без дедупликации устаревший
-/// DID_RENEW после REFUND возвращал премиум отозванному пользователю.
+/// Processed App Store Server Notifications v2, keyed by notificationUUID.
+/// Apple retries delivery on any non-2xx response, so the same UUID arrives
+/// more than once. Without this dedupe table a stale DID_RENEW replayed after
+/// a REFUND re-grants premium to a user whose purchase was revoked.
 model AppleNotification {
   notificationUUID      String    @id
   notificationType      String
@@ -342,32 +344,30 @@ model UserBlock {
   @@unique([blockerID, blockedID])
 }
 
-/// Аудит 26.07.2026: модель умела жалобы ТОЛЬКО на комнату (`roomID`),
-/// из-за чего routes/moderation.ts падал на первом запросе. App Review
-/// требует возможность пожаловаться на конкретное сообщение и на человека,
-/// поэтому добавлены общие поля цели, SLA и текст жалобы.
+/// A report against a room, a message, or a user. `targetType` + `targetID`
+/// address the subject; App Review requires all three kinds to be reportable.
 model Report {
   id          String   @id @default(uuid())
   reporterID  String
   reporter    User     @relation("Reporter", fields: [reporterID], references: [id], onDelete: Cascade)
-  /// Ссылка на комнату сохранена для обратной совместимости со старыми записями.
+  /// Kept for backward compatibility with rows written before targetType existed.
   roomID      String?
   reportedRoom Room?   @relation("ReportedRoom", fields: [roomID], references: [id], onDelete: SetNull)
   /// "user" | "message" | "room"
   targetType  String   @default("room")
-  /// Идентификатор объекта жалобы в рамках targetType.
+  /// Identifier of the reported object, interpreted according to targetType.
   targetID    String?
   reason      String
-  /// Свободный комментарий пользователя (до 1000 символов).
+  /// Free-form note from the reporter (up to 1000 characters).
   comment     String?
   status      String   @default("pending")  // pending | resolved | dismissed
-  /// Срок разбора: обещанные 24 часа с момента подачи.
+  /// Review deadline: 24 hours after submission, as promised in the product.
   dueAt       DateTime?
   createdAt   DateTime @default(now())
   resolvedAt  DateTime?
   resolvedBy  String?
   resolver    User?    @relation("Resolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
-  /// Чем закончился разбор: dismiss | hide | ban
+  /// Outcome of the review: dismiss | hide | ban
   resolution  String?
 
   @@index([status, createdAt])
@@ -402,7 +402,7 @@ model AuditLog {
   @@index([action, createdAt])
 }
 
-// Pack 5: НОВЫЕ МОДЕЛИ
+// ─── Growth, feature flags, ads, moderation audit, group chats ───
 
 model Referral {
   id          String   @id @default(uuid())
@@ -436,7 +436,7 @@ model AdBreak {
   @@index([roomID])
 }
 
-// GPT-5.6 §14: AI Moderation Audit
+/// Append-only audit trail for automated moderation decisions.
 model AIModerationAudit {
   id             String   @id @default(cuid())
   roomId         String
@@ -457,7 +457,7 @@ model AIModerationAudit {
   @@index([subjectUserId, createdAt])
 }
 
-/// M16: групповые чаты (беседы) — полноценный мессенджер внутри Plink.
+/// Group conversations — multi-participant messaging alongside 1:1 DMs.
 model GroupChat {
   id        String   @id @default(uuid())
   title     String
@@ -489,7 +489,7 @@ model GroupMessage {
   content    String
   deletedAt  DateTime?
   reactions  Json?
-  /// "photo" — фото в беседе (data URL в mediaData, как в DM).
+  /// "photo" for image messages — data URL in mediaData, same as DMs.
   mediaType  String?
   mediaData  String?   @db.Text
   createdAt  DateTime  @default(now())

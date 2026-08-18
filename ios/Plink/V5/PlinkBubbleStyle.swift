@@ -52,10 +52,10 @@ enum BubbleStyleRegistry {
         case "bubble-ink-flow": return "bubble-cine-marquee"
         case "bubble-comet":    return "bubble-cine-noir"
         case "bubble-signal":   return "bubble-accent"
-        // M16: убранные бесплатные рамки → два стандартных стиля
+        // Убранные бесплатные рамки → два стандартных стиля
         case "bubble-frame-cat", "bubble-frame-dog", "bubble-frame-hearts":
             return "bubble-quiet"
-        // M16: старые премиум-рамки → детальный кино-набор
+        // Старые премиум-рамки → детальный кино-набор
         case "bubble-frame-bunny", "bubble-frame-panda", "bubble-frame-frog":
             return "bubble-cine-marquee"
         case "bubble-frame-fox", "bubble-frame-bear", "bubble-frame-dino":
@@ -609,7 +609,7 @@ struct PlinkMessageBubble: View {
     }
 
     var body: some View {
-        // M16: детальные кино-баблы Plink+ — pixel-perfect PNG-арт из референса
+        // Детальные кино-баблы Plink+ — pixel-perfect PNG-арт из референса
         if let cine = CinemaBubbleStyle(rawValue: BubbleStyleRegistry.migrateLegacyID(resolvedStyleID)) {
             CinemaImageBubble(text: text, style: cine, fontSize: fontSize)
         } else {
@@ -913,7 +913,7 @@ struct PlinkPhotoMessageBubble: View {
 
 // MARK: - TikTok frame decorations (corner mascots)
 
-// MARK: - M16: Cinema premium bubbles (pixel-perfect PNG art from reference)
+// MARK: - Cinema premium bubbles (pixel-perfect PNG art from reference)
 
 /// 5 детальных кино-баблов Plink+. Арт хранится в Resources/CinemaBubbles/
 /// и растягивается 9-slice'ом, сохраняя орнаменты по краям 1:1.

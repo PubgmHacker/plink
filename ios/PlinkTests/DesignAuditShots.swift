@@ -1,17 +1,17 @@
-// PlinkTests/DesignAuditShots.swift — офскрин-рендер экранов для дизайн-аудита.
+// PlinkTests/DesignAuditShots.swift — offscreen renders of real screens for design review.
 //
-// Это НЕ регрессионный тест: ничего не проверяется пиксельно. Кейс собирает
-// живые продуктовые экраны с моковыми данными и складывает PNG на диск, чтобы
-// оценивать дизайн глазами, не проходя всё приложение руками (создание
-// комнаты, поиск сервисов, настройки, пейволл, онбординг и админку иначе
-// пришлось бы открывать через живой бэкенд и платный аккаунт).
+// This is NOT a regression test: nothing is compared pixel by pixel. The case builds
+// live product screens with mock data and writes PNGs to disk, so the design can be
+// judged by eye without driving the whole app by hand — room creation, service
+// search, settings, the paywall, onboarding and the admin panel would otherwise each
+// need a live backend and a paid account to reach.
 //
-// Устройство и ограничения скопированы с MarketingShots.swift — там же
-// объяснено, почему флаг лежит в /tmp, а не в ~/Desktop (TCC подвешивает
-// тест на системном запросе доступа).
+// The mechanism and its limits are copied from MarketingShots.swift, which explains
+// why the flag file lives in /tmp rather than ~/Desktop: under ~/Desktop, macOS TCC
+// hangs the test on a system permission prompt that no one is there to answer.
 //
-// Запуск:
-//   cd ios-2 && xcodegen generate
+// To run, from `ios/`:
+//   xcodegen generate
 //   echo /tmp/plink-audit-output > /tmp/plink-design-audit
 //   xcodebuild test -scheme Plink \
 //     -destination 'platform=iOS Simulator,name=iPhone 17' \
@@ -45,7 +45,7 @@ final class DesignAuditShots: XCTestCase {
     private func requireEnabled() throws {
         try XCTSkipUnless(
             Self.isEnabled,
-            "Кадры аудита снимаются по требованию: DESIGN_AUDIT=1 или файл /tmp/plink-design-audit."
+            "Audit frames are captured on demand: set DESIGN_AUDIT=1 or create the file /tmp/plink-design-audit."
         )
     }
 
@@ -65,7 +65,7 @@ final class DesignAuditShots: XCTestCase {
         LocalizationManager.shared.currentLanguage = .russian
     }
 
-    // MARK: - Экраны
+    // MARK: - Screens
 
     func testRoomCreationShot() throws {
         try requireEnabled()
@@ -90,8 +90,8 @@ final class DesignAuditShots: XCTestCase {
         try shoot(OnboardingFlow(onFinish: {}, onSkip: {}), named: "04-onboarding")
     }
 
-    /// Второй и третий экраны онбординга. Свайп в офскрин-рендере не
-    /// воспроизвести, поэтому сцены снимаются напрямую.
+    /// The second and third onboarding screens. A swipe cannot be reproduced in an
+    /// offscreen render, so the scenes are captured directly.
     func testOnboardingScenesShot() throws {
         try requireEnabled()
         try shoot(OnboardingScenePreview(page: 1), named: "04b-onboarding-reels")
@@ -121,9 +121,8 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    /// «Главная» целиком — единственный способ посмотреть её без живого
-    /// бэкенда: UI-тест воронки сначала проходит регистрацию, а она требует
-    /// базу данных.
+    /// The whole Home screen — the only way to see it without a live backend: the
+    /// funnel UI test signs up first, and signup needs a database.
     func testHomeShot() throws {
         try requireEnabled()
         try shoot(
@@ -137,12 +136,12 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    // MARK: - Вход и первый запуск
+    // MARK: - Sign-in and first launch
     //
-    // Эти кадры нужны, чтобы судить о редизайне глазами: UI-тест воронки до
-    // экранов входа доходит, но дальше требует живую базу данных.
+    // These frames exist so a redesign can be judged by eye: the funnel UI test does
+    // reach the sign-in screens, but going past them needs a live database.
 
-    /// Вход — режим по умолчанию единого экрана.
+    /// Sign-in — the default mode of the combined screen.
     func testAuthSignInShot() throws {
         try requireEnabled()
         try shoot(
@@ -152,7 +151,7 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    /// Регистрация — тот же экран с переключателем в другом положении.
+    /// Sign-up — the same screen with the toggle in the other position.
     func testAuthSignUpShot() throws {
         try requireEnabled()
         try shoot(
@@ -162,9 +161,9 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    /// Заполненный вход — активная главная кнопка. Пустую форму видно на
-    /// 10-auth-signin, но пользователь бо́льшую часть времени смотрит на
-    /// заполненную, и судить о контрасте кнопки надо по ней.
+    /// Sign-in, filled — the primary button in its active state. The empty form is
+    /// visible in 10-auth-signin, but a user spends most of their time looking at the
+    /// filled one, so button contrast has to be judged on this frame.
     func testAuthFilledShot() throws {
         try requireEnabled()
         try shoot(
@@ -178,7 +177,7 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    /// Экран входа с сообщением об истёкшей сессии.
+    /// The sign-in screen carrying an expired-session notice.
     func testAuthSessionNoticeShot() throws {
         try requireEnabled()
         try shoot(
@@ -191,16 +190,16 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    // MARK: Доступность
+    // MARK: Accessibility
     //
-    // Фон входа собран из шести слоёв (мозаика кадров, луч, зерно), и каждый
-    // из них при Reduce Transparency / Reduce Motion обязан отключиться. Это
-    // ровно тот код, который ломается молча: обычные кадры выглядят
-    // нормально, а человек с включённой настройкой получает либо кашу, либо
-    // пустой чёрный экран. Поэтому оба состояния снимаются отдельно.
+    // The sign-in background is six layers (a mosaic of frames, a light beam, grain),
+    // and every one of them must switch off under Reduce Transparency / Reduce Motion.
+    // This is exactly the kind of code that breaks silently: the ordinary frames look
+    // fine, while somebody with the setting enabled gets either mush or an empty black
+    // screen. Hence both states are captured separately.
 
-    /// Reduce Transparency: мозаика, луч и зерно должны уйти, база и виньетка
-    /// остаться. Экран обязан быть НЕ пустым и НЕ прозрачным.
+    /// Reduce Transparency: the mosaic, beam and grain must go; the base and vignette
+    /// must stay. The screen must be neither empty nor transparent.
     func testAuthReduceTransparencyShot() throws {
         try requireEnabled()
         try shoot(
@@ -218,8 +217,8 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    /// Reduce Motion: мозаика встаёт статичным кадром (без TimelineView),
-    /// но остаётся на месте — движение убирается, картинка нет.
+    /// Reduce Motion: the mosaic becomes a static frame (no TimelineView) but stays
+    /// where it is — the movement goes away, the picture does not.
     func testAuthReduceMotionShot() throws {
         try requireEnabled()
         try shoot(
@@ -237,8 +236,8 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    /// Крупный Dynamic Type: у полей и кнопки minHeight вместо фиксированной
-    /// высоты — проверяем, что подписи не обрезаются.
+    /// Large Dynamic Type: the fields and the button use minHeight rather than a
+    /// fixed height — this checks that labels are not clipped.
     func testAuthLargeTypeShot() throws {
         try requireEnabled()
         try shoot(
@@ -253,11 +252,14 @@ final class DesignAuditShots: XCTestCase {
         )
     }
 
-    // MARK: - Инфраструктура
+    // MARK: - Infrastructure
 
 
-    /// Витрина уровней: кольца, бейджи и чипы рядом, чтобы видеть систему
-    /// целиком, а не по одному экрану.
+    /// A showcase of the tiers: rings, badges and chips side by side, so the system
+    /// can be seen whole rather than one screen at a time.
+    ///
+    /// The labels below stay Russian on purpose — they are rendered into the frame,
+    /// and these screenshots are reviewed as the Russian-language product.
     private struct IdentityRingsBoard: View {
         private let levels: [(Bool, Bool, String)] = [
             (false, false, "Обычный"),
@@ -322,7 +324,7 @@ final class DesignAuditShots: XCTestCase {
         }
     }
 
-    /// `V4AppearanceView` требует биндингов — оборачиваем в держатель состояния.
+    /// `V4AppearanceView` needs bindings, so wrap it in a state holder.
     private struct AppearanceHost: View {
         @State private var theme: V4Theme = .electric
         @State private var presented = true
@@ -348,7 +350,7 @@ final class DesignAuditShots: XCTestCase {
                 .frame(width: Self.canvas.width, height: Self.canvas.height)
                 .preferredColorScheme(.dark)
                 .environment(\.colorScheme, .dark)
-                // Анимации выключены: рендер должен быть детерминированным.
+                // Animations off: the render has to be deterministic.
                 .environment(\.plinkFreezeAnimations, true)
                 .transaction { $0.disablesAnimations = true }
         )
@@ -370,8 +372,8 @@ final class DesignAuditShots: XCTestCase {
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
 
-        // Даём SwiftUI прогнать .task/.onAppear. Вложенный RunLoop здесь не
-        // подходит — он держит главный поток (см. MarketingShots).
+        // Let SwiftUI run .task/.onAppear. A nested RunLoop is wrong here — it holds
+        // the main thread (see MarketingShots).
         RunLoop.current.run(until: Date().addingTimeInterval(1.2))
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
@@ -390,24 +392,24 @@ final class DesignAuditShots: XCTestCase {
             }
         }
 
-        // Один рендер, без «ожидания стабилизации».
+        // One render, with no "wait for it to settle" loop. Both alternatives were
+        // tried here and both were worse, which is why this looks too simple:
         //
-        // История (04.08.2026). Сначала здесь была фиксированная пауза 1.2 с —
-        // экран проявляется пружиной 0.62 с, и примерно каждый третий кадр
-        // снимался на середине: выглядело как настоящий регресс, «кнопка
-        // потемнела, знак выцвел». Потом я поставил цикл «снимать, пока два
-        // кадра не совпадут» — стало хуже: фон живёт ВЕЧНОЙ анимацией, поэтому
-        // кадры не сходятся никогда, цикл выкручивался до потолка, а повторные
-        // `drawHierarchy` в одном проходе иногда отдавали пустое изображение
-        // (кадр без формы и знака вовсе).
+        //   - A fixed 1.2s pause. The screen animates in on a 0.62s spring, and roughly
+        //     every third frame captured mid-transition. It read as a real regression —
+        //     "the button went dark, the logo faded" — when nothing had changed.
+        //   - A "render until two frames match" loop. Worse: the background animates
+        //     FOREVER, so the frames never converge, the loop ran to its ceiling, and
+        //     repeated `drawHierarchy` calls in one pass sometimes returned an empty
+        //     image — a frame with no form and no logo at all.
         //
-        // Правильный ответ — не пережидать анимации, а выключить их:
-        // `plinkFreezeAnimations` ставит сцену сразу в конечное состояние.
-        // Тогда достаточно одного рендера, и результат воспроизводим побайтово.
+        // The answer is not to outwait the animations but to switch them off:
+        // `plinkFreezeAnimations` puts the scene straight into its final state. One
+        // render is then enough, and the result is reproducible byte for byte.
         let image = render()
 
         guard let data = image.pngData() else {
-            XCTFail("Не удалось закодировать PNG для \(name)")
+            XCTFail("Could not encode PNG for \(name)")
             return
         }
         let directory = outputDirectory

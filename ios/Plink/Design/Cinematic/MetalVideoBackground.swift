@@ -44,7 +44,7 @@ struct MetalVideoBackground: View {
     /// Implemented as: alpha = max(r, max(g, b)) in the fragment shader.
     var transparentBlack: Bool = false
 
-    // Аудит 26.07.2026: энергодисциплина по образцу RoomLiveThemeBackdrop
+    // Энергодисциплина по образцу RoomLiveThemeBackdrop
     // (Features/WatchRoom/RoomLiveThemeLayer.swift). Раньше декодер и
     // Metal-рендер крутились при Reduce Motion, Low Power Mode,
     // термотроттлинге и в фоне приложения. Теперь при любом из режимов —
@@ -121,7 +121,7 @@ struct MetalVideoBackgroundRepresentable: UIViewRepresentable {
     let overlayColor: Color
     let overlayOpacity: Double
     let transparentBlack: Bool
-    /// Аудит 26.07.2026: true — декодер остановлен, CADisplayLink выключен,
+    /// True — декодер остановлен, CADisplayLink выключен,
     /// на экране статичный постер-кадр. Решение принимает VideoThemeMotionPolicy.
     var paused: Bool = false
 
@@ -144,7 +144,7 @@ struct MetalVideoBackgroundRepresentable: UIViewRepresentable {
         )
         view.delegate = renderer
         context.coordinator.renderer = renderer
-        // Аудит 26.07.2026: если вью рождается уже в паузе (Reduce Motion /
+        // Если вью рождается уже в паузе (Reduce Motion /
         // Low Power / фон), полный декод не стартует — только постер-кадр.
         if paused {
             renderer.setPaused(true)

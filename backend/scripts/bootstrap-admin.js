@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/bootstrap-admin.js
 //
-// B1 (GPT-5.6 ADR-002): idempotent bootstrap script для назначения admin ролей.
+// Idempotent bootstrap script для назначения admin ролей.
 // Заменяет удалённый POST /api/auth/promote-self endpoint.
 //
 // Usage:
@@ -24,8 +24,8 @@ const ALLOWED_ROLES = ['ADMIN', 'FOUNDER'];
 
 async function main() {
   const args = process.argv.slice(2);
-  const emailArg = args.find(a => a.startsWith('--email='));
-  const roleArg = args.find(a => a.startsWith('--role='));
+  const emailArg = args.find((a) => a.startsWith('--email='));
+  const roleArg = args.find((a) => a.startsWith('--role='));
 
   if (!emailArg || !roleArg) {
     console.error('Usage: node scripts/bootstrap-admin.js --email=<email> --role=<ADMIN|FOUNDER>');
@@ -43,11 +43,13 @@ async function main() {
   // Allowlist check
   const allowlist = (process.env.ALLOWED_BOOTSTRAP_ADMINS || '')
     .split(',')
-    .map(e => e.toLowerCase().trim())
+    .map((e) => e.toLowerCase().trim())
     .filter(Boolean);
 
   if (allowlist.length === 0) {
-    console.error('ALLOWED_BOOTSTRAP_ADMINS env var not set or empty. Set it to comma-separated list of allowed emails.');
+    console.error(
+      'ALLOWED_BOOTSTRAP_ADMINS env var not set or empty. Set it to comma-separated list of allowed emails.',
+    );
     process.exit(1);
   }
 
@@ -59,7 +61,7 @@ async function main() {
   // Find user
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, username: true, email: true, role: true }
+    select: { id: true, username: true, email: true, role: true },
   });
 
   if (!user) {
@@ -79,7 +81,7 @@ async function main() {
   const updated = await prisma.user.update({
     where: { id: user.id },
     data: { role },
-    select: { id: true, username: true, email: true, role: true }
+    select: { id: true, username: true, email: true, role: true },
   });
 
   // Audit log
@@ -94,9 +96,9 @@ async function main() {
         previousRole: user.role,
         newRole: role,
         source: 'bootstrap_script',
-        timestamp: new Date().toISOString()
-      }
-    }
+        timestamp: new Date().toISOString(),
+      },
+    },
   });
 
   console.log(`✅ Success: ${updated.email} promoted to ${updated.role}`);
@@ -104,7 +106,7 @@ async function main() {
 }
 
 main()
-  .catch(e => {
+  .catch((e) => {
     console.error('Bootstrap failed:', e);
     process.exit(1);
   })

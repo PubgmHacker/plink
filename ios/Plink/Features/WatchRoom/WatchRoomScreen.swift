@@ -1,14 +1,14 @@
-// Plink/Features/WatchRoom/WatchRoomScreen.swift — PATCH 02 + 04
-//
-// Commit Group 2: full PATCH 02 view hierarchy split + PATCH 04 stable
-// rotation.
+// Plink/Features/WatchRoom/WatchRoomScreen.swift
+// Root view of a watch-together room: selects the layout variant, hosts the
+// reaction / toast / poll / empty-state overlays, presents the chat and
+// appearance sheets, and owns the controls auto-hide timer.
 //
 // Layout variant is derived purely from size classes — no
 // OrientationCoordinator forcing, no .onAppear orientation lock. System
 // rotation drives layout; the user's fullscreen action is a separate
 // presentation, not a forced interface rotation.
 //
-// Player identity stability (PATCH 04):
+// Player identity stability:
 //   - PlaybackCoordinator owns the AVPlayer; EmbeddedPlaybackController
 //     owns the WKWebView. SwiftUI may rebuild PlayerStage's view tree on
 //     layout switch, but the underlying player is NEVER recreated.
@@ -26,13 +26,13 @@ struct WatchRoomScreen: View {
     @Environment(\.horizontalSizeClass) private var widthClass
     @Environment(\.verticalSizeClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dismiss) private var dismiss  // PATCH 26: dismiss fullScreenCover on leave
+    @Environment(\.dismiss) private var dismiss  // Dismiss fullScreenCover on leave
 
     @State private var ui = WatchRoomUIState()
     @State private var controlsHideTask: Task<Void, Never>?
-    // M13: room polls composer
+    // Room polls composer
     @State private var showPollComposer = false
-    // M14: одноразовый хинт про контролы
+    // Одноразовый хинт про контролы
     @AppStorage("plink.roomControlsHintShown") private var roomControlsHintShown = false
     @State private var showControlsHint = false
 
@@ -44,7 +44,7 @@ struct WatchRoomScreen: View {
 
     var body: some View {
         ZStack {
-            // PATCH 14: ambient state now comes from model (driven by
+            // Ambient state now comes from model (driven by
             // AmbientVideoSampler). ui.ambient is no longer used.
             Cinema2026.background.ignoresSafeArea()
 
@@ -105,7 +105,7 @@ struct WatchRoomScreen: View {
                     .zIndex(100)
             }
 
-            // PATCH 14: Rutube fallback toast — shown when source is .rutube
+            // Rutube fallback toast — shown when source is .rutube
             // and the embedded player's JS API is unavailable. Tapping
             // "Open" launches SFSafariViewController with the Rutube video URL.
             if model.requiresRutubeFallback {
@@ -144,7 +144,7 @@ struct WatchRoomScreen: View {
                 .zIndex(200)
             }
 
-            // M13: transient reconnect banner + queued message badge.
+            // Transient reconnect banner + queued message badge.
             // The offline queue in RealtimeClient keeps user chat safe; this
             // just makes the process visible so the room never feels broken.
             if case .reconnecting = model.connectionState {
@@ -170,7 +170,7 @@ struct WatchRoomScreen: View {
                 .allowsHitTesting(false)
             }
 
-            // M14: синхронный отсчёт 3-2-1 перед стартом
+            // Синхронный отсчёт 3-2-1 перед стартом
             if let countdownValue = model.countdownRemaining {
                 RoomCountdownOverlay(value: countdownValue)
                     .zIndex(500)
@@ -178,7 +178,7 @@ struct WatchRoomScreen: View {
                     .allowsHitTesting(false)
             }
 
-            // M15: бар модерации — над чатом, под верхним хромом
+            // Бар модерации — над чатом, под верхним хромом
             if model.moderationBarVisible {
                 VStack {
                     RoomModerationBar(model: model)
@@ -190,7 +190,7 @@ struct WatchRoomScreen: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            // M14: одноразовый хинт для первой комнаты
+            // Одноразовый хинт для первой комнаты
             if showControlsHint {
                 VStack {
                     Spacer()
@@ -212,7 +212,7 @@ struct WatchRoomScreen: View {
             }
         }
         .background(Cinema2026.background.ignoresSafeArea())
-        // M26: единственная стабильная точка, по которой UI-смоук понимает,
+        // Единственная стабильная точка, по которой UI-смоук понимает,
         // что комната действительно открылась. Раньше идентификаторов
         // screen.* хватало на все табы, кроме самой комнаты — то есть ровно
         // на конце воронки, который важнее всех остальных.
@@ -220,7 +220,7 @@ struct WatchRoomScreen: View {
         .preferredColorScheme(.dark)
         .animation(.plinkLayout, value: layoutVariant)
         .onChange(of: layoutVariant) { _, newVariant in
-            // PATCH 14: update danmaku lane count on rotation.
+            // Update danmaku lane count on rotation.
             let laneCount: Int
             switch newVariant {
             case .portrait:  laneCount = 5
@@ -253,8 +253,8 @@ struct WatchRoomScreen: View {
             .zIndex(500)
             .accessibilityLabel("Выйти из комнаты")
         }
-        // M13: room polls — card overlay + composer entry point
-        // M26: там же — просьба о паузе. Оба элемента лежат в ОДНОМ оверлее и
+        // Room polls — card overlay + composer entry point
+        // Там же — просьба о паузе. Оба элемента лежат в ОДНОМ оверлее и
         // складываются в VStack: до этого баннер, поставленный отдельным
         // оверлеем с тем же выравниванием, наехал бы на карточку голосования.
         .overlay(alignment: .top) {
@@ -280,7 +280,7 @@ struct WatchRoomScreen: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // M28: карточка поверх poll/pause — опоздание важнее, чем
+                // Карточка поверх poll/pause — опоздание важнее, чем
                 // просьба о паузе в момент входа (паузу всё равно увидит хост).
                 if let catchUp = model.catchUpPrompt {
                     CatchUpBanner(
@@ -339,7 +339,7 @@ struct WatchRoomScreen: View {
         }
         .task { await model.connect() }
         .task {
-            // M15: приватность комнаты + автопоказ бара модерации для хоста.
+            // Приватность комнаты + автопоказ бара модерации для хоста.
             // Показываем один раз на комнату, через 8 с прячем, чтобы не мешать.
             // Повторный вызов — кнопка-щит в верхнем хроме.
             await model.loadPrivacy()
@@ -354,7 +354,7 @@ struct WatchRoomScreen: View {
             withAnimation(.easeOut(duration: 0.3)) { model.moderationBarVisible = false }
         }
         .task {
-            // M14: одноразовый хинт «тапни по экрану» — только при первом входе
+            // Одноразовый хинт «тапни по экрану» — только при первом входе
             if !roomControlsHintShown {
                 roomControlsHintShown = true
                 try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -364,7 +364,7 @@ struct WatchRoomScreen: View {
             }
         }
         .task {
-            // M14: «Продолжить просмотр» — хост делает синхронный seek к таймкоду
+            // «Продолжить просмотр» — хост делает синхронный seek к таймкоду
             guard let resume = PlinkPendingResume.take() else { return }
             for _ in 0..<40 {
                 if model.isHost, model.connectionState == .connected, model.coordinator.currentSource != nil { break }
@@ -375,15 +375,15 @@ struct WatchRoomScreen: View {
             await model.sendSeekCommand(to: resume.seconds)
         }
         .onDisappear {
-            // PATCH: do NOT disconnect here — onDisappear fires on rotation
-            // when SwiftUI rebuilds the view. Disconnect only on explicit
+            // Do NOT disconnect here — onDisappear fires on rotation, when
+            // SwiftUI rebuilds the view. Disconnect only on explicit
             // leaveRoom (X button) or when fullScreenCover is dismissed.
             controlsHideTask?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 OrientationManager.shared.unlockOrientation()
             }
         }
-        // Аудит 26.07.2026 (P1 5.11): lastError раньше был виден ТОЛЬКО внутри
+        // lastError раньше был виден ТОЛЬКО внутри
         // карточки «Connection lost» — то есть при живом соединении ошибка
         // (отказ кика, мут, серверный reject) не доезжала до пользователя
         // вовсе. Показываем тостом; медиа-ошибки идут своим каналом

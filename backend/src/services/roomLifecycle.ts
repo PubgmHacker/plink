@@ -9,7 +9,7 @@ export type PrismaLike = {
   };
   roomParticipant: {
     findMany: (args: any) => Promise<any[]>;
-    // Аудит 12.08.2026 P0: нужен для выбора преемника хоста (самый давний
+    // Нужен для выбора преемника хоста (самый давний
     // участник комнаты) в maybeEndAfterLeave.
     findFirst: (args: any) => Promise<any>;
     count: (args: any) => Promise<number>;
@@ -139,7 +139,7 @@ export async function maybeEndAfterLeave(
     return { roomEnded: true };
   }
 
-  // Аудит 12.08.2026 P0: раньше здесь стояло `if (isHost || remaining === 0)` —
+  // Раньше здесь стояло `if (isHost || remaining === 0)` —
   // уход хоста убивал сеанс всем, кто ещё смотрел. Для co-watching это худший
   // из возможных отказов: у Hearo вся ценность в вечернем ритуале, а у нас
   // сорванный звонок хоста заканчивал фильм десяти людям. Теперь хост-роль

@@ -111,12 +111,34 @@ enum FriendPresence {
         return "был(а) недавно"
     }
 
+    /// How long after a last-seen timestamp the header still reads as online.
+    /// A presence heartbeat can be missed without the friend having left, so the
+    /// header does not flip to "was recently" on the first gap.
+    static let onlineGraceWindow: TimeInterval = 90
+
+    /// Whether the header should render this friend as online — the dot, not the
+    /// text.
+    ///
+    /// Callers must use this rather than comparing `headerStatus(…)` against a
+    /// display string. DMChatView did exactly that (`headerPresence == "в сети"`),
+    /// which reconstructed this predicate from rendered Russian copy: it broke as
+    /// soon as the language changed or the copy was edited, and it silently
+    /// disagreed with `headerStatus` for a friend whose `isOnline` flag was set,
+    /// because that branch returns a longer string.
+    static func isEffectivelyOnline(isOnline: Bool, lastSeenAt: Date?) -> Bool {
+        if isOnline { return true }
+        guard let last = lastSeenAt else { return false }
+        // A negative interval is clock skew — the timestamp is in the future — and
+        // counts as online, matching headerStatus's `sec < onlineGraceWindow`.
+        return Date().timeIntervalSince(last) < onlineGraceWindow
+    }
+
     /// Compact status for the chat header capsule (Telegram 2026 style).
     static func headerStatus(isOnline: Bool, lastSeenAt: Date?) -> String {
         if isOnline { return "в сети · смотреть вместе" }
         guard let last = lastSeenAt else { return "был(а) недавно" }
         let sec = Date().timeIntervalSince(last)
-        if sec < 90 { return "в сети" }
+        if sec < onlineGraceWindow { return "в сети" }
         if sec < 15 * 60 { return "был(а) недавно" }
         return displayText(isOnline: false, lastSeenAt: last)
     }
@@ -156,4 +178,10 @@ enum DeepLinkType: Sendable, Equatable {
     case room(code: String)        // https://yourdomain.com/r/<code>
     case friendInvite(userId: String)  // https://yourdomain.com/u/<userId>
     case none
+}
+
+/// Куда открыть мессенджер: личка или группа. Не URL — пуш, колокольчик, таб.
+enum PlinkChatTarget: Sendable, Equatable {
+    case dm(friendId: String)
+    case group(groupId: String)
 }

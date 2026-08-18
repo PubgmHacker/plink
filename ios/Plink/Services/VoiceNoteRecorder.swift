@@ -229,6 +229,9 @@ extension VoiceNoteRecorder: AVAudioRecorderDelegate {
 
 enum PlinkVoiceWire {
     /// Content marker: `[[vn:12.5]]optional preview text`
+    // The pattern is a compile-time constant, so a throw here would mean the
+    // literal below is malformed — a build-time mistake, not a runtime condition.
+    // swiftlint:disable:next force_try
     private static let pattern = try! NSRegularExpression(
         pattern: #"^\[\[vn:([0-9]+(?:\.[0-9]+)?)\]\]"#
     )

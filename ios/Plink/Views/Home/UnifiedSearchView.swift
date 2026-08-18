@@ -17,7 +17,7 @@ struct UnifiedSearchView: View {
     @State private var query = ""
     @State private var selectedChip: SearchChip = .all
     @State private var showRoomCreation = false
-    // M14: «Посмотреть позже»
+    // «Посмотреть позже»
     @ObservedObject private var watchlist = WatchlistService.shared
 
     enum SearchChip: String, CaseIterable {
@@ -192,7 +192,7 @@ struct UnifiedSearchView: View {
             .padding(.top, 8)
     }
 
-    /// M14: MediaItem для watchlist из результата поиска.
+    /// MediaItem для watchlist из результата поиска.
     private func watchlistItem(_ item: V4SearchResult) -> MediaItem {
         MediaItem(
             id: item.id, title: item.title, artist: nil,
@@ -267,7 +267,7 @@ struct UnifiedSearchView: View {
                     }
                 }
                 Spacer()
-                // M14: отложить в «Посмотреть позже»
+                // Отложить в «Посмотреть позже»
                 Button {
                     watchlist.toggle(watchlistItem(item))
                 } label: {

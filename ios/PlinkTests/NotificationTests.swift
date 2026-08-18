@@ -1,4 +1,4 @@
-// PlinkTests/NotificationTests.swift — PATCH 21: notifications system tests
+// Notifications system tests
 //
 // Tests notification models + deep link integration.
 

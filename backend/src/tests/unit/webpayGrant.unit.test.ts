@@ -1,6 +1,6 @@
 // webpayGrant.unit.test.ts — юнит-тесты идемпотентности веб-гранта Plink+
 // (без БД: prisma замокан).
-// Аудит 26.07.2026 P2: выдача была check-then-act (findFirst до транзакции),
+// Выдача была check-then-act (findFirst до транзакции),
 // поэтому две пересекающиеся доставки payment.succeeded от ЮKassa выдавали
 // премиум дважды. После миграции 20260726120500_billing_idempotency на
 // Subscription.originalTransactionId есть @unique, и проверки «уже выдано?»

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Аудит 26.07.2026 (7.5): страж для npm run test:integration.
-// Интеграционные тесты скипаются без Redis — этот скрипт не даёт запустить
-// «интеграционный» прогон, который на деле ничего не проверит.
+// Guard for `npm run test:integration`.
+//
+// The integration tests skip themselves when Redis is unreachable, so without
+// this an "integration run" can exit green having verified nothing. Refusing to
+// start is the honest failure.
 if (!process.env.REDIS_URL) {
-  console.error('Ошибка: REDIS_URL не задан — интеграционные тесты требуют живой Redis.');
-  console.error('Пример: REDIS_URL="redis://localhost:6380" npm run test:integration');
+  console.error('Error: REDIS_URL is not set — the integration tests need a live Redis.');
+  console.error('Example: REDIS_URL="redis://localhost:6380" npm run test:integration');
   process.exit(1);
 }

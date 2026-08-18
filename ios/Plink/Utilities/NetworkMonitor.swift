@@ -3,7 +3,7 @@ import Network
 import SwiftUI
 
 // MARK: - NetworkMonitor
-// M20: отслеживает доступность сети без poll-опросов.
+// Отслеживает доступность сети без poll-опросов.
 // Использует NWPathMonitor (Apple Networking framework)
 // — более точный и энергоэффективный, чем Reachability.
 @MainActor

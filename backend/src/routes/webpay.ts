@@ -87,7 +87,7 @@ async function withSerializableRetry<T>(run: () => Promise<T>, attempts = 3): Pr
 /// Идемпотентна по paymentId (хранится в Subscription.originalTransactionId).
 /// Экспортирована для теста грант-пути (scripts/test-web-premium.mjs).
 ///
-/// Аудит 26.07.2026 P2: раньше проверка «уже выдано?» шла ДО транзакции
+/// Раньше проверка «уже выдано?» шла ДО транзакции
 /// (check-then-act), а уникального ограничения на originalTransactionId в БД
 /// не было. ЮKassa доставляет payment.succeeded повторно и ретраит на не-2xx —
 /// две пересекающиеся доставки выдавали премиум дважды.

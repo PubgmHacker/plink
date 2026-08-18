@@ -1,4 +1,4 @@
-// PlinkTests/GDPRTests.swift — PATCH 21: gdpr system tests
+// Gdpr system tests
 //
 // Tests GDPR data export + delete account flow.
 

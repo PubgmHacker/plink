@@ -12,7 +12,7 @@ final class RoomService: RoomServiceProtocol {
 
     // MARK: - Create Room
 
-    // Аудит 26.07.2026: события воронки были ОПИСАНЫ в AnalyticsService,
+    // События воронки были ОПИСАНЫ в AnalyticsService,
     // но не вызывались — 11 из 17. В том числе весь основной цикл продукта:
     // создание комнаты, вход и выход. Без них удержание D1/D7/D30 измерить
     // невозможно, а это метрика №1 для решения о масштабировании.
@@ -87,7 +87,7 @@ final class RoomService: RoomServiceProtocol {
         try await api.requestNoBody("rooms/\(roomID)", method: .delete)
     }
 
-    // Аудит 26.07.2026: fetchPublicRooms() удалён — роут /rooms/public на
+    // fetchPublicRooms() удалён — роут /rooms/public на
     // сервере отдаёт 404 (rooms.ts), единственным потребителем был мёртвый
     // DiscoveryService.
 

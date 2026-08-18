@@ -1,4 +1,3 @@
-// Plink/Features/Onboarding2026/OnboardingVersion.swift — §9 Final Unified
 //
 // Versioned onboarding: shown after first registration or when
 // completed version is stale. Not on every launch.

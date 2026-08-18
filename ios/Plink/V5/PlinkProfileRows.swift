@@ -13,7 +13,7 @@ private enum SettingsUI {
 }
 
 /// Full-screen settings scaffold used by all profile sheets.
-private struct SettingsScaffold<Content: View>: View {
+struct SettingsScaffold<Content: View>: View {
     let title: String
     let subtitle: String?
     @ViewBuilder var content: Content
@@ -93,7 +93,7 @@ private struct SettingsScaffold<Content: View>: View {
     }
 }
 
-private struct SettingsSectionLabel: View {
+struct SettingsSectionLabel: View {
     let text: String
     var body: some View {
         Text(text.uppercased())
@@ -105,7 +105,7 @@ private struct SettingsSectionLabel: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(spacing: 0) {
@@ -118,7 +118,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsIconBadge: View {
+struct SettingsIconBadge: View {
     let systemName: String
     var color: Color = V4.accent
     var body: some View {
@@ -518,7 +518,7 @@ internal struct PrivacySecurityView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Безопасность")
                 SettingsCard {
-                    // Аудит 26.07.2026: раньше здесь стоял Toggle, который писал
+                    // Раньше здесь стоял Toggle, который писал
                     // только в локальный @State и притворялся рабочей 2FA.
                     // На сервере есть поля twofaEnabled/twofaSecret, но нет
                     // пользовательских роутов включения/выключения (есть только
@@ -567,7 +567,7 @@ internal enum InvitePermission: String, CaseIterable, Codable {
     case everyone, friendsOnly, noOne
 }
 
-// Аудит 26.07.2026: раньше сюда снаружи передавался выдуманный список из
+// Раньше сюда снаружи передавался выдуманный список из
 // одной захардкоженной сессии («Этот iPhone») — прямая ложь пользователю.
 // Сервер (POST /auth/heartbeat) пока не ведёт учёт сессий по устройствам и
 // возвращает только текущую, поэтому честный минимум: показываем текущее

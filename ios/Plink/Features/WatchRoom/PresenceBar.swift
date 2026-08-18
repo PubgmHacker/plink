@@ -1,4 +1,3 @@
-// Plink/Features/WatchRoom/PresenceBar.swift — PATCH 02 polish
 //
 // Professional design:
 //   - Avatars: 36pt (was 34pt), -8pt overlap (was -6)

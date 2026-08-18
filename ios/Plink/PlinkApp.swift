@@ -22,7 +22,7 @@ import FirebaseCrashlytics
 
 // MARK: - AppDelegate (orientation lock)
 //
-// 🔧 FIX v2 (July 2026): user-reported bug — "when watching video in landscape
+// FIX v2 (July 2026): user-reported bug — "when watching video in landscape
 // and swiping left = tabbar appears, screen auto-rotates to portrait, room closes".
 //
 // Root cause: RoomView was opened via `navigationDestination(item:)` inside a
@@ -60,7 +60,7 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        // Аудит 26.07.2026: delegate центра уведомлений раньше не ставился нигде
+        // Delegate центра уведомлений раньше не ставился нигде
         // (единственное место было в мёртвом PushNotificationService, который никто
         // не создавал) — тап по пушу никуда не вёл, в форграунде баннер не показывался.
         UNUserNotificationCenter.current().delegate = self
@@ -84,7 +84,7 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
         }
         #endif
         AnalyticsService.shared.appOpen()
-        // M12: локальный crash-репортер — работает без Firebase; отправляет
+        // Локальный crash-репортер — работает без Firebase; отправляет
         // отчёты прошлых сессий на /api/telemetry/crash при запуске.
         CrashReporter.shared.install()
         CrashReporter.shared.uploadPendingReports()
@@ -127,8 +127,8 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
 
 // MARK: - UNUserNotificationCenterDelegate (форграунд-баннер + тап по пушу)
 //
-// Аудит 26.07.2026: роутинг тапа строится СТРОГО по реальным полям payload'а
-// бэкенда (backend-3/src/services/pushService.ts кладёт content.data в корень
+// Роутинг тапа строится СТРОГО по реальным полям payload'а
+// бэкенда (backend/src/services/pushService.ts кладёт content.data в корень
 // APNs-JSON → сюда приходит в userInfo верхнего уровня):
 //   { kind: "dm",             fromUserId: <id> }  — messages.ts:629
 //   { kind: "friend_request", fromUserId: <id> }  — friends.ts:361
@@ -159,11 +159,11 @@ extension PlinkAppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         case "dm":
-            // Механизма «открыть конкретный чат» в V4-корне нет — не выдумываем
-            // навигацию; подтягиваем непрочитанные, чтобы бейджик на табе «Друзья»
-            // был актуален сразу после открытия.
-            Task { @MainActor in
-                await DMChatService.shared.refreshUnread()
+            if let fromUserId = info["fromUserId"] as? String, !fromUserId.isEmpty {
+                Task { @MainActor in
+                    await DMChatService.shared.refreshUnread()
+                    DeepLinkRouter.shared.openChat(.dm(friendId: fromUserId))
+                }
             }
         default:
             break // broadcast и всё неизвестное — просто открыть приложение
@@ -184,7 +184,7 @@ final class PlinkAppDelegate: NSObject {
 @main
 struct PlinkApp: App {
 
-    // 🔧 Wire up AppDelegate so `supportedInterfaceOrientationsFor` is consulted
+    // Wire up AppDelegate so `supportedInterfaceOrientationsFor` is consulted
     // by UIKit. Required for the orientation-lock fix above.
     #if os(iOS)
     @UIApplicationDelegateAdaptor(PlinkAppDelegate.self) private var appDelegate
@@ -197,32 +197,32 @@ struct PlinkApp: App {
     private let mediaService: MediaService
     private let roomService: RoomService
 
-    // Аудит 26.07.2026 P2: контейнер зависимостей собирается ОДИН раз.
+    // Контейнер зависимостей собирается ОДИН раз.
     // Раньше AppDependencies(...) создавался прямо в body, а его переоценку
     // триггерит любой @Published у deepLinkRouter — сервисы внутри контейнера
     // пересоздавались и теряли состояние. (Исторически так утекал каталог
     // Discovery; само поколение Discovery удалено этим же аудитом.)
     private let dependencies: AppDependencies
 
-    // Социальный слой (Блок 3)
-    // 🔧 FIX C5: Inject shared apiClient into FriendManager (was: own unauth client)
+    // Social layer. Both take the shared authenticated APIClient by injection:
+    // a service that builds its own client gets an unauthenticated one, and every
+    // request it makes fails in a way that looks like an empty friends list.
     @State private var friendManager: FriendManager
 
-    // 🔧 FIX C4: Inject shared apiClient into DMChatService (was: own unauth client)
     @State private var dmChatService: DMChatService
 
     // Deep-linking (Блок 3)
-    // Аудит 26.07.2026 P1: единый роутер — AppDelegate (didReceive выше) шлёт
+    // Единый роутер — AppDelegate (didReceive выше) шлёт
     // тапы по пушам в DeepLinkRouter.shared, UI подписан на тот же экземпляр.
     @StateObject private var deepLinkRouter = DeepLinkRouter.shared
 
-    // Аудит 26.07.2026 P2: @State showProfile/showFriends/showCreateRoom удалены —
+    // @State showProfile/showFriends/showCreateRoom удалены —
     // они только объявлялись, ни одна вьюха их не читала и не писала.
 
     // MARK: - Init
 
     init() {
-        // 🔧 v56 (Gemini): Configure AVAudioSession at app launch.
+        // Configure AVAudioSession at app launch.
         // Tells iOS: "we are a media player, don't kill WebKit/AVPlayer
         // when app goes inactive (Control Center, notification shade)".
         #if os(iOS)
@@ -242,13 +242,12 @@ struct PlinkApp: App {
         authService = auth
         mediaService = media
         roomService = rooms
-        // 🔧 FIX C5: Shared authenticated client injected into social layer
+        // The shared authenticated client, into both social services.
         let friends = FriendManager(api: api)
         _friendManager = State(initialValue: friends)
-        // 🔧 FIX C4: Shared authenticated client injected into DM layer
         let dms = DMChatService(api: api)
         _dmChatService = State(initialValue: dms)
-        // Контейнер зависимостей — один на весь жизненный цикл приложения.
+        // One dependency container for the whole application lifetime.
         dependencies = AppDependencies(
             apiClient: api,
             authService: auth,
@@ -258,7 +257,7 @@ struct PlinkApp: App {
             dmChatService: dms
         )
 
-        // Аудит 26.07.2026 (P0): StoreManager.apiBaseURL никогда не выставлялся,
+        // StoreManager.apiBaseURL никогда не выставлялся,
         // из-за чего покупка не доходила до сервера, а серверная проверка прав
         // при следующем запуске отзывала Plink+. Задаём базовый URL и сразу
         // подтягиваем актуальные права из /api/billing/entitlements.
@@ -279,12 +278,12 @@ struct PlinkApp: App {
             .environmentObject(friendManager)
             .environmentObject(dmChatService)
             .environmentObject(apiClient)
-            // Аудит 26.07.2026 P1: дублирующий .onOpenURL/handleDeepLink удалён —
+            // Дублирующий .onOpenURL/handleDeepLink удалён —
             // единственная точка входа ссылок это AuthLaunchGate.onOpenURL,
             // единственный консьюмер pendingLink — PlinkApprovedV4Root.
-            // M20: оффлайн-баннер поверх всего приложения
+            // оффлайн-баннер поверх всего приложения
             .withOfflineBanner()
-            // M20: shake-to-report на корневом уровне
+            // shake-to-report на корневом уровне
             .shakeToReport()
         }
     }
@@ -296,7 +295,7 @@ struct PlinkApp: App {
 
     // MARK: - Deep-Link Handler (Блок 3)
 
-    // Аудит 26.07.2026 P1: handleDeepLink/fetchUsername удалены — состояние
+    // handleDeepLink/fetchUsername удалены — состояние
     // deepLinkRoom/friendInviteAlert писалось, но нигде не читалось (тупик:
     // сервер джойнил комнату, UI не открывался). Обработка перенесена в
     // PlinkApprovedV4Root (подписка на DeepLinkRouter.shared.$pendingLink).

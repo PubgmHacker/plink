@@ -1,4 +1,4 @@
-// PlinkWidget/PlinkWidget.swift — M13: home-screen widget «Ближайший сеанс».
+// home-screen widget «Ближайший сеанс».
 //
 // Reads the schedule mirrored by ScheduledSessionsService into the shared
 // app-group container (group.com.syncwatch.plink). The payload is a plain

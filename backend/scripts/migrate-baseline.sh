@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/migrate-baseline.sh — Brain Review 4 P0-26 baseline plan
+# scripts/migrate-baseline.sh — baseline an existing database into Prisma migrations
 #
 # Existing Railway DB was created via 'prisma db push' — it has tables but
 # NO _prisma_migrations entries. Running 'prisma migrate deploy' would try

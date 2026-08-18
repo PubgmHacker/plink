@@ -1,6 +1,6 @@
 // Plink/Services/GroupChatService.swift — M16/M17
 // Групповые чаты (беседы), как в Telegram: список, сообщения, текст/фото.
-// M17: unread-бейджи, отметка прочтения, удаление сообщений, эмодзи-реакции.
+// unread-бейджи, отметка прочтения, удаление сообщений, эмодзи-реакции.
 // Серверная ИИ-модерация: муты за маты/NSFW приходят как ошибки и показываются баннером.
 
 import Foundation
@@ -16,11 +16,11 @@ struct GroupChatDTO: Codable, Identifiable, Equatable {
     let lastMessageText: String?
     let lastMessageSender: String?
     let lastMessageAt: String?
-    /// M17: непрочитанные сообщения (var — обнуляем локально при прочтении).
+    /// Непрочитанные сообщения (var — обнуляем локально при прочтении).
     var unreadCount: Int?
 }
 
-// Аудит 26.07.2026: сервер отдаёт lastMessageAt строкой ISO-8601, иногда с
+// Сервер отдаёт lastMessageAt строкой ISO-8601, иногда с
 // миллисекундами (та же история, что и в APIClient/AuthService). Для сортировки
 // unified inbox нужен Date, поэтому разбираем его один раз здесь, а не в каждой вьюхе.
 extension GroupChatDTO {
@@ -51,7 +51,7 @@ struct GroupMessageDTO: Codable, Identifiable, Equatable {
     let content: String
     let mediaType: String?
     let createdAt: String
-    /// M17: реакции { "❤️": [userId, ...] } (var — обновляем локально).
+    /// Реакции { "❤️": [userId, ...] } (var — обновляем локально).
     var reactions: [String: [String]]?
 }
 
@@ -62,12 +62,12 @@ final class GroupChatService: ObservableObject {
     @Published var groups: [GroupChatDTO] = []
     @Published var messagesByGroup: [String: [GroupMessageDTO]] = [:]
     @Published var isLoading = false
-    /// M16: сюда падают ошибки ИИ-модератора (мут/NSFW) — рендерятся баннером.
+    /// Сюда падают ошибки ИИ-модератора (мут/NSFW) — рендерятся баннером.
     @Published var errorMessage: String?
 
     private let api = APIClient.shared
 
-    /// M17: суммарный unread по всем беседам — для бейджей/колокольчика.
+    /// Суммарный unread по всем беседам — для бейджей/колокольчика.
     var unreadTotal: Int {
         groups.reduce(0) { $0 + ($1.unreadCount ?? 0) }
     }
@@ -163,13 +163,13 @@ final class GroupChatService: ObservableObject {
             messagesByGroup[groupId] = list
             return true
         } catch {
-            // M16: ошибки модерации (мут/NSFW) приходят сюда и показываются баннером
+            // Ошибки модерации (мут/NSFW) приходят сюда и показываются баннером
             errorMessage = error.localizedDescription
             return false
         }
     }
 
-    // MARK: - M17: прочтение / удаление / реакции
+    // MARK: - Прочтение / удаление / реакции
 
     /// Отметить беседу прочитанной (сервер + локальный бейдж).
     func markRead(groupId: String) async {

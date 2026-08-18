@@ -11,7 +11,7 @@ export default async function mediaRoutes(fastify, _options) {
 
   // ═══════════════════════════════════════════════════════════════════
   // GET /api/media/search?q=запрос&limit=12 — YouTube поиск
-  // 🔧 v28 (July 2026): removed `preHandler: [fastify.authenticate]` —
+  // Removed `preHandler: [fastify.authenticate]` —
   // search is now PUBLIC. Rationale:
   //   1. YouTubeSearchView creates its own YouTubeSearchService instance
   //      without DI of the auth token, so authenticated search would 401.
@@ -62,7 +62,7 @@ export default async function mediaRoutes(fastify, _options) {
             thumbnailURL: item.snippet?.thumbnails?.medium?.url ||
                           item.snippet?.thumbnails?.default?.url || null,
             duration: null,
-            // 🔧 FIX: iOS YouTubeSearchResult requires `url` field — without it,
+            // iOS YouTubeSearchResult requires `url` field — without it,
             // Decodable fails silently and the user sees empty search results.
             // Return watch URL so iOS can pass it directly to RoomSetupView.
             url: `https://www.youtube.com/watch?v=${videoId}`,
@@ -79,7 +79,7 @@ export default async function mediaRoutes(fastify, _options) {
 
   // ═══════════════════════════════════════════════════════════════════
   // GET /api/media/trending — YouTube trending / popular videos
-  // 🔧 v33 (July 2026): returns popular videos for YouTube search screen
+  // Returns popular videos for YouTube search screen
   // "Recommendations" section. Uses YouTube Data API v3 videos.list with
   // chart=mostPopular. No auth required (read-only, cached 1 hour).
   // ═══════════════════════════════════════════════════════════════════
@@ -151,7 +151,7 @@ export default async function mediaRoutes(fastify, _options) {
 
   // ═══════════════════════════════════════════════════════════════════
   // GET /api/media/categories — YouTube video categories for search screen
-  // 🔧 v33: returns category chips (Music, Gaming, News, etc.)
+  // Returns category chips (Music, Gaming, News, etc.)
   // ═══════════════════════════════════════════════════════════════════
   fastify.get('/media/categories', {
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
@@ -313,7 +313,7 @@ export default async function mediaRoutes(fastify, _options) {
   fastify.get('/media/youtube-stream', {
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
   }, async (request: any, reply: any) => {
-    // 🔧 v9.4: override restrictive security headers for this endpoint.
+    // V9.4: override restrictive security headers for this endpoint.
     // The global securityHeaders hook sets:
     //   Cross-Origin-Resource-Policy: same-origin
     //   Cross-Origin-Embedder-Policy: require-corp
@@ -379,7 +379,7 @@ export default async function mediaRoutes(fastify, _options) {
       }
 
       // ── 3. Stream upstream response back to client ─────────────────
-      // 🔧 v9.2: replaced Readable.fromWeb with manual pump.
+      // V9.2: replaced Readable.fromWeb with manual pump.
       // Readable.fromWeb doesn't work reliably on Railway's Node.js,
       // causing -1008 'Ресурс недоступен' on AVPlayer.
       // Manual pump using reader.read() + raw.write() works everywhere.
@@ -466,7 +466,7 @@ export default async function mediaRoutes(fastify, _options) {
       "child-src *; " +
       "frame-ancestors *;");
 
-    // M40: ?chrome=plink (по умолчанию) — контролы рисует приложение;
+    // ?chrome=plink (по умолчанию) — контролы рисует приложение;
     //      ?chrome=youtube — родная панель YouTube (запасной путь).
     const chromeParam = (request.query as any)?.chrome;
     const chrome = chromeParam === 'youtube' ? 'youtube' : 'plink';

@@ -1,4 +1,4 @@
-// PlinkTests/AmbientVideoSamplerTests.swift — PATCH 06
+// PlinkTests/AmbientVideoSamplerTests.swift
 //
 // Unit tests for AmbientVideoSampler actor + AmbientCapability checker.
 //

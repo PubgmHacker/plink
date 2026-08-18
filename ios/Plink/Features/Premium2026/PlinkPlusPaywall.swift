@@ -1,6 +1,6 @@
 // Plink/Features/Premium2026/PlinkPlusPaywall.swift — Contextual paywall
 //
-// PLINK_UNIFIED_IOS_MAC_CINEMATIC_PATCH §8
+// PLINK_UNIFIED_IOS_MAC_CINEMATIC_PATCH
 //
 // M26 (доводка). Было пять дефектов — каждый стоил либо конверсии, либо
 // доверия:
@@ -197,7 +197,7 @@ struct PlinkPlusPaywall: View {
         case .capacity: return L.string(.plusHeadlineCapacity)
         case .cameraFilter: return L.string(.plusHeadlineCameraFilter)
         case .settings: return L.string(.plusHeadlineSettings)
-        case .voiceChat: return L.string(.plusHeadlineVoiceChat)
+        case .voiceChat: return L.string(.plusHeadlineCapacity)
         }
     }
 
@@ -327,14 +327,16 @@ struct PaywallBenefits: View {
 
     private var benefits: [String] {
         switch trigger {
-        // M18: только реальные фичи — никаких обещаний, которых нет в продукте.
+        // Только реальные фичи — никаких обещаний, которых нет в продукте.
         // Функциональные: 20 участников (бэк: cap free=10) + приоритет в очереди ИИ.
         case .emoji: return [L.string(.plusBenefitPremiumReactions), L.string(.plusBenefitCustomEmoji), L.string(.plusBenefitAiPriority)]
         case .theme: return [L.string(.plusBenefitLiveThemes), L.string(.plusBenefitAvatarFrames), L.string(.plusBenefitCapacity20)]
         case .capacity: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority), L.string(.plusBenefitCineBubbles)]
         case .cameraFilter: return [L.string(.plusBenefitVideoFilters), L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority)]
         case .settings: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority), L.string(.plusBenefitLiveThemes)]
-        case .voiceChat: return [L.string(.plusBenefitVoiceChat), L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority)]
+        // Голос в сборке не продаём (LiveKit выключен). Триггер .voiceChat
+        // показывает те же реальные плюсы, что capacity/themes.
+        case .voiceChat: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitLiveThemes), L.string(.plusBenefitAiPriority)]
         }
     }
 }

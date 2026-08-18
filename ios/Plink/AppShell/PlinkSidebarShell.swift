@@ -1,7 +1,6 @@
-// Plink/AppShell/PlinkSidebarShell.swift — §4 Final Architecture
 // iPad/Mac sidebar shell. Uses AppSection enum (home/rooms/ai/friends/profile).
 //
-// Аудит 26.07.2026: детали .home/.ai/.friends/.profile показывали старое
+// Детали .home/.ai/.friends/.profile показывали старое
 // поколение (DiscoveryHomeView с фейковым каталогом, AIAssistantView,
 // FriendsView, ProfileView). Теперь все пять секций — живые V4-экраны,
 // те же, что на iPhone в PlinkApprovedV4Root, с теми же сторами.
@@ -13,15 +12,15 @@ struct PlinkSidebarShell: View {
     @Binding var createPresented: Bool
     let dependencies: AppDependencies
 
-    // Аудит 26.07.2026 P1: реальный список комнат вместо заглушки «Комнаты».
+    // Реальный список комнат вместо заглушки «Комнаты».
     @State private var roomsStore: V4RoomsStore?
     @State private var roomToPresent: Room?
-    // Аудит 26.07.2026: на iPad кнопка «войти по коду» рисовалась всегда, но
+    // На iPad кнопка «войти по коду» рисовалась всегда, но
     // joinByCode в V4RoomsViewLive не передавался (параметр опционален) — тап
     // не делал ничего. На iPhone тот же экран получает обработчик.
     @State private var showJoinByCode = false
 
-    // Аудит 26.07.2026: живые V4-сторы по образцу PlinkApprovedV4Root.bootstrap().
+    // Живые V4-сторы по образцу PlinkApprovedV4Root.bootstrap().
     @State private var searchStore = V4SearchStore()
     @State private var friendsStore: V4FriendsStore?
     @State private var aiStore = V4AIStore()
@@ -34,7 +33,7 @@ struct PlinkSidebarShell: View {
 
     var body: some View {
         NavigationSplitView {
-            // Аудит 26.07.2026 P1: List был без selection — value-based
+            // List был без selection — value-based
             // NavigationLink не менял Binding, detail вечно показывал .home.
             // Оптиональный прокси-биндинг: List(selection:) требует Optional.
             List(selection: Binding<AppSection?>(
@@ -87,16 +86,24 @@ struct PlinkSidebarShell: View {
             }
             .preferredColorScheme(.dark)
         }
+        .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
+            guard target != nil else { return }
+            selection = .friends
+        }
         .navigationSplitViewStyle(.balanced)
         .environmentObject(dependencies.apiClient)
         .task { await bootstrap() }
         .onChange(of: theme) { _, newTheme in
-            // M14: комната читает акцент активной темы — единый стиль.
+            // Комната читает акцент активной темы — единый стиль.
             UserDefaults.standard.set(newTheme.rawValue, forKey: "plink.v4ThemeName")
         }
-        // Аудит 26.07.2026 P1: презентация комнаты из детали «Комнаты»
+        // Презентация комнаты из детали «Комнаты»
         .fullScreenCover(item: $roomToPresent) { room in
             WatchRoomContainer(room: room)
+        }
+        .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
+            guard target != nil else { return }
+            selection = .friends
         }
     }
 
@@ -104,7 +111,7 @@ struct PlinkSidebarShell: View {
         NavigationLink(value: section) {
             Label(section.title, systemImage: section.symbol)
         }
-        // Аудит 26.07.2026 P1: tag дублирует value — selection обновляется
+        // Tag дублирует value — selection обновляется
         // и через List(selection:), и через NavigationLink.
         .tag(section)
     }
@@ -121,7 +128,7 @@ struct PlinkSidebarShell: View {
                 openRoomsTab: { selection = .rooms }
             )
         case .rooms:
-            // Аудит 26.07.2026 P1: заглушка VStack{Text("Комнаты")} заменена
+            // Заглушка VStack{Text("Комнаты")} заменена
             // живым списком комнат (тот же модуль, что и на iPhone).
             V4RoomsViewLive(
                 theme: theme,
@@ -156,7 +163,7 @@ struct PlinkSidebarShell: View {
         }
     }
 
-    // MARK: - Bootstrap (Аудит 26.07.2026)
+    // MARK: - Bootstrap
 
     /// Упрощённая копия PlinkApprovedV4Root.bootstrap(): те же сторы и
     /// та же гидратация токена, чтобы данные на iPad были живыми.

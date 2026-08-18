@@ -1,4 +1,4 @@
-// src/server.ts — Process entrypoint (runbook §20)
+// src/server.ts — Process entrypoint
 //
 // server.ts only:
 //   - Builds the app via buildApp()
@@ -38,7 +38,7 @@ const start = async () => {
 
   const shutdown = async (signal: string) => {
     console.log(`\n${signal} received, shutting down...`);
-    // P1-13: gateway may be null if Redis was unavailable
+    // Gateway may be null if Redis was unavailable
     if (gateway) {
       try {
         await gateway.shutdown();

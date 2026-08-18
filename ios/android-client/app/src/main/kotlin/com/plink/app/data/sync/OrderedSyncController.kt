@@ -108,7 +108,7 @@ class OrderedSyncController(
 
         when {
             abs(driftMs) >= SOFT_MS -> {
-                // M13: P-controller — proportional rate nudge instead of a
+                // P-controller — proportional rate nudge instead of a
                 // jarring seek. Adaptive window: re-check sooner when far off.
                 val correction = (K_P * driftMs).coerceIn(-MAX_CORRECTION, MAX_CORRECTION)
                 player.setRate(state.rate * (1.0 + correction))

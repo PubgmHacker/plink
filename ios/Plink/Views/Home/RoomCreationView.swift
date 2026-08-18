@@ -1,6 +1,6 @@
 
 // Plink/Views/Home/RoomCreationView.swift
-// PLINK_M11: Beautiful room creation with service carousel
+// Beautiful room creation with service carousel
 
 import SwiftUI
 import UIKit
@@ -25,17 +25,18 @@ struct RoomCreationView: View {
     @State private var heroOffset: CGFloat = 0
 
     let onCreate: ((String, VideoService, DetectedVideo?) -> Void)?
-    /// M15: полный цикл — мастер сам создаёт комнату по сети
+    /// Полный цикл — мастер сам создаёт комнату по сети
     /// (с приватностью и паролем) и возвращает готовую Room.
     let onRoomCreated: ((Room) -> Void)?
 
-    // M15: модерация и карусель сервисов
+    // Модерация и карусель сервисов
     @State private var privacy: RoomPrivacy = .publicRoom
     @State private var roomPassword: String = ""
     @State private var serviceFilter: ServicePickerFilter = .all
     @State private var clipboardSuggestion: (url: String, service: VideoService)? = nil
     @State private var recentServices: [VideoService] = RecentServicesStore.recents
     @State private var createErrorMessage: String? = nil
+    @State private var customURLDraft = ""
 
     /// Мастер открыт сразу на «Настройке» по готовой ссылке (карточка буфера на
     /// «Главной»). Шагов «сервис» и «контент» позади нет, поэтому «Назад» в них
@@ -208,7 +209,7 @@ struct RoomCreationView: View {
             .padding(.top, 20)
             .padding(.bottom, 16)
 
-            // M15: ссылка из буфера — мгновенный старт без поиска
+            // Ссылка из буфера — мгновенный старт без поиска
             if let clip = clipboardSuggestion {
                 ClipboardVideoCard(url: clip.url, service: clip.service) {
                     useClipboardSuggestion(clip)
@@ -217,7 +218,7 @@ struct RoomCreationView: View {
                 .padding(.bottom, 16)
             }
 
-            // M15: недавние сервисы — в один тап
+            // Недавние сервисы — в один тап
             if !recentServices.isEmpty {
                 sectionLabel("НЕДАВНИЕ", subtitle: "Вы недавно смотрели здесь")
                     .padding(.horizontal, 20)
@@ -244,7 +245,7 @@ struct RoomCreationView: View {
                 .padding(.bottom, 18)
             }
 
-            // M15: фильтры — российские/зарубежные, бесплатно/подписка
+            // Фильтры — российские/зарубежные, бесплатно/подписка
             ServiceFilterChips(filter: $serviceFilter)
                 .padding(.bottom, 18)
 
@@ -378,7 +379,9 @@ struct RoomCreationView: View {
     // MARK: - Step 2: Content
     private var contentStep: some View {
         Group {
-            if let svc = selectedService {
+            if selectedService == .customURL {
+                customURLStep
+            } else if let svc = selectedService {
                 // FIX: ServiceBrowserView отдаёт ДВА аргумента (contentURL, title),
                 // а не готовый DetectedVideo — собираем модель здесь.
                 ServiceBrowserView(service: svc) { contentURL, title in
@@ -397,6 +400,46 @@ struct RoomCreationView: View {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 300)
             }
         }
+    }
+
+    private var customURLStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Прямая ссылка")
+                .font(.system(size: 22, weight: .black))
+                .foregroundStyle(Cinema2026.text)
+            Text("mp4, m3u8 или страница. Не Google — вставь URL сами.")
+                .font(.system(size: 14))
+                .foregroundStyle(Cinema2026.secondary)
+            TextField("https://…", text: $customURLDraft)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .autocorrectionDisabled()
+                .padding(14)
+                .background(Cinema2026.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(Cinema2026.text)
+            Button {
+                let raw = customURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard raw.hasPrefix("http"), URL(string: raw) != nil else { return }
+                detectedVideo = DetectedVideo(
+                    title: nil,
+                    embedURL: raw,
+                    originalURL: raw,
+                    service: .customURL
+                )
+                roomName = "Своя ссылка"
+                withAnimation { step = .setup }
+            } label: {
+                Text("Далее")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!customURLDraft.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("http"))
+        }
+        .padding(20)
     }
 
     // MARK: - Step 3: Setup
@@ -435,7 +478,7 @@ struct RoomCreationView: View {
                         .background(Cinema2026.surface, in: RoundedRectangle(cornerRadius: 14))
                 }
 
-                // M15: модерация — кто может войти (те же 4 режима, что в комнате)
+                // Модерация — кто может войти (те же 4 режима, что в комнате)
                 VStack(alignment: .leading, spacing: 10) {
                     Text(LocalizationManager.shared.string(.rcWhoCanJoin))
                         .font(.system(size: 13, weight: .semibold))
@@ -511,7 +554,7 @@ struct RoomCreationView: View {
         .frame(minHeight: 400)
     }
 
-    // MARK: - M15: карточка режима приватности + сетевое создание
+    // MARK: - Карточка режима приватности + сетевое создание
 
     @ViewBuilder
     private func privacyModeCard(_ mode: RoomPrivacy) -> some View {
@@ -552,28 +595,11 @@ struct RoomCreationView: View {
     /// Постер для превью на шаге «Настройка». Сейчас надёжно восстанавливается
     /// только для YouTube; остальные сервисы — плейсхолдер (nil).
     private static func thumbnailURL(for rawURL: String, service: VideoService) -> String? {
-        guard service == .youtube, let vid = extractYouTubeID(from: rawURL) else { return nil }
+        guard service == .youtube, let vid = RoomCreateMedia.extractYouTubeID(from: rawURL) else { return nil }
         return "https://img.youtube.com/vi/\(vid)/hqdefault.jpg"
     }
 
-    private static func extractYouTubeID(from raw: String) -> String? {
-        guard let url = URL(string: raw) else { return nil }
-        if PlinkHost.matches(url.host, domain: "youtu.be") {
-            let id = url.lastPathComponent
-            return id.isEmpty ? nil : id
-        }
-        if let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
-           let v = items.first(where: { $0.name == "v" })?.value, !v.isEmpty {
-            return v
-        }
-        if url.path.contains("/embed/") || url.path.contains("/shorts/") {
-            let id = url.lastPathComponent
-            return id.isEmpty ? nil : id
-        }
-        return nil
-    }
-
-    /// M15: полный сетевой цикл создания комнаты с приватностью и паролем.
+    /// Полный сетевой цикл создания комнаты с приватностью и паролем.
     @MainActor
     private func performCreate() async {
         let svc = selectedService ?? .youtube
@@ -590,28 +616,7 @@ struct RoomCreationView: View {
         // Собираем MediaItem из выбранного контента
         var mediaItem: MediaItem? = nil
         if let video = detectedVideo {
-            var streamURL = video.embedURL.isEmpty ? video.originalURL : video.embedURL
-            var source: MediaItem.MediaSource = .url
-            var videoId: String? = nil
-            var thumb: String? = nil
-            if svc == .youtube,
-               let vid = Self.extractYouTubeID(from: video.originalURL) ?? Self.extractYouTubeID(from: video.embedURL) {
-                streamURL = "https://www.youtube.com/watch?v=\(vid)"
-                source = .youtube
-                videoId = vid
-                thumb = "https://img.youtube.com/vi/\(vid)/hqdefault.jpg"
-            }
-            mediaItem = MediaItem(
-                id: UUID().uuidString,
-                title: roomName.isEmpty ? (video.title ?? svc.title) : roomName,
-                artist: nil,
-                thumbnailURL: thumb,
-                streamURL: streamURL,
-                duration: nil,
-                mediaType: .video,
-                source: source,
-                videoId: videoId
-            )
+            mediaItem = RoomCreateMedia.mediaItem(service: svc, video: video, roomName: roomName)
         }
 
         let name = roomName.trimmingCharacters(in: .whitespaces).isEmpty

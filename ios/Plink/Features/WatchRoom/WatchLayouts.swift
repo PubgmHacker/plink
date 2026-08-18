@@ -1,16 +1,16 @@
-// Plink/Features/WatchRoom/WatchLayouts.swift — PATCH 02 + 04 + Brain Phase 6
+// Plink/Features/WatchRoom/WatchLayouts.swift
 //
 // Layout variants for WatchRoomScreen. Each layout includes PlayerStage
 // with a stable .id so SwiftUI's diff preserves it across rotation.
 // The underlying AVPlayer/WKWebView is owned by PlaybackCoordinator /
 // EmbeddedPlaybackController and is NEVER recreated by orientation.
 //
-// Brain Phase 6: PlayerStage has the SAME .id("plink.player.stage") across
+// PlayerStage has the SAME .id("plink.player.stage") across
 // all 3 layouts. SwiftUI's diff treats it as the same view, so the
 // underlying UIView is preserved during rotation. The surrounding chrome
 // (chat, presence, composer) may rebuild, but the player identity is stable.
 //
-// Layout rules (PATCH 02 spec):
+// Layout rules:
 //   - Portrait:    safe area, 16:9 full-width player, 56pt presence, chat, composer
 //   - Landscape:   player full canvas, optional trailing drawer (320-420pt)
 //   - iPad:        player leading 60%+, social rail 340-400pt
@@ -125,7 +125,7 @@ struct LandscapeWatchLayout: View {
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            // Brain Phase 6: same .id as Portrait/Tablet → SwiftUI preserves
+            // Same .id as Portrait/Tablet → SwiftUI preserves
             // the underlying PlayerSurfaceView across rotation.
             PlayerStage(model: model, ui: $ui, variant: .landscape)
                 .id("plink.player.stage")
@@ -167,7 +167,7 @@ struct TabletWatchLayout: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                // Brain Phase 6: same .id as Portrait/Landscape.
+                // Same .id as Portrait/Landscape.
                 PlayerStage(model: model, ui: $ui, variant: .tablet)
                     .id("plink.player.stage")
                     .aspectRatio(16 / 9, contentMode: .fit)

@@ -1,6 +1,4 @@
 // src/tests/contract/roomEventBus.contract.test.ts
-// Brain Review 2 P1-10 regression tests
-//
 // Verifies the Zod schema on RoomEventBus rejects malformed events.
 // No Redis needed — pure schema validation.
 
@@ -46,7 +44,7 @@ const RoomEventSchema = z.discriminatedUnion('kind', [
 
 const VALID_UUID = '00000000-0000-4000-8000-000000000000';
 
-describe('RoomEventSchema (P1-10 regression)', () => {
+describe('RoomEventSchema validation', () => {
   it('accepts valid chat.broadcast', () => {
     RoomEventSchema.parse({
       kind: 'chat.broadcast',

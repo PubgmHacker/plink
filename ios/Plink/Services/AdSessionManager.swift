@@ -64,9 +64,9 @@ final class AdSessionManager: ObservableObject {
     }
 
     deinit {
-        // 🔧 FIX H4: Timers MUST be invalidated explicitly. The comment "timers
-        // invalidate themselves" was wrong — Timer.scheduledTimer is retained by
-        // the run loop until invalidated, leaking the AdSessionManager instance.
+        // Both timers must be invalidated explicitly: the run loop retains a
+        // scheduled Timer until it is, which keeps this manager alive for the
+        // lifetime of the process.
         adTimer?.invalidate()
         countdownTimer?.invalidate()
     }
@@ -126,9 +126,8 @@ final class AdSessionManager: ObservableObject {
     private func triggerAd() {
         guard !isAdPlaying else { return }
 
-        // 🔧 FIX C10: Premium host bypass — was dead code before (shouldPlayAd
-        // existed but was never called from triggerAd). Now always checked first.
-        // Uses PremiumStatusManager.shared.isPremium as the authoritative source.
+        // The premium bypass is checked first, on every trigger: a paying host
+        // must never see an ad, and the check is worthless if it can be skipped.
         if !shouldPlayAd(hostIsPremium: PremiumStatusManager.shared.isPremium) {
             // shouldPlayAd already restarted the timer for the next interval.
             // No ad shown — premium host (and their guests) see no ads.

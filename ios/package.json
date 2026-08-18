@@ -10,9 +10,9 @@
     "android:test": "cd android-client && ./gradlew testDebugUnitTest",
     "landing:dev": "npm --prefix ../landing run dev",
     "landing:build": "npm --prefix ../landing run build",
-    "backend:dev": "npm --prefix ../backend-3 run dev",
-    "backend:build": "npm --prefix ../backend-3 run build",
-    "backend:test": "npm --prefix ../backend-3 test"
+    "backend:dev": "npm --prefix ../backend run dev",
+    "backend:build": "npm --prefix ../backend run build",
+    "backend:test": "npm --prefix ../backend test"
   },
   "devDependencies": {
     "ws": "^8.21.1"

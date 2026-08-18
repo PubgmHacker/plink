@@ -19,7 +19,8 @@ android {
 
     signingConfigs {
         create("release") {
-            // M12: CI signing via env vars — safe no-op locally.
+            // Release signing comes from environment variables, so this block
+            // is a no-op on a developer machine and only engages in CI.
             // Provide PLINK_KEYSTORE_PATH / PLINK_KEYSTORE_PASSWORD /
             // PLINK_KEY_ALIAS / PLINK_KEY_PASSWORD in CI secrets.
             val ksPath = System.getenv("PLINK_KEYSTORE_PATH")
@@ -34,7 +35,7 @@ android {
 
     buildTypes {
         release {
-            // M12: R8 shrinking — roughly halves APK size vs debug build
+            // R8 shrinking — roughly halves APK size vs the debug build.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

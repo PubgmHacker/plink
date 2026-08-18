@@ -1,4 +1,3 @@
-// Plink/Design/Cinematic/CompactPhoneMetrics.swift — §5 Final Architecture
 //
 // Compact density tokens for iPhone.
 
@@ -26,21 +25,21 @@ enum CompactPhoneMetrics {
     static let primaryButtonHeight: CGFloat = 50
 }
 
-// MARK: - Cinema2026 neutral palette (§5)
+// MARK: - Cinema2026 neutral palette
 
-/// Палитра кинематографичных экранов: комната, чат, онбординг, пейволл,
-/// создание комнаты.
+/// Palette for the cinematic screens: room, chat, onboarding, paywall and
+/// room creation.
 ///
-/// Аудит 03.08.2026. Здесь жил ВТОРОЙ акцент приложения — мятный
-/// `rgb(0.355, 0.690, 0.610)`. Вкладки и «Оформление» рисуются палитрой `V4`
-/// с синим акцентом, а онбординг, пейволл и создание комнаты — этой, и на
-/// глаз это выглядело как два разных приложения: пользователь встречал
-/// мятную кнопку «Далее» в онбординге, а сразу после входа — синюю.
+/// Every token here is an alias of `V4`, and must stay one. The app has a
+/// single accent and a single background: tabs and "Appearance" are drawn
+/// from the `V4` palette, and onboarding, the paywall and room creation are
+/// drawn from this one. A second accent colour defined here reads as two
+/// different apps — e.g. a mint "Next" button in onboarding followed by a
+/// blue one immediately after sign-in.
 ///
-/// Токены сведены к `V4`, чтобы акцент и фон были одни на всё приложение.
-/// Имена и структура сохранены: на `Cinema2026` ссылаются 430 раз в
-/// десятках файлов, и переписывать каждый вызов рискованнее, чем
-/// переопределить источник.
+/// The names and the structure are kept as-is: `Cinema2026` is referenced
+/// around 430 times across dozens of files, so redefining the source is
+/// safer than rewriting every call site.
 enum Cinema2026 {
     static let background = V4.canvas
     static let surface = V4.surface

@@ -1,26 +1,28 @@
 // Plink/Realtime/RealtimeClient.swift
-// Production WebSocket client (runbook §8 + Brain Review 3 P0-19..P0-21 fixes)
+// Production WebSocket client
 //
-// Brain Review 3 fixes:
+// Connection invariants:
 //
-// P0-19: receive loop bound to EXACT task, not shared transport.task.
-//   Old loop's `try await self.transport.task?.receive()` reads the shared
-//   current task — after reconnect, old loop can steal the new task's first
-//   message. Fixed: startReceiveLoop takes task parameter; loop awaits
-//   task.receive() directly, never reads transport.task.
+// The receive loop is bound to an EXACT task, never to the shared
+//   transport.task. Awaiting `self.transport.task?.receive()` inside the loop
+//   reads whichever task is current, which would let a loop from a previous
+//   connection steal the new task's first message after a reconnect.
+//   startReceiveLoop takes the task as a parameter and awaits task.receive()
+//   directly; it must never read transport.task.
 //
-// P0-20: URLSession delegate callbacks check task identity via
-//   transport.isCurrent(task). Old socket close no longer triggers
-//   scheduleReconnect() over healthy new connection.
+// URLSession delegate callbacks check task identity via
+//   transport.isCurrent(task), so the close of a superseded socket cannot
+//   trigger scheduleReconnect() over a healthy new connection.
 //
-// P0-21: beginReconnect(cause:) unifies reconnect paths. Cancels old
-//   transport IMMEDIATELY before backoff (not after). Single reconnectTask
-//   prevents competing reconnect attempts.
+// beginReconnect(cause:) is the single entry point for every reconnect path.
+//   It cancels the superseded transport IMMEDIATELY, before the backoff wait
+//   rather than after it. One reconnectTask at a time prevents competing
+//   reconnect attempts.
 
 import Foundation
 import Observation
 
-// MARK: - Sendable transport holder with task identity check (P0-20)
+// MARK: - Sendable transport holder with task identity check
 private final class Transport: @unchecked Sendable {
     private let lock = NSLock()
     private var _task: URLSessionWebSocketTask?
@@ -47,7 +49,7 @@ private final class Transport: @unchecked Sendable {
         return _task
     }
 
-    // P0-20: identity check for delegate callbacks
+    // Identity check for delegate callbacks
     func isCurrent(_ candidate: URLSessionWebSocketTask) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return _task === candidate
@@ -87,13 +89,13 @@ public struct RealtimeTicket: Sendable, Equatable {
     }
 }
 
-// P0-30: typed RoomRole — not raw String
+// Typed RoomRole — not raw String
 public enum RoomRole: String, Sendable, Equatable, Codable {
     case host
     case viewer
 }
 
-// MARK: - Delegate protocol (P0-30: sessionDidConnect now carries role)
+// MARK: - Delegate protocol (sessionDidConnect now carries role)
 @MainActor
 public protocol RealtimeClientDelegate: AnyObject {
     var roomId: String? { get }
@@ -101,7 +103,7 @@ public protocol RealtimeClientDelegate: AnyObject {
     var lastSeq: Int64 { get }
     func ingestClockProbe(clientSentMs: Double, serverMs: Double, clientReceivedMs: Double)
     func applySnapshot(_ state: RealtimeRoomState?)
-    /// P0-30: role from session.ready — host or viewer
+    /// Role from session.ready — host or viewer
     func sessionDidConnect(role: RoomRole)
     func handleOtherMessage(_ message: RealtimeServerMessage)
 }
@@ -114,7 +116,7 @@ public final class RealtimeClient: NSObject {
     public private(set) var lastError: String?
     public private(set) var clockSynced: Bool = false
     public private(set) var snapshotReceived: Bool = false
-    // P0-30: role from session.ready — exposed to delegate via sessionDidConnect(role:)
+    // Role from session.ready — exposed to delegate via sessionDidConnect(role:)
     public private(set) var role: RoomRole = .viewer
 
     private var messageSinks: [MessageSink] = []
@@ -139,13 +141,13 @@ public final class RealtimeClient: NSObject {
     private var currentRoomId: String?
     private var reconnectAttempt = 0
 
-    // M12: outbound queue — user messages (chat/reactions) composed while
+    // Outbound queue — user messages (chat/reactions) composed while
     // offline or during reconnect are queued and flushed after the session
     // is fully connected, instead of being silently dropped.
     private var pendingOutbound: [RealtimeClientMessage] = []
     private static let maxPendingOutbound = 50
 
-    /// M13: number of user messages queued while offline (surfaced in the room UI).
+    /// Number of user messages queued while offline (surfaced in the room UI).
     public var queuedUserMessageCount: Int { pendingOutbound.count }
     private static let maxReconnectBackoffSec: Double = 30
     private static let clockTimeoutNs: UInt64 = 5_000_000_000
@@ -214,7 +216,7 @@ public final class RealtimeClient: NSObject {
     }
 
     public func send(_ msg: RealtimeClientMessage) {
-        // M12: while offline or reconnecting, queue user-visible messages
+        // While offline or reconnecting, queue user-visible messages
         // (chat/reactions) instead of dropping them; flush after connect.
         guard state.isOnline || state.isTransient else {
             enqueueIfUserMessage(msg)
@@ -240,7 +242,7 @@ public final class RealtimeClient: NSObject {
         }
     }
 
-    // MARK: - Connection (P0-21: cancel old transport BEFORE backoff)
+    // MARK: - Connection (cancel old transport BEFORE backoff)
 
     private func openConnection() async {
         guard let roomId = currentRoomId else {
@@ -288,7 +290,7 @@ public final class RealtimeClient: NSObject {
         transport.set(task: t, session: s)
         if gen == generation { setState(.authenticating) }
         t.resume()
-        // P0-19: pass the EXACT task to the receive loop — do not read
+        // Pass the EXACT task to the receive loop — do not read
         // transport.task inside the loop.
         if gen == generation { startReceiveLoop(task: t, generation: gen) }
     }
@@ -313,7 +315,7 @@ public final class RealtimeClient: NSObject {
         return url
     }
 
-    // P0-19: receive loop bound to EXACT task — never reads transport.task
+    // Receive loop bound to EXACT task — never reads transport.task
     private func startReceiveLoop(task: URLSessionWebSocketTask, generation: UUID) {
         receiveTask?.cancel()
         receiveTask = Task { [weak self, weak task] in
@@ -321,7 +323,7 @@ public final class RealtimeClient: NSObject {
             guard let task else { return }
             while !Task.isCancelled {
                 do {
-                    // P0-19: await on the EXACT task, not transport.task
+                    // Await on the EXACT task, not transport.task
                     let msg = try await task.receive()
                     // Generation check still needed for handleIncoming, but
                     // the message came from the correct task — no stealing.
@@ -370,7 +372,7 @@ public final class RealtimeClient: NSObject {
 
     private func handleSessionReady(_ ready: RealtimeServerMessage.SessionReady, generation: UUID) {
         guard generation == self.generation else { return }
-        // P0-30: store role from session.ready for sessionDidConnect(role:)
+        // Store role from session.ready for sessionDidConnect(role:)
         self.role = RoomRole(rawValue: ready.role) ?? .viewer
         setState(.synchronizing)
         startClockProbes(generation: generation)
@@ -405,10 +407,10 @@ public final class RealtimeClient: NSObject {
         snapshotTimeoutTask = nil
         if state != .connected {
             setState(.connected)
-            // P0-30: pass role to delegate — host or viewer
+            // Pass role to delegate — host or viewer
             delegate?.sessionDidConnect(role: self.role)
             reconnectAttempt = 0
-            // M12: flush chat/reactions composed while offline
+            // Flush chat/reactions composed while offline
             flushPendingOutbound()
         }
     }
@@ -439,7 +441,7 @@ public final class RealtimeClient: NSObject {
         }
     }
 
-    // P0-31: handshake timeout — was previously in startHandshakeTimeout,
+    // Handshake timeout — was previously in startHandshakeTimeout,
     // now split into clock + snapshot timeouts above.
 
     private func handleReceiveError(_ error: Error) {
@@ -452,12 +454,12 @@ public final class RealtimeClient: NSObject {
         }
     }
 
-    // MARK: - Reconnect (P0-21: unified beginReconnect, cancel old BEFORE backoff)
+    // MARK: - Reconnect (unified beginReconnect, cancel old BEFORE backoff)
 
     private func beginReconnect(cause: String) {
-        // P0-21: prevent competing reconnect tasks
+        // Prevent competing reconnect tasks
         if reconnectTask != nil { return }
-        // P0-21: invalidate generation + cancel old transport IMMEDIATELY
+        // Invalidate generation + cancel old transport IMMEDIATELY
         generation = UUID()  // old callbacks now ignored
         cancelAllTasksExceptReconnect()
         transport.cancel()  // old task cancelled BEFORE backoff
@@ -500,7 +502,7 @@ public final class RealtimeClient: NSObject {
     }
 
     private func sendClockProbe() {
-        // Аудит 26.07.2026 P0: сервер требует целое (zod .int()), Double с дробью
+        // Сервер требует целое (zod .int()), Double с дробью
         // отбивался SCHEMA_INVALID — клоксинк в проде не работал вообще.
         send(.clockProbe(.init(clientSentMs: (Date().timeIntervalSince1970 * 1000).rounded())))
     }
@@ -510,12 +512,12 @@ public final class RealtimeClient: NSObject {
     private func isUserMessage(_ msg: RealtimeClientMessage) -> Bool {
         switch msg {
         case .chatSend, .reactionSend: return true
-        // M26: просьба о паузе НЕ копится в офлайн-очереди намеренно.
+        // Просьба о паузе НЕ копится в офлайн-очереди намеренно.
         // «Поставь паузу» имеет смысл ровно сейчас; доставленная через
         // 30 секунд после переподключения, она попросит хоста остановить
         // совсем другой момент фильма. Лучше не отправить и сказать об этом,
         // чем отправить не вовремя (см. WatchRoomModel.requestPause).
-        // M27: ответ хоста — по той же причине: вердикт по просьбе, которой
+        // Ответ хоста — по той же причине: вердикт по просьбе, которой
         // к моменту реконнекта уже никто не ждёт, только запутает комнату.
         case .syncCommand, .stateRequest, .clockProbe, .pauseRequest, .pauseResolve: return false
         }
@@ -549,7 +551,7 @@ public final class RealtimeClient: NSObject {
         snapshotTimeoutTask?.cancel(); snapshotTimeoutTask = nil
     }
 
-    // P0-21: cancel all except reconnect (called FROM beginReconnect)
+    // Cancel all except reconnect (called FROM beginReconnect)
     private func cancelAllTasksExceptReconnect() {
         receiveTask?.cancel(); receiveTask = nil
         clockProbeTask?.cancel(); clockProbeTask = nil
@@ -562,7 +564,7 @@ public final class RealtimeClient: NSObject {
     }
 }
 
-// MARK: - URLSessionWebSocketDelegate (P0-20: task identity check)
+// MARK: - URLSessionWebSocketDelegate (task identity check)
 
 extension RealtimeClient: URLSessionWebSocketDelegate {
     nonisolated public func urlSession(
@@ -572,7 +574,7 @@ extension RealtimeClient: URLSessionWebSocketDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // P0-20: only handle if this is the current task
+            // Only handle if this is the current task
             guard self.transport.isCurrent(webSocketTask) else { return }
             self.setState(.joining)
         }
@@ -586,9 +588,9 @@ extension RealtimeClient: URLSessionWebSocketDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // P0-20: only handle if this is the current task
+            // Only handle if this is the current task
             guard self.transport.isCurrent(webSocketTask) else { return }
-            // P0-5: URLSessionWebSocketTask.CloseCode — use rawValue only,
+            // URLSessionWebSocketTask.CloseCode — use rawValue only,
             // named cases vary across SDK versions (.normal vs .protocolNormal).
             let code = closeCode.rawValue
             if code == 1000 || code == 1001 {

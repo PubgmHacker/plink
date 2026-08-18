@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/integration-test.sh — Brain Review 4 P1-31 one-command harness
+# scripts/integration-test.sh — one-command integration harness
 #
 # Brings up Postgres + Redis via Docker Compose, runs migrations, runs
 # all integration tests with 0 skipped, tears down.

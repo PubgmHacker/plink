@@ -20,8 +20,8 @@ import { WEB_PLANS, webPayConfigured } from './webpay.js'
 import {
   mediaTitleFromMediaItem,
   webWatchPageHTML,
+  webWatchTargetFromMediaItem,
   webWatchUnsupportedHTML,
-  youtubeIdFromMediaItem,
 } from '../web/watchPage.js'
 
 const ROOM_CODE_RE = /^[A-Z0-9]{4,12}$/
@@ -33,7 +33,7 @@ const APP_STORE_URL = process.env.APP_STORE_URL ?? 'https://apps.apple.com/app/i
 const TESTFLIGHT_URL = process.env.TESTFLIGHT_URL ?? ''
 const ANDROID_STORE_URL = process.env.ANDROID_STORE_URL ?? ''
 const INSTALL_URL = TESTFLIGHT_URL || APP_STORE_URL
-// Аудит 26.07.2026: дефолты были заглушками (TEAMID0000 / com.plink.app),
+// Дефолты были заглушками (TEAMID0000 / com.plink.app),
 // из-за чего AASA отдавал несуществующий appID и universal links не работали.
 // Реальные значения — DEVELOPMENT_TEAM из project.yml и bundle id приложения
 // (тот же дефолт, что в billing.ts).
@@ -81,7 +81,7 @@ function securityHeaders(
   reply: FastifyReply,
   scriptNonce?: string,
   allowConnect = false,
-  /** /w/:code — fetch API + WS + same-origin YouTube player iframe */
+  /** /w/:code — fetch API + WS + player iframe (YouTube same-origin, VK/Rutube official) */
   watchMode = false,
 ) {
   const scriptSrc = scriptNonce ? `script-src 'nonce-${scriptNonce}'; ` : ''
@@ -89,7 +89,9 @@ function securityHeaders(
   const connectSrc = allowConnect || watchMode
     ? "connect-src 'self' wss: ws:; "
     : ''
-  const frameSrc = watchMode ? "frame-src 'self'; " : ''
+  const frameSrc = watchMode
+    ? "frame-src 'self' https://vk.com https://www.vk.com https://rutube.ru https://www.rutube.ru; "
+    : ''
   const imgSrc = watchMode
     ? "img-src 'self' data: https://i.ytimg.com; "
     : "img-src 'self' data:; "
@@ -108,7 +110,7 @@ function newNonce(): string {
 }
 
 /// @font-face для самохостных шрифтов (routes/assets.ts отдаёт их из
-/// backend-3/assets/fonts с иммутабельным кэшем).
+/// backend/assets/fonts с иммутабельным кэшем).
 ///
 /// Почему не Google Fonts: строгий CSP запрещает внешние источники, а сторонний
 /// CDN — это ещё и лишний RTT и точка отказа. Сабсеты разнесены по unicode-range,
@@ -218,7 +220,7 @@ function baseScript(nonce: string): string {
         var x = (e.clientX - r.left) / r.width - 0.5;
         var y = (e.clientY - r.top) / r.height - 0.5;
         wrap.classList.add('tilting');
-        // Дизайн-реф. §4: наклон <=12°, translateZ 24px, блик radial по --gx/--gy.
+        // Дизайн-реф.: наклон <=12°, translateZ 24px, блик radial по --gx/--gy.
         phone.style.transform = 'translateZ(24px) rotateY(' + (x * 16).toFixed(2) + 'deg) rotateX(' + (-y * 12).toFixed(2) + 'deg)';
         phone.style.setProperty('--gx', ((x + 0.5) * 100).toFixed(1) + '%');
         phone.style.setProperty('--gy', ((y + 0.5) * 100).toFixed(1) + '%');
@@ -228,7 +230,7 @@ function baseScript(nonce: string): string {
         phone.style.transform = '';
       });
     }
-    // Гигантский фоновый текст (дизайн-реф. §3): scaleY тянется за высотой окна.
+    // Гигантский фоновый текст (дизайн-реф.): scaleY тянется за высотой окна.
     var giant = document.querySelector('.giant');
     if (giant) {
       var fitGiant = function () {
@@ -237,7 +239,7 @@ function baseScript(nonce: string): string {
       fitGiant();
       addEventListener('resize', fitGiant, { passive: true });
     }
-    // Магнитные кнопки (дизайн-реф. §5): CTA тянется к курсору в зоне ~48px
+    // Магнитные кнопки (дизайн-реф.): CTA тянется к курсору в зоне ~48px
     // вокруг кнопки; отпускает той же транзишеной transform, что и hover.
     var magnets = document.querySelectorAll('a.btn, a.store-badge, a.nav-cta');
     if (magnets.length && matchMedia('(pointer:fine)').matches
@@ -346,7 +348,7 @@ async function sendOG(reply: FastifyReply, title: string, subtitle: string) {
   const svg = ogSVG(title, subtitle)
   reply.header('Cache-Control', 'public, max-age=3600')
   try {
-    // Аудит 26.07.2026 P1: sharp теперь в dependencies — OG отдаётся PNG
+    // Sharp теперь в dependencies — OG отдаётся PNG
     // (мессенджеры не показывают SVG-превью). catch — на случай проблем
     // с нативным модулем в конкретной среде: тогда честный SVG-фолбэк.
     const { default: sharp } = await import('sharp')
@@ -621,7 +623,7 @@ function pageHead(opts: {
            letter-spacing:-.02em; color:var(--ink) }
   .frame span.desc { color:var(--mut); font-size:14px; font-weight:300; line-height:1.45;
            margin-top:10px; max-width:34ch }
-  /* Sticky-стек фич (дизайн-реф. §5): на узких экранах карточки складываются
+  /* Sticky-стек фич (дизайн-реф.): на узких экранах карточки складываются
      одна на другую при скролле. Глубину даёт backdrop-blur самих карточек,
      непрозрачная подложка — чтобы текст нижней не просвечивал сквозь верхнюю. */
   @media (max-width:899px) {
@@ -632,7 +634,7 @@ function pageHead(opts: {
     .frames .frame:nth-child(3){--fi:2} .frames .frame:nth-child(4){--fi:3}
   }
 
-  /* Гигантский фоновый текст (дизайн-реф. §3): призрак вордмарка за контентом,
+  /* Гигантский фоновый текст (дизайн-реф.): призрак вордмарка за контентом,
      вертикаль тянется за innerHeight через --gsy (ставит baseScript). */
   .giant { position:fixed; left:50%; bottom:-.12em; z-index:1; pointer-events:none;
            user-select:none; white-space:nowrap;
@@ -692,7 +694,7 @@ function pageHead(opts: {
                       0 0 90px -40px rgba(124,92,255,.3);
            transition:transform .35s var(--ease); will-change:transform;
            animation:float 7s ease-in-out infinite;
-           /* Отражение под мокапом (дизайн-реф. §5). Градиент здесь — маска
+           /* Отражение под мокапом (дизайн-реф.). Градиент здесь — маска
               видимости: у корпуса 30% и к 45% высоты сходит в ноль. Работает
               в WebKit/Blink; Firefox просто не рисует отражение. */
            -webkit-box-reflect:below 24px linear-gradient(rgba(0,0,0,.3), transparent 45%) }
@@ -858,7 +860,7 @@ async function installLanding(opts: {
     : opts.mediaTitle
       ? `Сейчас смотрят: ${opts.mediaTitle}. Присоединяйся — кадр в кадр.`
       : 'Присоединяйся к просмотру — кадр в кадр.'
-  // Аудит 26.07.2026 P2: для завершённой комнаты нельзя рисовать «СЕАНС ИДЁТ»
+  // Для завершённой комнаты нельзя рисовать «СЕАНС ИДЁТ»
   // и счётчик зала — комната уже неактивна.
   const inviteLine = !opts.isActive
     ? 'Сеанс завершён'
@@ -1277,7 +1279,7 @@ export async function webRoutes(fastify: FastifyInstance) {
 
     const room = await prisma.room.findFirst({
       where: { code, hidden: false },
-      // Аудит 26.07.2026: mediaTitle принадлежит WatchHistory, а не Room.
+      // mediaTitle принадлежит WatchHistory, а не Room.
       select: {
         name: true,
         mediaItem: true,
@@ -1303,10 +1305,10 @@ export async function webRoutes(fastify: FastifyInstance) {
 
     const nonce = newNonce()
     securityHeaders(reply, nonce)
-    // Аудит 26.07.2026 P2: без явного Cache-Control прокси кэшировали страницу
+    // Без явного Cache-Control прокси кэшировали страницу
     // эвристически и замораживали счётчик зала и название комнаты.
     reply.header('Cache-Control', 'no-store')
-    const ytId = youtubeIdFromMediaItem(room.mediaItem)
+    const watchTarget = webWatchTargetFromMediaItem(room.mediaItem)
     const mediaTitle = mediaTitleFromMediaItem(room.mediaItem)
     return reply.type('text/html; charset=utf-8').send(await installLanding({
       code,
@@ -1316,7 +1318,7 @@ export async function webRoutes(fastify: FastifyInstance) {
       participants: room._count?.participants ?? 0,
       isActive: room.isActive,
       nonce,
-      watchPath: room.isActive && ytId ? `/w/${encodeURIComponent(code)}` : null,
+      watchPath: room.isActive && watchTarget ? `/w/${encodeURIComponent(code)}` : null,
     }))
   })
 
@@ -1361,13 +1363,13 @@ export async function webRoutes(fastify: FastifyInstance) {
       }))
     }
 
-    const youtubeId = youtubeIdFromMediaItem(room.mediaItem)
-    if (!youtubeId) {
+    const target = webWatchTargetFromMediaItem(room.mediaItem)
+    if (!target) {
       securityHeaders(reply, nonce)
       return reply.type('text/html; charset=utf-8').send(webWatchUnsupportedHTML({
         code,
         roomName: room.name || 'Комната Plink',
-        reason: 'В этой комнате не YouTube. Для VK, Rutube и кинотеатров открой ссылку в приложении Plink — там полный синхрон и режим «ваш экран».',
+        reason: 'В этой комнате кинотеатр или страница хоста. YouTube, VK и Rutube открываются в браузере; кинотеатры — в приложении Plink («ваш экран»).',
         nonce,
         publicOrigin: PUBLIC_ORIGIN,
       }))
@@ -1378,7 +1380,7 @@ export async function webRoutes(fastify: FastifyInstance) {
       code,
       roomName: room.name || 'Комната Plink',
       mediaTitle: mediaTitleFromMediaItem(room.mediaItem),
-      youtubeId,
+      target,
       nonce,
       publicOrigin: PUBLIC_ORIGIN,
     }))
@@ -1419,7 +1421,7 @@ export async function webRoutes(fastify: FastifyInstance) {
 
     const user = await prisma.user.findFirst({
       where: { username, deletedAt: null, shadowbanned: false },
-      // Аудит 26.07.2026: поля bio в схеме нет.
+      // Поля bio в схеме нет.
       select: { displayName: true, username: true },
     })
 
@@ -1451,7 +1453,7 @@ export async function webRoutes(fastify: FastifyInstance) {
     if (!ROOM_CODE_RE.test(code)) return sendOG(reply, 'Plink', 'Смотрите вместе')
     const room = await prisma.room.findFirst({
       where: { code, hidden: false },
-      // Аудит 26.07.2026: mediaTitle принадлежит WatchHistory, а не Room.
+      // mediaTitle принадлежит WatchHistory, а не Room.
       select: { name: true, mediaItem: true },
     })
     return sendOG(reply, room?.name || 'Комната Plink',

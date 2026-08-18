@@ -1,6 +1,6 @@
-// Plink/Features/WatchRoom/PlayerControlLayer.swift — PATCH 02
+// Plink/Features/WatchRoom/PlayerControlLayer.swift
 //
-// Extracted from PlayerStage.swift per PATCH 02 spec.
+// Extracted from PlayerStage.swift.
 //
 // Contains:
 //   - PlayerTopChrome     (close, sync pill, more menu)
@@ -30,7 +30,7 @@ struct PlayerTopChrome: View {
     /// по таймеру автоскрытия, унося с собой любой презентованный отсюда шит.
     /// Дефолт — no-op, чтобы превью/снапшоты рисовали хром без контекста экрана.
     var onOpenAppearance: () -> Void = {}
-    // M14: шит приглашения (QR + шер-линк)
+    // Шит приглашения (QR + шер-линк)
     @State private var showInvite = false
 
     var body: some View {
@@ -50,7 +50,7 @@ struct PlayerTopChrome: View {
 
                 Spacer()
 
-                // M15: бар модерации — повторный вызов (только хост)
+                // Бар модерации — повторный вызов (только хост)
                 if model.isHost {
                     Button {
                         HapticManager.impact(.light)
@@ -87,7 +87,7 @@ struct PlayerTopChrome: View {
                     .accessibilityLabel("Тема комнаты")
                 }
 
-                // M14: полноценное приглашение: QR-код + шер-линк + копирование
+                // Полноценное приглашение: QR-код + шер-линк + копирование
                 Button {
                     HapticManager.impact(.light)
                     showInvite = true
@@ -121,7 +121,7 @@ struct PlayerCenterControl: View {
             if model.coordinator.isPlaying {
                 model.sendPauseCommand()
             } else {
-                // M14: синхронный отсчёт 3-2-1, когда в комнате есть зрители
+                // Синхронный отсчёт 3-2-1, когда в комнате есть зрители
                 model.sendPlayWithCountdown()
             }
         } label: {
@@ -132,7 +132,7 @@ struct PlayerCenterControl: View {
                 .frame(width: 64, height: 64)
                 .plinkGlass(.overlay, in: Circle())
                 .overlay(
-                    // M14: акцент выбранной V4-темы продолжается в комнате
+                    // Акцент выбранной V4-темы продолжается в комнате
                     Circle().stroke(PlinkRoomAccent.current.opacity(0.65), lineWidth: 1.2)
                 )
                 .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
@@ -163,7 +163,7 @@ struct PlayerChromeButton: View {
     }
 }
 
-// Аудит 26.07.2026 (P1 5.5): неиспользуемый PlayerSmallButton удалён
+// Неиспользуемый PlayerSmallButton удалён
 // (задумывался под PiP/fullscreen, но нигде не инстанцировался).
 
 // MARK: - Loading & buffering
@@ -194,7 +194,7 @@ struct BufferingOverlay: View {
     }
 }
 
-// MARK: - M40: полноценная панель управления Plink
+// MARK: - Полноценная панель управления Plink
 //
 // Раньше контролы рисовал сам YouTube (`controls=1`), а Plink показывал только
 // крестик, пилюлю синхрона и кнопку play для хоста. Полосы перемотки, времени,
@@ -357,7 +357,7 @@ struct PlinkPlayerControls: View {
 
             HStack(spacing: 10) {
                 if !model.isHost {
-                    // M26: раньше здесь стояла только подпись «Управляет хост» —
+                    // Раньше здесь стояла только подпись «Управляет хост» —
                     // констатация без выхода. Гость, которому надо отойти на
                     // минуту, мог лишь написать в чат и надеяться, что хост его
                     // прочитает, а не смотрит в кадр. Пока идёт воспроизведение,
@@ -388,7 +388,7 @@ struct PlinkPlayerControls: View {
                 Spacer()
 
                 // Скорость
-                // Аудит 26.07.2026 P1: меню только при canControl — rate не входит
+                // Меню только при canControl — rate не входит
                 // в протокол sync.command, поэтому гость с 2× ломал себе синхрон
                 // (циклический жёсткий seek от OrderedSyncController). Для хоста
                 // скорость остаётся локальной, пока rate не добавлен в протокол.
@@ -487,7 +487,7 @@ struct PlinkPlayerControls: View {
 
     // MARK: Вспомогательное
 
-    /// M26: просьба о паузе. Результат обязательно показываем — тихий провал
+    /// Просьба о паузе. Результат обязательно показываем — тихий провал
     /// здесь худший из возможных: человек уйдёт от экрана, уверенный, что его
     /// просьбу увидели.
     private func askForPause() {
@@ -691,7 +691,7 @@ struct RTCTokenResponse: Decodable {
     let expiresInSec: Int?
 }
 
-// MARK: - M26: просьба о паузе (баннер хоста)
+// MARK: - Просьба о паузе (баннер хоста)
 //
 // Живёт НЕ внутри хрома плеера намеренно. Хром скрывается по таймеру
 // автоскрытия через несколько секунд — просьба, уехавшая вместе с ним, ничем
@@ -702,7 +702,7 @@ struct RTCTokenResponse: Decodable {
 // sync.command (кадр совпадёт у всей комнаты), «Не сейчас» — отказ, а не
 // откладывание. Гость получит ответ самим фактом: видео либо встало, либо нет.
 
-/// M28: карточка «что я пропустил». Появляется сама при опоздании;
+/// Карточка «что я пропустил». Появляется сама при опоздании;
 /// LLM-запрос — только по тапу, чтобы не тратить дневной лимит втихую.
 struct CatchUpBanner: View {
     let prompt: WatchRoomModel.CatchUpPrompt

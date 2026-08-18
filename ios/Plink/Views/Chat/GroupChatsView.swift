@@ -22,7 +22,7 @@ struct GroupsListView: View {
 
     var body: some View {
         List {
-            // M20: skeleton-загрузка вместо spinner
+            // skeleton-загрузка вместо spinner
             if service.isLoading && service.groups.isEmpty {
                 ForEach(0..<5, id: \.self) { _ in
                     SkeletonGroupRow()
@@ -95,7 +95,7 @@ struct GroupsListView: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    // M18: акцентная палитра V4 вместо purple/blue
+                    // Акцентная палитра V4 вместо purple/blue
                     .fill(LinearGradient(colors: [V4.accent.opacity(0.9), V4.accent.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 44, height: 44)
                 Image(systemName: "person.3.fill")
@@ -126,7 +126,7 @@ struct GroupsListView: View {
                 }
             }
             Spacer(minLength: 4)
-            // M17: unread-бейдж
+            // unread-бейдж
             if let unread = group.unreadCount, unread > 0 {
                 Text(unread > 99 ? "99+" : "\(unread)")
                     .font(.system(size: 11, weight: .bold))
@@ -216,7 +216,7 @@ struct CreateGroupSheet: View {
     }
 }
 
-// MARK: - M17: фото с авторизованной загрузкой (Bearer, в отличие от AsyncImage)
+// MARK: - Фото с авторизованной загрузкой (Bearer, в отличие от AsyncImage)
 
 struct GroupPhotoView: View {
     let groupId: String
@@ -279,7 +279,7 @@ struct GroupChatView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var sending = false
 
-    /// M17: быстрые реакции в контекстном меню.
+    /// Быстрые реакции в контекстном меню.
     private let quickReactions = ["\u{2764}\u{FE0F}", "\u{1F602}", "\u{1F525}", "\u{1F44D}", "\u{1F62E}"]
 
     private var messages: [GroupMessageDTO] {
@@ -305,12 +305,12 @@ struct GroupChatView: View {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
-                    // M17: новое видимое сообщение = прочитано
+                    // Новое видимое сообщение = прочитано
                     Task { await service.markRead(groupId: group.id) }
                 }
             }
 
-            // M16: баннер ИИ-модератора (мут за маты / отклонённое фото)
+            // Баннер ИИ-модератора (мут за маты / отклонённое фото)
             if let modMsg = service.errorMessage,
                modMsg.contains("Мут") || modMsg.contains("замучены") || modMsg.contains("отклонено") {
                 HStack(spacing: 8) {
@@ -344,7 +344,7 @@ struct GroupChatView: View {
         .task {
             await service.loadMessages(groupId: group.id)
             await service.markRead(groupId: group.id)
-            // M20: scenePhase guard — не поллим когда app в фоне
+            // scenePhase guard — не поллим когда app в фоне
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled else { break }
@@ -374,7 +374,7 @@ struct GroupChatView: View {
                 if own { Spacer(minLength: 40) }
                 Group {
                     if msg.mediaType == "photo" {
-                        // M17: фото рендерится картинкой (авторизованная загрузка)
+                        // Фото рендерится картинкой (авторизованная загрузка)
                         VStack(alignment: own ? .trailing : .leading, spacing: 4) {
                             GroupPhotoView(groupId: group.id, messageId: msg.id)
                             if !msg.content.isEmpty {
@@ -395,7 +395,7 @@ struct GroupChatView: View {
                     }
                 }
                 .contextMenu {
-                    // M17: быстрые реакции + удаление
+                    // Быстрые реакции + удаление
                     ForEach(quickReactions, id: \.self) { emoji in
                         Button {
                             Task { await service.react(groupId: group.id, messageId: msg.id, emoji: emoji) }
@@ -413,7 +413,7 @@ struct GroupChatView: View {
                 }
                 if !own { Spacer(minLength: 40) }
             }
-            // M17: лента реакций под сообщением
+            // Лента реакций под сообщением
             if let reactions = msg.reactions, !reactions.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(reactions.keys.sorted(), id: \.self) { emoji in

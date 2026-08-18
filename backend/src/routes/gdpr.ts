@@ -56,7 +56,7 @@ export default async function gdprRoutes(fastify) {
     
     if (!userData) return reply.status(404).send({ error: 'User not found' });
     
-    // ── Аудит 26.07.2026 (P2): из экспорта убираем ВСЕ секреты ───────────
+    // ── из экспорта убираем ВСЕ секреты ───────────
     // Раньше отбрасывался только `password`, а findUnique возвращает все
     // скалярные колонки User — в скачиваемый JSON попадали TOTP-секрет,
     // резервные коды 2FA и push-токен устройства. Файл экспорта пересылают
@@ -196,7 +196,7 @@ export default async function gdprRoutes(fastify) {
     
     // Анонимизация
     //
-    // Аудит 26.07.2026 (P2): вместе с PII гасим и СЕССИЮ. Раньше хендлер
+    // Вместе с PII гасим и СЕССИЮ. Раньше хендлер
     // менял username/email на `deleted_*` (после чего /auth/signin вход уже
     // не пускает), но не отзывал токены и не ставил deletedAt — выданный
     // access-токен продолжал работать, а /auth/refresh спокойно выдавал

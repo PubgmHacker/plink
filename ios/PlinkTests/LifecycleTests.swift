@@ -1,4 +1,4 @@
-// PlinkTests/LifecycleTests.swift — PATCH 21: lifecycle system tests
+// Lifecycle system tests
 
 import XCTest
 @testable import Plink

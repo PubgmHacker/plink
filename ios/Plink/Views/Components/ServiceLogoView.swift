@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - ServiceLogoView
-/// 🔧 REAL LOGOS: Uses actual brand logos from Assets.xcassets.
+/// REAL LOGOS: Uses actual brand logos from Assets.xcassets.
 /// Two modes:
 ///   1. Icon mode (default): square logo only
 ///   2. Wordmark mode: logo + full brand name text beside it
@@ -13,11 +13,11 @@ import SwiftUI
 struct ServiceLogoView: View {
     let service: VideoService
     var size: CGFloat = 48
-    /// 🔧 NEW: When true, shows the logo + full brand name text beside it (horizontal wordmark).
+    /// NEW: When true, shows the logo + full brand name text beside it (horizontal wordmark).
     /// When false (default), shows just the square logo icon.
     var wordmark: Bool = false
 
-    /// 🔧 Convenience init from MediaItem.MediaSource — converts via rawValue.
+    /// Convenience init from MediaItem.MediaSource — converts via rawValue.
     init(service source: MediaItem.MediaSource, size: CGFloat = 48, wordmark: Bool = false) {
         self.service = VideoService(rawValue: source.rawValue) ?? .youtube
         self.size = size
@@ -30,7 +30,8 @@ struct ServiceLogoView: View {
         self.wordmark = wordmark
     }
 
-    // 🔧 FIX 4.5: Static cache — loaded once, reused forever
+    // Decoded once per process. These logos appear in every row of the service
+    // list, and re-decoding them per cell drops frames while scrolling.
     private static let imageCache: [String: UIImage] = {
         var cache: [String: UIImage] = [:]
         for svc in VideoService.allCases {
@@ -67,7 +68,7 @@ struct ServiceLogoView: View {
     }
 
     // MARK: - Wordmark mode (logo + brand name text)
-    /// 🔧 NEW: Shows the real logo + full brand name in the brand's accent color.
+    /// NEW: Shows the real logo + full brand name in the brand's accent color.
     /// This gives the effect of a full wordmark logo without needing to download
     /// a separate wordmark image for each service.
 
@@ -122,12 +123,12 @@ extension VideoService {
         }
     }
 
-    /// 🔧 NEW: Full brand name for wordmark display.
+    /// NEW: Full brand name for wordmark display.
     /// Uses the official marketing name, not the short title.
     var brandName: String {
         switch self {
         case .youtube:      return "YouTube"
-        case .vk:           return "VK Видео"        // 🔧 was "VK", now "VK Видео" per user request
+        case .vk:           return "VK Видео"        // Was "VK", now "VK Видео" per user request
         case .rutube:       return "Rutube"
         case .netflix:      return "Netflix"
         case .disney:       return "Disney+"
@@ -144,10 +145,10 @@ extension VideoService {
         }
     }
 
-    /// 🔧 NEW: The URL to browse this service's content in a WebView.
+    /// NEW: The URL to browse this service's content in a WebView.
     /// Used by ServiceBrowserView to load the service's catalog page.
     ///
-    /// 🔧 v9 (July 2026): YouTube changed from search 'music 2025' to
+    /// YouTube changed from search 'music 2025' to
     /// /feed/trending — shows trending videos instead of arbitrary music
     /// search results. User-reported: 'почему пользователей сразу кидает на
     /// запрос music 2025 если они его не делали? лучше кидать на тренды'.
@@ -167,7 +168,7 @@ extension VideoService {
         case .smotrim:      return "https://smotrim.ru/"
         case .kion:         return "https://kion.ru/"
         case .browser:      return "https://www.google.com/"
-        case .customURL:    return "https://www.google.com/" // 🔧 Pack v3: был "" → URL(string: "")! crash
+        case .customURL:    return "https://www.google.com/" // Pack v3: был "" → URL(string: "")! crash
         }
     }
 }

@@ -12,7 +12,7 @@ final class ProfileViewModel {
     var isLoading = false
     var errorMessage: String?
 
-    /// 🔧 FIX: Локально выбранная аватарка из галереи.
+    /// Локально выбранная аватарка из галереи.
     /// Раньше была computed property от static var — @Observable не отслеживает
     /// static storage, поэтому SwiftUI не перерисовывал экраны при смене аватара.
     /// Теперь это stored instance property — @Observable отслеживает её напрямую.
@@ -21,7 +21,7 @@ final class ProfileViewModel {
     /// обновляют свой instance avatarImage.
     var avatarImage: UIImage?
 
-    /// 🔧 NEW: Cover photo (обложка профиля как ВКонтакте) — фоновое фото
+    /// NEW: Cover photo (обложка профиля как ВКонтакте) — фоновое фото
     /// над аватаром. Хранится локально в Documents/cover.jpg, синхронизируется
     /// между инстансами через NotificationCenter (как avatarImage).
     var coverImage: UIImage?
@@ -32,7 +32,7 @@ final class ProfileViewModel {
         didSet { Self.notifyAvatarChange() }
     }
 
-    /// 🔧 NEW: Общая обложка профиля (как ВКонтакте) — статическая, синхронизируется
+    /// NEW: Общая обложка профиля (как ВКонтакте) — статическая, синхронизируется
     /// между инстансами через NotificationCenter (как sharedAvatar).
     static var sharedCover: UIImage? {
         didSet { Self.notifyCoverChange() }
@@ -44,16 +44,16 @@ final class ProfileViewModel {
     }
     static let avatarChangedNotification = Notification.Name("plink_avatar_changed")
 
-    /// 🔧 NEW: Уведомляет все инстансы об изменении обложки.
+    /// NEW: Уведомляет все инстансы об изменении обложки.
     private static func notifyCoverChange() {
         NotificationCenter.default.post(name: Self.coverChangedNotification, object: nil)
     }
     static let coverChangedNotification = Notification.Name("plink_cover_changed")
 
-    /// 🔧 FIX: Подписка на смену аватара другим инстансом (например, когда юзер
+    /// Подписка на смену аватара другим инстансом (например, когда юзер
     /// меняет фото в ProfileView — SettingsView тоже должен обновиться немедленно).
     ///
-    /// 🔧 SWIFT 6: stored in `MutexBox` (let Sendable wrapper). Computed accessor
+    /// SWIFT 6: stored in `MutexBox` (let Sendable wrapper). Computed accessor
     /// is `nonisolated` — works without `unsafe` because it's computed. Avoids
     /// the contradictory Swift 6 warnings:
     ///   - `nonisolated(unsafe)` → "has no effect, consider using nonisolated"
@@ -68,7 +68,7 @@ final class ProfileViewModel {
         set { avatarObserverBox.value = newValue }
     }
 
-    /// 🔧 NEW: MutexBox wrapper for coverObserver (same pattern as avatarObserver)
+    /// NEW: MutexBox wrapper for coverObserver (same pattern as avatarObserver)
     private let coverObserverBox = MutexBox<NSObjectProtocol?>(nil)
     nonisolated private var coverObserver: NSObjectProtocol? {
         get { coverObserverBox.value }
@@ -83,7 +83,7 @@ final class ProfileViewModel {
     /// Выбранный медиа-итем для пересоздания комнаты («Посмотреть снова»).
     var rewatchMedia: MediaItem?
 
-    /// 🔧 v11 (July 2026): Telegram-style display name.
+    /// Telegram-style display name.
     /// Priority: user.displayName (if non-empty) → user.username → "Гость".
     /// Previously fell back to "Гость" whenever displayName was nil, which
     /// meant every user without an explicit display name showed as "Гость"
@@ -131,7 +131,7 @@ final class ProfileViewModel {
 
     init(authService: AuthServiceProtocol) {
         self.authService = authService
-        // 🔧 FIX: Subscribe to avatar-changed notifications from OTHER instances.
+        // Subscribe to avatar-changed notifications from OTHER instances.
         // When user changes photo in ProfileView, SettingsView's viewModel receives
         // this notification and updates its own instance avatarImage → @Observable
         // triggers re-render → avatar updates IMMEDIATELY, no re-entry needed.
@@ -148,7 +148,7 @@ final class ProfileViewModel {
                 }
             }
         }
-        // 🔧 NEW: Subscribe to cover-changed notifications (same pattern as avatar)
+        // NEW: Subscribe to cover-changed notifications (same pattern as avatar)
         coverObserver = NotificationCenter.default.addObserver(
             forName: Self.coverChangedNotification,
             object: nil,
@@ -164,12 +164,12 @@ final class ProfileViewModel {
     }
 
     nonisolated deinit {
-        // 🔧 FIX: Remove the notification observer to avoid leaks / zombie callbacks.
+        // Remove the notification observer to avoid leaks / zombie callbacks.
         // nonisolated to match Swift 6 pattern — safe for Swift 6 strict concurrency.
         if let avatarObserver {
             NotificationCenter.default.removeObserver(avatarObserver)
         }
-        // 🔧 NEW: also remove cover observer
+        // NEW: also remove cover observer
         if let coverObserver {
             NotificationCenter.default.removeObserver(coverObserver)
         }
@@ -177,7 +177,7 @@ final class ProfileViewModel {
 
     func loadUser() async {
         isLoading = true
-        // 🔧 Pack v3: Загружаем с сервера (GET /users/me), не из локального кэша
+        // Pack v3: Загружаем с сервера (GET /users/me), не из локального кэша
         do {
             let fresh: User = try await authService.fetchCurrentUser()
             user = fresh
@@ -196,7 +196,7 @@ final class ProfileViewModel {
     private let avatarCacheKey = "local_avatar_image"
 
     /// Сохраняет выбранное из галереи фото как локальную аватарку + загружает на сервер.
-    /// 🔧 SERVER UPLOAD: base64 → POST /users/me/avatar → сервер сохраняет файл +
+    /// SERVER UPLOAD: base64 → POST /users/me/avatar → сервер сохраняет файл +
     /// обновляет avatarURL в БД → все юзеры видят аватарку в чате.
     func saveAvatar(_ image: UIImage) {
         Self.sharedAvatar = image          // posts notification via didSet
@@ -206,13 +206,13 @@ final class ProfileViewModel {
             let url = avatarFileURL
             try? data.write(to: url, options: .atomic)
 
-            // 🔧 UPLOAD to server
+            // UPLOAD to server
             let base64 = data.base64EncodedString()
             Task { await uploadAvatarToServer(base64: base64) }
         }
     }
 
-    /// 🔧 NEW: Upload avatar as base64 to server.
+    /// NEW: Upload avatar as base64 to server.
     @MainActor
     private func uploadAvatarToServer(base64: String) async {
         guard let api = authService as? AuthService else { return }
@@ -241,7 +241,7 @@ final class ProfileViewModel {
     }
 
     /// Загружает ранее сохранённую аватарку с диска в instance + shared-кэш.
-    /// 🔧 FIX: Теперь пишет и в instance avatarImage, и в static sharedAvatar.
+    /// Теперь пишет и в instance avatarImage, и в static sharedAvatar.
     func loadAvatarFromDisk() {
         // Сначала синхронизируемся со shared-кэшем (мог быть загружен другим инстансом)
         if let shared = Self.sharedAvatar, avatarImage == nil {
@@ -263,7 +263,7 @@ final class ProfileViewModel {
 
     // MARK: - Cover Photo (обложка профиля как ВКонтакте)
 
-    /// 🔧 NEW: Сохраняет выбранное фото как обложку профиля.
+    /// NEW: Сохраняет выбранное фото как обложку профиля.
     /// Синхронизируется между инстансами через NotificationCenter (как avatar).
     func saveCover(_ image: UIImage) {
         Self.sharedCover = image          // posts notification via didSet
@@ -274,7 +274,7 @@ final class ProfileViewModel {
         }
     }
 
-    /// 🔧 NEW: Загружает обложку с диска.
+    /// NEW: Загружает обложку с диска.
     func loadCoverFromDisk() {
         if let shared = Self.sharedCover, coverImage == nil {
             coverImage = shared
@@ -290,7 +290,7 @@ final class ProfileViewModel {
         }
     }
 
-    /// 🔧 NEW: Удаляет обложку (return к default gradient).
+    /// NEW: Удаляет обложку (return к default gradient).
     func removeCover() {
         Self.sharedCover = nil
         coverImage = nil
@@ -302,7 +302,7 @@ final class ProfileViewModel {
         return docs.appendingPathComponent("avatar.jpg")
     }
 
-    /// 🔧 NEW: Cover photo file URL
+    /// NEW: Cover photo file URL
     private var coverFileURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         return docs.appendingPathComponent("cover.jpg")
@@ -327,8 +327,8 @@ final class ProfileViewModel {
 
     func updateUsername(_ newName: String) async {
         guard let current = user else { return }
-        // 🔧 Pack v3: Отправляем на сервер (PATCH /users/me)
-        // 🔧 v11 (July 2026): pass displayName + coverURL through too (so
+        // Pack v3: Отправляем на сервер (PATCH /users/me)
+        // Pass displayName + coverURL through too (so
         // updating username doesn't wipe displayName on the server).
         do {
             let updated: User = try await authService.updateProfile(
@@ -350,7 +350,7 @@ final class ProfileViewModel {
         }
     }
 
-    /// 🔧 v11 (July 2026): Update display name separately from @username.
+    /// Update display name separately from @username.
     /// Empty string clears the display name → backend uses @username as fallback.
     func updateDisplayName(_ newDisplayName: String) async {
         guard let current = user else { return }
@@ -375,7 +375,7 @@ final class ProfileViewModel {
         }
     }
 
-    /// 🔧 v11: Combined update — username + displayName in one server call.
+    /// Combined update — username + displayName in one server call.
     /// Used by EditProfileSheet's Save button so user can change both at once.
     func updateProfile(username: String, displayName: String) async {
         guard let current = user else { return }

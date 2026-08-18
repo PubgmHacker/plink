@@ -1,22 +1,24 @@
 // Plink/V4/V4RoomControlsRow.swift
-// Строка управления внутри комнаты.
+// The control row inside a room.
 //
-// Макет согласован в превью (plink-preview.html, экран комнаты):
-// одна плоская строка под блоком участников — слева чип приватности,
-// справа компактный кластер круглых иконок. Чат живёт ниже и ничем
-// не перекрывается.
+// Layout: one flat row below the participants block — the privacy chip on the left, a
+// compact cluster of circular icons on the right. Chat lives underneath it and is
+// never overlapped.
 //
-// История решения (важно не откатывать):
-//  - Плавающая "liquid glass" капсула поверх чата перекрывала сообщения.
-//  - Сворачиваемая панель с тумблером терялась: свернув её, пользователь
-//    не мог вернуть управление.
-//  - Итог: ничего не сворачивается, ничего не плавает над чатом.
+// That last clause is the whole point, and two earlier designs are the reason it is
+// written down rather than left to taste:
 //
-// Размеры: круг 40 pt, зона касания 44x44 pt — минимум Apple HIG.
+//  - A floating "liquid glass" capsule above the chat covered the messages.
+//  - A collapsible panel with a toggle lost the user: once collapsed, there was no
+//    way back to the controls.
+//
+// So: nothing collapses, and nothing floats over the chat.
+//
+// Sizes: 40 pt circles in a 44×44 pt hit area — the Apple HIG minimum.
 
 import SwiftUI
 
-// MARK: - Уровень приватности
+// MARK: - Privacy level
 
 /// Кто может войти в комнату без кода.
 ///
@@ -85,7 +87,7 @@ struct V4RoomControlsRow: View {
     /// Доступен ли голос/видео в комнате ВООБЩЕ. Пока LiveKit не подключён к
     /// сборке (ждём аккаунт Apple Developer), кнопок здесь быть не должно.
     ///
-    /// M26: раньше гейта не было. Кнопки рисовались всегда, а `onLockedTap` у
+    /// Раньше гейта не было. Кнопки рисовались всегда, а `onLockedTap` у
     /// пользователя без подписки открывал пейволл триггера .voiceChat —
     /// то есть приложение продавало голосовой чат, которого в сборке нет.
     /// PresenceBar.swift:63 такой гейт имел, эта поверхность — нет.

@@ -8,8 +8,10 @@
 // остаются на месте, меняются только поля: пилюля переключателя скользит,
 // поля появляются высотой и прозрачностью. Никакой смены страницы.
 //
-// Sign in with Apple: см. AppleSignInButton + POST /auth/apple.
-// Нужен Apple Developer entitlement (com.apple.developer.applesignin).
+// Методы входа — компактный ряд. Выбран один, остальные скрыты.
+//   • Почта — единственный полностью рабочий путь (signin/signup).
+//   • Apple — кнопка + POST /auth/apple; нужен entitlement Apple Developer.
+//   • Яндекс — в выборе есть, OAuth ещё нет: «скоро».
 //
 // Что осознанно НЕ сделано:
 //
@@ -53,6 +55,31 @@ enum PlinkAuthMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Способ входа. На экране видна только выбранная панель.
+enum AuthLoginMethod: String, CaseIterable, Identifiable {
+    case email
+    case apple
+    case yandex
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .email: return "Почта"
+        case .apple: return "Apple"
+        case .yandex: return "Яндекс"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .email: return "envelope.fill"
+        case .apple: return "apple.logo"
+        case .yandex: return "y.circle.fill"
+        }
+    }
+}
+
 // MARK: - Экран
 
 struct PlinkAuthScreen: View {
@@ -87,9 +114,12 @@ struct PlinkAuthScreen: View {
     /// это ругаться на пользователя за то, что он печатает.
     @State private var didAttempt = false
     @State private var appeared = false
+    @State private var loginMethod: AuthLoginMethod = .email
+    @State private var showForgotPassword = false
 
     @FocusState private var focus: Field?
     @Namespace private var modeNS
+    @Namespace private var methodNS
 
     private enum Field: Hashable { case email, username, password }
 
@@ -167,8 +197,13 @@ struct PlinkAuthScreen: View {
                         // забирает пауза между блоками: она осмысленная.
                         Spacer(minLength: 56)
 
-                        modeSwitch
-                            .padding(.bottom, 18)
+                        methodPicker
+                            .padding(.bottom, 14)
+
+                        if loginMethod == .email {
+                            modeSwitch
+                                .padding(.bottom, 18)
+                        }
 
                         card
 
@@ -190,6 +225,10 @@ struct PlinkAuthScreen: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordSheet(prefilledEmail: trimmedEmail)
+                .preferredColorScheme(.dark)
+        }
         .onAppear {
             guard !appeared else { return }
             mode = initialMode
@@ -237,7 +276,7 @@ struct PlinkAuthScreen: View {
     /// Скользящая пилюля — тот же приём, что в сегментах «Друзья», чтобы вход
     /// не выглядел экраном из другого приложения.
     ///
-    /// Аудит 04.08.2026: выбранная половина была ЗАЛИТА БЕЛЫМ, а дорожка —
+    /// Выбранная половина была ЗАЛИТА БЕЛЫМ, а дорожка —
     /// синей. Белая плашка — самый сильный контраст на тёмном экране, и она
     /// стояла на переключателе: экран кричал «Вход» вместо «Войти», спорил с
     /// главной кнопкой (тоже белой) и делал вид, будто «Вход» и «Регистрация» —
@@ -316,11 +355,71 @@ struct PlinkAuthScreen: View {
         )
     }
 
+    // MARK: Способ входа
+
+    /// Один ряд иконок. Выбранный подсвечен, форма ниже — только его.
+    private var methodPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(AuthLoginMethod.allCases) { method in
+                let isOn = method == loginMethod
+                Button {
+                    guard method != loginMethod else { return }
+                    HapticManager.selection()
+                    focus = nil
+                    errorMessage = nil
+                    didAttempt = false
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86)) {
+                        loginMethod = method
+                    }
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: method.symbol)
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(method.title)
+                            .font(.system(size: 10, weight: isOn ? .bold : .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundStyle(isOn ? PlinkTheatre.screen : PlinkTheatre.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background {
+                        if isOn {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(PlinkTheatre.surfaceLift)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .strokeBorder(PlinkTheatre.specular, lineWidth: 0.8)
+                                }
+                                .matchedGeometryEffect(id: "authMethodPill", in: methodNS)
+                        }
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("auth.method.\(method.rawValue)")
+                .accessibilityLabel(method.title)
+                .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(0.34))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Способ входа")
+    }
+
     // MARK: Форма
 
     private var card: some View {
         VStack(spacing: 12) {
-            if let sessionMessage, mode == .signIn {
+            if let sessionMessage, loginMethod == .email, mode == .signIn {
                 AuthInlineNotice(text: sessionMessage, icon: "clock.arrow.circlepath")
             }
             if let errorMessage {
@@ -328,6 +427,23 @@ struct PlinkAuthScreen: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
+            switch loginMethod {
+            case .email:
+                emailFields
+            case .apple:
+                AppleSignInButton(
+                    onSuccess: onAuthenticated,
+                    onError: { errorMessage = $0 }
+                )
+            case .yandex:
+                comingSoonPanel
+            }
+        }
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: loginMethod)
+    }
+
+    private var emailFields: some View {
+        VStack(spacing: 12) {
             AuthField(
                 title: "Email",
                 text: $email,
@@ -335,15 +451,11 @@ struct PlinkAuthScreen: View {
                 keyboard: .emailAddress,
                 contentType: .emailAddress,
                 submitLabel: .next,
-                // Ошибку показываем, только когда поле уже непустое и
-                // пользователь ушёл дальше или нажал кнопку.
                 problem: showEmailProblem ? "Похоже, в адресе опечатка" : nil,
                 onSubmit: { focus = mode == .signUp ? .username : .password }
             )
             .focused($focus, equals: .email)
 
-            // Имя пользователя — только в регистрации. Появляется высотой,
-            // а не подменой экрана.
             if mode == .signUp {
                 AuthField(
                     title: "Имя пользователя",
@@ -371,7 +483,6 @@ struct PlinkAuthScreen: View {
                 secure: !showPassword,
                 submitLabel: .go,
                 problem: showPasswordProblem ? "Не меньше 6 символов" : nil,
-                // Глаз в самом поле: иначе пароль не проверить, не стирая его.
                 trailing: {
                     Button {
                         showPassword.toggle()
@@ -389,23 +500,42 @@ struct PlinkAuthScreen: View {
             )
             .focused($focus, equals: .password)
 
-            submitButton
-                .padding(.top, 6)
-
-            HStack(spacing: 12) {
-                Rectangle().fill(PlinkTheatre.hairline).frame(height: 1)
-                Text("или")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PlinkTheatre.muted)
-                Rectangle().fill(PlinkTheatre.hairline).frame(height: 1)
+            if mode == .signIn {
+                Button {
+                    HapticManager.selection()
+                    showForgotPassword = true
+                } label: {
+                    Text("Забыли пароль?")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PlinkTheatre.warm)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Забыли пароль")
             }
-            .padding(.top, 4)
 
-            AppleSignInButton(
-                onSuccess: onAuthenticated,
-                onError: { errorMessage = $0 }
-            )
+            submitButton
+                .padding(.top, mode == .signIn ? 0 : 6)
         }
+    }
+
+    private var comingSoonPanel: some View {
+        VStack(spacing: 8) {
+            Image(systemName: loginMethod.symbol)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(PlinkTheatre.muted)
+            Text("Будет доступно скоро")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PlinkTheatre.screen)
+            Text("Пока войдите почтой или через Apple.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PlinkTheatre.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 22)
+        .accessibilityLabel("\(loginMethod.title). Будет доступно скоро")
     }
 
     private var showEmailProblem: Bool {
@@ -659,5 +789,198 @@ extension AuthField where Trailing == EmptyView {
             trailing: { EmptyView() },
             onSubmit: onSubmit
         )
+    }
+}
+
+// MARK: - Сброс пароля
+
+private struct ForgotPasswordSheet: View {
+    var prefilledEmail: String
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private enum Step { case email, code }
+
+    @State private var step: Step = .email
+    @State private var email = ""
+    @State private var code = ""
+    @State private var newPassword = ""
+    @State private var showPassword = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var infoMessage: String?
+    @FocusState private var focus: Field?
+
+    private enum Field: Hashable { case email, code, password }
+
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var emailIsValid: Bool {
+        guard let at = trimmedEmail.firstIndex(of: "@") else { return false }
+        let domain = trimmedEmail[trimmedEmail.index(after: at)...]
+        return !trimmedEmail[trimmedEmail.startIndex..<at].isEmpty
+            && domain.contains(".")
+            && !domain.hasSuffix(".")
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                ProjectorBeamBackground().ignoresSafeArea()
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(step == .email
+                             ? "Пришлём код на почту. Если аккаунта нет — письмо не придёт, так и задумано."
+                             : "Введите код из письма и новый пароль.")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(PlinkTheatre.muted)
+                            .padding(.top, 8)
+
+                        if let errorMessage {
+                            AuthInlineNotice(text: errorMessage)
+                        }
+                        if let infoMessage {
+                            AuthInlineNotice(text: infoMessage, icon: "envelope.fill")
+                        }
+
+                        if step == .email {
+                            AuthField(
+                                title: "Email",
+                                text: $email,
+                                icon: .mail,
+                                keyboard: .emailAddress,
+                                contentType: .emailAddress,
+                                submitLabel: .go,
+                                onSubmit: { Task { await sendCode() } }
+                            )
+                            .focused($focus, equals: .email)
+                        } else {
+                            AuthField(
+                                title: "Код из письма",
+                                text: $code,
+                                icon: .lock,
+                                keyboard: .numberPad,
+                                contentType: .oneTimeCode,
+                                submitLabel: .next,
+                                onSubmit: { focus = .password }
+                            )
+                            .focused($focus, equals: .code)
+                            .onChange(of: code) { _, new in
+                                code = String(new.filter(\.isNumber).prefix(6))
+                            }
+
+                            AuthField(
+                                title: "Новый пароль",
+                                text: $newPassword,
+                                icon: .lock,
+                                contentType: .newPassword,
+                                secure: !showPassword,
+                                submitLabel: .go,
+                                problem: newPassword.isEmpty || newPassword.count >= 6
+                                    ? nil : "Не меньше 6 символов",
+                                trailing: {
+                                    Button {
+                                        showPassword.toggle()
+                                    } label: {
+                                        Image(systemName: showPassword ? "eye.slash" : "eye")
+                                            .font(.system(size: 15, weight: .regular))
+                                            .foregroundStyle(PlinkTheatre.muted)
+                                            .frame(width: 44, height: 44)
+                                    }
+                                    .buttonStyle(.plain)
+                                },
+                                onSubmit: { Task { await confirm() } }
+                            )
+                            .focused($focus, equals: .password)
+                        }
+
+                        Button {
+                            Task {
+                                if step == .email {
+                                    await sendCode()
+                                } else {
+                                    await confirm()
+                                }
+                            }
+                        } label: {
+                            ZStack {
+                                Text(step == .email ? "Отправить код" : "Сменить пароль")
+                                    .opacity(isLoading ? 0 : 1)
+                                if isLoading {
+                                    ProgressView().tint(Color(hex: 0x101013))
+                                }
+                            }
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x101013))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 52)
+                            .background(PlinkTheatre.screen, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isLoading || (step == .email ? !emailIsValid : (code.count != 6 || newPassword.count < 6)))
+                        .opacity(isLoading || (step == .email ? !emailIsValid : (code.count != 6 || newPassword.count < 6)) ? 0.45 : 1)
+
+                        if step == .code {
+                            Button("Отправить код ещё раз") {
+                                Task { await sendCode() }
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(PlinkTheatre.warm)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                            .disabled(isLoading)
+                        }
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 28)
+                }
+            }
+            .navigationTitle("Новый пароль")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+            .onAppear {
+                if email.isEmpty { email = prefilledEmail }
+                focus = step == .email ? .email : .code
+            }
+        }
+    }
+
+    private func sendCode() async {
+        guard emailIsValid else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            try await AuthService.shared.requestPasswordReset(email: trimmedEmail)
+            infoMessage = "Если аккаунт есть, код уже на почте. Проверьте входящие и спам."
+            step = .code
+            focus = .code
+        } catch {
+            errorMessage = AuthErrorCopy.message(for: error)
+        }
+    }
+
+    private func confirm() async {
+        guard code.count == 6, newPassword.count >= 6 else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            try await AuthService.shared.confirmPasswordReset(
+                email: trimmedEmail,
+                code: code,
+                newPassword: newPassword
+            )
+            HapticManager.notification(.success)
+            dismiss()
+        } catch {
+            errorMessage = AuthErrorCopy.message(for: error)
+        }
     }
 }

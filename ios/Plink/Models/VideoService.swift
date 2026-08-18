@@ -81,12 +81,24 @@ enum ServiceType: String, CaseIterable, Identifiable, Sendable, Codable, Equatab
 // MARK: - Service Auth Store
 
 enum ServiceAuthStore {
+    private static let yandexKey = "plink.service_auth.yandex_id"
+
     private static func key(for service: ServiceType) -> String {
         "plink.service_auth.\(service.rawValue)"
     }
 
+    static var hasYandexID: Bool {
+        UserDefaults.standard.bool(forKey: yandexKey)
+    }
+
+    static func markYandexID(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: yandexKey)
+    }
+
     static func hasAccess(to service: ServiceType) -> Bool {
         guard service.requiresAuth else { return true }
+        // Кинопоиск сидит на Яндекс ID — отдельный логин не нужен.
+        if service == .kinopoisk && hasYandexID { return true }
         return UserDefaults.standard.bool(forKey: key(for: service))
     }
 

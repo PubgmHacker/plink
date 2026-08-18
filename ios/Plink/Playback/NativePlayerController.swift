@@ -1,15 +1,15 @@
 // Plink/Playback/NativePlayerController.swift
-// AVPlayer-backed PlaybackControlling (runbook §6 + Brain Review 2 P1-14, P1-16, P1-17)
+// AVPlayer-backed PlaybackControlling
 //
-// Brain P1-14 fix: seek generation token. Each seek bumps generation; only
-// the latest seek's completion is honored. teardown() cancels pending seek.
-// cancelPendingPrerolls() called before new seek.
+// Seeks carry a generation token: each seek bumps the generation and only the
+// latest seek's completion is honored. teardown() cancels a pending seek, and
+// cancelPendingPrerolls() runs before a new seek.
 //
-// Brain P1-16 fix: NativePlayerController throws immediately for .youtube
-// source — impossible state. Use EmbeddedPlaybackController for YouTube.
+// A .youtube source is an impossible state here — prepare() throws
+// immediately. Use EmbeddedPlaybackController for YouTube.
 //
-// Brain P1-17 fix: preroll only after prepare() or route change, NOT on
-// every play(). Added isPrerolled state.
+// Preroll runs only after prepare() or a route change, never on every play()
+// call; isPrerolled carries that state.
 
 import Foundation
 import AVFoundation
@@ -43,7 +43,7 @@ public final class NativePlayerController: PlaybackControlling {
     private var likelyKeepUpObservation: NSKeyValueObservation?
     private var isPlaybackBufferEmptyObservation: NSKeyValueObservation?
 
-    // P0-32/P0-27: serial latest-target seek coordinator with SeekResult.
+    // Serial latest-target seek coordinator with SeekResult.
     // activeSeek is the seek currently being executed by AVPlayer — its
     // continuation resumes EXACTLY ONCE on completion.
     // queuedSeek is the latest pending seek — superseded by a newer seek.
@@ -54,14 +54,14 @@ public final class NativePlayerController: PlaybackControlling {
     private var activeSeek: SeekWaiter?
     private var queuedSeek: SeekWaiter?
 
-    // P1-17/P1-24: preroll state — only preroll after prepare, not every play()
-    // P1-24: seek invalidates isPrerolled only for precise transition seeks
+    // Preroll state — only preroll after prepare, not every play()
+    // Seek invalidates isPrerolled only for precise transition seeks
     private var isPrerolled: Bool = false
 
     public init() {}
 
     public func prepare(_ source: PlaybackSource) async throws {
-        // P1-16: reject .youtube — use EmbeddedPlaybackController instead
+        // Reject .youtube — use EmbeddedPlaybackController instead
         if case .youtube = source {
             throw ProviderError.unsupportedSource
         }
@@ -77,7 +77,7 @@ public final class NativePlayerController: PlaybackControlling {
         }
         self.provider = provider
         self.capabilities = provider.capabilities
-        self.isPrerolled = false  // P1-17
+        self.isPrerolled = false  //
 
         try await provider.prepare(source: source)
 
@@ -95,7 +95,7 @@ public final class NativePlayerController: PlaybackControlling {
 
     public func play() async {
         guard let p = player else { return }
-        // P0-4: TTFF — do not block first visible playback on preroll.
+        // TTFF — do not block first visible playback on preroll.
         // AVPlayer starts immediately; a later precise seek can invalidate
         // isPrerolled as before.
         if capabilities.supportsRateCorrection && !isPrerolled {
@@ -112,7 +112,7 @@ public final class NativePlayerController: PlaybackControlling {
         isPlaying = false
     }
 
-    // P0-32/P0-27: serial latest-target seek with SeekResult.
+    // Serial latest-target seek with SeekResult.
     // activeSeek: currently executing — resumed EXACTLY ONCE on completion.
     // queuedSeek: latest pending — superseded by newer seek (resumed once).
     // Double-resume crash fixed: active and queued are SEPARATE.
@@ -133,13 +133,13 @@ public final class NativePlayerController: PlaybackControlling {
             clamped = seconds
         }
 
-        // P0-32: if there's a queuedSeek (not yet started), resume it as superseded
+        // If there's a queuedSeek (not yet started), resume it as superseded
         if let queued = queuedSeek {
             queuedSeek = nil
             queued.continuation.resume(returning: .superseded)
         }
 
-        // P0-32: this seek becomes the new queuedSeek
+        // This seek becomes the new queuedSeek
         return await withCheckedContinuation { (continuation: CheckedContinuation<SeekResult, Never>) in
             let waiter = SeekWaiter(id: UUID(), target: (clamped, precise), continuation: continuation)
             self.queuedSeek = waiter
@@ -152,9 +152,9 @@ public final class NativePlayerController: PlaybackControlling {
     }
 
     private func executeNextSeek(_ p: AVPlayer) async {
-        // P0-32: loop while there's a queued seek to execute
+        // Loop while there's a queued seek to execute
         while let queued = queuedSeek {
-            // P0-32: promote queued → active (remove from queued FIRST)
+            // Promote queued → active (remove from queued FIRST)
             queuedSeek = nil
             activeSeek = queued
 
@@ -180,7 +180,7 @@ public final class NativePlayerController: PlaybackControlling {
                 guard !Task.isCancelled,
                       let self else { return }
                 guard generation == self.seekGeneration else { return }
-                // P1-24: only invalidate isPrerolled for precise transition seeks
+                // Only invalidate isPrerolled for precise transition seeks
                 if queued.target.precise {
                     self.isPrerolled = false
                 }
@@ -190,7 +190,7 @@ public final class NativePlayerController: PlaybackControlling {
                 pendingSeekTask = nil
             }
 
-            // P0-32: resume activeSeek EXACTLY ONCE as .applied
+            // Resume activeSeek EXACTLY ONCE as .applied
             // Clear activeSeek BEFORE resume to prevent double-resume
             let completed = activeSeek
             activeSeek = nil
@@ -204,11 +204,11 @@ public final class NativePlayerController: PlaybackControlling {
     }
 
     public func teardown() {
-        // P0-32: cancel pending seek + resume active/queued exactly once
+        // Cancel pending seek + resume active/queued exactly once
         seekGeneration += 1
         pendingSeekTask?.cancel()
         pendingSeekTask = nil
-        // P0-32: resume activeSeek and queuedSeek exactly once as .superseded
+        // Resume activeSeek and queuedSeek exactly once as .superseded
         if let active = activeSeek {
             activeSeek = nil
             active.continuation.resume(returning: .superseded)

@@ -1,7 +1,7 @@
 // Plink/Features/WatchRoom/AuthTokenProvider.swift
-// Auth token provider with refresh support (Brain Review 8 P1-55/P1-60)
+// Auth token provider with refresh support
 //
-// P1-55: Instead of fixed String token, clients use AuthTokenProvider
+// Instead of fixed String token, clients use AuthTokenProvider
 // which can refresh on 401. RESTChatCatchupClient calls refreshToken()
 // on auth failure, then retries once.
 
@@ -27,7 +27,7 @@ public final class KeychainAuthTokenProvider: AuthTokenProvider {
     }
 
     public var currentToken: String? {
-        // Аудит 26.07.2026: читаем через единое хранилище. Прямое чтение
+        // Читаем через единое хранилище. Прямое чтение
         // "rave_auth_token" переставало работать после миграции ключа M39 —
         // комната теряла токен, не получала realtime-тикет и медиа,
         // и видео «не грузилось вообще».
@@ -35,7 +35,7 @@ public final class KeychainAuthTokenProvider: AuthTokenProvider {
     }
 
     public func refreshToken() async -> String? {
-        // P1-55: call POST /api/auth/refresh with refresh token from Keychain
+        // Call POST /api/auth/refresh with refresh token from Keychain
         guard let refreshToken = KeychainHelper.read(for: "rave_refresh_token") else {
             return currentToken  // No refresh token — return current (may be nil)
         }

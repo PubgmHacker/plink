@@ -137,6 +137,22 @@ data class AvatarUploadRequest(
 )
 
 @Serializable
+data class ModerationReportRequest(
+    val targetType: String = "user",
+    val targetId: String,
+    val reason: String,
+    val comment: String? = null,
+)
+
+@Serializable
+data class ModerationReportResponse(
+    val id: String,
+    val dueAt: String? = null,
+    val slaHours: Int? = null,
+    val autoHidden: Boolean = false,
+)
+
+@Serializable
 data class ApiError(
     val error: String? = null,
     val message: String? = null,

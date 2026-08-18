@@ -1,6 +1,6 @@
-// src/routes/billing.ts — PATCH 16: App Store Server API V2 (JWS verification)
+// App Store Server API V2 (JWS verification)
 //
-// Brain Review 10 P0-66: previous implementation used deprecated
+// Previous implementation used deprecated
 // verifyReceipt endpoint with shared secret. Apple deprecated this API;
 // the modern flow uses App Store Server API V2 with signed JWS
 // transactions verified against Apple's root cert.
@@ -36,7 +36,7 @@ import { JoseConfig } from '../utils/jose-config.js';
 import { validateBody } from '../middleware/validate.js';
 import { billingVerifyBody } from '../schemas/requests.js';
 
-// ─── Привязка appAccountToken (Аудит 26.07.2026 P1) ─────────────────────
+// ─── Привязка appAccountToken ─────────────────────
 //
 // Формула для iOS (StoreKit 2, при покупке передавать
 // Product.PurchaseOption.appAccountToken):
@@ -85,12 +85,12 @@ function extractAppAccountToken(jws: string): string | null {
   }
 }
 
-// Premium plans — product IDs ДОЛЖНЫ совпадать с iOS PlinkProductID
-// (StoreManager.swift: plink.plus.1m/3m/12m). Аудит 26.07.2026 (P0):
-// сервер принимал com.syncwatch.plink.premium.* — покупки клиента
-// отклонялись на allowlist ещё до проверки подписи. Квартального плана
-// не было вовсе. Синхронизировано; старые id оставлены как алиасы на
-// случай ранее выданных транзакций.
+// Premium plans — the product IDs here MUST match iOS PlinkProductID
+// (StoreManager.swift: plink.plus.1m/3m/12m), the quarterly plan included.
+// This map doubles as the allowlist and is checked before the JWS signature, so
+// any id the client can buy but that is missing here is rejected outright. The
+// com.syncwatch.plink.premium.* entries are legacy aliases, kept so transactions
+// issued under the old naming still resolve.
 const PLANS: Record<string, { tier: 'premium' | 'lifetime'; durationDays: number }> = {
   'plink.plus.1m':  { tier: 'premium', durationDays: 30 },
   'plink.plus.3m':  { tier: 'premium', durationDays: 90 },
@@ -109,7 +109,7 @@ export default async function billingRoutes(fastify: any) {
   // the JWS signature against Apple's root cert, extracts transaction
   // info, and updates the user's entitlement in DB.
   //
-  // GPT-5 BE-P0-04: Billing trust boundary improvements:
+  // Billing trust boundary improvements:
   //   - Verify bundleId matches APPLE_BUNDLE_ID
   //   - Verify productId is in ALLOWED_PRODUCT_IDS
   //   - Bind appAccountToken or originalTransactionId to authenticated user
@@ -151,7 +151,7 @@ export default async function billingRoutes(fastify: any) {
     if (!jws || typeof jws !== 'string') {
       return reply.status(400).send({ error: 'jws required' });
     }
-    // GPT-5 BE-P0-04: verify productId is in allowlist.
+    // Verify productId is in allowlist.
     if (!productId || !ALLOWED_PRODUCT_IDS.has(productId)) {
       return reply.status(400).send({ error: 'Invalid productId' });
     }
@@ -172,7 +172,7 @@ export default async function billingRoutes(fastify: any) {
         });
       }
 
-      // GPT-5 BE-P0-04: verify bundleId matches configured value.
+      // Verify bundleId matches configured value.
       const bundleId = (verified as any).bundleId;
       if (bundleId && bundleId !== APPLE_BUNDLE_ID) {
         await logAudit({
@@ -187,7 +187,7 @@ export default async function billingRoutes(fastify: any) {
         });
       }
 
-      // GPT-5 BE-P0-04: verify productId in JWS matches body productId.
+      // Verify productId in JWS matches body productId.
       const jwsProductId = (verified as any).productId;
       if (jwsProductId && jwsProductId !== productId) {
         await logAudit({
@@ -202,7 +202,7 @@ export default async function billingRoutes(fastify: any) {
         });
       }
 
-      // Аудит 26.07.2026 P1: мягкая привязка appAccountToken к аккаунту.
+      // Мягкая привязка appAccountToken к аккаунту.
       // Если токен присутствует в верифицированном JWS — он обязан совпадать
       // с UUIDv5(userId) (см. PLINK_APP_ACCOUNT_NAMESPACE выше). Иначе любой
       // валидный чужой JWS засчитывался первому приславшему (first-submit-wins).
@@ -253,7 +253,7 @@ export default async function billingRoutes(fastify: any) {
         });
       }
 
-      // Аудит 26.07.2026 P2: идемпотентность и проверка владения ключуются
+      // Идемпотентность и проверка владения ключуются
       // ТОЛЬКО идентификатором из подписанного payload. Раньше ключом было
       // body.transactionId — один валидный JWS можно было переиграть под
       // произвольным transactionId и наплодить записей в обход проверки.
@@ -276,7 +276,7 @@ export default async function billingRoutes(fastify: any) {
         });
       }
 
-      // GPT-5 BE-P0-04: ownership check — verify this transaction belongs to the authenticated user.
+      // Ownership check — verify this transaction belongs to the authenticated user.
       // Check if originalTransactionId is already linked to a DIFFERENT user.
       const existingTx = await prisma.transactionRecord.findUnique({
         where: { transactionId: verifiedTransactionId },
@@ -342,7 +342,7 @@ export default async function billingRoutes(fastify: any) {
         ? new Date(expiresAt)
         : new Date(Date.now() + plan.durationDays * 24 * 3600 * 1000);
 
-      // GPT-5 BE-P0-04: wrap transaction record + subscription update in one tx.
+      // Wrap transaction record + subscription update in one tx.
       // Store the transaction record (idempotent on transactionId).
       // Ревью 26.07.2026: гонку двух параллельных verify разрешает уникальный
       // индекс, но раньше проигравшая сторона получала P2002 → общий catch →
@@ -386,7 +386,7 @@ export default async function billingRoutes(fastify: any) {
         }
 
         // Upsert subscription.
-        // Аудит 26.07.2026 P2: ветка update была мёртвой — Subscription.id это
+        // Ветка update была мёртвой — Subscription.id это
         // @default(uuid()), create его не задавал, поэтому where { id:
         // originalTransactionId } не совпадал НИКОГДА и каждый verify/renew
         // плодил новую активную подписку. После миграции
@@ -450,7 +450,7 @@ export default async function billingRoutes(fastify: any) {
           },
         });
 
-        // GPT-5 BE-P0-04: audit log inside the same transaction.
+        // Audit log inside the same transaction.
         // Ревью 26.07.2026: в модели AuditLog НЕТ полей actorId/targetType/
         // targetId/requestId (только userId/action/ip/userAgent/metadata).
         // Каст `as any` глушил tsc, а Prisma отвергала неизвестные аргументы
@@ -472,7 +472,7 @@ export default async function billingRoutes(fastify: any) {
         });
       })); // end prisma.$transaction
 
-      // GPT-5 BE-P0-04: audit already written inside transaction above.
+      // Audit already written inside transaction above.
       // Compute lifetime flag for response.
       const isLifetime = plan.tier === 'lifetime';
 
@@ -584,10 +584,10 @@ export default async function billingRoutes(fastify: any) {
         return reply.status(400).send({ error: 'Could not decode transaction info' });
       }
 
-      // Аудит 26.07.2026 P2 (Г): все ключи идемпотентности берутся ТОЛЬКО из
-      // проверенных подписей — notificationUUID из проверенного уведомления,
-      // originalTransactionId из проверенного signedTransactionInfo. Из тела
-      // запроса не читается ничего, кроме самого signedPayload.
+      // Every idempotency key comes ONLY from verified signatures:
+      // notificationUUID from the verified notification, originalTransactionId
+      // from the verified signedTransactionInfo. Nothing but signedPayload
+      // itself is ever read out of the request body.
       const { originalTransactionId, productId, environment } = transactionInfo;
 
       // Ревью 26.07.2026: verifySignedTransaction отдаёт пустую строку, если в
@@ -618,7 +618,7 @@ export default async function billingRoutes(fastify: any) {
       const eventAtMs = notification.signedDate ?? transactionInfo.signedDate ?? null;
       const eventDate = eventAtMs !== null && Number.isFinite(eventAtMs) ? new Date(eventAtMs) : null;
 
-      // Аудит 26.07.2026 P2: дедупликация доставок по notificationUUID через
+      // Дедупликация доставок по notificationUUID через
       // таблицу AppleNotification. Apple повторяет уведомление при любом не-2xx
       // и иногда дублирует доставку сама. Заявка пишется ДО обработки, поэтому
       // гонку двух одновременных доставок разрешает первичный ключ (P2002 у
@@ -733,7 +733,7 @@ export default async function billingRoutes(fastify: any) {
 
 // ─── Дедупликация Server Notifications V2 ────────────────────────────
 //
-// Аудит 26.07.2026 P2: обработанные notificationUUID живут в таблице
+// Обработанные notificationUUID живут в таблице
 // AppleNotification (миграция 20260726120500_billing_idempotency), где
 // notificationUUID — первичный ключ. Раньше отметка писалась в AuditLog с
 // детерминированным id (таблицы не было), и порядок был «обработали → отметили»:
@@ -903,7 +903,7 @@ async function handleRenewal(
   eventDate: Date | null = null,
   notificationUUID: string | null = null,
 ) {
-  // Аудит 26.07.2026 P1: раньше читалось несуществующее поле expiresDateMs —
+  // Раньше читалось несуществующее поле expiresDateMs —
   // verifySignedTransaction возвращает `expiresAt` (мс с эпохи), поэтому
   // вебхук продления был вечным no-op и premiumUntil никогда не продлевался.
   const expiresAt = typeof txInfo.expiresAt === 'number' && Number.isFinite(txInfo.expiresAt)
@@ -911,7 +911,7 @@ async function handleRenewal(
     : null;
   if (!expiresAt) return;
 
-  // Аудит 26.07.2026 P2: приоритет по времени. Раньше продление безусловно
+  // Приоритет по времени. Раньше продление безусловно
   // реактивировало премиум, поэтому устаревший DID_RENEW, доставленный после
   // REFUND/REVOKE, возвращал премиум отозванному пользователю.
   const current = await prisma.subscription.findUnique({
@@ -940,7 +940,7 @@ async function handleRenewal(
   // случае срок продлеваем, но отзыв НЕ снимаем и премиум не включаем.
   const staleAfterRevoke = !!revokedAt && (!eventDate || revokedAt > eventDate);
 
-  // Аудит 26.07.2026 P2: доставка вне очереди. Apple не гарантирует порядок,
+  // Доставка вне очереди. Apple не гарантирует порядок,
   // поэтому если по этой же подписке УЖЕ обработано уведомление, подписанное
   // позже, — текущее устарело и премиум по нему не включаем.
   // Ревью 26.07.2026: только уведомления, которые ГАСЯТ право. Раньше фильтра

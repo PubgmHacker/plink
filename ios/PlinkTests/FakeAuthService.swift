@@ -1,4 +1,4 @@
-// PlinkTests/FakeAuthService.swift — PATCH 17: testable auth service
+// Testable auth service
 //
 // In-memory implementation of AuthServiceProtocol for unit tests.
 // No network, no Keychain, no UserDefaults — pure state machine.

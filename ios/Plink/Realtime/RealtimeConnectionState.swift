@@ -1,7 +1,7 @@
 // Plink/Realtime/RealtimeConnectionState.swift
-// Explicit connection states (runbook §8)
+// Explicit connection states
 //
-// Replaces the legacy 'fake connected via socket existence after 250ms' (§19).
+// Replaces the legacy 'fake connected via socket existence after 250ms'.
 // The client MUST NOT report .connected until the server has sent
 // session.ready with room membership and protocol version.
 

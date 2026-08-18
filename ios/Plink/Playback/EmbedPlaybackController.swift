@@ -32,7 +32,7 @@ public final class EmbedPlaybackController: PlaybackControlling {
     public private(set) var isBuffering = false
     public private(set) var lastError: String?
 
-    /// M13: true when the injected JS bridge found a real <video> element —
+    /// True when the injected JS bridge found a real <video> element —
     /// i.e. cinema-service sync is exact, not best-effort.
     public private(set) var hasBridgedVideo = false
 
@@ -41,7 +41,7 @@ public final class EmbedPlaybackController: PlaybackControlling {
             seekable: true,
             supportsPiP: false,
             supportsAirPlay: false,
-            supportsRateCorrection: true,  // M13: JS bridge drives video.playbackRate
+            supportsRateCorrection: true,  // JS bridge drives video.playbackRate
             supportsDRM: false
         )
     }
@@ -50,7 +50,7 @@ public final class EmbedPlaybackController: PlaybackControlling {
     private var webView: WKWebView?
     private var sourceURL: URL?
     private var pollTask: Task<Void, Never>?
-    /// M13: whether this session uses the generic <video> bridge (vs YouTube postMessage).
+    /// Whether this session uses the generic <video> bridge (vs YouTube postMessage).
     private var usesEmbedBridge = false
 
     public init() {}
@@ -97,6 +97,9 @@ public final class EmbedPlaybackController: PlaybackControlling {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
+        if let svc = VideoService.detect(fromURL: playerURL.absoluteString), svc.requiresAuth {
+            config.websiteDataStore = CinemaSessionStore.persistent
+        }
 
         let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
@@ -195,7 +198,7 @@ public final class EmbedPlaybackController: PlaybackControlling {
             if (window.__plinkEmbedBridgeInstalled) return true;
             window.__plinkEmbedBridgeInstalled = true;
 
-            // M13: find every candidate <video> — top document, open shadow
+            // Find every candidate <video> — top document, open shadow
             // roots (custom players love hiding <video> there) and
             // same-origin iframes.
             function findAllVideos() {
@@ -224,7 +227,7 @@ public final class EmbedPlaybackController: PlaybackControlling {
                 return vids;
             }
 
-            // M13: pick the MAIN video (longest duration, then largest box),
+            // Pick the MAIN video (longest duration, then largest box),
             // cache it until it leaves the DOM.
             function getVideo() {
                 var cached = window.__plinkVideo;
@@ -319,7 +322,7 @@ public final class EmbedPlaybackController: PlaybackControlling {
                     if let p = snap["playing"] as? Bool { self.isPlaying = p }
                     if let f = snap["found"] as? Bool { self.hasBridgedVideo = f }
                 } else if self.usesEmbedBridge {
-                    // M13: page navigated (SPA route change) — injected globals
+                    // Page navigated (SPA route change) — injected globals
                     // are gone. Reinstall the bridge and keep polling.
                     self.hasBridgedVideo = false
                     await self.injectControlBridge()

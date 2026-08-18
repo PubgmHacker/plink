@@ -1,4 +1,4 @@
-// PlinkTests/AuthTests.swift — PATCH 17: auth system tests
+// Auth system tests
 //
 // Closes the "auth" red system in RegressionMatrix (was red, now green).
 // Tests cover: signUp, signIn, signOut, account deletion, profile update,

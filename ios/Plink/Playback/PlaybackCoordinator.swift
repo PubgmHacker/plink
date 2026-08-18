@@ -1,15 +1,15 @@
 // Plink/Playback/PlaybackCoordinator.swift
-// Single owner of player lifecycle (runbook §6, §21 + Brain Review P0-8)
+// Single owner of player lifecycle
 //
-// Brain P0-8 fix: coordinator now chooses between NativePlayerController
+// The coordinator chooses between NativePlayerController
 // (for .hls/.mp4/.external) and EmbeddedPlaybackController (for .youtube).
 // The two controllers implement the same PlaybackControlling protocol, so
 // OrderedSyncController is agnostic to which one is active.
 //
-// Per §21: 'PlaybackController не отправляет WebSocket сообщения' —
+// Per: 'PlaybackController не отправляет WebSocket сообщения' —
 // the coordinator never talks to RealtimeClient.
 //
-// Per §16: 'Не добавлять еще один singleton WebView' — the coordinator is
+// Per: 'Не добавлять еще один singleton WebView' — the coordinator is
 // owned by WatchRoomModel, never a global. Each room session gets a fresh
 // coordinator with a fresh player.
 
@@ -72,7 +72,7 @@ public final class PlaybackCoordinator: AnyObject {
         surfaceEpoch &+= 1
     }
 
-    // P1-36: prepare now throws — caller can catch and decide not to connect
+    // Prepare now throws — caller can catch and decide not to connect
     public func prepare(_ source: PlaybackSource) async throws {
         isPreparing = true
         lastError = nil
@@ -182,7 +182,7 @@ public final class PlaybackCoordinator: AnyObject {
             vc.player = native.player
         }
         vc.allowsPictureInPicturePlayback = true
-        // M14: PiP стартует сам при сворачивании приложения
+        // PiP стартует сам при сворачивании приложения
         vc.canStartPictureInPictureAutomaticallyFromInline = true
         vc.allowsVideoFrameAnalysis = false
         cachedPlayerViewController = vc

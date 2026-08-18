@@ -1,4 +1,3 @@
-// src/services/moderation/moderationAudit.ts — GPT-5.6 §14
 import { prisma } from '../../config/db.js';
 
 export async function recordModerationAudit(params: {

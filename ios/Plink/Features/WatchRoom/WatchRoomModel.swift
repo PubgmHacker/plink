@@ -1,23 +1,25 @@
 // Plink/Features/WatchRoom/WatchRoomModel.swift
-// Single owner of room session lifecycle (runbook §21, Brain Review 5 P0-29..P0-37)
+// Single owner of room session lifecycle
 //
-// Brain Review 5 fixes:
-//   P0-29: PlaybackProxy — syncController talks to stable proxy, not dummy player
-//   P0-30: RoomRole — sessionDidConnect(role:) sets isHost
-//   P0-31: stateChanges stream — connectionState reflects all states
-//   P0-33: functional host controls (optimistic local apply + v2 command)
-//   P0-34: chat button opens sheet (handled in WatchRoomScreen)
-//   P0-35: fetchChatCatchup REST client with cursor paging
-//   P0-36: presence snapshot + reaction stream
-//   P0-37: composition root (wiring in MainTabView handled separately)
-//   P1-32: current user identity via init
-//   P1-33: typed mediaId in host commands
-//   P1-34: lastError + hardCorrectionCount + driftMs wired to UI
+// Contracts this type upholds:
+//   syncController talks to a stable PlaybackProxy, never to a player instance
+//     directly — the proxy survives player swaps, the player does not.
+//   sessionDidConnect(role:) is the only writer of isHost; role is server-assigned.
+//   connectionState reflects every state published on the stateChanges stream.
+//   Host controls apply optimistically to the local player, then send a v2 command.
+//   The chat button only flips UI state — WatchRoomScreen presents the sheet.
+//   fetchChatCatchup pages history over REST with a cursor.
+//   Presence arrives as a snapshot; reactions arrive as a stream.
+//   Dependencies are injected: wiring lives in WatchRoomCompositionRoot.
+//   Current user identity comes in through init.
+//   Host commands carry a typed mediaId.
+//   lastError, hardCorrectionCount and driftMs are bound by the UI and must
+//     stay observable.
 
 import Foundation
 import Observation
 #if canImport(UIKit)
-import UIKit  // PATCH 16: UIApplication + UIWindowScene for Rutube fallback presentation
+import UIKit  // UIApplication + UIWindowScene for Rutube fallback presentation
 #endif
 
 @MainActor
@@ -34,30 +36,30 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var participants: [ParticipantInfo] = []
     public private(set) var chatMessages: [ChatMessageInfo] = []
 
-    /// M13: active room poll (rides on the chat protocol, see RoomPolls.swift).
+    /// Active room poll (rides on the chat protocol, see RoomPolls.swift).
     public private(set) var activePoll: RoomPollState?
 
-    /// M15: текущий режим приватности комнаты (бар модерации).
-    // Аудит 26.07.2026: RoomPrivacy — internal-тип, поэтому свойство не может быть public.
+    /// Текущий режим приватности комнаты (бар модерации).
+    // RoomPrivacy — internal-тип, поэтому свойство не может быть public.
     private(set) var roomPrivacy: RoomPrivacy = .publicRoom
-    /// M15: видимость бара модерации (управляется экраном и топ-хромом).
+    /// Видимость бара модерации (управляется экраном и топ-хромом).
     public var moderationBarVisible = false
 
-    /// M16: ИИ-модератор — до какого момента текущий юзер замучен (nil — не замучен).
+    /// ИИ-модератор — до какого момента текущий юзер замучен (nil — не замучен).
     public private(set) var mutedUntil: Date? = nil
 
-    /// M16: остаток мута в секундах (0 — можно писать).
+    /// Остаток мута в секундах (0 — можно писать).
     public var mutedRemainingSec: Int {
         guard let until = mutedUntil else { return 0 }
         let remaining = Int(until.timeIntervalSinceNow.rounded(.up))
         return max(0, remaining)
     }
 
-    /// M16: очередь видео комнаты (ИИ-ассистент ставит ролики по-настоящему).
-    // Аудит 26.07.2026: RoomQueueWire — internal-тип (RoomQueue.swift), public здесь невозможен.
+    /// Очередь видео комнаты (ИИ-ассистент ставит ролики по-настоящему).
+    // RoomQueueWire — internal-тип (RoomQueue.swift), public здесь невозможен.
     private(set) var roomQueue: [RoomQueueWire.Item] = []
 
-    // M17: управление очередью — REST; broadcast обновит roomQueue у всех участников.
+    // Управление очередью — REST; broadcast обновит roomQueue у всех участников.
     func removeFromQueue(_ item: RoomQueueWire.Item) {
         let rid = _roomId
         Task {
@@ -106,31 +108,31 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // M14: синхронный отсчёт 3-2-1 перед стартом
+    // Синхронный отсчёт 3-2-1 перед стартом
     public private(set) var countdownRemaining: Int? = nil
     private var countdownTask: Task<Void, Never>?
     public private(set) var lastError: String?
-    /// Аудит 26.07.2026 (P0): отдельный канал ТОЛЬКО для ошибок загрузки медиа.
+    /// Отдельный канал ТОЛЬКО для ошибок загрузки медиа.
     /// Раньше в оверлей плеера падал любой lastError (kick, chat catch-up,
     /// «Voice chat requires Plink+») и рисовал чёрный экран поверх идущего видео.
     public private(set) var mediaError: String?
     public private(set) var clockSynced: Bool = false
     public private(set) var hardCorrectionCount: Int = 0
     public private(set) var lastDriftMs: Double = 0
-    // P1-51: reactions — renamed to WatchReactionEvent to avoid @Observable
+    // Reactions — renamed to WatchReactionEvent to avoid @Observable
     // macro type ambiguity with existing ReactionEvent from SyncEvents.swift
-    // P1-61: reactions auto-expire after 3 seconds
+    // Reactions auto-expire after 3 seconds
     public private(set) var reactions: [WatchReactionEvent] = []
     private var reactionExpiryTask: Task<Void, Never>?
 
-    // MARK: - M26: просьба о паузе
+    // MARK: - Просьба о паузе
     //
     // До этого гость мог только смотреть на подпись «Управляет хост». Отойти
     // на минуту было нельзя: единственный способ — написать в чат и надеяться,
     // что хост его читает, а не смотрит в кадр.
     //
     // Сервер плеер НЕ останавливает — он доставляет просьбу, решение за хостом
-    // (backend-3/src/realtime/messageRouter.ts → case 'pause.request').
+    // (backend/src/realtime/messageRouter.ts → case 'pause.request').
     // Иначе любой гость получил бы кнопку «остановить чужой сеанс».
 
     /// Просьба о паузе, ожидающая решения хоста. Ненулевая только у хоста.
@@ -173,7 +175,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         case throttled
     }
 
-    // MARK: - M28: «что я пропустил»
+    // MARK: - «что я пропустил»
     //
     // Карточка появляется САМА в момент опоздания — поздний вход в идущую
     // сессию или возврат после долгого разрыва. Запрос к ИИ при этом не
@@ -215,10 +217,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public let clock: ClockSynchronizer
     public let syncController: OrderedSyncController
     public let coordinator: PlaybackCoordinator
-    private let playbackProxy: PlaybackProxy  // P0-29: stable proxy for syncController
+    private let playbackProxy: PlaybackProxy  // Stable proxy for syncController
 
-    // PATCH 14: DanmakuEngine + AmbientVideoSampler owned by the model.
-    // One per room session — never global singletons (runbook §16).
+    // DanmakuEngine + AmbientVideoSampler owned by the model.
+    // One per room session — never global singletons.
     // The engine is fed by chat broadcast handler (chat messages become
     // danmaku placements). The sampler is fed by coordinator.nativePlayer
     // (palette drives PurpleAmbientBackdrop).
@@ -226,18 +228,18 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     private let ambientSampler: AmbientVideoSampler
     private var danmakuSnapshot: [DanmakuPlacement] = []
     private var ambientPalette: AmbientPalette = .defaultPalette
-    /// M27: live blurred backdrop frame (Rave-style) — read by WatchRoomSocialRegion.
+    /// Live blurred backdrop frame (Rave-style) — read by WatchRoomSocialRegion.
     var ambientFrame: UIImage?
     private var danmakuPollTask: Task<Void, Never>?
     private var ambientSampleTask: Task<Void, Never>?
 
     // MARK: - Config
-    // P0-30: roomId stored as _roomId (private) + protocol conformance via
+    // roomId stored as _roomId (private) + protocol conformance via
     // computed var roomId: String? { _roomId }. Only ONE declaration.
     private let _roomId: String
     /// May be recovered after connect if create/join stripped mediaItem.
     public private(set) var mediaSource: PlaybackSource?
-    public private(set) var mediaId: String?  // P1-33: typed media ID for host commands
+    public private(set) var mediaId: String?  // Typed media ID for host commands
     public private(set) var roomCode: String?
 
     /// Хост шарит экран (Netflix/Disney/кино — режим «ваш экран»).
@@ -245,20 +247,20 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     /// Короткая подсказка в UI комнаты про режим экрана / DRM.
     public private(set) var screenShareStatusLine: String?
     private var screenCapture: ScreenCaptureService?
-    public let currentUserId: String  // P1-32: identity via init, not UserDefaults
-    public let currentUsername: String  // P1-32
-    private var chatCatchupCursor: String?  // P0-59: opaque server cursor
-    // P0-60: persistent messageIds set — initialized from current chatMessages
+    public let currentUserId: String  // Identity via init, not UserDefaults
+    public let currentUsername: String  //
+    private var chatCatchupCursor: String?  // Opaque server cursor
+    // Persistent messageIds set — initialized from current chatMessages
     private var knownMessageIds = Set<String>()
     private var clientMessageIds = Set<String>()
     private var stateChangesTask: Task<Void, Never>?
-    // P0-52/P1-63: serial state pump — coalesce to latest state
+    // Serial state pump — coalesce to latest state
     private var statePumpTask: Task<Void, Never>?
     private var pendingStates: [RealtimeRoomState] = []
-    // P0-58: snapshot revision — buffer participant events during snapshot fetch
+    // Snapshot revision — buffer participant events during snapshot fetch
     private var snapshotInFlight = false
     private var bufferedParticipantEvents: [(isJoin: Bool, userId: String, username: String)] = []
-    // P0-61: single authoritative rollback state
+    // Single authoritative rollback state
     private var lastAuthoritativeState: RealtimeRoomState?
 
     /// P1 5.11: живая тема комнаты (Plink+). Стор — на комнату; realtime-событие
@@ -266,13 +268,13 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     /// updateTheme. Тип internal, поэтому свойство не может быть public.
     private(set) var appearanceStore: RoomAppearanceStore
 
-    // P0-35: REST client for chat catch-up
+    // REST client for chat catch-up
     private let chatCatchupClient: ChatCatchupClient?
     private let roomRecapClient: RoomRecapClient?
     /// Host user id from Room model (presence highlight).
     private let roomHostId: String?
 
-    // P0-5: init — class is @MainActor, init inherits isolation.
+    // Init — class is @MainActor, init inherits isolation.
     // Default params use nil-coalescing inside body to avoid @MainActor
     // default expression evaluation in nonisolated context.
     public init(
@@ -303,14 +305,14 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         self.clock = resolvedClock
         self.coordinator = coordinator ?? PlaybackCoordinator()
 
-        // P0-29: create stable proxy — syncController talks to proxy, not dummy
+        // Create stable proxy — syncController talks to proxy, not dummy
         let proxy = PlaybackProxy()
         self.playbackProxy = proxy
         self.syncController = OrderedSyncController(clock: resolvedClock, player: proxy)
 
-        // PATCH 14: instantiate engine + sampler BEFORE any use of self
+        // Instantiate engine + sampler BEFORE any use of self
         // (delegate = self below requires all stored properties initialized).
-        // PATCH 16g: capture local let before assigning to self, so the
+        // Capture local let before assigning to self, so the
         // Task can configure it without requiring self to be fully
         // initialized.
         let danmakuEngine = DanmakuEngine()
@@ -333,7 +335,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         self.realtimeClient = RealtimeClient(baseEndpoint: baseEndpoint, ticketProvider: ticketProvider)
         self.realtimeClient.delegate = self
 
-        // PATCH 16: DanmakuEngine has no startSampling() — caller polls
+        // DanmakuEngine has no startSampling() — caller polls
         // via poll(at:) which is started in connect().
         Task { @MainActor [danmakuEngine] in
             await danmakuEngine.configure(laneCount: 5)
@@ -349,15 +351,17 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         return String(_roomId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
     }
 
-    // Ссылки несут КОД комнаты, а не UUID: сервер джойнит только по коду
-    // (POST /rooms/join { code }), и лендинг с AASA живёт на /r/<code>.
+    // Links carry the room CODE, not the UUID: the server joins by code only
+    // (POST /rooms/join { code }), and the AASA-backed landing page lives at
+    // /r/<code>.
     //
-    // P2-фикс аудита: код приходит с сервера, поэтому перед подстановкой в URL
-    // его надо экранировать — пробел или не-ASCII символ раньше давал nil и
-    // краш на force-unwrap при открытии шита приглашения.
+    // The code comes from the server, so it is percent-encoded before going
+    // into a URL — a space or a non-ASCII character otherwise yields nil and
+    // crashes the invite sheet on the force unwrap downstream.
     //
-    // Ревью P2: именно экранирование, а не выкидывание символов — иначе ссылка
-    // и QR молча расходились бы с кодом, который показан в шите и в шер-тексте.
+    // Encoded rather than stripped: dropping characters would leave the link
+    // and the QR pointing somewhere other than the code shown in the sheet and
+    // in the share text, and nothing would report the mismatch.
     private var linkRoomCode: String {
         displayRoomCode.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
             ?? displayRoomCode
@@ -404,7 +408,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             )
         }
 
-        // P0-31: subscribe to stateChanges stream
+        // Subscribe to stateChanges stream
         startStateChangesSubscription()
 
         // Realtime first — chat/presence must work even while YouTube is loading.
@@ -654,7 +658,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         countdownTask?.cancel()
         countdownTask = nil
         countdownRemaining = nil
-        // M26: просьба о паузе живёт ровно столько, сколько длится сеанс.
+        // Просьба о паузе живёт ровно столько, сколько длится сеанс.
         // Оставленная задача разбудила бы модель уже вне комнаты.
         clearPauseRequest()
         lastPauseRequestAt = nil
@@ -669,8 +673,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         clientMessageIds.removeAll()
         connectionState = .idle
 
-        // PATCH 14: stop engine + sampler
-        // PATCH 16: DanmakuEngine has no stopSampling() — cancelling the
+        // Stop engine + sampler
+        // DanmakuEngine has no stopSampling() — cancelling the
         // poll task is sufficient (engine itself is passive).
         danmakuPollTask?.cancel()
         danmakuPollTask = nil
@@ -685,7 +689,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         ambientPalette = .defaultPalette
     }
 
-    // MARK: - PATCH 14: Danmaku polling
+    // MARK: - Danmaku polling
 
     /// Polls the DanmakuEngine every 250ms for the current placement
     /// snapshot. Caches in danmakuSnapshot so views can read without
@@ -711,7 +715,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // MARK: - PATCH 14: Ambient palette polling
+    // MARK: - Ambient palette polling
 
     /// Polls the AmbientVideoSampler every 500ms for the current palette.
     /// Caches in ambientPalette so views can read without awaiting.
@@ -731,14 +735,14 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // P0-31: subscribe to RealtimeClient.stateChanges
+    // Subscribe to RealtimeClient.stateChanges
     private func startStateChangesSubscription() {
         stateChangesTask?.cancel()
         stateChangesTask = Task { [weak self] in
             guard let self else { return }
             for await state in self.realtimeClient.stateChanges {
                 guard !Task.isCancelled else { return }
-                // M28: фиксируем момент потери связи — при возврате решим,
+                // Фиксируем момент потери связи — при возврате решим,
                 // был ли это моргнувший Wi-Fi или настоящий разрыв.
                 if case .connected = self.connectionState {
                     switch state {
@@ -753,13 +757,13 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // P0-54: pending actions for reconciliation/rollback
+    // Pending actions for reconciliation/rollback
     private struct PendingAction {
         let actionId: String
         let preActionPosition: Double
         let preActionPlaying: Bool
         let timestamp: Date
-        // Аудит 26.07.2026 P1: epoch/seq на момент отправки — авторитетное
+        // epoch/seq на момент отправки — авторитетное
         // состояние с бОльшим (epoch, seq) означает подтверждение команды.
         let epochAtSend: Int64
         let seqAtSend: Int64
@@ -767,27 +771,27 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     private var pendingActions: [String: PendingAction] = [:]
     private static let actionTimeoutMs: Int64 = 10_000
 
-    // MARK: - Host commands (P0-33: functional with optimistic local apply + P0-54: reconciliation)
+    // MARK: - Host commands (optimistic local apply + reconciliation)
 
     public func sendPlayCommand() async {
         guard isHost else { return }
         let positionMs = Int64((coordinator.position) * 1000)
         let prePosition = coordinator.position
         let prePlaying = coordinator.isPlaying
-        // P0-33: optimistic local apply
+        // Optimistic local apply
         await coordinator.currentController?.play()
-        // Ревью P2: play() — точка подвеса. Если за это время комнату покинули
-        // (disconnect уже почистил pendingActions), запись нельзя заводить
-        // заново: её таймаут через 10 с напишет ложную ошибку вне комнаты.
+        // play() is a suspension point. If the room was left while it ran,
+        // disconnect has already cleared pendingActions, and re-adding an entry
+        // here means its 10s timeout reports a bogus error from outside a room.
         guard connectionState != .idle else { return }
         let actionId = UUID().uuidString
-        // P0-54: track pending action for rollback
+        // Track pending action for rollback
         pendingActions[actionId] = PendingAction(
             actionId: actionId,
             preActionPosition: prePosition,
             preActionPlaying: prePlaying,
             timestamp: Date(),
-            epochAtSend: lastEpoch, // Аудит 26.07.2026 P1
+            epochAtSend: lastEpoch, //
             seqAtSend: lastSeq
         )
         realtimeClient.send(.syncCommand(.init(
@@ -805,16 +809,16 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         let positionMs = Int64((coordinator.position) * 1000)
         let prePosition = coordinator.position
         let prePlaying = coordinator.isPlaying
-        // P0-33: optimistic local apply
+        // Optimistic local apply
         coordinator.currentController?.pause()
         let actionId = UUID().uuidString
-        // P0-54: track pending action
+        // Track pending action
         pendingActions[actionId] = PendingAction(
             actionId: actionId,
             preActionPosition: prePosition,
             preActionPlaying: prePlaying,
             timestamp: Date(),
-            epochAtSend: lastEpoch, // Аудит 26.07.2026 P1
+            epochAtSend: lastEpoch, //
             seqAtSend: lastSeq
         )
         realtimeClient.send(.syncCommand(.init(
@@ -827,7 +831,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         scheduleActionTimeout(actionId)
     }
 
-    // MARK: - M26: просьба о паузе
+    // MARK: - Просьба о паузе
 
     /// Гость просит хоста поставить паузу.
     ///
@@ -859,7 +863,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     /// Хост ответил на просьбу. `pause == true` — ставим паузу по-настоящему,
     /// обычной командой sync.command, чтобы кадр совпал у всей комнаты.
     ///
-    /// M27: вердикт уходит комнате отдельным pause.resolve. Раньше отклонённая
+    /// Вердикт уходит комнате отдельным pause.resolve. Раньше отклонённая
     /// просьба исчезала молча — гость не знал, увидели её или нет, и после
     /// кулдауна просил снова. Принятие тоже объявляется: пауза, наступившая
     /// без объяснения, читается как сбой синхронизации, а не как ответ.
@@ -944,7 +948,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    /// M27: комнате объявлен вердикт хоста по просьбе о паузе.
+    /// Комнате объявлен вердикт хоста по просьбе о паузе.
     ///
     /// Системная строка — всем, кроме самого хоста (он сам только что нажал
     /// кнопку и видит результат). Висящая подсказка гасится у ЛЮБОГО клиента:
@@ -980,18 +984,18 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         let positionMs = Int64(seconds * 1000)
         let prePosition = coordinator.position
         let prePlaying = coordinator.isPlaying
-        // P0-33: optimistic local seek
+        // Optimistic local seek
         _ = await coordinator.currentController?.seek(to: seconds, precise: true)
-        // Ревью P2: та же точка подвеса, что и в sendPlayCommand.
+        // Same suspension-point hazard as sendPlayCommand.
         guard connectionState != .idle else { return }
         let actionId = UUID().uuidString
-        // P0-54: track pending action
+        // Track pending action
         pendingActions[actionId] = PendingAction(
             actionId: actionId,
             preActionPosition: prePosition,
             preActionPlaying: prePlaying,
             timestamp: Date(),
-            epochAtSend: lastEpoch, // Аудит 26.07.2026 P1
+            epochAtSend: lastEpoch, //
             seqAtSend: lastSeq
         )
         realtimeClient.send(.syncCommand(.init(
@@ -1004,11 +1008,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         scheduleActionTimeout(actionId)
     }
 
-    // P0-62: single authoritative rollback — NOT concurrent Tasks per action.
+    // Single authoritative rollback — NOT concurrent Tasks per action.
     // Rollback to last authoritative state, request fresh snapshot.
     private func handleActionRejection(_ errorCode: String) {
         pendingActions.removeAll()
-        // P0-61/P0-62: restore to last authoritative state in a single operation
+        // Restore to last authoritative state in a single operation
         if let state = lastAuthoritativeState {
             Task { [weak self] in
                 guard let self else { return }
@@ -1022,12 +1026,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 self.coordinator.currentController?.setRate(Float(state.rate))
             }
         }
-        // P0-62: request fresh snapshot immediately
+        // Request fresh snapshot immediately
         realtimeClient.send(.stateRequest(.init(roomId: _roomId, afterSeq: lastSeq)))
         lastError = "Command rejected: \(errorCode) — rolled back to authoritative state"
     }
 
-    // P0-54: timeout pending actions
+    // Timeout pending actions
     private func scheduleActionTimeout(_ actionId: String) {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.actionTimeoutMs) * 1_000_000)
@@ -1039,8 +1043,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // P0-54: clear pending action when authoritative state arrives
-    // Аудит 26.07.2026 P1: раньше параметр state игнорировался — команды никогда
+    // Clear pending action when authoritative state arrives
+    // Раньше параметр state игнорировался — команды никогда
     // не «подтверждались», и scheduleActionTimeout через 10 с писал ложный
     // "Command timeout" на каждую команду хоста. Теперь команда считается
     // подтверждённой, когда пришло авторитетное состояние, выпущенное ПОСЛЕ
@@ -1055,7 +1059,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // MARK: - Chat (optimistic + reconciliation + P1-54 failure/retry)
+    // MARK: - Chat (optimistic send, reconciliation, failure/retry)
 
     public func sendChat(text: String) {
         let clientMessageId = UUID().uuidString
@@ -1084,16 +1088,16 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             text: wireText
         )))
         AnalyticsService.shared.messageSent()
-        // P1-54: schedule 5s timeout — mark as failed if no server echo
+        // Schedule 5s timeout — mark as failed if no server echo
         scheduleChatSendTimeout(clientMessageId: clientMessageId)
     }
 
-    // MARK: - M13: Room polls + offline queue badge
+    // MARK: - Room polls + offline queue badge
 
     /// Number of chat/reaction messages queued while offline (see RealtimeClient).
     public var queuedMessageCount: Int { realtimeClient.queuedUserMessageCount }
 
-    // MARK: - M14: Синхронный отсчёт 3-2-1
+    // MARK: - Синхронный отсчёт 3-2-1
 
     /// Хост: если в комнате есть зрители — общий отсчёт для всех, потом play.
     /// Один в комнате — обычный мгновенный старт без церемоний.
@@ -1298,7 +1302,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // P1-54: retry a failed chat message
+    // Retry a failed chat message
     /// Host kicks a participant via REST (POST /api/rooms/:id/kick).
     @discardableResult
     public func kickParticipant(userId: String) async -> Bool {
@@ -1345,7 +1349,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         scheduleChatSendTimeout(clientMessageId: cmid)
     }
 
-    // P1-54: mark message as failed after 5s if no server confirmation
+    // Mark message as failed after 5s if no server confirmation
     private func scheduleChatSendTimeout(clientMessageId: String) {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -1372,7 +1376,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
 
     // MARK: - RealtimeClientDelegate
 
-    // P0-30: roomId protocol conformance — protocol requires String?
+    // roomId protocol conformance — protocol requires String?
     // but our roomId is non-optional String. Return wrapped optional.
     public var roomId: String? { _roomId }
 
@@ -1384,7 +1388,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         clockSynced = clock.isSynchronized
     }
 
-    // P0-52: serial state pump — enqueue state, process in order
+    // Serial state pump — enqueue state, process in order
     public func applySnapshot(_ state: RealtimeRoomState?) {
         guard let state = state else { return }
         pendingStates.append(state)
@@ -1398,14 +1402,14 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             while !self.pendingStates.isEmpty && !Task.isCancelled {
                 let state = self.pendingStates.removeFirst()
                 await self.syncController.apply(state)
-                // P0-61: store last authoritative state for rollback
+                // Store last authoritative state for rollback
                 self.lastAuthoritativeState = state
-                // P1-34: update UI metrics AFTER each apply completes
+                // Update UI metrics AFTER each apply completes
                 self.hardCorrectionCount = self.syncController.hardCorrectionCount
                 self.lastDriftMs = self.syncController.lastDriftMs
-                // P0-61: clear pending actions that match this state
+                // Clear pending actions that match this state
                 self.clearPendingActionsIfConfirmed(state: state)
-                // M28: первый авторитетный state — момент, когда видно,
+                // Первый авторитетный state — момент, когда видно,
                 // насколько сессия уже ушла вперёд без нас.
                 self.considerCatchUp(after: state)
             }
@@ -1413,7 +1417,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // MARK: - M28: «что я пропустил»
+    // MARK: - «что я пропустил»
 
     /// Решает, показывать ли карточку. Один раз за жизнь модели.
     private func considerCatchUp(after state: RealtimeRoomState) {
@@ -1612,7 +1616,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         realtimeClient.send(.stateRequest(.init(roomId: _roomId, afterSeq: lastSeq)))
     }
 
-    // P0-30: sessionDidConnect now carries role
+    // sessionDidConnect now carries role
     public func sessionDidConnect(role: RoomRole) {
         self.role = role
         self.isHost = (role == .host)
@@ -1626,9 +1630,9 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 at: 0
             )
         }
-        // P0-35: request chat catch-up after reconnect
+        // Request chat catch-up after reconnect
         Task { await fetchChatCatchup() }
-        // P0-36: request presence snapshot
+        // Request presence snapshot
         Task { await fetchPresenceSnapshot() }
     }
 
@@ -1644,7 +1648,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             positionMs: positionMs,
             playing: playing
         )))
-        // Аудит 26.07.2026 P1: scheduleActionTimeout здесь убран — PendingAction
+        // scheduleActionTimeout здесь убран — PendingAction
         // для периодического публиша не регистрируется, таймер был пустым no-op.
     }
 
@@ -1678,11 +1682,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // отсюда, у хоста и у зрителей одинаково.
         case .roomAppearanceUpdated(let event):
             appearanceStore.applyServerUpdate(RoomAppearance(wire: event.appearance))
-        // M26: гость попросил паузу. Плеер здесь не трогаем — сервер тоже:
+        // Гость попросил паузу. Плеер здесь не трогаем — сервер тоже:
         // решение остаётся за хостом (см. handlePauseRequested).
         case .pauseRequested(let request):
             handlePauseRequested(request)
-        // M27: хост ответил на просьбу — закрываем петлю обратной связи.
+        // Хост ответил на просьбу — закрываем петлю обратной связи.
         case .pauseResolved(let verdict):
             handlePauseResolved(verdict)
         // P0 12.08.2026: хост ушёл, сервер передал роль. До этого уход хоста
@@ -1691,8 +1695,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             applyRoleChange(event)
         case .error(let err):
             lastError = "\(err.code): \(err.message)"
-            // P0-54: rollback on rejection errors.
-            // M26: откатывать есть смысл ТОЛЬКО когда в полёте висит команда
+            // Rollback on rejection errors.
+            // Откатывать есть смысл ТОЛЬКО когда в полёте висит команда
             // плеера. Раньше условие смотрело лишь на код: любой RATE_LIMITED
             // (а его отдают и chat.send, и reaction.send, и pause.request)
             // прогонял handleActionRejection — то есть за третье сообщение в
@@ -1704,7 +1708,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                err.code == "NOT_HOST" || err.code == "STALE_EPOCH" || err.code == "RATE_LIMITED" {
                 handleActionRejection(err.code)
             }
-            // M16: сервер отклонил сообщение из-за мута — синхронизируем таймер локально.
+            // Сервер отклонил сообщение из-за мута — синхронизируем таймер локально.
             if err.code == "MUTED" {
                 let digits = err.message.filter { $0.isNumber }
                 if let secs = Int(digits), secs > 0 {
@@ -1719,7 +1723,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     // MARK: - Private handlers
 
     private func handleChatBroadcast(_ chat: RealtimeServerMessage.ChatBroadcast) {
-        // M14: countdown events ride on chat — intercept before bubbles.
+        // Countdown events ride on chat — intercept before bubbles.
         if let countdown = RoomCountdownWire.decode(chat.text) {
             if chat.senderId != currentUserId {
                 let startAt = Date(timeIntervalSince1970: Double(countdown.startAtMs) / 1000)
@@ -1727,7 +1731,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             }
             return
         }
-        // M15: смена приватности едет по чату — не рендерим как сообщение.
+        // Смена приватности едет по чату — не рендерим как сообщение.
         if let modEvent = RoomModerationWire.decode(chat.text) {
             if let newPrivacy = RoomPrivacy(rawValue: modEvent.privacy) {
                 roomPrivacy = newPrivacy
@@ -1735,7 +1739,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             return
         }
 
-        // M16: ИИ-модератор — муты едут по чату. Рен��ерим системную строку,
+        // ИИ-модератор — муты едут по чату. Рен��ерим системную строку,
         // а если замучен текущий юзер — блокируем ввод на seconds.
         if let aiMod = RoomAIModWire.decode(chat.text) {
             if aiMod.userId == currentUserId {
@@ -1758,13 +1762,13 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             return
         }
 
-        // M16: очередь видео комнаты едет по чату — обновляем список, не рендерим как сообщение.
+        // Очередь видео комнаты едет по чату — обновляем список, не рендерим как сообщение.
         if let queueEvent = RoomQueueWire.decode(chat.text) {
             roomQueue = queueEvent.queue
             return
         }
 
-        // M13: poll events ride on chat — intercept before rendering bubbles.
+        // Poll events ride on chat — intercept before rendering bubbles.
         if let pollEvent = RoomPollWire.decode(chat.text) {
             if chat.senderId != currentUserId {
                 applyPollEvent(pollEvent, senderId: chat.senderId, senderName: chat.senderName)
@@ -1787,7 +1791,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                     hasMedia: chat.hasMedia ?? false
                 )
             }
-            // P0-35: update cursor for confirmed own messages too
+            // Update cursor for confirmed own messages too
             chatCatchupCursor = chat.messageId
             return
         }
@@ -1810,7 +1814,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             chatMessages.removeFirst(chatMessages.count - 200)
         }
 
-        // PATCH 14: enqueue danmaku placement for this chat message.
+        // Enqueue danmaku placement for this chat message.
         // Photo messages stay in the feed and do not fly over the video.
         guard !msg.isPhotoMessage, !msg.text.isEmpty else { return }
         // Skip system/admin messages (they don't fly as danmaku).
@@ -1835,7 +1839,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         }
     }
 
-    // P1-51/P1-61: reaction handler with auto-expiry
+    // Reaction handler with auto-expiry
     private func handleReaction(_ reaction: RealtimeServerMessage.ReactionBroadcast) {
         let event = WatchReactionEvent(
             id: UUID(),
@@ -1848,11 +1852,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         if reactions.count > 50 {
             reactions.removeFirst(reactions.count - 50)
         }
-        // P1-61: auto-expire reactions after 3 seconds
+        // auto-expire reactions after 3 seconds
         scheduleReactionExpiry()
     }
 
-    // P1-61: remove old reactions after 3s
+    // Remove old reactions after 3s
     // P2-фикс аудита: раньше каждая новая реакция отменяла предыдущий таймер,
     // и при потоке реакций чаще раза в 3 с очистка не выполнялась никогда —
     // реакции накапливались. Теперь таймер один: он подметает срез каждые
@@ -1863,10 +1867,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled, let self else { return }
-                // Ревью P2: срез по локальной метке получения, поштучно.
-                // Раньше здесь был счётчик подметаний, который раз в минуту
-                // непрерывного потока стирал ВСЕ реакции разом (включая
-                // пришедшую только что), обрывая анимацию на полуслове.
+                // Expire individually, against the local arrival time. A sweep
+                // counter here cleared every reaction at once — including one
+                // that had just arrived — cutting its animation off mid-flight
+                // roughly once a minute under a steady stream.
                 let cutoff = Date().addingTimeInterval(-3)
                 self.reactions.removeAll { $0.receivedAt < cutoff }
                 if self.reactions.isEmpty {
@@ -1878,7 +1882,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     private func handleParticipantJoined(_ event: RealtimeServerMessage.ParticipantEvent) {
-        // P0-58: buffer if snapshot is in flight
+        // Buffer if snapshot is in flight
         if snapshotInFlight {
             bufferedParticipantEvents.append((isJoin: true, userId: event.userId, username: event.username))
             return
@@ -1890,7 +1894,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     private func handleParticipantLeft(_ event: RealtimeServerMessage.ParticipantEvent) {
-        // P0-58: buffer if snapshot is in flight
+        // Buffer if snapshot is in flight
         if snapshotInFlight {
             bufferedParticipantEvents.append((isJoin: false, userId: event.userId, username: event.username))
             return
@@ -1898,13 +1902,13 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         participants.removeAll { $0.userId == event.userId }
     }
 
-    // MARK: - Chat catch-up (P0-35: implemented REST client)
+    // MARK: - Chat catch-up (implemented REST client)
 
-    // P0-59/P0-60: fetchChatCatchup with opaque cursor + persistent dedupe
+    // fetchChatCatchup with opaque cursor + persistent dedupe
     private func fetchChatCatchup() async {
         guard let client = chatCatchupClient else { return }
 
-        // P0-60: initialize knownMessageIds from current chatMessages
+        // Initialize knownMessageIds from current chatMessages
         for msg in chatMessages {
             if let mid = msg.messageId { knownMessageIds.insert(mid) }
         }
@@ -1920,7 +1924,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 pageCount += 1
 
                 for msg in response.messages {
-                    // P0-60: dedupe by messageId using persistent set
+                    // Dedupe by messageId using persistent set
                     if knownMessageIds.contains(msg.messageId) { continue }
                     knownMessageIds.insert(msg.messageId)
 
@@ -1966,7 +1970,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                     if let cmid = msg.clientMessageId { clientMessageIds.insert(cmid) }
                 }
 
-                // P0-59: use server-provided opaque nextCursor, not messageId
+                // Use server-provided opaque nextCursor, not messageId
                 if let next = response.nextCursor {
                     cursor = next
                     chatCatchupCursor = next
@@ -1979,20 +1983,20 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                     chatMessages.removeFirst(chatMessages.count - 200)
                 }
             }
-            // P0-60: sort chronologically after merge
+            // Sort chronologically after merge
             chatMessages.sort { $0.createdAtMs < $1.createdAtMs }
         } catch {
             lastError = "Chat catch-up failed: \(error.localizedDescription)"
         }
     }
 
-    // P0-58/P0-36: presence snapshot with event buffering
+    // Presence snapshot with event buffering
     private func fetchPresenceSnapshot() async {
         guard let client = chatCatchupClient else { return }
-        snapshotInFlight = true  // P0-58: buffer events during fetch
+        snapshotInFlight = true  // Buffer events during fetch
         do {
             let snapshot = try await client.fetchParticipants(roomId: _roomId)
-            // P0-58: apply snapshot, then merge buffered events
+            // Apply snapshot, then merge buffered events
             var next = snapshot.map { p in
                 ParticipantInfo(userId: p.userId, username: p.username, isLocal: p.userId == currentUserId)
             }
@@ -2010,7 +2014,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 )
             }
             participants = next
-            // P0-58: replay buffered participant events
+            // Replay buffered participant events
             for event in bufferedParticipantEvents {
                 if event.isJoin {
                     let info = ParticipantInfo(userId: event.userId, username: event.username, isLocal: event.userId == currentUserId)
@@ -2045,7 +2049,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     var cameraState: CameraUIState { .off }
     var unreadCount: Int { 0 }
 
-    // PATCH 14: danmaku placements come from DanmakuEngine. The model
+    // Danmaku placements come from DanmakuEngine. The model
     // polls the engine every 250ms (display-linked cadence) and caches
     // the snapshot in danmakuSnapshot. Views read from this cached array
     // — they never await on the actor during render.
@@ -2053,7 +2057,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     var danmakuLaneCount: Int { 5 }
     var danmakuOpacity: Double { 0.85 }
 
-    // PATCH 14: ambient palette comes from AmbientVideoSampler. Drives
+    // Ambient palette comes from AmbientVideoSampler. Drives
     // PurpleAmbientBackdrop's primaryColor + secondaryColor so the room
     // haze breathes with the movie.
     var ambientState: AmbientState {
@@ -2064,7 +2068,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         )
     }
 
-    // PATCH 14: Rutube fallback indicator. True when source is .rutube
+    // Rutube fallback indicator. True when source is .rutube
     // and the embedded player's JS API is unavailable — UI shows a toast
     // prompting the user to open the video in Rutube's external app.
     var requiresRutubeFallback: Bool {
@@ -2075,7 +2079,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         return rutube.requiresExternalFallback
     }
 
-    // PATCH 14: open current Rutube video in SFSafariViewController.
+    // Open current Rutube video in SFSafariViewController.
     // Called by WatchRoomScreen when user taps "Open in Rutube" toast.
     #if canImport(UIKit)
     func openInRutubeExternal() {
@@ -2100,7 +2104,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
 
     private var didLeaveRoom = false
 
-    // MARK: - M15: Приватность комнаты (бар модерации)
+    // MARK: - Приватность комнаты (бар модерации)
 
     /// Подтягивает актуальный режим приватности с бэкенда.
     /// P1 5.11: начальная тема комнаты при входе.
@@ -2216,11 +2220,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             }
         }
     }
-    // Аудит 26.07.2026 (P1 5.5): пустые openPlayerSettings()/startPiP() удалены.
+    // Пустые openPlayerSettings()/startPiP() удалены.
     // Настройки плеера живут инлайн в PlinkPlayerControls.bottomBar; системный
     // PiP для WKWebView-эмбеда недоступен, а кнопок на эти методы не было.
     func enterFullscreen() {
-        // PATCH: force landscape rotation — do NOT disconnect or stop playback
+        // Forces landscape rotation only — never disconnects or stops playback.
         #if canImport(UIKit)
         OrientationManager.shared.lockOrientation(.landscape)
         OrientationManager.shared.forceLandscape()
@@ -2239,7 +2243,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // Кнопка скрыта флагом в PresenceBar и V4RoomControlsRow; guard —
         // второй барьер.
         //
-        // M26: раньше здесь открывался пейволл .voiceChat. Это продажа фичи,
+        // Раньше здесь открывался пейволл .voiceChat. Это продажа фичи,
         // которой в сборке нет: LiveKit не подключён (ждём аккаунт Apple
         // Developer), поэтому оплативший Плинк+ получил бы ровно ничего.
         // Пока голос недоступен — молча ничего не делаем и пишем в лог.
@@ -2266,7 +2270,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
 
     func toggleCamera() async {
         // Camera in room — Plink+ only (same as voice).
-        // M26: тот же дефект, что в toggleMicrophone — пейволл за фичу,
+        // Тот же дефект, что в toggleMicrophone — пейволл за фичу,
         // которой нет в сборке. Убран.
         guard FeatureFlags.liveKitVoiceEnabled else {
             Logger.webrtc.warn("toggleCamera(): видео в комнате недоступно (LiveKit не подключён) — пейволл не показываем")
@@ -2285,7 +2289,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // In real: await rtcController?.toggleCamera()
     }
 
-    // PATCH 14: send a reaction emoji via RealtimeClient.
+    // Send a reaction emoji via RealtimeClient.
     // Validates against ReactionPalette — free emojis always sendable,
     // premium requires Plink+ entitlement.
     func sendReaction(emoji: String, hasPremium: Bool) {
@@ -2317,7 +2321,7 @@ public struct ChatMessageInfo: Identifiable, Sendable, Equatable {
     public let text: String
     public let createdAtMs: Int64
     public let isPending: Bool
-    public var isFailed: Bool  // P1-54: failed messages can be retried
+    public var isFailed: Bool  // Failed messages can be retried
     public var isAdmin: Bool = false
     public var isPremium: Bool = false
     /// Sender bubble style (synced via wire format in text).
@@ -2334,7 +2338,7 @@ public struct ChatMessageInfo: Identifiable, Sendable, Equatable {
         return "\(senderId)-\(createdAtMs)-\(text.hashValue)"
     }
 
-    // P1-54: convenience init without isFailed
+    // Convenience init without isFailed
     public init(messageId: String?, clientMessageId: String?, senderId: String,
                 senderName: String, text: String, createdAtMs: Int64,
                 isPending: Bool, isFailed: Bool = false, bubbleStyle: String? = nil,
@@ -2353,17 +2357,17 @@ public struct ChatMessageInfo: Identifiable, Sendable, Equatable {
     }
 }
 
-// P1-51: renamed from ReactionEvent to avoid @Observable macro ambiguity
+// Renamed from ReactionEvent to avoid @Observable macro ambiguity
 public struct WatchReactionEvent: Identifiable, Sendable, Equatable {
     public let id: UUID
     public let userId: String
     public let username: String
     public let emoji: String
     public let timestampMs: Int64
-    // Ревью P2: локальная метка получения. Экспирация и анимация считаются по
-    // ней, а серверная timestampMs остаётся только для сортировки/дедупа —
-    // часы устройства могут расходиться с серверными на секунды, и срез по
-    // серверной метке тогда либо не наступал никогда, либо срабатывал сразу.
+    // Local arrival time. Expiry and animation are measured from this; the
+    // server's timestampMs is kept only for ordering and dedup. Device and
+    // server clocks drift by seconds, and a cutoff against the server stamp
+    // therefore either never fires or fires instantly.
     public let receivedAt: Date
     // Blueprint: reaction animation properties
     public let startX: CGFloat
@@ -2391,14 +2395,14 @@ public struct WatchReactionEvent: Identifiable, Sendable, Equatable {
     }
 }
 
-// MARK: - P0-35: Chat catch-up REST client protocol
+// MARK: - Chat catch-up REST client protocol
 
 public protocol ChatCatchupClient: Sendable {
     func fetchMessages(roomId: String, after: String?) async throws -> ChatCatchupResponse
     func fetchParticipants(roomId: String) async throws -> [ParticipantSnapshot]
 }
 
-// MARK: - M28: room recap client protocol
+// MARK: - Room recap client protocol
 
 /// REST-клиент «что я пропустил» (POST /api/ai/room-recap). Отдельный от
 /// ChatCatchupClient: догон чата — обязательная механика комнаты, рекап —
@@ -2422,7 +2426,7 @@ public struct RoomRecapResponse: Sendable, Equatable, Decodable {
 public struct ChatCatchupResponse: Sendable, Equatable {
     public let messages: [ChatCatchupMessage]
     public let hasMore: Bool
-    public let nextCursor: String?  // P0-59: opaque server cursor
+    public let nextCursor: String?  // Opaque server cursor
 }
 
 private struct ChatPhotoSendResponse: Decodable, Sendable {

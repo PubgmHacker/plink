@@ -1,6 +1,4 @@
 // src/tests/integration/roomEventBus.integration.test.ts
-// Brain Review P0-3 regression tests
-//
 // Verifies:
 //   - published event reaches subscriber on same replica
 //   - published event reaches subscriber on a SECOND subscriber instance
@@ -16,7 +14,7 @@ import { RoomEventBus } from '../../realtime/roomEventBus.js';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6380';
 const VALID_UUID = () => randomUUID();
 
-// P0-25 fix: check Redis availability at TOP LEVEL (not in beforeAll).
+// Redis availability is checked at TOP LEVEL, not in beforeAll:
 // describe.skipIf reads the value synchronously at declaration time —
 // beforeAll runs later, so redisOk would still be false.
 // Top-level IIFE sets redisOk before describe.skipIf is evaluated.
@@ -38,7 +36,7 @@ try {
   redisOk = false;
 }
 
-describe.skipIf(!redisOk)('RoomEventBus cross-replica distribution (P0-3 regression)', () => {
+describe.skipIf(!redisOk)('RoomEventBus cross-replica distribution', () => {
   it('event published on replica A reaches subscriber on replica B', async () => {
     const replicaA = new RoomEventBus(REDIS_URL);
     const replicaB = new RoomEventBus(REDIS_URL);

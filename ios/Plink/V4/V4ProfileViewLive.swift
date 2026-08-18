@@ -149,6 +149,7 @@ struct V4ProfileViewLive: View {
     @State private var showAdminPanel = false
     @State private var showAvatarPicker = false
     @State private var showPremium = false
+    @State private var showConnectedServices = false
 
     private var isAdmin: Bool { store?.isAdmin == true }
     private var avatarURL: URL? { currentAvatarURL ?? store?.avatarURL }
@@ -197,7 +198,7 @@ struct V4ProfileViewLive: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(V4.muted)
                         }
-                        // M34: поделиться профилем (виральная петля)
+                        // Поделиться профилем (виральная петля)
                         if let username = store?.username, !username.isEmpty,
                            let shareURL = URL(string: "https://plink.app/u/\(username)") {
                             ShareLink(item: shareURL) {
@@ -277,7 +278,7 @@ struct V4ProfileViewLive: View {
                 .padding(.bottom, 18)
                 .accessibilityIdentifier("screen.profile")
 
-                // M32: история просмотров
+                // История просмотров
                 groupTitle("История просмотров")
                 WatchHistorySection()
                     .padding(.bottom, 6)
@@ -287,6 +288,8 @@ struct V4ProfileViewLive: View {
                 VStack(spacing:0) {
                     setting("person","Личные данные","›"){showPersonalData = true}
                     setting("lock.shield","Приватность и безопасность","›"){showPrivacy = true}
+                    let linked = LinkedExternalAccount.connectedCount
+                    setting("link","Кинотеатры и Яндекс ID", linked == 0 ? "›" : "\(linked) ›"){showConnectedServices = true}
                 }.groupStyle()
 
                 groupTitle("Подписка Плинк+")
@@ -349,6 +352,12 @@ struct V4ProfileViewLive: View {
                 Task { await store?.load() }
             }
         }
+        .sheet(isPresented: $showConnectedServices) {
+            NavigationStack { ConnectedServicesView() }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .preferredColorScheme(.dark)
+        }
         .sheet(isPresented: $showPrivacy) {
             NavigationStack { PrivacySecurityView() }
                 .presentationDetents([.large])
@@ -397,7 +406,7 @@ struct V4ProfileViewLive: View {
             }).preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showPremium) {
-            // M17: единый paywall Plink+ во всём приложении
+            // Единый paywall Plink+ во всём приложении
             PlinkPlusPaywall(trigger: .settings)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -414,7 +423,7 @@ struct V4ProfileViewLive: View {
 
 struct AvatarPickerSheet: View {
     var store: V4ProfileStore?
-    /// Аудит 26.07.2026: шит рисовался акцентом Cinema2026 — третьей палитрой,
+    /// Шит рисовался акцентом Cinema2026 — третьей палитрой,
     /// не связанной с темой приложения. Тема приходит от родителя.
     var theme: V4Theme = .electric
     var onAvatarChanged: ((URL) -> Void)? = nil

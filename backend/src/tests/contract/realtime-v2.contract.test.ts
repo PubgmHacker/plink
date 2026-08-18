@@ -1,5 +1,5 @@
 // src/tests/contract/realtime-v2.contract.test.ts
-// Schema-level contract tests (runbook §12)
+// Schema-level contract tests
 //
 // Verifies the Zod schemas reject malformed payloads and accept valid ones.
 // These tests don't need a DB or Redis — pure schema validation.
@@ -46,7 +46,7 @@ describe('SyncCommandSchema', () => {
     expect(() => SyncCommandSchema.parse(cmd)).toThrow();
   });
 
-  it('rejects command with roomID instead of roomId (§19 casing rule)', () => {
+  it('rejects command with roomID instead of roomId (wire protocol is lowerCamelCase)', () => {
     const cmd = {
       type: 'sync.command',
       protocolVersion: 2,

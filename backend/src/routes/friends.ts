@@ -144,7 +144,7 @@ export default async function friendRoutes(fastify: any) {
     }
 
     // Self-heal: if only one direction exists, create the reverse row.
-    // Аудит 26.07.2026 P2: O(n) по Set вместо .some (было O(n^2)) и один
+    // O(n) по Set вместо .some (было O(n^2)) и один
     // createMany вместо последовательных create — эндпоинт клиент поллит
     // каждую секунду. Записи происходят только пока в графе есть перекос.
     const forwardIds = new Set<string>(
@@ -261,7 +261,7 @@ export default async function friendRoutes(fastify: any) {
       const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
       if (!target) return reply.status(404).send({ error: 'User not found' });
 
-      // Аудит 26.07.2026 P1: при блокировке (в любую сторону) заявки запрещены —
+      // При блокировке (в любую сторону) заявки запрещены —
       // иначе заблокированный получал прямой канал пуш-уведомлений жертве.
       // Отвечаем 404, не раскрывая факт блокировки.
       const blockedPair = await prisma.userBlock.findFirst({
@@ -538,7 +538,7 @@ export default async function friendRoutes(fastify: any) {
     let { q } = request.query as { q?: string };
     if (!q) return reply.send([]);
     q = q.trim().replace(/^@/, '');
-    // Аудит 26.07.2026 P2: минимум 2 символа — запрос из одной буквы отдавал
+    // Минимум 2 символа — запрос из одной буквы отдавал
     // 20 произвольных аккаунтов (перечисление чужих профилей) и всегда бил
     // full scan по users на каждый кейстрок.
     // Ревью: длина считается в code points, а для не-ASCII (китайская локаль —

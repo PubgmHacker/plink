@@ -7,14 +7,16 @@ options:
   generateEmptyDirectories: true
   groupSortPosition: top
 
-# PATCH 07: LiveKit Swift SDK — official SFU client for voice/video chat.
-# Per runbook §9: SFU required for rooms > 4 participants (mesh fallback
-# only for <= 4). LiveKit SDK provides Room, Participant, Track, and
-# DataChannel APIs that RoomRTCController wraps.
+# The LiveKit dependency is commented out on purpose, and voice chat does not ship.
+# RoomRTCController is a stub; the server answers 503 on POST /api/rtc/token because
+# LIVEKIT_SFU is false in production; the voice UI is hidden on every surface.
 #
-# PATCH 15 + P0 voice: LiveKit re-enabled.
-# Note: On first enable, Xcode/SPM will download WebRTC (~large). Use stable
-# connection or pre-cache. If network fails, fall back to Agora/Daily.co.
+# Re-enabling it is not just uncommenting these three lines. LiveKit's `Room` type
+# collides with Plink's own `Room` model (import it as `LiveKit.Room`), and the SDK's
+# participant/track API moved after the integration was written, so the publish and
+# unpublish paths need porting. Expect a large WebRTC binary on first resolve.
+#
+# See docs/architecture/README.md § "Voice chat is not shipped".
 packages:
   # LiveKit:
   #   url: https://github.com/livekit/client-sdk-swift
@@ -22,7 +24,7 @@ packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     from: 10.0.0
-  # M13: pixel-level UI snapshot tests (opt-in via SNAPSHOT_TESTS=1)
+  # pixel-level UI snapshot tests (opt-in via SNAPSHOT_TESTS=1)
   SnapshotTesting:
     url: https://github.com/pointfreeco/swift-snapshot-testing
     from: 1.17.0
@@ -52,13 +54,14 @@ targets:
       - path: Plink/Resources
         excludes:
           - "**/.DS_Store"
-          # Localization/*.lproj/Localizable.strings is a stale duplicate of
-          # the in-code L10n.table (see Localization/LocalizationManager.swift).
-          # Keeping it as a build resource collides with the real .lproj at
-          # Resources/{en,ru}.lproj and breaks the build ("Multiple commands
-          # produce .../en.lproj/Localizable.strings"). Exclude it from the
-          # copy-resources phase; the Swift table remains the single source.
-          - "Localization/**"
+          # No .lproj here on purpose. The app has no NSLocalizedString call and no
+          # Localizable.strings lookup anywhere; translations live in the in-code
+          # L10n.table (Plink/Localization/LocalizationManager.swift), which is the
+          # single source. Three dead .strings tables used to sit under Resources and
+          # two of them collided in the copy-resources phase ("Multiple commands
+          # produce .../en.lproj/Localizable.strings"). Do not reintroduce one to
+          # "add a language" — add the language to L10n.table.
+          # See docs/architecture/localization.md.
       - path: Plink/Resources/Emojis
         type: folder
       - path: Plink/Resources/LiveThemes
@@ -69,7 +72,7 @@ targets:
         type: folder
       - path: Plink/Resources/CinemaBubbles
         type: folder
-    # PATCH 15: LiveKit dependency disabled — see comment at top of file.
+    # LiveKit dependency disabled — see comment at top of file.
     # dependencies:
     #   - package: LiveKit
     settings:
@@ -85,12 +88,12 @@ targets:
       - Metal.framework
       - MetalKit.framework
     dependencies:
-      # - package: LiveKit — выключен, SFU не используется
+      # - package: LiveKit  # see the note above packages: — deliberately off
       - package: Firebase
         product: FirebaseAnalytics
       - package: Firebase
         product: FirebaseCrashlytics
-      # M13: home-screen widget «Ближайший сеанс»
+      # Home-screen widget: the next scheduled session.
       - target: PlinkWidget
     info:
       path: Plink/Resources/Info.plist
@@ -112,20 +115,26 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        # Диплинки: plink://r/<code> и plink://u/<userId> (см. DeepLinkRouter).
+        # Custom-scheme deep links: plink://r/<code> and plink://u/<userId>.
+        # Routed by DeepLinkRouter. These work without Associated Domains.
         CFBundleURLTypes:
           - CFBundleURLName: com.syncwatch.plink
             CFBundleURLSchemes: [plink]
     entitlements:
       path: Plink/Resources/Plink.entitlements
-      # ⚠️ Associated Domains (universal links) НЕ добавлять, пока команда —
-      # личная (Personal Team): провижининг падает с "Personal development
-      # teams do not support the Associated Domains capability".
-      # После покупки Apple Developer Program вернуть properties:
-      #   com.apple.developer.associated-domains:
-      #     - applinks:plink.app
-      #     - applinks:plink-production.up.railway.app
-      # Диплинки plink:// работают и без этого (CFBundleURLTypes выше).
+      # Do NOT add Associated Domains (universal links) while the signing team is a
+      # Personal Team. Provisioning fails outright with "Personal development teams do
+      # not support the Associated Domains capability" — the build does not compile, so
+      # this is a hard block rather than a degraded feature.
+      #
+      # Once the account is on the Apple Developer Program, restore:
+      #   properties:
+      #     com.apple.developer.associated-domains:
+      #       - applinks:plink.app
+      #       - applinks:plink-production.up.railway.app
+      #
+      # Until then, invite links open the website instead of the app; the plink://
+      # scheme above still works. See docs/runbooks/ios-build-and-release.md.
 
   PlinkTests:
     type: bundle.unit-test
@@ -134,7 +143,7 @@ targets:
       - path: PlinkTests
     dependencies:
       - target: Plink
-      # M13: snapshot testing (tests are opt-in via SNAPSHOT_TESTS=1)
+      # Snapshot testing (tests are opt-in via SNAPSHOT_TESTS=1)
       - package: SnapshotTesting
     settings:
       base:
@@ -144,9 +153,11 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: PlinkTests
 
-  # Аудит 30.07.2026: UI-смоук воронки (регистрация → главный экран →
-  # комната) против живого локального бэкенда. Скриншоты пишутся в /tmp
-  # (файл-флаг, как у MarketingShots). Запуск: -only-testing:PlinkUITests
+  # A smoke test of the whole funnel — sign-up, home screen, room — driven through the
+  # UI against a LIVE local backend. It is not hermetic and is not in the default
+  # scheme; run it from the Plink-UITests scheme, or with
+  # `-only-testing:PlinkUITests`. Screenshots go to /tmp behind a file flag, the same
+  # mechanism MarketingShots uses.
   PlinkUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -162,7 +173,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Plink
 
-  # M13: home-screen widget — «Ближайший сеанс» (WidgetKit)
+  # WidgetKit home-screen widget: the next scheduled session.
   PlinkWidget:
     type: app-extension
     platform: iOS
@@ -184,3 +195,41 @@ targets:
         DEVELOPMENT_TEAM: "2QAMUC4Z4P"
         CODE_SIGN_STYLE: Automatic
         SKIP_INSTALL: YES
+
+# Schemes are declared here rather than left to Xcode's autocreation. Autocreation
+# produced exactly two schemes (Plink, PlinkWidget), neither of which referenced a test
+# bundle, and wrote them per-user rather than into xcshareddata — so `xcodebuild test`
+# depended on whether someone had opened the project in Xcode first. Declaring them
+# makes the test action part of the checked-in project description.
+schemes:
+  Plink:
+    build:
+      targets:
+        Plink: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      coverageTargets:
+        - Plink
+      targets:
+        - PlinkTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  # Separate on purpose: PlinkUITests needs a backend on localhost and is therefore not
+  # part of the default test action. Keeping it out means a red `Plink` scheme always
+  # means a real defect, not a missing local server.
+  Plink-UITests:
+    build:
+      targets:
+        Plink: all
+    test:
+      config: Debug
+      targets:
+        - PlinkUITests

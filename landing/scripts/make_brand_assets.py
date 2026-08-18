@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
-"""Иконки и OG-картинка лендинга — из того же знака, что и иконка приложения.
+"""Landing favicons and OG image, generated from the same mark as the app icon.
 
-До этого лендинг жил со своим знаком (тёплый треугольник на чёрном), iOS — со
-своим (мятный треугольник), то есть у продукта было две разные личности.
-Здесь оба берутся из одного исходника: ios-2/.../AppIcon-1024.png.
+The landing site used to carry its own mark (a warm triangle on black) while iOS
+carried a different one (a mint triangle) — two visual identities for one product.
+Both now derive from a single source: ios/.../AppIcon-1024.png.
 
-Запуск:  python3 landing/scripts/make_brand_assets.py
+Run:  python3 landing/scripts/make_brand_assets.py
+
+Outputs are committed. The five icon outputs are pure resampling and reproduce byte for
+byte on any machine; if one of them changes, a source asset changed or this script did,
+and that difference is the thing to explain before committing it.
+
+og-image.png is the exception, because it is the only output that rasterizes text. Its
+glyph advances land differently across FreeType versions — measured: identical ink
+coverage to the pixel, same glyph origins, but the line "Plink" ends 1 px earlier and
+the subtitle 5 px earlier under FreeType 2.14.3 than under the version that produced
+the committed file. That is a ~40 byte difference in the PNG and it is not a change to
+the design. So: do not commit a regenerated og-image.png just because the bytes moved.
+Diff the pixels, and if the mark, the glow and the ink extents all match, keep the
+committed file.
 """
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -15,18 +28,18 @@ HERE = pathlib.Path(__file__).resolve().parent
 PUBLIC = HERE.parent / "public"
 SOURCE = (
     HERE.parent.parent
-    / "ios-2/Plink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+    / "ios/Plink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
 )
-# Вариант без надписи PLINK на экране. Ниже ~32 px буквы превращаются в грязь и
-# пачкают световое пятно, ради которого знак и работает, поэтому мелкие
-# favicon берутся отсюда.
-SOURCE_PLAIN = HERE.parent.parent / "ios-2/docs/icons/A-couch-plain-1024.png"
+# The variant without the word PLINK on the screen. Below roughly 32 px the letters
+# turn to mud and smear the pool of light the whole mark depends on, so the small
+# favicons come from here instead of from the app icon.
+SOURCE_PLAIN = HERE.parent.parent / "brand/plink-icon-plain-1024.png"
 
 VELVET = (10, 13, 20)
 
 
 def rounded(img, radius_ratio=0.22):
-    """Скругляем углы: на вебе маску iOS никто не применит."""
+    """Round the corners ourselves — the web will not apply the iOS icon mask."""
     size = img.size[0]
     mask = Image.new("L", img.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle(
@@ -38,7 +51,13 @@ def rounded(img, radius_ratio=0.22):
 
 
 def load_font(size):
-    """Системный шрифт macOS; если его нет — дефолтный, лишь бы не падать."""
+    """The macOS system font, falling back rather than failing the whole run.
+
+    The fallback is a real risk to the output, not just a smaller font: PIL's default
+    is a fixed-size bitmap face, so it ignores `size` and cannot draw Cyrillic. On a
+    machine without these faces the OG image renders as tofu at the wrong scale. It
+    still succeeds, which is why this is worth saying out loud.
+    """
     for path in (
         "/System/Library/Fonts/SFNS.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
@@ -56,8 +75,9 @@ def main():
     src = Image.open(SOURCE).convert("RGB")
     plain = Image.open(SOURCE_PLAIN).convert("RGB") if SOURCE_PLAIN.exists() else src
 
-    # Favicon: 16 px — это ~8 различимых пикселей. Надпись там нечитаема, поэтому
-    # до 32 px включительно берём вариант без неё, а 48 px уже её держит.
+    # At 16 px the mark is about eight distinguishable pixels across. The wordmark on
+    # the screen is illegible there, so 16 and 32 come from the plain variant; 48 is
+    # large enough to hold it.
     for px in (16, 32, 48):
         source = src if px >= 48 else plain
         source.resize((px, px), Image.LANCZOS).save(PUBLIC / f"favicon-{px}x{px}.png")
@@ -66,13 +86,13 @@ def main():
         PUBLIC / "apple-touch-icon.png"
     )
 
-    # .ico с тремя размерами внутри — старые браузеры берут из него.
+    # A three-size .ico for older browsers, which read this instead of the PNGs.
     plain.resize((48, 48), Image.LANCZOS).save(
         PUBLIC / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)]
     )
 
-    # OG: 1200x630, знак слева, текст справа. Никаких мелких деталей —
-    # в лентах картинку сжимают до ~300 px по ширине.
+    # OG: 1200x630, mark left, text right. Nothing fine-grained — feeds resample this
+    # down to roughly 300 px wide.
     og = Image.new("RGB", (1200, 630), VELVET)
 
     glow = Image.new("L", (1200, 630), 0)

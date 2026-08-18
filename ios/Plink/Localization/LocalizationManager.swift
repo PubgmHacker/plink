@@ -238,7 +238,7 @@ enum L10n {
         case wcReport = "wc.report"
         case wcBlock = "wc.block"
         case wcKick = "wc.kick"
-        // Аудит 07.08.2026 (P2 5.15): английский хардкод в русском UI —
+        // Английский хардкод в русском UI
         // WatchChatComposer/PacksPopover показывал «Plink+ packs require subscription».
         case wcPacksPremiumHint = "wc.packs.premiumHint"
         case wcPacksTitle = "wc.packs.title"
@@ -261,7 +261,7 @@ enum L10n {
         case syncUnitSec = "sync.unit.sec"
         case syncSubMs = "sync.unit.subMs"
 
-        // M26: просьба о паузе. Раньше гость видел мёртвую подпись «Управляет
+        // Просьба о паузе. Раньше гость видел мёртвую подпись «Управляет
         // хост» — констатацию без выхода: отойти на минуту было нельзя,
         // оставалось писать в чат и надеяться, что хост читает.
         // Тексты кнопки и баннера здесь, а не во вью — тот же урок, что с
@@ -275,13 +275,13 @@ enum L10n {
         case pauseAskPrompt = "pause.ask.prompt"
         case pauseAskAccept = "pause.ask.accept"
         case pauseAskDismiss = "pause.ask.dismiss"
-        /// M27: вердикт хоста по просьбе о паузе. Содержат %@ — имя хоста;
+        /// Вердикт хоста по просьбе о паузе. Содержат %@ — имя хоста;
         /// порядок слов в языках разный, поэтому String(format:).
         case pauseResolveAccepted = "pause.resolve.accepted"
         case pauseResolveDeclined = "pause.resolve.declined"
         /// Имя-фолбэк, когда hostName в событии пуст.
         case pauseResolveHostFallback = "pause.resolve.hostFallback"
-        // M28: карточка «что я пропустил»
+        // Карточка «что я пропустил»
         case catchUpTitleLateJoin = "catchup.title.lateJoin"
         case catchUpTitleReconnect = "catchup.title.reconnect"
         case catchUpBody = "catchup.body"
@@ -535,34 +535,34 @@ enum L10n {
         case homeNoRoomsEmpty = "home.noRoomsEmpty"
         case homeNoResults = "home.noResults"
         case homeNoResultsHint = "home.noResultsHint"
-        // M20: Network
+        // Network
         case offlineTitle = "network.offline"
         case offlineRetry = "network.retry"
         case connectionLost = "network.connectionLost"
         case msgSending = "network.msgSending"
-        // M19: Groups / Chats
+        // Groups / Chats
         case groupsEmpty = "groups.empty"
         case groupsEmptySubtitle = "groups.emptySubtitle"
         case groupsCreate = "groups.create"
         case groupsNoMessages = "groups.noMessages"
         case groupsAddFriendsHint = "groups.addFriendsHint"
         case groupsPhotoUnavailable = "groups.photoUnavailable"
-        // M19: Inbox
+        // Inbox
         case inboxAllRead = "inbox.allRead"
         case inboxEmptySubtitle = "inbox.emptySubtitle"
         case inboxUnreadMessages = "inbox.unreadMessages"
         case inboxOpenFriendsHint = "inbox.openFriendsHint"
-        // M19: Queue
+        // Queue
         case queueMutedLabel = "queue.mutedLabel"
         case queueLabel = "queue.label"
-        // M19: Room setup
+        // Room setup
         case roomPassword = "room.password"
         case roomCapacityUpsell = "room.capacityUpsell"
         case roomCustomThemes = "room.customThemes"
         case roomThemesSubtitle = "room.themesSubtitle"
         case roomWithTheme = "room.withTheme"
         case roomStandardTheme = "room.standardTheme"
-        // M19: Home extras
+        // Home extras
         case homeNowTogether = "home.nowTogether"
         case homeAll = "home.all"
         case homeVideoPlaceholder = "home.videoPlaceholder"
@@ -575,7 +575,7 @@ enum L10n {
         case homeHostLabel = "home.hostLabel"
         case homeContinueWatching = "home.continueWatching"
         case homeTimeLeft = "home.timeLeft"
-        // M19: Paywall extras
+        // Paywall extras
         case plusTagline = "plus.tagline"
         case plusBenefitPremiumReactions = "plus.benefitPremiumReactions"
         case plusBenefitCustomEmoji = "plus.benefitCustomEmoji"
@@ -586,7 +586,7 @@ enum L10n {
         case plusBenefitVideoFilters = "plus.benefitVideoFilters"
         case plusBenefitCineBubbles = "plus.benefitCineBubbles"
         case plusBenefitVoiceChat = "plus.benefitVoiceChat"
-        // M26: Paywall — заголовки, план-пикер, честный CTA, юр. ссылки.
+        // Paywall — заголовки, план-пикер, честный CTA, юр. ссылки.
         // Раньше всё это было хардкодом по-русски прямо во вьюхе.
         case plusHeadlineEmoji = "plus.headline.emoji"
         case plusHeadlineTheme = "plus.headline.theme"
@@ -799,7 +799,7 @@ enum L10n {
         .syncUnitMs: [.russian: "мс", .english: "ms", .chinese: "毫秒"],
         .syncUnitSec: [.russian: "с", .english: "s", .chinese: "秒"],
         .syncSubMs: [.russian: "<1 мс", .english: "<1 ms", .chinese: "<1 毫秒"],
-        // M26: просьба о паузе. Формулировки намеренно просящие, а не
+        // Просьба о паузе. Формулировки намеренно просящие, а не
         // командные: сервер плеер не трогает, решение остаётся за хостом.
         .pauseAskAction: [
             .russian: "Попросить паузу",
@@ -1893,7 +1893,7 @@ enum L10n {
             .chinese: "尝试其他搜索"
         ],
 
-        // M19: Groups
+        // Groups
         .groupsEmpty: [
             .russian: "Пока нет бесед",
             .english: "No chats yet",
@@ -1924,7 +1924,7 @@ enum L10n {
             .english: "Photo unavailable",
             .chinese: "照片不可用"
         ],
-        // M19: Inbox
+        // Inbox
         .inboxAllRead: [
             .russian: "Всё прочитано",
             .english: "All caught up",
@@ -1945,7 +1945,7 @@ enum L10n {
             .english: "Open Friends → Chats tab",
             .chinese: "打开好友→聊天选项卡"
         ],
-        // M19: Queue
+        // Queue
         .queueMutedLabel: [
             .russian: "Мут от ИИ-модератора:",
             .english: "AI muted you:",
@@ -1956,7 +1956,7 @@ enum L10n {
             .english: "Queue",
             .chinese: "队列"
         ],
-        // M19: Room setup
+        // Room setup
         .roomPassword: [
             .russian: "Пароль комнаты",
             .english: "Room password",
@@ -1987,7 +1987,7 @@ enum L10n {
             .english: "Standard theme",
             .chinese: "标准主题"
         ],
-        // M19: Home extras
+        // Home extras
         .homeNowTogether: [
             .russian: "Сейчас вместе",
             .english: "Watching now",
@@ -2048,7 +2048,7 @@ enum L10n {
             .english: "Left",
             .chinese: "剩余"
         ],
-        // M20: Network
+        // Network
         .offlineTitle: [
             .russian: "Нет сети",
             .english: "No internet",
@@ -2069,7 +2069,7 @@ enum L10n {
             .english: "Sending…",
             .chinese: "发送中…"
         ],
-        // M19: Paywall
+        // Paywall
         .plusTagline: [
             .russian: "Темы, реакции и больше друзей. Базовая синхронизация остаётся одинаково быстрой для всех.",
             .english: "Themes, reactions and more friends. Core sync stays equally fast for everyone.",
@@ -2115,7 +2115,7 @@ enum L10n {
             .english: "Cine-bubbles and live themes",
             .chinese: "电影气泡和动态主题"
         ],
-        // M26: у .plusBenefitVoiceChat был ключ без перевода — на пейволле
+        // У .plusBenefitVoiceChat был ключ без перевода — на пейволле
         // триггера .voiceChat в списке выгод рисовалась строка
         // "plus.benefitVoiceChat".
         .plusBenefitVoiceChat: [
@@ -2123,7 +2123,7 @@ enum L10n {
             .english: "In-room voice chat",
             .chinese: "房间内语音聊天"
         ],
-        // M26: Paywall — заголовки по триггеру
+        // Paywall — заголовки по триггеру
         .plusHeadlineEmoji: [
             .russian: "Реагируйте по-своему.",
             .english: "React your own way.",
@@ -2154,7 +2154,7 @@ enum L10n {
             .english: "Voice chat in the room.",
             .chinese: "房间内语音聊天。"
         ],
-        // M26: Paywall — план-пикер и CTA
+        // Paywall — план-пикер и CTA
         .plusBadgeBestValue: [
             .russian: "Выгоднее всего",
             .english: "Best value",

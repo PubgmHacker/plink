@@ -92,7 +92,7 @@ internal final class RoomAppearanceStore {
         self.isHost = isHost
         self.entitlement = entitlement
         self.transport = transport ?? { room, body in
-            // Аудит 26.07.2026 (P1 5.11): здесь был requestNoBody, который на
+            // Здесь был requestNoBody, который на
             // любой не-2xx отдаёт «Ошибка сервера (403): Request failed» —
             // тело ответа он не разбирает. А именно в теле лежит
             // { error, code: "PREMIUM_REQUIRED" }. Через request<T> текст

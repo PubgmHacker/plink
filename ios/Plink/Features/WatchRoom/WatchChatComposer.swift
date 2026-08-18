@@ -1,6 +1,6 @@
-// Plink/Features/WatchRoom/WatchChatComposer.swift — PATCH 26: Telegram-style emoji
+// Telegram-style emoji
 //
-// PATCH 26: inline emoji panel (Telegram-style) instead of popover.
+// Inline emoji panel (Telegram-style) instead of popover.
 
 import SwiftUI
 import PhotosUI
@@ -28,7 +28,7 @@ struct WatchChatComposer: View {
     }
 
     private var canSend: Bool {
-        // M16: ИИ-модератор — при активном муте отправка заблокирована
+        // ИИ-модератор — при активном муте отправка заблокирована
         if model.mutedRemainingSec > 0 { return false }
         // Connected or still negotiating — allow optimistic send
         let online = model.connectionState == .connected || model.connectionState.isTransient
@@ -48,7 +48,7 @@ struct WatchChatComposer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // M16: баннер мута от ИИ-модератора с живым обратным отсчётом
+            // Баннер мута от ИИ-модератора с живым обратным отсчётом
             if model.mutedUntil != nil {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     let remaining = model.mutedRemainingSec
@@ -67,7 +67,7 @@ struct WatchChatComposer: View {
                 }
             }
 
-            // M16: очередь видео комнаты — компактная лента над чатом
+            // Очередь видео комнаты — компактная лента над чатом
             if !model.roomQueue.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -78,7 +78,7 @@ struct WatchChatComposer: View {
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(Cinema2026.accent)
                         ForEach(model.roomQueue.prefix(10)) { item in
-                            // M17: чип очереди с управлением — включить (хост) / убрать
+                            // Чип очереди с управлением — включить (хост) / убрать
                             Menu {
                                 if model.isHost {
                                     Button {
@@ -96,7 +96,7 @@ struct WatchChatComposer: View {
                                 }
                             } label: {
                                 HStack(spacing: 3) {
-                                    // M18: молния — поставлено с приоритетом Plink+
+                                    // Молния — поставлено с приоритетом Plink+
                                     if item.priority == true {
                                         Image(systemName: "bolt.fill")
                                             .font(.system(size: 9, weight: .bold))
@@ -140,7 +140,7 @@ struct WatchChatComposer: View {
                 .padding(.vertical, 6)
             }
 
-            // PATCH 26: inline emoji panel (Telegram-style)
+            // Inline emoji panel (Telegram-style)
             if showEmojiPanel {
                 EmojiInlinePanel(
                     pack: currentPack,
@@ -518,26 +518,25 @@ extension Notification.Name {
 
 // MARK: - Emoji asset loading
 //
-// Аудит 26.07.2026. Здесь было три бага, из-за которых «отображались не все эмодзи»:
+// Three rules this layer must obey, or part of the catalog silently stops
+// rendering:
 //
-//  1. ГЛАВНЫЙ: каталог хранит имена с префиксом `emoji_` («emoji_laugh»), а файлы
-//     на диске лежат без него («reactions/laugh.png»). Bundle.url(forResource:)
-//     ищет точное совпадение → не находил НИЧЕГО, и все 36 эмодзи паков
-//     Reactions (20), Plink+ (8) и Fun (8) показывали одну заглушку face.smiling.
-//     Кастомные паки (Cute Faces, Pepe, Stickers, Cats, Le Pepe) совпадали
-//     по именам один в один и поэтому работали — отсюда и ощущение «часть есть,
-//     часть нет».
+//  1. Catalog names may carry an `emoji_` prefix ("emoji_laugh") while the file
+//     on disk does not ("reactions/laugh.png"). Bundle.url(forResource:) matches
+//     exactly, so every lookup tries both spellings, each as .png and as .gif.
+//     The Reactions (20), Plink+ (8) and Fun (8) packs — 36 emoji — depend on
+//     that prefix stripping; the custom packs (Cute Faces, Pepe, Stickers, Cats,
+//     Le Pepe) match name for name and resolve either way.
 //
-//  2. Файл читался с диска и декодировался ЗАНОВО на каждой перерисовке тела View.
-//     В панели на 100+ эмодзи это сотни лишних чтений и декодов PNG на главном
-//     потоке при каждом скролле. Теперь результат кэшируется.
+//  2. Resolved assets are cached. Reading and decoding the file again on every
+//     View body redraw costs hundreds of main-thread PNG decodes per scroll in a
+//     panel of 100+ emoji.
 //
-//  3. Для любого ненайденного имени показывался один и тот же смайлик, поэтому
-//     «злой», «грустный» и «спящий» выглядели одинаково. Теперь для каждого
-//     имени подбирается осмысленный SF Symbol — он рисуется нативно, тянется
-//     под нужный размер и красится в цвет темы.
+//  3. A name with no asset resolves to a per-name SF Symbol, never one shared
+//     placeholder: "angry", "sad" and "sleepy" must not look alike. Symbols draw
+//     natively, scale to the requested size and take the theme color.
 //
-// GIF-кадры декодируются вне главного потока и уважают Reduce Motion.
+// GIF frames are decoded off the main thread and respect Reduce Motion.
 
 /// Потокобезопасный кэш ассетов эмодзи (NSCache сам по себе thread-safe).
 final class EmojiAssetCache {

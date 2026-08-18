@@ -27,7 +27,7 @@ final class PremiumStatusManager: ObservableObject {
     private let avatarBorderKey = "rave_avatar_border"
     private let roomThemeKey = "rave_room_theme"
 
-    /// Аудит 26.07.2026 (P2, ревью): по C9 `isPremium` на старте ВСЕГДА false,
+    /// По C9 `isPremium` на старте ВСЕГДА false,
     /// поэтому «этот девайс был премиумным» знает только кэш UserDefaults.
     /// Подсказка нужна для двух вещей: не отбирать у платящего выбор
     /// премиум-оформления на каждом холодном старте и всё-таки откатить его,
@@ -47,8 +47,9 @@ final class PremiumStatusManager: ObservableObject {
 
     // MARK: - Premium Activation (от StoreKit 2)
 
-    /// 🔧 FIX C9: This is the ONLY public entry point for activating premium.
-    /// Called from StoreManager.handleSuccessfulPurchase after server-side IAP verification.
+    /// The only public entry point for activating premium. Called from
+    /// StoreManager.handleSuccessfulPurchase, after the server has verified the
+    /// receipt — there is deliberately no setter that skips that step.
     func activatePremium(expiryDate: Date) {
         isPremium = true
         subscriptionExpiry = expiryDate
@@ -56,7 +57,7 @@ final class PremiumStatusManager: ObservableObject {
         onPremiumStatusChanged?(true)
     }
 
-    /// PATCH 08: Activate lifetime premium (non-consumable purchase).
+    /// Activate lifetime premium (non-consumable purchase).
     /// No expiry date — entitlement persists forever.
     func activateLifetime() {
         isPremium = true
@@ -66,7 +67,7 @@ final class PremiumStatusManager: ObservableObject {
     }
 
     func deactivatePremium() {
-        // Аудит 26.07.2026 (P2, ревью): потерю прав надо отработать и когда
+        // Потерю прав надо отработать и когда
         // премиум был только в локальном кэше (isPremium уже false из-за C9) —
         // иначе у пользователя с истёкшей подпиской платное оформление
         // оставалось бы навсегда.
@@ -78,7 +79,7 @@ final class PremiumStatusManager: ObservableObject {
         selectedAvatarBorder = .none
         selectedRoomTheme = .default
         persist()
-        // Аудит 26.07.2026 (P2): откат оформления не вызывал никто — после
+        // Откат оформления не вызывал никто — после
         // истечения Plink+ оставались премиум-тема приложения, кино-бабл,
         // эмоджи-пак и живой оверлей.
         if hadPremium {
@@ -87,25 +88,27 @@ final class PremiumStatusManager: ObservableObject {
         onPremiumStatusChanged?(false)
     }
 
-    // 🔧 FIX C9: REMOVED setPremium(_:) — it allowed trivial IAP bypass.
-    // Premium can only be activated via activatePremium(expiryDate:) which
-    // is called from StoreManager.handleSuccessfulPurchase after server-side
-    // IAP verification. Local UserDefaults flag is now a hint, not authority.
+    // There is intentionally no `setPremium(_:)`. A plain setter is an IAP bypass:
+    // anything that can reach the manager can grant itself premium. Activation
+    // goes through activatePremium(expiryDate:), which StoreManager calls only
+    // after the server verifies the receipt, and the local UserDefaults flag is
+    // a hint rather than authority.
 
-    /// 🔧 FIX C9+M6: Update premium status from server response (User.isPremium).
+    /// Applies the entitlement the server reported on the authenticated user.
     /// Called after AuthService.signIn/signUp/getFreshToken resolves the user.
-    /// This is the authoritative source — server decision overrides any local cache.
+    /// This is the authoritative source — a server decision overrides any local cache.
     func syncFromServer(isPremium serverIsPremium: Bool, expiry: Date?) {
         if serverIsPremium {
-            // Аудит 26.07.2026 (P2): expiry == nil здесь означает «сервер не
-            // сообщил дату» — /auth/signin, /auth/signup и /users/me не отдают
-            // premiumUntil. Раньше такой вызов записывал nil и подписка молча
-            // становилась пожизненной. Настоящую дату приносит
-            // StoreManager.refreshEntitlement() → /api/billing/entitlements
-            // (activatePremium/activateLifetime), поэтому неизвестную дату
-            // просто не трогаем. Ревью: заведомо просроченную локальную дату
-            // при этом не сохраняем — сервер только что сказал «права есть»,
-            // значит она устарела (иначе UI показал бы «Действует до <прошлое>»).
+            // A nil expiry means "the server did not say", not "no expiry":
+            // /auth/signin, /auth/signup and /users/me all omit premiumUntil.
+            // Writing that nil straight through turns a finite subscription into
+            // a silent lifetime one, so an unknown date leaves the stored value
+            // alone. The real date arrives from StoreManager.refreshEntitlement()
+            // via /api/billing/entitlements.
+            //
+            // An already-expired local date is dropped rather than kept: the
+            // server just confirmed the entitlement is live, so a past date is
+            // stale and would otherwise render as "valid until <the past>".
             let resolvedExpiry = expiry ?? subscriptionExpiry.flatMap { $0 > Date() ? $0 : nil }
             cachedPremiumHint = false
             if isPremium != true || subscriptionExpiry != resolvedExpiry {
@@ -158,7 +161,7 @@ final class PremiumStatusManager: ObservableObject {
     /// True if this bubble style id is free for everyone.
     static func isFreeBubbleStyle(_ id: String) -> Bool {
         switch id {
-        // M16: бесплатны только два базовых стиля; кино-баблы — Plink+
+        // Бесплатны только два базовых стиля; кино-баблы — Plink+
         case "bubble-quiet", "bubble-accent", "default":
             return true
         default:
@@ -181,15 +184,15 @@ final class PremiumStatusManager: ObservableObject {
         defaults.set(selectedRoomTheme.rawValue, forKey: roomThemeKey)
     }
 
-    // Аудит 26.07.2026 (P2): флаг serverConfirmed был мёртвым — он только
-    // писался (syncFromServer / loadPersistedState) и не читался нигде.
-    // Роль «сервер — источник истины» выполняют syncFromServer и
-    // StoreManager.applyEntitlement, отдельный флаг ничего не гейтил.
+    // There is no `serverConfirmed` flag. One was written by syncFromServer and
+    // loadPersistedState and read by nothing, so it gated nothing; syncFromServer
+    // and StoreManager.applyEntitlement are what make the server authoritative.
 
     private func loadPersistedState() {
-        // C9: local UserDefaults is NOT authority. Always start free until
-        // server (syncFromServer) or StoreKit confirms purchase. Prevents
-        // sticky "Plink+ active" after testing / stale flags on other devices.
+        // Local UserDefaults is not authority: start free every launch and wait
+        // for syncFromServer or StoreKit to confirm. Trusting the cached flag
+        // leaves "Plink+ active" stuck on after a test purchase, and shows it on
+        // devices whose entitlement has since lapsed.
         let cachedPremium = defaults.bool(forKey: premiumKey)
         isPremium = false
         cachedPremiumHint = cachedPremium
@@ -221,7 +224,7 @@ final class PremiumStatusManager: ObservableObject {
             if !Self.isFreeBubbleStyle(bubble) {
                 UserDefaults.standard.set("bubble-quiet", forKey: "plink.bubbleStyleID")
             }
-            // Аудит 26.07.2026 (P2): страховочный clamp чистил только бабл и
+            // Страховочный clamp чистил только бабл и
             // live-тему — премиум-тема приложения и эмоджи-пак оставались
             // выбранными. Откатываем их на fallback из каталога, но ТОЛЬКО если
             // локальный кэш тоже не помнит премиум: здесь isPremium всегда false

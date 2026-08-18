@@ -1,6 +1,6 @@
 // Plink/Design/Cinematic/VideoThemeMotionPolicy.swift
 //
-// Аудит 26.07.2026: энергодисциплина анимированных видео-тем приложения.
+// Энергодисциплина анимированных видео-тем приложения.
 //
 // MetalVideoBackground (живые темы Plink+ — Aurora/Cosmos/Verdant/Magma)
 // раньше игнорировал ВСЕ энергорежимы: крутил декодер и Metal-рендер при

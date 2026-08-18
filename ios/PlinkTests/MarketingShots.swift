@@ -1,44 +1,43 @@
-// PlinkTests/MarketingShots.swift — рендер продуктовых кадров для лендинга.
+// PlinkTests/MarketingShots.swift — renders product screenshots for the landing page.
 //
-// Это НЕ регрессионный тест: он ничего не проверяет пиксельно, а собирает
-// живые продуктовые вьюхи с моковыми данными и складывает PNG на диск, чтобы
-// на сайте стояли настоящие кадры приложения, а не CSS-макеты.
+// This is NOT a regression test: it compares nothing pixel by pixel. It assembles real
+// product views with mock data and writes PNGs to disk, so the website shows actual app
+// frames rather than CSS mockups.
 //
-// Кейс выключен по умолчанию (как ThemeSnapshotTests) и включается одним из
-// двух способов:
+// Off by default (like ThemeSnapshotTests), and enabled either way:
 //
-//  1) переменные окружения MARKETING_SHOTS=1 и MARKETING_SHOTS_DIR=<путь>
-//     — работают, если запускать бандл напрямую или прописать их в схеме;
+//  1) environment variables MARKETING_SHOTS=1 and MARKETING_SHOTS_DIR=<path> — these
+//     work when running the bundle directly or when set in the scheme;
 //
-//  2) файл-флаг /tmp/plink-marketing-shots на хосте — внутри лежит абсолютный
-//     путь каталога для PNG (пустой файл → /tmp/plink-marketing-shots-output).
+//  2) a flag file /tmp/plink-marketing-shots on the host, containing the absolute path
+//     of the output directory (empty file → /tmp/plink-marketing-shots-output).
 //
-// Второй способ нужен потому, что `xcodebuild test` НЕ пробрасывает окружение
-// оболочки в процесс на симуляторе: переменные до теста не долетают
-// (проверено — кейсы уходили в skip). Флаг лежит именно в /tmp: приложение
-// в симуляторе — обычный процесс macOS, и чтение файла из ~/Desktop или
-// ~/Documents вешает тест на системном запросе доступа (TCC).
+// The second way exists because `xcodebuild test` does NOT forward the shell
+// environment into the process on the simulator: the variables never reach the test
+// (verified — the cases went to skip). The flag lives in /tmp specifically: an app on
+// the simulator is an ordinary macOS process, and reading a file under ~/Desktop or
+// ~/Documents hangs the test on a system permission prompt (TCC).
 //
-// Запуск:
-//   cd ios-2 && xcodegen generate
-//   echo /абсолютный/путь/для/PNG > /tmp/plink-marketing-shots
+// To run, from `ios/`:
+//   xcodegen generate
+//   echo /absolute/path/for/PNGs > /tmp/plink-marketing-shots
 //   xcodebuild test -scheme Plink \
 //     -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
 //     -only-testing:PlinkTests/MarketingShots
-//   rm /tmp/plink-marketing-shots   # иначе кадры снимаются каждый прогон
+//   rm /tmp/plink-marketing-shots   # otherwise the frames are recaptured every run
 //
-// Что снимается:
-//   room-watching.png — комната во время просмотра (плеер-хром, пилюля
-//                       синхрона, участники, полоса перемотки, чат, реакции)
-//   room-chat.png     — та же комната с раскрытым чатом
-//   friends.png       — живой экран «Друзья» (V4FriendsViewLive)
-//   themes.png        — живой экран «Оформление» (V4AppearanceView)
+// What gets captured:
+//   room-watching.png — a room mid-playback (player chrome, sync pill, participants,
+//                       scrubber, chat, reactions)
+//   room-chat.png     — the same room with chat expanded
+//   friends.png       — the live Friends screen (V4FriendsViewLive)
+//   themes.png        — the live Appearance screen (V4AppearanceView)
 //
-// Реализация намеренно опирается на настоящие продуктовые компоненты
+// The implementation deliberately leans on the real product components
 // (PlayerTopChrome, PlinkPlayerControls, PresenceBar, WatchChatView,
 // WatchChatComposer, WatchReactionLayer, V4FriendsViewLive, V4AppearanceView).
-// Подменяется только то, что физически невозможно отрендерить офскрин:
-// пиксели видео (берётся кадр из бандл-ассета через AVAssetImageGenerator).
+// The only thing substituted is what physically cannot be rendered offscreen: the
+// video pixels (a frame is taken from a bundled asset via AVAssetImageGenerator).
 
 import XCTest
 import SwiftUI
@@ -49,28 +48,30 @@ import AVFoundation
 @MainActor
 final class MarketingShots: XCTestCase {
 
-    // MARK: - Конфигурация кадра
+    // MARK: - Frame configuration
 
-    /// Логический размер экрана iPhone 17 Pro.
+    /// Logical screen size of an iPhone 17 Pro.
     private static let canvas = CGSize(width: 402, height: 874)
     private static let scale: CGFloat = 3
-    /// Комната — почти во весь экран: пустая чёрная полоса под вырезом на
-    /// кадре без статус-бара читается как дефект.
+    /// The room runs nearly full-bleed: on a frame with no status bar, an empty black
+    /// strip under the notch reads as a defect.
     private static let roomSafeArea = UIEdgeInsets(top: 12, left: 0, bottom: 10, right: 0)
-    /// Обычные экраны с шапкой — обычные отступы устройства.
+    /// Ordinary screens with a header get the ordinary device insets.
     private static let screenSafeArea = UIEdgeInsets(top: 44, left: 0, bottom: 20, right: 0)
 
     private static let meId = "u-timur"
+    // Mock display copy, deliberately Russian: these frames ship on a Russian-language
+    // landing page, so a Latin name in the screenshot would look wrong.
     private static let meName = "Тимур"
 
     // MARK: - Gate
 
-    /// Файл-флаг на хосте (см. шапку файла).
+    /// Host-side flag file (see the file header).
     ///
-    /// Путь ДОЛЖЕН лежать вне TCC-защищённых каталогов (~/Desktop, ~/Documents,
-    /// ~/Downloads): приложение в симуляторе — это обычный процесс macOS, и
-    /// `open()` такого файла подвешивает тест на системном запросе доступа.
-    /// Поэтому здесь /tmp, а не путь из #filePath.
+    /// The path MUST sit outside TCC-protected directories (~/Desktop, ~/Documents,
+    /// ~/Downloads): an app on the simulator is an ordinary macOS process, and
+    /// `open()` on such a file hangs the test on a system permission prompt. Hence
+    /// /tmp, rather than a path derived from #filePath.
     private static let flagFile = URL(fileURLWithPath: "/tmp/plink-marketing-shots")
 
     private static var flagContents: String? {
@@ -87,9 +88,9 @@ final class MarketingShots: XCTestCase {
         try XCTSkipUnless(
             Self.isEnabled,
             """
-            Кадры для лендинга снимаются по требованию. Включи одним из способов:
-            MARKETING_SHOTS=1 (+ MARKETING_SHOTS_DIR) или файл
-            /tmp/plink-marketing-shots с путём выходного каталога внутри.
+            Landing-page frames are captured on demand. Enable them either way:
+            MARKETING_SHOTS=1 (+ MARKETING_SHOTS_DIR), or a file
+            /tmp/plink-marketing-shots containing the output directory path.
             """
         )
     }

@@ -33,7 +33,7 @@
 import Foundation
 import Security
 
-// Аудит 26.07.2026: к токену обращаются и с MainActor (UI, авторизация),
+// К токену обращаются и с MainActor (UI, авторизация),
 // и из фоновых задач (AIStreamClient, пуши, StoreKit). Без синхронизации это
 // была гонка данных по `cached`/`didMigrate` и ошибка Sendable в strict concurrency.
 final class AuthTokenStore: @unchecked Sendable {
@@ -80,7 +80,7 @@ final class AuthTokenStore: @unchecked Sendable {
 
     /// Вызывать только под удержанным `lock` — NSLock не рекурсивен.
     ///
-    /// Аудит 26.07.2026: раньше здесь стоял `delete(account: legacyAccount)`,
+    /// Раньше здесь стоял `delete(account: legacyAccount)`,
     /// то есть миграция ПЕРЕНОСИЛА токен и стирала старый ключ. Это ломало
     /// приложение целиком — см. шапку файла. Теперь ключ дублируется, а не
     /// переносится: старые читатели продолжают работать.

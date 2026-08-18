@@ -1,6 +1,6 @@
-// Plink/Features/WatchRoom/RoomIdentityBar.swift — PATCH 02
+// Plink/Features/WatchRoom/RoomIdentityBar.swift
 //
-// Extracted from WatchRoomSupportTypes.swift per PATCH 02 spec.
+// Extracted from WatchRoomSupportTypes.swift.
 //
 // Shows room title, host badge, and (in tablet) the deep-link share button.
 // Professional design:

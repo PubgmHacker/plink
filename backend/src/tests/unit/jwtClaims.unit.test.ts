@@ -1,13 +1,12 @@
-// jwtClaims.unit.test.ts — аудит 26.07.2026 P2: allowlist аудиторий JWT.
+// Pins the JWT audience/issuer allowlist.
 //
-// Раньше app.ts передавал в @fastify/jwt опции verify как
-// `{ audience, issuer }`. Под капотом работает fast-jwt, который ждёт
-// `allowedAud` / `allowedIss`, поэтому обе проверки молча не выполнялись.
-// Плюс `sign` не проставлял claim `aud`, а fast-jwt пропускает валидатор
-// для отсутствующего claim-а.
+// @fastify/jwt is backed by fast-jwt, which reads `allowedAud`/`allowedIss`.
+// Passing verify options as `{ audience, issuer }` is silently accepted and
+// checks nothing. Signing compounded it: without an `aud` claim, fast-jwt skips
+// the validator entirely rather than rejecting the token.
 //
-// Тест фиксирует оба вывода: рабочие имена опций реально режут чужие
-// aud/iss, а старые имена — нет.
+// This test asserts both directions — the correct option names do reject a
+// foreign aud/iss, and the old names do not.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';

@@ -14,13 +14,13 @@ enum RoomQueueWire {
         let source: String
         let addedBy: String
         let addedAtMs: Double
-        /// M18: элемент поставлен с приоритетом Plink+.
+        /// Элемент поставлен с приоритетом Plink+.
         let priority: Bool?
     }
 
     struct Event: Codable {
         let queue: [Item]
-        /// M17: хост нажал «включить сейчас» — сервер промоутит элемент в начало.
+        /// Хост нажал «включить сейчас» — сервер промоутит элемент в начало.
         let nowPlaying: Item?
     }
 

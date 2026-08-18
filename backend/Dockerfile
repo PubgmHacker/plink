@@ -1,5 +1,5 @@
 # Railway builds this monorepo from its repository root. Paths are therefore
-# explicit instead of assuming backend-3 is already the build context.
+# explicit instead of assuming backend is already the build context.
 FROM node:20-slim AS builder
 
 # OpenSSL required by Prisma.
@@ -8,10 +8,10 @@ RUN apt-get update -y && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY backend-3/package*.json ./
+COPY backend/package*.json ./
 # Install ALL deps (including dev) — needed for tsc build.
 RUN npm ci
-COPY backend-3/ .
+COPY backend/ .
 
 # Prove which sources are in the image (helps debug stale Railway logs)
 RUN node -e "const p=require('./package.json'); console.log('[builder] plink-server@'+p.version+' build='+p.scripts.build)"
@@ -28,10 +28,11 @@ RUN test -f dist/routes/messages.js && test -f dist/routes/profile.js && \
 # ─── Runtime stage ────────────────────────────────────────────────────
 FROM node:20-slim
 
-# Аудит 26.07.2026 (7.5): yt-dlp запинен по версии — раньше тянулся releases/latest,
-# и каждый деплой мог молча получить другой бинарь (или сломанный экстрактор).
-# Как обновлять: выбрать тег на https://github.com/yt-dlp/yt-dlp/releases,
-# поменять YTDLP_VERSION ниже и проверить /api/media/extract на стейдже.
+# yt-dlp is pinned to an exact release. An unpinned download from
+# releases/latest lets any deploy pick up a different binary — including one
+# whose extractors have regressed — with no change on our side.
+# To update: pick a tag at https://github.com/yt-dlp/yt-dlp/releases, bump
+# YTDLP_VERSION below, and exercise /api/media/extract on staging first.
 ARG YTDLP_VERSION=2026.07.04
 RUN apt-get update -y && apt-get install -y \
     openssl \
@@ -46,7 +47,7 @@ RUN apt-get update -y && apt-get install -y \
 WORKDIR /app
 
 # Copy only production deps + built dist/
-COPY backend-3/package*.json ./
+COPY backend/package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
@@ -55,16 +56,17 @@ COPY --from=builder /app/assets ./assets
 COPY --from=builder /app/start.sh ./start.sh
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-# Аудит 26.07.2026 P0: без certs/ в рантайме верификация покупок отклоняла бы
-# и НАСТОЯЩИЕ чеки Apple — jose-config ищет ./certs/AppleRootCA-G3.cer.
-# Самопроверка при этом зеленела: она проверяет только отклонение подделки.
+# certs/ must be present at runtime: the JWS verifier resolves the Apple root
+# as ./certs/AppleRootCA-G3.cer. Without it, receipt verification rejects
+# genuine App Store receipts as well as forged ones — and the self-check does
+# not catch that, because it only asserts that a forgery is rejected.
 COPY --from=builder /app/certs ./certs
 
 # Production dependencies include the pinned Prisma CLI used by start.sh.
 # Keeping it in the image avoids an unpinned network download during boot.
 RUN test -x node_modules/.bin/prisma && chmod +x start.sh
 
-# Аудит 26.07.2026: не под root — базовый node-образ содержит пользователя node.
+# Run as the unprivileged `node` user the base image already ships with.
 RUN chown -R node:node /app
 USER node
 

@@ -52,4 +52,4 @@ The icon depicts two viewers sitting on a couch, watching a letterboxed film on 
 
 ## Generation
 
-Icons generated from source SVG. For raster exports, use `ios-2/scripts/make_app_icons.py` or `landing/scripts/make_brand_assets.py`.
+Icons generated from source SVG. For raster exports, use `ios/scripts/make_app_icons.py` or `landing/scripts/make_brand_assets.py`.

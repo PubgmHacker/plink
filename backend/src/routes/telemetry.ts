@@ -1,5 +1,5 @@
-// src/routes/telemetry.ts — B3: Sync telemetry ingestion
-// GPT-5.6 ADR-004: сырые samples в structured logs, агрегаты в Redis/DB.
+// Sync-drift telemetry ingestion. Raw samples go to the structured log,
+// aggregates to Redis and the database.
 import { prisma } from '../config/db.js';
 import { redis } from '../config/redis.js';
 import { logAudit } from '../utils/audit.js';
@@ -17,7 +17,7 @@ export default async function telemetryRoutes(fastify) {
       return reply.status(400).send({ error: 'sessionId, roomId, absoluteDriftMs required' });
     }
 
-    // Structured log (not Prisma — GPT-5.6 ADR-004)
+    // Structured log (not Prisma
     request.log.info({
       type: 'sync_sample',
       userId: request.user.id,
@@ -87,8 +87,8 @@ export default async function telemetryRoutes(fastify) {
     reply.send({ received: true, sessionId: agg.sessionId });
   });
 
-  // POST /api/telemetry/crash — M12: приём crash-репортов от CrashReporter (iOS).
-  // Аутентификация НЕ обязательна: крэш мог произойти до логина.
+  // POST /api/telemetry/crash — accepts crash reports from the iOS CrashReporter.
+  // Authentication is NOT required: the crash may have happened before login.
   fastify.post('/telemetry/crash', {
     config: { rateLimit: { max: 20, timeWindow: '1 hour' } }
   }, async (request, reply) => {

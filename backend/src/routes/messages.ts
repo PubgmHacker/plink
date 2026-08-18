@@ -2,7 +2,7 @@ import { prisma } from '../config/db.js';
 import { pushToUser } from '../services/pushService.js';
 import { validateBody } from '../middleware/validate.js';
 import { dmSendBody } from '../schemas/requests.js';
-// M16: ИИ-модератор в личке — муты за маты и NSFW-фото
+// ИИ-модератор в личке — муты за маты и NSFW-фото
 import {
   containsProfanity,
   moderateImage,
@@ -49,7 +49,7 @@ function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataU
 }
 
 /**
- * Аудит 26.07.2026 P2: проверки собеседника (tombstone/блокировка) были обёрнуты в
+ * Проверки собеседника (tombstone/блокировка) были обёрнуты в
  * `try/catch { console.warn }` и пропускали сообщение при ЛЮБОЙ ошибке БД.
  * Глотаем только drift схемы (нет колонки/таблицы/поля), остальное — наружу (503).
  */
@@ -86,7 +86,7 @@ export default async function messageRoutes(fastify) {
     for (const [k, t] of typingMap) { if (t < cutoff) typingMap.delete(k); }
   };
 
-  // Аудит 26.07.2026 P2: «печатает…» рассылалось любому по id — в обход блокировок.
+  // «печатает…» рассылалось любому по id — в обход блокировок.
   // Ревью 26.07.2026: гейт сведён к контракту отправки DM (только отсутствие
   // UserBlock в обе стороны) — раньше он требовал дружбу или существующий тред,
   // хотя POST /messages/dm разрешает писать любому незаблокированному.
@@ -139,7 +139,7 @@ export default async function messageRoutes(fastify) {
   fastify.get('/messages/unread', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const me = request.user.id;
 
-    // Аудит 26.07.2026 P2: инбокс собирался по последним 800 DM (take: 800) —
+    // Инбокс собирался по последним 800 DM (take: 800) —
     // один болтливый тред вытеснял остальные чаты вместе с их unread-счётчиками.
     // Теперь один запрос: DISTINCT ON по собеседнику + COUNT непрочитанных, без лимита.
     type UnreadRow = {
@@ -281,9 +281,10 @@ export default async function messageRoutes(fastify) {
   });
 
   // GET /messages/dm/:friendId — history; opening chat marks inbound as read
-  // Аудит 26.07.2026 P1 (кросс-задача): курсорная пагинация.
-  //   ?before=<ISO-дата | id сообщения> — отдать более старые сообщения строго до курсора
-  //   ?limit=<1..200> — размер страницы (с before дефолт 50; без параметров — прежние 200)
+  // Cursor pagination contract:
+  //   ?before=<ISO date | message id> — returns only messages strictly older than the cursor
+  //   ?limit=<1..200> — page size (50 by default with `before`, 200 with no params at all,
+  //   which keeps the pre-pagination response size for existing clients)
   fastify.get('/messages/dm/:friendId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { friendId } = request.params;
     const me = request.user.id;
@@ -421,7 +422,7 @@ export default async function messageRoutes(fastify) {
   });
 
   // DELETE /messages/dm/:friendId — Telegram-style «delete chat»
-  // Аудит 26.07.2026 P1: по умолчанию — скрытие только у себя (deletedForIDs),
+  // По умолчанию — скрытие только у себя (deletedForIDs),
   // физическое удаление у обоих — только по явному ?forBoth=true.
   // Раньше один участник безвозвратно уничтожал копию переписки второго.
   fastify.delete(
@@ -510,7 +511,7 @@ export default async function messageRoutes(fastify) {
       return reply.status(400).send({ error: 'Invalid message (max 280 chars)' });
     }
 
-    // M16: ИИ-модератор в личке — активный мут и фильтр матов
+    // ИИ-модератор в личке — активный мут и фильтр матов
     {
       const dmMutedSec = muteRemainingSec('dm', request.user.id);
       if (dmMutedSec > 0) {
@@ -565,7 +566,7 @@ export default async function messageRoutes(fastify) {
     }
 
     // Also block if either side blocked the other.
-    // Аудит 26.07.2026 P2: enforcement блокировок fail-closed — ошибка БД не пропускает DM.
+    // Enforcement блокировок fail-closed — ошибка БД не пропускает DM.
     try {
       const blocked = await prisma.userBlock.findFirst({
         where: {
@@ -686,8 +687,8 @@ export default async function messageRoutes(fastify) {
         /* schema drift — allow path below */
       }
 
-      // Аудит 26.07.2026 P1: голосовые обязаны уважать блокировку — как текст и фото
-      // Аудит 26.07.2026 P2: проверка вне try/catch собеседника — fail-closed
+      // Голосовые обязаны уважать блокировку — как текст и фото
+      // Проверка вне try/catch собеседника — fail-closed
       try {
         const blocked = await prisma.userBlock.findFirst({
           where: {
@@ -706,7 +707,7 @@ export default async function messageRoutes(fastify) {
         return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
       }
 
-      // Аудит 26.07.2026 P1: мут и фильтр матов действуют и на голосовые (капшен)
+      // Мут и фильтр матов действуют и на голосовые (капшен)
       {
         const dmMutedSec = muteRemainingSec('dm', me);
         if (dmMutedSec > 0) {
@@ -903,7 +904,7 @@ export default async function messageRoutes(fastify) {
         console.warn('[dm-photo] peer check:', e?.message);
       }
 
-      // Аудит 26.07.2026 P2: блокировки — fail-closed, ошибка БД не пропускает фото
+      // Блокировки — fail-closed, ошибка БД не пропускает фото
       try {
         const blocked = await prisma.userBlock.findFirst({
           where: {
@@ -931,7 +932,7 @@ export default async function messageRoutes(fastify) {
         return reply.status(413).send({ error: 'Image too large (max 2.25MB)' });
       }
 
-      // M16: ИИ-модератор — мут и NSFW-проверка фото в личке
+      // ИИ-модератор — мут и NSFW-проверка фото в личке
       const dmMutedSec = muteRemainingSec('dm', me);
       if (dmMutedSec > 0) {
         return reply.status(403).send({
@@ -1339,11 +1340,11 @@ export default async function messageRoutes(fastify) {
       const me = request.user.id;
       const { messageId } = request.params;
       const { content } = (request.body ?? {}) as any;
-      // Аудит 26.07.2026 P1: лимит как при отправке (280), иначе PATCH обходил ограничение
+      // Лимит как при отправке (280), иначе PATCH обходил ограничение
       if (!content || typeof content !== 'string' || content.length > 280) {
         return reply.status(400).send({ error: 'Valid content required (max 280 chars)' });
       }
-      // Аудит 26.07.2026 P1: редактирование проходит ту же модерацию, что и отправка
+      // Редактирование проходит ту же модерацию, что и отправка
       {
         const dmMutedSec = muteRemainingSec('dm', me);
         if (dmMutedSec > 0) {
@@ -1457,7 +1458,7 @@ export default async function messageRoutes(fastify) {
       pruneTyping();
       const me = request.user.id;
       const friendId = typeof request.params?.friendId === 'string' ? request.params.friendId : '';
-      // Аудит 26.07.2026 P2: при блокировке/невалидном id отвечаем успехом, но ничего не рассылаем
+      // При блокировке/невалидном id отвечаем успехом, но ничего не рассылаем
       if (!(await canNotifyTyping(me, friendId))) {
         return reply.send({ success: true });
       }

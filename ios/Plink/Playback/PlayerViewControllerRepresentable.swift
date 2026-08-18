@@ -1,12 +1,12 @@
 // Plink/Playback/PlayerViewControllerRepresentable.swift
-// SwiftUI bridge (runbook §6 + Brain Review P0-8)
+// SwiftUI bridge
 //
-// Brain P0-8 fix: supports BOTH paths:
+// Supports both playback surfaces:
 //   - Native HLS/MP4 → AVPlayerViewController (PiP + AirPlay)
 //   - Embedded YouTube → WKWebView from EmbeddedPlaybackController
 //
 // The underlying AVPlayer instance is owned by PlaybackCoordinator —
-// this view does NOT create its own player (§1 DoD: 'Background/foreground,
+// This view does NOT create its own player ( DoD: 'Background/foreground,
 // rotation и fullscreen не создают второй player').
 
 import SwiftUI

@@ -1,4 +1,4 @@
-// PlinkTests/DanmakuEngineTests.swift — PATCH 05
+// PlinkTests/DanmakuEngineTests.swift
 //
 // Unit tests for DanmakuEngine actor — lane scheduling, capacity cap,
 // lane reuse, duration clamping, density gating, settings updates.

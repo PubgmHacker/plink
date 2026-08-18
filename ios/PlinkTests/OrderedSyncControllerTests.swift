@@ -1,5 +1,5 @@
 // PlinkTests/OrderedSyncControllerTests.swift
-// Brain Review 7 P0-55: seek continuation + drift policy tests
+// Seek continuation + drift policy tests
 //
 // Tests:
 //   - seq 9 after seq 10 is ignored

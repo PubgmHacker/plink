@@ -220,7 +220,7 @@ final class SessionSyncGate {
     // MARK: - Sign out other devices
 
     func signOutOthers() async {
-        // Аудит 26.07.2026: идём через AuthService.signOutOtherSessions()
+        // Идём через AuthService.signOutOtherSessions()
         // (PlinkAuthBridge) — он сохраняет переизданную пару токенов из ответа
         // сервера. Прямой requestNoBody терял новую пару, и текущее устройство
         // разлогинивалось на следующем /auth/refresh.

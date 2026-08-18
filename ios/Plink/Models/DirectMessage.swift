@@ -119,9 +119,10 @@ struct DirectMessage: Codable, Identifiable, Sendable, Equatable, Hashable {
         return senderID == user.id
     }
 
-    /// Премиум-статус отправителя — true для своих сообщений,
-    /// когда текущий юзер премиум (проверяется через PremiumStatusManager).
-    /// 🔧 FIX N3 (NEW): Replaced MainActor.assumeIsolated with a thread-safe check.
+    /// Whether the sender is premium — true for your own messages when you are.
+    /// `@MainActor` rather than `MainActor.assumeIsolated`: the assumption traps
+    /// when this is read off the main actor, and a message list is rendered from
+    /// several contexts.
     @MainActor
     var isOwnPremium: Bool {
         guard isOwnMessage else { return false }

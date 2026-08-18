@@ -1,4 +1,4 @@
-// Plink/V4/V4SpeechRecognizer.swift — M34: реальное распознавание речи (ru-RU)
+// Реальное распознавание речи (ru-RU)
 // SFSpeechRecognizer + AVAudioEngine, partial results прямо в поле ввода.
 //
 // 03.08.2026: распознавание работает в режиме удержания кнопки, поэтому сессия

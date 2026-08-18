@@ -1,4 +1,4 @@
-// PlinkTests/DeepLinkTests.swift — PATCH 20: deeplinks system tests
+// Deeplinks system tests
 //
 // Closes the "deeplinks" red system in RegressionMatrix.
 
@@ -149,5 +149,17 @@ final class DeepLinkTests: XCTestCase {
         let url = DeepLinkRouter.friendInviteURL(userId: "user-123")
         XCTAssertTrue(url.absoluteString.contains("user-123"))
         XCTAssertTrue(url.absoluteString.contains("/u/"))
+    }
+
+    func testOpenChat_setsPendingChat() {
+        router.openChat(.dm(friendId: "u-42"))
+        XCTAssertEqual(router.pendingChat, .dm(friendId: "u-42"))
+        router.clearPendingChat()
+        XCTAssertNil(router.pendingChat)
+    }
+
+    func testOpenChat_groupTarget() {
+        router.openChat(.group(groupId: "g-9"))
+        XCTAssertEqual(router.pendingChat, .group(groupId: "g-9"))
     }
 }

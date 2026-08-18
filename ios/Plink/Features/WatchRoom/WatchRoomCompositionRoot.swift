@@ -1,8 +1,8 @@
 // Plink/Features/WatchRoom/WatchRoomCompositionRoot.swift
-// Composition root for v2 realtime + playback path (Brain Review 5 P0-37, 7 P0-48/P0-49)
+// Composition root for v2 realtime + playback path
 //
-// P0-48: wired into MainTabView via makeScreenForRoom(room:...)
-// P0-49: real legacy fallback — returns actual RoomView, not placeholder
+// Wired into MainTabView via makeScreenForRoom(room:...)
+// Real legacy fallback — returns actual RoomView, not placeholder
 //
 // This is the SINGLE entry point that decides whether to use v2 (WatchRoomScreen)
 // or legacy (RoomView) path. Controlled by FeatureFlags.realtimeProtocolV2.
@@ -10,7 +10,7 @@
 import SwiftUI
 
 public enum WatchRoomCompositionRoot {
-    /// P0-48: Creates the watch room screen for a Room model — v2 or legacy.
+    /// Creates the watch room screen for a Room model — v2 or legacy.
     /// Called from MainTabView's fullScreenCover.
     /// Not public — Room is internal type, method must match.
     @MainActor
@@ -33,12 +33,12 @@ public enum WatchRoomCompositionRoot {
             )
             return AnyView(WatchRoomScreen(model: model))
         } else {
-            // P0-49: real legacy fallback — actual RoomView, not placeholder
+            // Real legacy fallback — actual RoomView, not placeholder
             return AnyView(Text("Legacy room view retired"))
         }
     }
 
-    /// Аудит 26.07.2026 (P0): модель должна создаваться ОДИН раз и жить в
+    /// Модель должна создаваться ОДИН раз и жить в
     /// @State владельца (WatchRoomContainer) — makeScreenForRoom из body
     /// пересоздавал WatchRoomModel на каждом пересчёте: комната сбрасывалась,
     /// старый WebSocket утекал.
@@ -132,7 +132,7 @@ public enum WatchRoomCompositionRoot {
         }
     }
 
-    /// PATCH 22: extract 11-char YouTube video ID from various URL formats.
+    /// Extract 11-char YouTube video ID from various URL formats.
     /// - https://youtu.be/VIDEO_ID
     /// - https://www.youtube.com/watch?v=VIDEO_ID
     /// - https://www.youtube.com/embed/VIDEO_ID
@@ -241,7 +241,7 @@ public enum WatchRoomCompositionRoot {
             baseURL: apiBaseURL,
             authToken: authToken
         )
-        // M28: тот же auth-токен — рекап ходит на /api/ai/room-recap.
+        // Тот же auth-токен — рекап ходит на /api/ai/room-recap.
         let recapClient = RESTRoomRecapClient(
             baseURL: apiBaseURL,
             authToken: authToken
@@ -296,21 +296,21 @@ public enum WatchRoomCompositionRoot {
     }
 }
 
-// MARK: - Feature flags (P1-56/P1-59: remote config with cached fallback)
+// MARK: - Feature flags (remote config with cached fallback)
 
 public enum FeatureFlags {
     private static let cacheKey = "plink.feature_flags_cache"
     private static let cacheTTL: TimeInterval = 300  // 5 minutes
 
-    /// P0-37: master switch for v2 realtime + playback path.
-    /// P1-56: checks remote config first (cached), falls back to UserDefaults.
+    /// Master switch for v2 realtime + playback path.
+    /// Checks remote config first (cached), falls back to UserDefaults.
     public static var realtimeProtocolV2: Bool {
-        // P1-56: UserDefaults is DEBUG override only
+        // UserDefaults is DEBUG override only
         if UserDefaults.standard.bool(forKey: "plink.realtime_protocol_v2_debug") {
             return true
         }
-        // P1-59: check cached remote config
-        return true  // P1-56: temporarily forced TRUE for v2 testing
+        // Check cached remote config
+        return true  // Temporarily forced TRUE for v2 testing
     }
 
     /// P1 audit: kill-switch for native YouTube stream extraction (App Store
@@ -324,7 +324,7 @@ public enum FeatureFlags {
         return cachedRemoteFlags["youtube_native_extraction"] ?? true
     }
 
-    /// P1-56: cached remote flags fetched from backend
+    /// Cached remote flags fetched from backend
     private static var cachedRemoteFlags: [String: Bool] {
         guard let data = UserDefaults.standard.data(forKey: cacheKey),
               let cache = try? JSONDecoder().decode(RemoteFlagCache.self, from: data),
@@ -334,7 +334,7 @@ public enum FeatureFlags {
         return cache.flags
     }
 
-    /// P1-56: fetch remote flags from backend — call on app launch
+    /// Fetch remote flags from backend — call on app launch
     /// P0 voice: LiveKit availability (checked from backend)
     public static var liveKitVoiceEnabled: Bool { false }
 
@@ -373,11 +373,11 @@ private struct RemoteFlagDTO: Decodable {
     let value: String
 }
 
-// MARK: - REST chat catch-up client (P0-35 + P1-55 auth refresh)
+// MARK: - REST chat catch-up client
 
 public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable {
     private let baseURL: URL
-    // P1-55: use AuthTokenProvider instead of fixed String
+    // Use AuthTokenProvider instead of fixed String
     private let tokenProvider: AuthTokenProvider?
 
     public init(baseURL: URL, authToken: String) {
@@ -386,7 +386,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
         self._fixedToken = authToken
     }
 
-    // P1-55: init with token provider for refresh support
+    // Init with token provider for refresh support
     public init(baseURL: URL, tokenProvider: AuthTokenProvider) {
         self.baseURL = baseURL
         self.tokenProvider = tokenProvider
@@ -395,7 +395,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
 
     private var _fixedToken: String?
 
-    // P1-55: currentToken must hop to MainActor since AuthTokenProvider is @MainActor
+    // currentToken must hop to MainActor since AuthTokenProvider is @MainActor
     private func currentToken() async -> String? {
         if let provider = tokenProvider {
             return await MainActor.run { provider.currentToken }
@@ -403,7 +403,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
         return _fixedToken
     }
 
-    // P1-55: refresh-on-401 helper
+    // refresh-on-401 helper
     private func refreshToken() async -> String? {
         if let provider = tokenProvider {
             return await provider.refreshToken()
@@ -411,7 +411,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
         return _fixedToken
     }
 
-    // P1-55: make request with auth, retry on 401
+    // Make request with auth, retry on 401
     private func makeAuthenticatedRequest(url: URL) async throws -> (Data, HTTPURLResponse) {
         guard let token = await currentToken() else {
             throw URLError(.userAuthenticationRequired)
@@ -424,7 +424,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
             throw URLError(.badServerResponse)
         }
 
-        // P1-55: on 401, refresh token and retry once
+        // On 401, refresh token and retry once
         if http.statusCode == 401, let newToken = await refreshToken() {
             request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
             (data, response) = try await URLSession.shared.data(for: request)
@@ -485,7 +485,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
         var result = decoded.participants.map { p in
             ParticipantSnapshot(userId: p.userId, username: p.username)
         }
-        // P0-57: backend returns host separately with online status.
+        // Backend returns host separately with online status.
         // Merge host into participants list if they're online and not already
         // in the list — otherwise the host (who has no RoomParticipant row)
         // never appears in the presence bar.
@@ -498,7 +498,7 @@ public final class RESTChatCatchupClient: ChatCatchupClient, @unchecked Sendable
     }
 }
 
-// MARK: - M28: REST room recap client
+// MARK: - REST room recap client
 
 public final class RESTRoomRecapClient: RoomRecapClient, @unchecked Sendable {
     private let baseURL: URL
@@ -550,13 +550,13 @@ private struct TicketResponse: Decodable {
 private struct MessagesResponse: Decodable {
     let messages: [MessageDTO]
     let hasMore: Bool
-    let nextCursor: String?  // P0-59: opaque server cursor
+    let nextCursor: String?  // Opaque server cursor
 }
 
-// P0-50: participant snapshot response
+// Participant snapshot response
 private struct ParticipantsResponse: Decodable {
     let participants: [ParticipantDTO]
-    // P0-57: host returned separately with online status
+    // Host returned separately with online status
     let host: HostDTO?
 }
 

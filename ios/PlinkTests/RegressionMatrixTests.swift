@@ -1,4 +1,4 @@
-// PlinkTests/RegressionMatrixTests.swift — PATCH 11
+// PlinkTests/RegressionMatrixTests.swift
 //
 // Unit tests for RegressionMatrix — verifies the matrix is complete,
 // every system has owner/test/telemetry/status, and the markdown table
@@ -17,7 +17,7 @@ final class RegressionMatrixTests: XCTestCase {
 
     func testMatrix_hasExactly18Systems() {
         XCTAssertEqual(RegressionSystem.allCases.count, 18,
-                       "PATCH 11 spec requires exactly 18 systems in the regression matrix")
+                       "The regression matrix must contain exactly 18 systems")
     }
 
     func testMatrix_containsAllSpecSystems() {
@@ -28,7 +28,7 @@ final class RegressionMatrixTests: XCTestCase {
         ]
         let actual = Set(RegressionSystem.allCases.map(\.rawValue))
         XCTAssertEqual(actual, expected,
-                       "Matrix must contain exactly the 18 systems specified in PATCH 11")
+                       "The matrix must contain exactly these 18 systems and no others")
     }
 
     // MARK: - Every system has all fields
@@ -70,12 +70,12 @@ final class RegressionMatrixTests: XCTestCase {
     }
 
     func testAllEighteenSystemsAreGreen() {
-        // After PATCH 21, ALL 18 systems have tests:
+        // All 18 systems are covered by tests:
         //   playback, chat, reactions, auth, sync, rooms, presence,
         //   profile, friends, dms, deeplinks, settings, gdpr, billing,
         //   admin, notifications, lifecycle, websockets
         let (green, yellow, red) = RegressionSystem.statusCounts
-        XCTAssertEqual(green, 18, "All 18 systems should be green after PATCH 21")
+        XCTAssertEqual(green, 18, "All 18 systems must be green")
         XCTAssertEqual(yellow, 0, "No yellow systems should remain")
         XCTAssertEqual(red, 0, "No red systems should remain")
     }

@@ -28,7 +28,14 @@ enum AuthErrorCopy {
                 return message.isEmpty ? "Эта возможность доступна в Плинк+" : message
             case .unavailable(_, let message):
                 return message.isEmpty ? "Функция скоро появится" : message
-            case .invalidURL, .invalidResponse, .decodingError, .serverError, .networkError:
+            case .invalidURL, .invalidResponse, .decodingError, .networkError:
+                return "Plink сейчас недоступен. Попробуйте ещё раз чуть позже"
+            case .serverError(let status, let message):
+                if (400..<500).contains(status),
+                   !message.isEmpty,
+                   !message.lowercased().contains("unknown") {
+                    return message
+                }
                 return "Plink сейчас недоступен. Попробуйте ещё раз чуть позже"
             }
         }

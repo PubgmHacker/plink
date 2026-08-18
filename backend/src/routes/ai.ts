@@ -3,19 +3,19 @@ import crypto from 'node:crypto';
 import { prisma } from '../config/db.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
 import { redis } from '../config/redis.js';
-// M16: реальная очередь комнаты — ИИ ставит видео по-настоящему, а не шаблоном
+// Реальная очередь комнаты — ИИ ставит видео по-настоящему, а не шаблоном
 import { enqueueRoomMedia, buildQueueWirePayload } from '../realtime/roomQueueStore.js';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const AI_MODEL = process.env.AI_MODEL ?? 'openai/gpt-4o-mini';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-// B5 (GPT-5.6 ADR-007): Feature flag for AI structured actions.
+// Feature flag for AI structured actions.
 // Set AI_ACTIONS_ENABLED=true to enable proposedAction creation.
 // Until function/tool calling is implemented, this stays false for external beta.
 const AI_ACTIONS_ENABLED = process.env.AI_ACTIONS_ENABLED !== 'false'; // enabled by default when OPENROUTER_API_KEY is set
 
-// B4 (GPT-5.6 ADR-008): Pending AI actions в Redis с TTL.
+// Pending AI actions в Redis с TTL.
 // Fallback на in-memory Map если Redis не настроен (dev only).
 interface PendingAction {
   confirmationId: string;
@@ -212,10 +212,12 @@ export default async function aiRoutes(fastify) {
       const data: any = await response.json();
       const aiMessage = data.choices?.[0]?.message?.content || '';
 
-      // P0.4: Detect action intent from AI response. If user asked to create
-      // a room, AI should mention "create_room" in response. We check for
-      // keywords and create a pending action.
-      // B5: gated behind AI_ACTIONS_ENABLED feature flag.
+      // Detect an action intent in the model's reply — asking it to create a
+      // room makes it mention "create_room" — and turn that into a pending
+      // action the user has to confirm.
+      //
+      // Gated behind AI_ACTIONS_ENABLED, which defaults to off: this is a
+      // keyword match on model output, so it must not act on its own.
       let proposedAction: any = null;
       const lowerMsg = aiMessage.toLowerCase();
 
@@ -264,7 +266,7 @@ export default async function aiRoutes(fastify) {
         };
       }
 
-      // M16: реальная постановка видео в очередь комнаты (не шаблонный ответ!)
+      // Реальная постановка видео в очередь комнаты (не шаблонный ответ!)
       const lastUserText = String(
         [...(messages ?? [])].reverse().find((m: any) => m?.role === 'user')?.content ?? ''
       ).toLowerCase();
@@ -312,7 +314,7 @@ export default async function aiRoutes(fastify) {
   });
   
   // ─────────────────────────────────────────────────────────────────────
-  // M28: POST /api/ai/room-recap — «что я пропустил» для опоздавшего.
+  // POST /api/ai/room-recap — «что я пропустил» для опоздавшего.
   // ─────────────────────────────────────────────────────────────────────
   // Пересказывает пропущенный кусок ЧАТА комнаты. Ответ ПРИВАТНЫЙ (в HTTP),
   // в чат комнаты ничего не публикуется: рекап нужен одному опоздавшему,
@@ -534,7 +536,9 @@ export default async function aiRoutes(fastify) {
       return reply.status(400).send({ error: 'confirmationId required' });
     }
 
-    // B4: Atomic consume — get + verify ownership + delete in one Redis operation
+    // Get, verify ownership, and delete in one Redis operation. Split into
+    // separate calls, two concurrent confirmations both pass the ownership
+    // check and the action runs twice.
     const action = await consumePendingAction(confirmationId, request.user.id);
 
     if (action === null) {
@@ -585,7 +589,7 @@ export default async function aiRoutes(fastify) {
           return reply.send({ success: true, activity: action.payload.activity });
         }
 
-        // M16: реальная постановка в очередь комнаты + broadcast всем участникам
+        // Реальная постановка в очередь комнаты + broadcast всем участникам
         case 'queue_video': {
           const { roomId, mediaItem } = action.payload;
           const isMember = await prisma.roomParticipant.findFirst({
@@ -594,7 +598,7 @@ export default async function aiRoutes(fastify) {
           if (!isMember) {
             return reply.status(403).send({ error: 'Вы не участник комнаты' });
           }
-          // M18: Plink+ — приоритет в очереди ИИ (функциональная фича подписки)
+          // Plink+ — приоритет в очереди ИИ (функциональная фича подписки)
           const requester = await prisma.user.findUnique({
             where: { id: request.user.id },
             select: { isPremium: true },
@@ -643,7 +647,7 @@ export default async function aiRoutes(fastify) {
   });
 }
 
-// Аудит 26.07.2026: у ai.ts был собственный генератор с полным алфавитом —
+// У ai.ts был собственный генератор с полным алфавитом —
 // комната, созданная через ИИ, могла получить код с I/O/0/1, которые главный
 // генератор (rooms.ts) сознательно исключает, чтобы код диктовался голосом
 // без ошибок. Плюс Math.random() вместо crypto. Приведено к rooms.ts.

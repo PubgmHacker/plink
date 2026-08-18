@@ -11,6 +11,8 @@ struct JoinRoomSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var apiClient: APIClient
     var onJoined: (Room) -> Void
+    var initialCode: String = ""
+    var startWithPassword: Bool = false
 
     @State private var roomCode = ""
     @State private var password = ""
@@ -106,6 +108,12 @@ struct JoinRoomSheet: View {
                     Button("Закрыть") { dismiss() }
                 }
             }
+            .onAppear {
+                if roomCode.isEmpty, !initialCode.isEmpty {
+                    roomCode = String(initialCode.prefix(6)).uppercased()
+                }
+                if startWithPassword { showPassword = true }
+            }
         }
     }
 
@@ -124,7 +132,64 @@ struct JoinRoomSheet: View {
             dismiss()
         } catch let err {
             HapticManager.errorOccurred()
-            self.error = "Не удалось войти: \(err.localizedDescription)"
+            if JoinRoomErrorCopy.isPasswordRequired(err) {
+                showPassword = true
+            }
+            self.error = JoinRoomErrorCopy.message(for: err)
         }
     }
 }
+
+enum JoinRoomErrorCopy {
+    static func message(for error: Error) -> String {
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .notFound:
+                return "Нет комнаты с таким кодом. Проверьте код и попробуйте снова."
+            case .conflict:
+                return "Комната заполнена."
+            case .networkError, .invalidResponse, .decodingError:
+                return "Нет сети или сервер не отвечает. Попробуйте ещё раз."
+            case .serverError(_, let message):
+                return humanize(message)
+            case .invalidCredentials(let message):
+                return humanize(message)
+            default:
+                return humanize(apiError.localizedDescription)
+            }
+        }
+        if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
+            return "Нет подключения к интернету."
+        }
+        return humanize(error.localizedDescription)
+    }
+
+    static func isPasswordRequired(_ error: Error) -> Bool {
+        let text = ((error as? APIError)?.localizedDescription ?? error.localizedDescription).lowercased()
+        return text.contains("парол") || text.contains("password")
+    }
+
+    private static func humanize(_ raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.localizedCaseInsensitiveContains("не найден") || text.localizedCaseInsensitiveContains("not found") {
+            return "Нет комнаты с таким кодом. Проверьте код и попробуйте снова."
+        }
+        if text.localizedCaseInsensitiveContains("заполнен") || text.localizedCaseInsensitiveContains("full") {
+            return "Комната заполнена."
+        }
+        if text.localizedCaseInsensitiveContains("друзей") || text.localizedCaseInsensitiveContains("friends") {
+            return "Комната только для друзей хозяина."
+        }
+        if text.localizedCaseInsensitiveContains("неверный пароль") {
+            return "Неверный пароль комнаты."
+        }
+        if text.localizedCaseInsensitiveContains("требуется пароль") {
+            return "У комнаты есть пароль. Введите его ниже."
+        }
+        if text.isEmpty || text.localizedCaseInsensitiveContains("unknown") {
+            return "Не удалось войти в комнату. Проверьте код и попробуйте снова."
+        }
+        return text
+    }
+}
+

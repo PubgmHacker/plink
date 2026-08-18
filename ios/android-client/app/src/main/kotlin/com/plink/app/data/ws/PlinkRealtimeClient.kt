@@ -48,7 +48,7 @@ class PlinkRealtimeClient(
     private var roomId: String? = null
     private var probeJob: Job? = null
 
-    // M13: chat written while offline/reconnecting is queued and flushed after
+    // Chat written while offline/reconnecting is queued and flushed after
     // the connection is restored (parity with iOS RealtimeClient).
     private val pendingChat = ArrayDeque<String>()
     private val pendingChatLock = Any()
@@ -106,7 +106,7 @@ class PlinkRealtimeClient(
         val socket = webSocket
         val currentRoomId = roomId ?: return
         if (socket == null || !_connected.value) {
-            // M13: queue while offline — flushed in onOpen
+            // Queue while offline — flushed in onOpen
             synchronized(pendingChatLock) {
                 if (pendingChat.size >= 50) pendingChat.removeFirst()
                 pendingChat.addLast(text)
@@ -189,7 +189,7 @@ class PlinkRealtimeClient(
             _connected.value = true
             requestState()
             startClockProbes()
-            // M13: flush chat queued while offline
+            // Flush chat queued while offline
             val queued = synchronized(pendingChatLock) {
                 val copy = ArrayList(pendingChat)
                 pendingChat.clear()

@@ -1,4 +1,4 @@
-# Plink — M12: R8 enabled for release builds.
+# Plink — R8 is enabled for release builds.
 # Keep rules for kotlinx.serialization, networking, and Compose.
 
 -keepattributes *Annotation*, InnerClasses, Signature, SourceFile, LineNumberTable

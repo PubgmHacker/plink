@@ -1,7 +1,7 @@
-// Plink/AppShell/PlinkAppShell.swift — GPT-5.6 V4 Pixel Perfect
+// Plink/AppShell/PlinkAppShell.swift — root view; selects the shell per device.
 //
-// iPhone: PlinkApprovedV4Root (pixel-perfect V4 from spec)
-// iPad: PlinkSidebarShell (existing)
+// iPhone: PlinkApprovedV4Root (pixel-perfect V4 layout)
+// iPad / macOS: PlinkSidebarShell
 
 import SwiftUI
 #if canImport(UIKit)
@@ -24,7 +24,7 @@ struct PlinkAppShell: View {
                 dependencies: dependencies
             )
             #else
-            // Аудит 26.07.2026 P1: выбор шелла по устройству, а не по size class.
+            // Выбор шелла по устройству, а не по size class.
             // На iPhone Max/Plus в landscape horizontalSizeClass становится .regular:
             // поворот живьём пересобирал корневой шелл (V4Root ↔ Sidebar), убивая
             // все @State-сторы и дисмисся fullScreenCover открытой комнаты.
@@ -35,12 +35,12 @@ struct PlinkAppShell: View {
                     dependencies: dependencies
                 )
             } else {
-                // GPT-5.6 V4 Pixel Perfect: single root
+                // Single root view on iPhone.
                 PlinkApprovedV4Root()
             }
             #endif
         }
-        // Аудит 26.07.2026 P2: лист висел на $createIntent, который никто не
+        // Лист висел на $createIntent, который никто не
         // выставлял, — кнопка «Создать комнату» в сайдбаре iPad/Mac (она пишет
         // в createPresented) не открывала ничего. Теперь лист слушает тот же
         // флаг, а мёртвый createIntent убран.

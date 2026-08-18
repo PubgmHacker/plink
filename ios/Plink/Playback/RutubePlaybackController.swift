@@ -1,11 +1,9 @@
-// Plink/Playback/RutubePlaybackController.swift — PATCH 10
-//
-// GLM-5.2 master implementation patch — Commit Group 12.
+// Plink/Playback/RutubePlaybackController.swift
 //
 // Official Rutube embed adapter. Renders rutube.ru/play/embed/<id> inside
 // an isolated WKWebView. NO extraction — only the official embed.
 //
-// PATCH 10 spec compliance:
+// Required behaviour:
 //   - Only official permitted embed adapter (no extraction, no Innertube,
 //     no yt-dlp, no raw CDN relay).
 //   - Strict host/video-ID validation.
@@ -31,7 +29,7 @@
 //   - videoId validation: 32-char hex string (Rutube's ID format).
 //   - Fallback: if isReady is false after 8s, throw loadingFailed.
 //
-// App Store compliance (runbook §7):
+// App Store compliance:
 //   - Official Rutube embed inside WKWebView.
 //   - NO server-side extraction.
 //   - NO cookie relay — cookies never leave the device.
@@ -57,7 +55,7 @@ public final class RutubePlaybackController: PlaybackControlling {
     public private(set) var lastError: String?
 
     public var capabilities: PlaybackCapabilities {
-        // PATCH 10: Rutube's JS API is limited. We mark seekable as false
+        // Rutube's JS API is limited. We mark seekable as false
         // until we confirm the API is available (set in handleReady).
         // supportsRateCorrection is always false — no setPlaybackRate.
         .init(
@@ -92,7 +90,7 @@ public final class RutubePlaybackController: PlaybackControlling {
         isReady = false
         lastError = nil
 
-        // PATCH 10: isolated WKContentWorld — Rutube's JS cannot touch
+        // Isolated WKContentWorld — Rutube's JS cannot touch
         // app's message handlers.
         let content = WKUserContentController()
         let config = WKWebViewConfiguration()
@@ -118,7 +116,7 @@ public final class RutubePlaybackController: PlaybackControlling {
         // 8s prepare timeout. If Rutube doesn't load, throw.
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in
-                // PATCH 22: guard let self to bind to strong local const,
+                // Guard let self to bind to strong local const,
                 // avoiding "Reference to captured var 'self'" Swift 6 error.
                 guard let self else { return }
                 while true {
@@ -186,7 +184,7 @@ public final class RutubePlaybackController: PlaybackControlling {
         duration = 0
     }
 
-    // MARK: - External fallback (PATCH 10)
+    // MARK: - External fallback
 
     /// Opens the Rutube video in SFSafariViewController when synchronized
     /// playback is unavailable (jsApiConfirmed == false). Called by the

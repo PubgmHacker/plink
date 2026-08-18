@@ -16,6 +16,11 @@
 #   - Full 40-character SHA. Abbreviated hashes are rejected by git.
 #   - One commit per line, with a comment saying what it reformatted.
 #
+# landing/: prettier + prettier-plugin-tailwindcss across app/, components/,
+# i18n/, lib/ and the three configs. 23 files, quote style, wrapping and Tailwind
+# utility order only.
+5e000a5260509df39b683a166f34e9e8ba12c34a
+
 # PENDING: backend/src has not been formatted yet. It predates .prettierrc.json
 # by roughly 13,000 lines of whitespace, and CI enforces formatting only on the
 # files a change touches (the `format` job in .github/workflows/ci.yml) so the

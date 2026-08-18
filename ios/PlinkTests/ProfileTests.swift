@@ -1,4 +1,4 @@
-// PlinkTests/ProfileTests.swift — PATCH 20: profile system tests
+// Profile system tests
 //
 // Closes the "profile" red system in RegressionMatrix.
 

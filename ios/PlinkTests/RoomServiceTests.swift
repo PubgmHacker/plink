@@ -1,4 +1,4 @@
-// PlinkTests/RoomServiceTests.swift — PATCH 19: rooms system tests
+// Rooms system tests
 //
 // Closes the "rooms" red system in RegressionMatrix (was red, now green).
 
@@ -119,7 +119,7 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertTrue(active.allSatisfy { $0.isActive })
     }
 
-    // Аудит 26.07.2026: тест fetchPublicRooms удалён вместе с методом —
+    // Тест fetchPublicRooms удалён вместе с методом —
     // серверный роут /rooms/public мёртв.
 
     // MARK: - fetchMyRooms
@@ -201,5 +201,25 @@ final class RoomServiceTests: XCTestCase {
         } catch {
             XCTFail("Wrong error: \(error)")
         }
+    }
+
+    func testJoinRoomErrorCopy_notFound() {
+        XCTAssertEqual(
+            JoinRoomErrorCopy.message(for: APIError.notFound),
+            "Нет комнаты с таким кодом. Проверьте код и попробуйте снова."
+        )
+    }
+
+    func testJoinRoomErrorCopy_fullRoom() {
+        XCTAssertEqual(
+            JoinRoomErrorCopy.message(for: APIError.conflict(message: "Комната заполнена")),
+            "Комната заполнена."
+        )
+    }
+
+    func testJoinRoomErrorCopy_passwordRequired() {
+        let error = APIError.serverError(status: 403, message: "Требуется пароль")
+        XCTAssertTrue(JoinRoomErrorCopy.isPasswordRequired(error))
+        XCTAssertTrue(JoinRoomErrorCopy.message(for: error).localizedCaseInsensitiveContains("парол"))
     }
 }

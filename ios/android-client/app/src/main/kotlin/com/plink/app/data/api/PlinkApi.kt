@@ -6,6 +6,8 @@ import com.plink.app.data.models.AvatarUploadResponse
 import com.plink.app.data.models.CreateRoomRequest
 import com.plink.app.data.models.JoinRoomRequest
 import com.plink.app.data.models.MessagesResponse
+import com.plink.app.data.models.ModerationReportRequest
+import com.plink.app.data.models.ModerationReportResponse
 import com.plink.app.data.models.ParticipantsResponse
 import com.plink.app.data.models.RealtimeTicketRequest
 import com.plink.app.data.models.RealtimeTicketResponse
@@ -59,4 +61,7 @@ interface PlinkApi {
 
     @POST("users/me/avatar")
     suspend fun uploadAvatar(@Body body: AvatarUploadRequest): AvatarUploadResponse
+
+    @POST("moderation/report")
+    suspend fun moderationReport(@Body body: ModerationReportRequest): ModerationReportResponse
 }

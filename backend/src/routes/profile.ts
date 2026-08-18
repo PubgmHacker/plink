@@ -26,7 +26,8 @@ function parseAvatarDataURL(avatarData: string): { mime: string; buffer: Buffer 
 
 export default async function profileRoutes(fastify) {
   // POST /users/me/avatar — upload avatar as base64 data URL, persist in DB.
-  // B6: rate limited + MIME validation + size limit.
+  // Rate limited, MIME-validated, and size-capped: this endpoint writes
+  // caller-supplied bytes to a row every authenticated user can reach.
   fastify.post('/users/me/avatar', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } }
@@ -225,14 +226,14 @@ export default async function profileRoutes(fastify) {
     }
   });
 
-  // 🔧 Pack v3: PATCH /users/me — обновление username + avatarURL + displayName + coverURL
-  // 🔧 v11 (July 2026): added displayName + coverURL (Telegram-style naming split).
+  // Pack v3: PATCH /users/me — обновление username + avatarURL + displayName + coverURL
+  // Added displayName + coverURL (Telegram-style naming split).
   fastify.patch('/users/me', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { username, avatarURL, displayName, coverURL } = request.body;
     const data: any = {};
     if (username && username.trim().length >= 2) data.username = username.trim();
     if (avatarURL !== undefined) data.avatarURL = avatarURL;
-    // 🔧 v11: displayName — optional Telegram-style display name (1-50 chars).
+    // displayName — optional Telegram-style display name (1-50 chars).
     // Empty string clears it (user wants to fall back to @username).
     if (displayName !== undefined) {
       const trimmed = String(displayName).trim();
@@ -296,7 +297,7 @@ export default async function profileRoutes(fastify) {
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // V5 endpoints (Phase 4 of PLINK_MASTER_PLAN_10_OF_10.md)
+  // Appearance preferences and scheduled account deletion
   // ─────────────────────────────────────────────────────────────────────
 
   // GET /api/profile/appearance
@@ -332,7 +333,7 @@ export default async function profileRoutes(fastify) {
 
   // PUT /api/profile/appearance
   // Phase 4: persists the user's appearance selection for cross-device restore.
-  // Аудит 26.07.2026 (7.5): rate limit + строгая zod-валидация — раньше можно было
+  // Rate limit + строгая zod-валидация — раньше можно было
   // писать килобайты произвольного мусора в appearancePrefs без ограничений.
   fastify.put('/profile/appearance', {
     preHandler: [fastify.authenticate],

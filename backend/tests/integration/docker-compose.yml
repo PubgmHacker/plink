@@ -1,5 +1,5 @@
 # tests/integration/docker-compose.yml
-# Brain Review 3: Docker Compose Postgres + Redis for integration tests
+# Docker Compose Postgres + Redis for integration tests
 #
 # Usage:
 #   docker compose -f tests/integration/docker-compose.yml up -d

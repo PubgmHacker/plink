@@ -1,15 +1,17 @@
-// billingIdempotency.unit.test.ts — идемпотентность покупок Apple
-// (без БД: prisma и проверка подписей замоканы).
+// billingIdempotency.unit.test.ts — idempotency of Apple purchases
+// (no database: prisma and signature verification are mocked).
 //
-// Аудит 26.07.2026 P2 + миграция 20260726120500_billing_idempotency:
-//   1. verify ключует upsert подписки по originalTransactionId (@unique), а не
-//      по первичному ключу — иначе ветка update мертва и каждый verify/renew
-//      плодит вторую активную подписку.
-//   2. Вебхук Server Notifications V2 дедуплицируется по notificationUUID
-//      через таблицу AppleNotification: заявка ДО обработки, гонку разрешает
-//      первичный ключ (P2002), повтор — короткое замыкание с 200.
-//   3. Устаревший DID_RENEW, доставленный после REFUND/REVOKE, не возвращает
-//      премиум отозванному пользователю.
+// Invariants exercised here — the supporting schema lives in migration
+// 20260726120500_billing_idempotency:
+//   1. verify keys the subscription upsert on originalTransactionId (@unique),
+//      not on the primary key — otherwise the update branch is dead and every
+//      verify/renew spawns a second active subscription.
+//   2. Server Notifications V2 webhooks are deduplicated by notificationUUID
+//      through the AppleNotification table: the claim row is inserted BEFORE
+//      processing, a race is resolved by the primary key (P2002), and a repeat
+//      short-circuits with 200.
+//   3. A stale DID_RENEW delivered after REFUND/REVOKE does not restore
+//      premium for a revoked user.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';

@@ -117,7 +117,7 @@ internal final class DefaultEntitlementProvider: EntitlementProviding {
         // Bridge to real PremiumStatusManager.
         let pm = PremiumStatusManager.shared
         self.isPlinkPlus = pm.isPremium
-        // Аудит 26.07.2026 (P2): дата истечения затиралась в nil, хотя
+        // Дата истечения затиралась в nil, хотя
         // PremiumStatusManager её знает (nil здесь читается как «пожизненно»).
         self.plinkPlusExpiresAt = pm.subscriptionExpiry
     }
@@ -192,14 +192,14 @@ internal final class AppearanceStore {
     private let profileAPI: ProfileAPI
     private let defaults: UserDefaults
 
-    /// Аудит 26.07.2026 (P2, ревью): сервисному слою (PremiumStatusManager)
+    /// Сервисному слою (PremiumStatusManager)
     /// нужно откатить платное оформление при потере прав и обновить живой UI,
     /// но он не должен создавать стор как побочный эффект (иначе стор
     /// инициализировался бы из юнит-тестов и из init'а менеджера). Слабая
     /// ссылка на созданный стор: nil, пока живой флоу его не создал.
     static weak var live: AppearanceStore?
 
-    /// Аудит 26.07.2026: живой стор V4-флоу. Раньше стор создавался только
+    /// Живой стор V4-флоу. Раньше стор создавался только
     /// мёртвым V5-экраном AppearanceRootView (0 инстанцирований), поэтому
     /// `live` был вечным nil, а откат платных тем при истечении Plink+ —
     /// no-op. Создаётся лениво из bootstrap PlinkApprovedV4Root; init
@@ -298,7 +298,7 @@ internal final class AppearanceStore {
         persistLocallyImmediately()
     }
 
-    // MARK: - V4 sync (Аудит 26.07.2026)
+    // MARK: - V4 sync
     // Живой UI — V4 (PlinkApprovedV4Root/V4AppearanceView), но он писал только
     // в UserDefaults и не делал ни одного сетевого вызова. Мост ниже гоняет
     // V4-состояние через PUT/GET /api/profile/appearance: смена темы уезжает
@@ -419,7 +419,7 @@ internal final class AppearanceStore {
             persistLocallyImmediately()
             rolledBack = true
         }
-        // Аудит 26.07.2026: откат виден сразу (V4-ключи + нотификации) и
+        // Откат виден сразу (V4-ключи + нотификации) и
         // уезжает на сервер — иначе другое устройство снова гидрирует
         // платную тему после даунгрейда Plink+.
         if rolledBack {
@@ -450,9 +450,10 @@ internal enum AppearanceCatalog {
 
     static let all: [AppearanceDescriptor] = appStatic + appLive + roomLive + bubbleStatic + bubbleAnimated + emojiPack
 
-    // Free app themes. Аудит 26.07.2026: каталог покрывает ВСЕ пять
-    // статических тем живого V4 (V4Theme.allCases) — эти ID хранит сервер
-    // в /api/profile/appearance, маппинг на V4Theme — V4AppearanceThemeMap.
+    // Free app themes. The catalog covers all five static themes of the live
+    // V4 layer (`V4Theme.allCases`) and must stay complete: these are the IDs
+    // the server stores in /api/profile/appearance, and `V4AppearanceThemeMap`
+    // maps them onto `V4Theme`.
     static let appStatic: [AppearanceDescriptor] = [
         .init(
             id: "electric-static", kind: .appStatic,
@@ -492,7 +493,7 @@ internal enum AppearanceCatalog {
     ]
 
     // Plink+ live app themes.
-    // Аудит 26.07.2026: первые четыре — живые видео-темы V4
+    // Первые четыре — живые видео-темы V4
     // (PlinkPlusLiveTheme: aurora/cosmos/verdant/magma), именно их выбирает
     // живой экран V4AppearanceView и хранит сервер. Остальные — легаси-ID
     // V5-каталога: оставлены, чтобы старые серверные записи валидировались
@@ -587,7 +588,7 @@ internal enum AppearanceCatalog {
               previewColors: ["#1A0B14", "#EC4899", "#FDE68A"]),
     ]
 
-    // M16: Free tier — exactly two standard bubbles
+    // Free tier — exactly two standard bubbles
     static let bubbleStatic: [AppearanceDescriptor] = [
         .init(id: "bubble-quiet", kind: .bubbleStatic,
               title: "Тихий", subtitle: "Стеклянная капсула",
@@ -599,7 +600,7 @@ internal enum AppearanceCatalog {
               previewColors: ["#00D4FF", "#3FE8C8"]),
     ]
 
-    // M16: Plink+ — 5 детальных кино-баблов (pixel-perfect PNG из арт-референса,
+    // Plink+ — 5 детальных кино-баблов (pixel-perfect PNG из арт-референса,
     // Resources/CinemaBubbles/). Заменяют старые «животные» рамки целиком.
     static let bubbleAnimated: [AppearanceDescriptor] = [
         .init(id: "bubble-cine-artdeco", kind: .bubbleAnimated,
@@ -653,7 +654,7 @@ internal enum AppearanceCatalog {
     ]
 }
 
-// MARK: - V4AppearanceThemeMap (Аудит 26.07.2026)
+// MARK: - V4AppearanceThemeMap
 
 /// Мост между V4-состоянием темы (UserDefaults: plink.v4ThemeName +
 /// plink.liveTheme) и каноническими ID каталога, которые хранит сервер в
@@ -699,7 +700,7 @@ internal enum V4AppearanceThemeMap {
 }
 
 internal extension Notification.Name {
-    /// Аудит 26.07.2026: статическая V4-тема, восстановленная с сервера
+    /// Статическая V4-тема, восстановленная с сервера
     /// (object — V4Theme.rawValue). Слушает PlinkApprovedV4Root.
     static let plinkV4ThemeRestored = Notification.Name("plink.v4ThemeRestored")
 }

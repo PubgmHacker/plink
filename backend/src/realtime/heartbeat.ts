@@ -1,15 +1,15 @@
-// src/realtime/heartbeat.ts — WS ping/pong heartbeat (runbook §5 + Brain Review 4 P0-25, P1-28)
+// src/realtime/heartbeat.ts — WS ping/pong heartbeat
 //
-// Brain Review 4 fixes:
+// Heartbeat invariants:
 //
-// P0-25: heartbeat now refreshes presence lease on pong. callback-based —
-//   gateway passes onPong(socket) that calls refreshPresenceLease() with
-//   socket.connectionId. Coalesced refresh (max once per 20s) to avoid
-//   Redis write on every pong.
+// The presence lease is refreshed on pong through a callback — the gateway
+//   passes onPong(socket), which calls refreshPresenceLease() with
+//   socket.connectionId. Refreshes are coalesced to at most once per 20s so
+//   that a pong does not cause a Redis write every time.
 //
-// P1-28: heartbeat no longer calls registry.disconnect on dead socket.
-//   Only calls socket.terminate() — finalize (registered via socket.once
-//   in gateway) handles ALL cleanup including registry disconnect.
+// On a dead socket the heartbeat only calls socket.terminate(); it never
+//   calls registry.disconnect. finalize (registered via socket.once in the
+//   gateway) handles ALL cleanup, including the registry disconnect.
 
 import type { WebSocketServer } from 'ws';
 import type { PlinkSocket } from './connectionRegistry.js';
@@ -36,7 +36,7 @@ export class Heartbeat {
       socket.isAlive = true;
       socket.on('pong', () => {
         socket.isAlive = true;
-        // P0-25: refresh presence lease on pong
+        // Refresh presence lease on pong
         try {
           this.callbacks.onPong?.(socket);
         } catch (err) {
@@ -50,7 +50,7 @@ export class Heartbeat {
       wss.clients.forEach((sock) => {
         const socket = sock as PlinkSocket;
         if (socket.isAlive === false) {
-          // P1-28: only terminate — finalize (via 'close') does ALL cleanup.
+          // Only terminate — finalize (via 'close') does ALL cleanup.
           // Do NOT call registry.disconnect here — that's finalize's job.
           try {
             socket.terminate();

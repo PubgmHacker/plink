@@ -11,7 +11,7 @@ import {
     recordWatchHistory,
     sweepOrphanRooms,
 } from '../services/roomLifecycle.js';
-// M16: ИИ-модератор — запрещённый контент комнат, NSFW-фото, муты
+// ИИ-модератор — запрещённый контент комнат, NSFW-фото, муты
 import {
     violatesContentPolicy,
     containsProfanity,
@@ -21,7 +21,7 @@ import {
     auditModeration,
     buildModWirePayload,
 } from '../moderation/autoMod.js';
-// M16: реальная очередь видео комнаты (REST + broadcast)
+// Реальная очередь видео комнаты (REST + broadcast)
 import {
     getRoomQueue,
     enqueueRoomMedia,
@@ -51,7 +51,7 @@ function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataU
     return { mime, buffer, dataUrl: `data:${mime};base64,${match[3]}` };
 }
 
-// B6/Аудит 26.07.2026 P2: единая проверка ссылки на поток.
+// Единая проверка ссылки на поток.
 // Раньше валидация была только в POST /rooms (инлайном), а POST /rooms/:id/queue
 // принимал streamURL как есть — любой `javascript:`, `file:` или внутренний
 // хост (169.254.169.254) попадал в очередь и рассылался клиентам на проигрывание.
@@ -84,12 +84,12 @@ function validateStreamURL(raw: string): string | null {
     return null;
 }
 
-// 🔧 FIX: mediaItem хранится в БД как JSON-строка (Prisma `String?` колонка).
+// mediaItem хранится в БД как JSON-строка (Prisma `String?` колонка).
 // iOS ожидает structured object, не строку — иначе decoding падает с typeMismatch
 // и весь Room decode ломается. Эта функция парсит строку обратно в объект.
 // Применяется во всех endpoints которые возвращают room: create, join, list, get.
 //
-// 🔧 ROBUSTNESS: try/catch вокруг JSON.parse. Если в БД лежит битая строка
+// ROBUSTNESS: try/catch вокруг JSON.parse. Если в БД лежит битая строка
 // (исторические данные, partial write и т.п.) — возвращаем null вместо того
 // чтобы ронять весь endpoint 500-й. Иначе iOS видит ошибку → myRooms = [] →
 // юзер думает что у него нет комнат, хотя они есть.
@@ -115,7 +115,7 @@ function serializeRoom(room) {
 export default async function roomRoutes(fastify, _options) {
     const { prisma } = fastify;
 
-    // M16: GET /api/rooms/:id/queue — текущая очередь видео комнаты
+    // GET /api/rooms/:id/queue — текущая очередь видео комнаты
     fastify.get('/rooms/:id/queue', { preHandler: [fastify.authenticate] }, async (request, reply) => {
         const roomId = request.params.id;
         const isMember = await prisma.roomParticipant.findFirst({
@@ -125,7 +125,7 @@ export default async function roomRoutes(fastify, _options) {
         return reply.send({ queue: await getRoomQueue(roomId) });
     });
 
-    // M16: POST /api/rooms/:id/queue — поставить видео в очередь (+ broadcast всем)
+    // POST /api/rooms/:id/queue — поставить видео в очередь (+ broadcast всем)
     fastify.post('/rooms/:id/queue', { preHandler: [fastify.authenticate] }, async (request, reply) => {
         const roomId = request.params.id;
         const isMember = await prisma.roomParticipant.findFirst({
@@ -135,14 +135,14 @@ export default async function roomRoutes(fastify, _options) {
         const body = request.body ?? {};
         const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : '';
         if (!title) return reply.status(400).send({ error: 'title обязателен' });
-        // M16: модерация контента очереди
+        // Модерация контента очереди
         const queueCheck = [title, body.streamURL, body.artist]
             .filter((v: unknown) => typeof v === 'string')
             .join(' ');
         if (violatesContentPolicy(queueCheck)) {
             return reply.status(422).send({ error: 'Контент нарушает правила Plink', code: 'CONTENT_BLOCKED' });
         }
-        // Аудит 26.07.2026 P2: streamURL очереди проходит ту же SSRF-проверку,
+        // streamURL очереди проходит ту же SSRF-проверку,
         // что и mediaItem.streamURL в POST /rooms — иначе `javascript:`/`file:`
         // и внутренние адреса броадкастятся клиентам на проигрывание.
         const queueStreamURL = typeof body.streamURL === 'string' ? body.streamURL.trim() : '';
@@ -176,7 +176,7 @@ export default async function roomRoutes(fastify, _options) {
         return reply.status(201).send({ queue });
     });
 
-    // M17: DELETE /api/rooms/:id/queue/:itemId — убрать элемент из очереди (+ broadcast)
+    // DELETE /api/rooms/:id/queue/:itemId — убрать элемент из очереди (+ broadcast)
     fastify.delete('/rooms/:id/queue/:itemId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
         const roomId = request.params.id;
         const itemId = request.params.itemId;
@@ -184,7 +184,7 @@ export default async function roomRoutes(fastify, _options) {
             where: { roomID: roomId, userID: request.user.id },
         });
         if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
-        // Аудит 26.07.2026 P2: раньше любой участник мог вычистить чужую очередь.
+        // Раньше любой участник мог вычистить чужую очередь.
         // Убрать элемент может хост комнаты или тот, кто его поставил.
         const [dRoom, dUser, currentQueue] = await Promise.all([
             prisma.room.findUnique({ where: { id: roomId }, select: { hostID: true } }),
@@ -193,10 +193,10 @@ export default async function roomRoutes(fastify, _options) {
         ]);
         const target = currentQueue.find((q) => q.id === itemId);
         const isRoomHost = dRoom?.hostID === request.user.id;
-        // Ревью P2: проверка была fail-open — при пустой/непрочитанной очереди
-        // (деградация Redis) target === undefined и владение НЕ проверялось,
-        // а следующий за ней dequeue уже удалял чужой элемент. Не-хост теперь
-        // никогда не проходит мимо проверки: нет элемента — 404.
+        // Fails closed. When the queue read comes back empty because Redis is
+        // degraded, `target` is undefined — and skipping the ownership check in
+        // that case let the dequeue below remove another user's item. A
+        // non-host with no matching item now gets a 404 instead.
         if (!isRoomHost) {
             if (!target) {
                 return reply.status(404).send({ error: 'Элемент очереди не найден' });
@@ -221,7 +221,7 @@ export default async function roomRoutes(fastify, _options) {
         return reply.send({ queue });
     });
 
-    // M17: POST /api/rooms/:id/queue/:itemId/play — включить элемент (промоут в начало + broadcast).
+    // POST /api/rooms/:id/queue/:itemId/play — включить элемент (промоут в начало + broadcast).
     // Клиент показывает кнопку только хосту; сервер проверяет членство.
     fastify.post('/rooms/:id/queue/:itemId/play', { preHandler: [fastify.authenticate] }, async (request, reply) => {
         const roomId = request.params.id;
@@ -230,7 +230,7 @@ export default async function roomRoutes(fastify, _options) {
             where: { roomID: roomId, userID: request.user.id },
         });
         if (!isMember) return reply.status(403).send({ error: 'Вы не участник комнаты' });
-        // Аудит 26.07.2026 P2: «включить сейчас» — управление воспроизведением,
+        // «включить сейчас» — управление воспроизведением,
         // поэтому только хост (клиент и так показывает кнопку лишь ему).
         const pRoom = await prisma.room.findUnique({
             where: { id: roomId },
@@ -308,7 +308,7 @@ export default async function roomRoutes(fastify, _options) {
     }, async (request, reply) => {
         const { name, maxParticipants, mediaItem, privacy, password, hostName } = request.body;
 
-        // M16: ИИ-модерация контента — нельзя создать комнату с порнографией/запрещёнкой
+        // ИИ-модерация контента — нельзя создать комнату с порнографией/запрещёнкой
         const contentToCheck = [name, mediaItem?.title, mediaItem?.streamURL, mediaItem?.artist]
             .filter((v: unknown) => typeof v === 'string' && (v as string).length > 0)
             .join(' ');
@@ -319,7 +319,7 @@ export default async function roomRoutes(fastify, _options) {
             });
         }
 
-        // 🔧 Pack v3 FIX: JWT содержит только {id}, без username.
+        // Pack v3 FIX: JWT содержит только {id}, без username.
         // Берём username из БД, fallback на body.hostName, потом 'Unknown'.
         let resolvedHostName = hostName || 'Unknown';
         let isPremiumHost = false;
@@ -361,13 +361,14 @@ export default async function roomRoutes(fastify, _options) {
             ? await hashRoomPassword(password)
             : null;
 
-        // B6: SSRF protection — validate mediaItem.streamURL if present
+        // The stream URL is caller-supplied and later fetched server-side, so
+        // validate it here or it becomes an SSRF into the private network.
         if (mediaItem?.streamURL) {
             const urlError = validateStreamURL(String(mediaItem.streamURL));
             if (urlError) return reply.status(400).send({ error: urlError });
         }
 
-        // 🔧 SAFETY: simple create — no endedAt column (uses isActive: false
+        // SAFETY: simple create — no endedAt column (uses isActive: false
         // to mark ended rooms instead, history preserved in /rooms/mine query).
         const room = await prisma.room.create({
             data: {
@@ -414,7 +415,7 @@ export default async function roomRoutes(fastify, _options) {
     // POST /api/rooms/join — Вход в комнату
     fastify.post('/rooms/join', {
         preHandler: [fastify.authenticate, validateBody(roomJoinBody)],
-        // Аудит 26.07.2026: вход по коду не был ограничен по частоте.
+        // Вход по коду не был ограничен по частоте.
         // Пространство кодов — 32^6, и без лимита его можно перебирать,
         // попадая в чужие приватные комнаты. Лимит считаем по пользователю,
         // а не по IP: за одним адресом провайдера сидят тысячи людей.
@@ -439,7 +440,7 @@ export default async function roomRoutes(fastify, _options) {
         if (!room) return reply.status(404).send({ error: 'Комната не найдена' });
 
         if (room.password) {
-            // Аудит 26.07.2026 P0: здесь был 401 — клиент трактует 401 как смерть
+            // Здесь был 401 — клиент трактует 401 как смерть
             // сессии (plinkSessionExpired), и опечатка в пароле комнаты выкидывала
             // пользователя из аккаунта. 401 зарезервирован за аутентификацией,
             // доменные отказы — 403.
@@ -448,7 +449,7 @@ export default async function roomRoutes(fastify, _options) {
             if (!isValid) return reply.status(403).send({ error: 'Неверный пароль', code: 'ROOM_PASSWORD_INVALID' });
         }
 
-        // M15: privacy 'friends' — впускаем только друзей хоста (в любом направлении дружбы)
+        // Privacy 'friends' — впускаем только друзей хоста (в любом направлении дружбы)
         if (room.privacy === 'friends' && room.hostID !== request.user.id) {
             const friendship = await prisma.friendship.findFirst({
                 where: {
@@ -500,7 +501,7 @@ export default async function roomRoutes(fastify, _options) {
         });
 
         const { password: _, ...roomWithoutPassword } = room;
-        // 🔧 FIX: parse mediaItem JSON string back to object for iOS
+        // Parse mediaItem JSON string back to object for iOS
         reply.send(serializeRoom(roomWithoutPassword));
     });
 
@@ -564,7 +565,7 @@ export default async function roomRoutes(fastify, _options) {
     // Host-only. Validates Plink+ for premium theme IDs, persists the
     // RoomAppearance JSON, broadcasts `room.appearance.updated` to all
     // participants via WebSocket. Non-hosts receive 403.
-    // Аудит 26.07.2026 P2: рейт-лимит обязателен. rate-limit зарегистрирован с
+    // рейт-лимит обязателен. rate-limit зарегистрирован с
     // global: false (app.ts), поэтому без config роут был безлимитным — а теперь
     // один PATCH порождает фан-аут на ВСЕ сокеты комнаты на ВСЕХ репликах.
     // Хост в цикле мог бы забить буферы зрителей и словить их эвикцию по
@@ -579,7 +580,7 @@ export default async function roomRoutes(fastify, _options) {
         if (typeof themeId !== 'string' || typeof intensity !== 'number') {
             return reply.status(400).send({ error: 'themeId and intensity required' });
         }
-        // Аудит 26.07.2026 P2: границы themeId/intensity совпадают с
+        // Границы themeId/intensity совпадают с
         // RoomAppearanceUpdatedSchema. Без этого в БД лёг бы вид, который
         // потом не проходит валидацию шины — тема сохранена, но не доставлена.
         if (themeId.length < 1 || themeId.length > 64 || !Number.isFinite(intensity)) {
@@ -626,7 +627,7 @@ export default async function roomRoutes(fastify, _options) {
             data: { appearance }
         });
 
-        // Аудит 26.07.2026 P2: здесь был «броадкаст» через fastify.io?.to(...).emit(...),
+        // Здесь был «броадкаст» через fastify.io?.to(...).emit(...),
         // но Socket.IO в проекте нет вообще (реалтайм — ws + RealtimeGateway), поэтому
         // optional chaining превращало весь цикл по участникам в no-op: код делал вид,
         // что доставляет тему, и грузил БД лишним findMany на каждый PATCH.
@@ -640,11 +641,11 @@ export default async function roomRoutes(fastify, _options) {
         // темы у зрителей включится, когда iOS добавит case и вызовет
         // RoomAppearanceStore.applyServerUpdate.
         // Доставка best-effort: упавший push не должен откатывать сохранённую тему.
-        // Аудит 26.07.2026 P2 (вторая волна): метод зовём БЕЗ `?.` — именно
-        // optional chaining на вызове когда-то превратило доставку в тихий no-op.
-        // Если метод пропадёт/переименуют, будет TypeError → warn в логе, а не
-        // молчаливая потеря события. Отсутствие самого gateway (WS выключен)
-        // тоже логируем явно.
+        // Call the method WITHOUT `?.`: optional chaining on the call swallows a
+        // missing or renamed method and silently degrades delivery to a no-op.
+        // Called directly, that becomes a TypeError → warn in the log instead of
+        // an event lost without trace. A missing gateway itself (WS disabled) is
+        // logged explicitly too.
         const gateway = (fastify as any).gateway;
         if (!gateway) {
             request.log?.warn?.({ roomId: id }, 'gateway missing — appearance push skipped');
@@ -701,7 +702,7 @@ export default async function roomRoutes(fastify, _options) {
     });
 
     // GET /api/rooms — активные публичные комнаты (только с участниками)
-    // M15: PATCH /api/rooms/:id/privacy — хост меняет режим модерации живой комнаты
+    // PATCH /api/rooms/:id/privacy — хост меняет режим модерации живой комнаты
     // (публичная / закрытая с паролем / по ссылке / только друзья)
     fastify.patch('/rooms/:id/privacy', {
         preHandler: [fastify.authenticate]
@@ -789,7 +790,7 @@ export default async function roomRoutes(fastify, _options) {
 
         const { roomEnded, newHostId, newHostName } = await maybeEndAfterLeave(prisma, id, request.user.id);
 
-        // Аудит 12.08.2026 P0: хост ушёл, но комната жива — надо сказать об этом
+        // Хост ушёл, но комната жива — надо сказать об этом
         // тем, кто остался, иначе новый хост узнает о своей роли только при
         // перезаходе (session.ready читает hostID из БД), а до тех пор плеером
         // не управляет НИКТО. Публикация best-effort: упавший Redis не должен
@@ -874,7 +875,7 @@ export default async function roomRoutes(fastify, _options) {
         // History for kicked user
         await recordWatchHistory(prisma, userId, room);
 
-        // Аудит 26.07.2026 P1: broadcastToRoom не существовал (no-op за
+        // broadcastToRoom не существовал (no-op за
         // optional chaining) — сокет кикнутого оставался в комнате и читал
         // броадкасты. kickUser закрывает его WS на всех репликах через RoomEventBus.
         try {
@@ -1022,10 +1023,10 @@ export default async function roomRoutes(fastify, _options) {
         return reply.send(payload);
     });
 
-    // P0-50/P0-56/P0-57: GET /api/rooms/:id/participants — active participant snapshot
-    // P0-56: NO Redis KEYS — uses room-indexed ZSET + Lua to prune expired and return active userIds.
-    // P0-57: host returned separately with online status, not forced into participants.
-    // P1-65: single Lua call, no N+1 zcount.
+    // GET /api/rooms/:id/participants — active participant snapshot
+    // NO Redis KEYS — uses room-indexed ZSET + Lua to prune expired and return active userIds.
+    // Host returned separately with online status, not forced into participants.
+    // Single Lua call, no N+1 zcount.
     fastify.get('/rooms/:id/participants', {
         preHandler: [fastify.authenticate],
         config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
@@ -1048,7 +1049,7 @@ export default async function roomRoutes(fastify, _options) {
             return reply.status(403).send({ error: 'Not a room member' });
         }
 
-        // P0-56: Use room-indexed ZSET instead of KEYS.
+        // Use room-indexed ZSET instead of KEYS.
         // Each presence key is plink:presence:{roomId}:{userId} with ZSET of
         // connectionId → leaseExpiresAtMs. We also maintain a room-level index
         // ZSET: plink:room:{roomId}:activeUsers with userId → latestLeaseExpiresAtMs.
@@ -1066,7 +1067,7 @@ export default async function roomRoutes(fastify, _options) {
             activeUserIds = activeEntries;
         }
 
-        // P0-57: Fetch host separately with online status
+        // Fetch host separately with online status
         const host = await prisma.user.findUnique({
             where: { id: room.hostID },
             select: { id: true, username: true },
@@ -1081,13 +1082,13 @@ export default async function roomRoutes(fastify, _options) {
             : [];
 
         return reply.send({
-            // P0-57: host metadata separate from active participants
+            // Host metadata separate from active participants
             host: host ? {
                 userId: host.id,
                 username: host.username,
                 online: activeUserIds.includes(host.id),
             } : null,
-            // P0-57: only actually active connections
+            // Only actually active connections
             participants: users.map(u => ({ userId: u.id, username: u.username })),
         });
     });
@@ -1133,7 +1134,7 @@ export default async function roomRoutes(fastify, _options) {
             return reply.status(413).send({ error: 'Image too large (max 2.25MB)' });
         }
 
-        // M16: ИИ-модератор — активный мут и NSFW-проверка фото перед публикацией
+        // ИИ-модератор — активный мут и NSFW-проверка фото перед публикацией
         const modMutedSec = muteRemainingSec(roomId, request.user.id);
         if (modMutedSec > 0) {
             return reply.status(403).send({
@@ -1264,8 +1265,8 @@ export default async function roomRoutes(fastify, _options) {
             .send(parsed.buffer);
     });
 
-    // P0-59/P1-11: GET /api/rooms/:id/messages — chat catch-up with opaque cursor
-    // P0-59: cursor is opaque base64 of (createdAtMs,id), not raw messageId.
+    // GET /api/rooms/:id/messages — chat catch-up with opaque cursor
+    // Cursor is opaque base64 of (createdAtMs,id), not raw messageId.
     // Fetches limit+1 to determine hasMore deterministically.
     // Tie-breaker: createdAt > ts OR (createdAt = ts AND id > id).
     fastify.get('/rooms/:id/messages', {
@@ -1292,7 +1293,7 @@ export default async function roomRoutes(fastify, _options) {
             return reply.status(403).send({ error: 'Not a room member' });
         }
 
-        // P0-59: decode opaque cursor — base64 of "createdAtMs:id"
+        // Decode opaque cursor — base64 of "createdAtMs:id"
         let afterCreatedAt: Date | undefined;
         let afterId: string | undefined;
         if (cursor) {
@@ -1308,7 +1309,7 @@ export default async function roomRoutes(fastify, _options) {
             }
         }
 
-        // P0-59: fetch limit+1 to determine hasMore
+        // Fetch limit+1 to determine hasMore
         const fetchLimit = limit + 1;
         const messages = await prisma.chatMessage.findMany({
             where: {
@@ -1332,16 +1333,16 @@ export default async function roomRoutes(fastify, _options) {
                 text: true,
                 createdAt: true,
                 mediaType: true,
-                // Аудит 26.07.2026 P1: mediaData (base64 до ~3MB на сообщение)
+                // mediaData (base64 до ~3MB на сообщение)
                 // НЕ тянем — ради Boolean hasMedia; 200 фото давали ~600MB RSS.
             },
         });
 
-        // P0-59: hasMore is true only if we got limit+1 messages
+        // hasMore is true only if we got limit+1 messages
         const hasMore = messages.length > limit;
         const returnMessages = hasMore ? messages.slice(0, limit) : messages;
 
-        // P0-59: build nextCursor from last returned message
+        // Build nextCursor from last returned message
         let nextCursor: string | null = null;
         if (hasMore && returnMessages.length > 0) {
             const last = returnMessages[returnMessages.length - 1];
@@ -1358,7 +1359,7 @@ export default async function roomRoutes(fastify, _options) {
             : [];
         const senderMap = new Map(senders.map(s => [s.id, s.username]));
 
-        // Аудит 26.07.2026 P1: hasMedia без загрузки base64-тела — лёгкий
+        // hasMedia без загрузки base64-тела — лёгкий
         // запрос только id по кандидатам с mediaType.
         const mediaCandidateIds = returnMessages.filter(m => m.mediaType).map(m => m.id);
         const withMedia = mediaCandidateIds.length > 0
@@ -1381,7 +1382,7 @@ export default async function roomRoutes(fastify, _options) {
                 hasMedia: Boolean(m.mediaType && hasMediaSet.has(m.id)),
             })),
             hasMore,
-            nextCursor,  // P0-59: opaque cursor, not messageId
+            nextCursor,  // Opaque cursor, not messageId
         });
     });
 
@@ -1414,7 +1415,7 @@ export default async function roomRoutes(fastify, _options) {
     }, 15_000).unref();
 }
 
-/// Аудит 26.07.2026: код комнаты генерировался через Math.random() —
+/// Код комнаты генерировался через Math.random() —
 /// предсказуемый PRNG, не предназначенный для секретов. Для комнат
 /// с приватностью «по ссылке» этот код и есть единственный секрет,
 /// поэтому берём криптостойкий источник.

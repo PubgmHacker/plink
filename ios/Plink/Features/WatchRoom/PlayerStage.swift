@@ -1,4 +1,4 @@
-// Plink/Features/WatchRoom/PlayerStage.swift — GPT-5.6 V4 Rescue §7
+// Plink/Features/WatchRoom/PlayerStage.swift
 //
 // Neutral player stage. NO decoration: no glow, no border, no glass,
 // no theme stroke, no theme shadow, no theme corner radius.
@@ -11,16 +11,17 @@ struct PlayerStage: View {
     @Binding var ui: WatchRoomUIState
     let variant: WatchRoomLayoutState.Variant
 
-    // Ревью P2: короткие всплески буферизации показывать нельзя — любой seek
-    // (жёсткая коррекция дрифта, ±10 с, перемотка хостом) на 200-800 мс
-    // выставляет isBuffering, и спиннер мигал бы посреди кадра. Показываем
-    // только когда буферизация держится дольше порога; скрываем мгновенно.
+    // Short buffering spikes must not be shown. Any seek — a hard drift
+    // correction, a ±10s skip, the host scrubbing — sets isBuffering for
+    // 200-800ms, so a spinner bound directly to it would flash mid-scene.
+    // The chip appears only once buffering outlasts the threshold, and
+    // disappears immediately.
     @State private var showBufferingChip = false
     private static let bufferingChipDelayNs: UInt64 = 500_000_000
 
     var body: some View {
         ZStack {
-            // GPT-5.6 §3: plain black background, nothing else
+            // Plain black background, nothing else
             Color.black
 
             // Player surface — never decorated
@@ -88,7 +89,7 @@ struct PlayerStage: View {
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
 
-                // M40: своя полноценная панель управления вместо родной панели
+                // Своя полноценная панель управления вместо родной панели
                 // YouTube — перемотка с буфером, время, ±10 с, скорость,
                 // качество, звук и полный экран. Раньше здесь была только
                 // кнопка play для хоста, а всё остальное рисовал YouTube.

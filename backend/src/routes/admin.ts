@@ -1,10 +1,10 @@
-// src/routes/admin.ts — PATCH 16: Admin API endpoints
+// Admin API endpoints
 //
-// Brain Review 10 P0-67/P0-69: previous "admin" was iOS placeholder only.
+// Previous "admin" was iOS placeholder only.
 // This module implements the backend /api/admin/* routes that the iOS
 // AdminModules.swift expects.
 //
-// Authorization (per PATCH 09 spec):
+// Authorization:
 //   - All routes require ADMIN or FOUNDER role
 //   - 2FA must be enabled and verified (enforced below via JWT claims mfa + auth_time)
 //   - Recent auth (within 15 minutes) required for destructive actions
@@ -29,26 +29,30 @@ import { pushBroadcast } from '../services/pushService.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
 import { invalidateUserSnapshot } from '../middleware/auth.js';
 
-// Admin role check middleware — must be ADMIN or FOUNDER.
-// GPT-5 BE-P0-01: also require 2FA verified + recent auth (<=10 minutes)
-// for ALL admin requests. Mutations must wrap audit log in the same
-// Prisma transaction as the mutation itself.
+// Every /api/admin/* route passes four gates: authenticated, role is ADMIN or FOUNDER,
+// 2FA verified, and the session authenticated within the last ten minutes. The last two
+// are step-up requirements and apply to reads as well as writes — an admin who left a
+// session open on a laptop should not be able to ban a user without re-authenticating.
+//
+// Mutations additionally wrap their audit-log write in the same Prisma transaction as
+// the mutation, so an admin action cannot land without its audit row.
 const RECENT_AUTH_SECONDS = 10 * 60; // 10 minutes
 
 function requireAdmin(fastify: any) {
-  // Аудит 12.08.2026 (P0): этот хук читал request.user, но `authenticate`
-  // здесь не вызывался НИКОГДА — ни хуком, ни preHandler'ом на маршрутах.
-  // request.user всегда оставался пустым, поэтому все 22 маршрута /api/admin/*
-  // отдавали 401 даже основателю: админка в iOS (V5/PlinkAdminRoot) была мертва.
-  // Ровно этот же дефект уже находили и починили в moderation.ts (см. пункт 4
-  // в его шапке), а middleware/auth.ts специально научили прокидывать
-  // mfa/auth_time «чтобы step-up в requireAdmin проходил» — но сам вызов
-  // аутентификации так и не добавили.
+  // The `authenticate` hook below is the whole reason this function exists in its current
+  // shape. The role check used to read `request.user`, but nothing ever populated it —
+  // `authenticate` was called neither as a hook here nor as a preHandler on any route.
+  // So `request.user` was always empty and all 22 /api/admin/* routes answered 401 to
+  // everyone, the founder included: the iOS admin panel was simply dead.
   //
-  // Порядок хуков важен: Fastify выполняет preHandler-хуки в порядке
-  // регистрации и прерывает цепочку, как только хук отправил ответ. Поэтому
-  // authenticate (он сам отвечает 401/403/503) стоит первым, а проверка прав —
-  // второй и уже работает с заполненным request.user.
+  // The same defect had already been found and fixed in moderation.ts, and
+  // middleware/auth.ts was deliberately taught to forward mfa/auth_time so that the
+  // step-up check here could pass — yet the call that populates the user was never added.
+  //
+  // Hook order is behavioural. Fastify runs preHandler hooks in registration order and
+  // stops the chain as soon as one sends a reply, so `authenticate` (which answers
+  // 401/403/503 itself) has to come first; the authorization hook below then runs against
+  // a populated `request.user`.
   fastify.addHook('preHandler', fastify.authenticate);
 
   fastify.addHook('preHandler', async (request: any, reply: any) => {
@@ -66,13 +70,13 @@ function requireAdmin(fastify: any) {
       return reply.status(403).send({ error: 'Admin access required' });
     }
 
-    // GPT-5 BE-P0-01: 2FA must be enabled and verified.
+    // 2FA must be enabled and verified.
     // JWT claim `mfa: true` means the user completed 2FA in this session.
     if (request.user.mfa !== true) {
       return reply.status(401).send({ error: 'step_up_required', reason: 'mfa' });
     }
 
-    // GPT-5 BE-P0-01: recent auth required (auth_time within 10 minutes).
+    // Recent auth required (auth_time within 10 minutes).
     // JWT claim `auth_time` is set when the user authenticates (login or 2FA verify).
     if (typeof request.user.auth_time !== 'number') {
       return reply.status(401).send({ error: 'step_up_required', reason: 'missing_auth_time' });
@@ -112,7 +116,7 @@ export async function adminRoutes(fastify: any) {
     reply.send({ users, count: users.length });
   });
 
-  // GPT-5 BE-P0-01: ban endpoint with transaction-wrapped audit + reason required.
+  // Ban endpoint with transaction-wrapped audit + reason required.
   // - TEMPORARY: durationHours present → bannedUntil set
   // - PERMANENT: durationHours absent → banStatus PERMANENT
   // - Founder protection: cannot ban the last founder.
@@ -120,7 +124,7 @@ export async function adminRoutes(fastify: any) {
     const { id } = request.params;
     const { durationHours, reason } = request.body || {};
 
-    // GPT-5 BE-P0-01: reason required for destructive actions.
+    // Reason required for destructive actions.
     if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
       return reply.status(400).send({ error: 'Reason is required (min 3 chars) for ban action' });
     }
@@ -141,7 +145,7 @@ export async function adminRoutes(fastify: any) {
       : null;
     const banStatus = isPermanent ? 'PERMANENT' : 'TEMPORARY';
 
-    // GPT-5 BE-P0-01: wrap mutation + audit in one transaction.
+    // Wrap mutation + audit in one transaction.
     try {
       await prisma.$transaction(async (tx) => {
         const updateData: any = { bannedUntil };
@@ -171,13 +175,14 @@ export async function adminRoutes(fastify: any) {
       return reply.status(500).send({ error: 'Internal Server Error' });
     }
 
-    // Без сброса кэша снапшотов бан вступал бы в силу только через TTL (~30 c).
+    // Without this the ban would not take effect until the snapshot cache expired
+    // (~30s). See middleware/auth.ts.
     invalidateUserSnapshot(id);
 
     reply.send({ success: true, bannedUntil, banStatus, reason });
   });
 
-  // GPT-5 BE-P0-01: unban with transaction-wrapped audit + reason required.
+  // Unban with transaction-wrapped audit + reason required.
   fastify.post('/admin/users/:id/unban', async (request: any, reply: any) => {
     const { id } = request.params;
     const { reason } = request.body || {};

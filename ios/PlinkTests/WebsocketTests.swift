@@ -1,4 +1,4 @@
-// PlinkTests/WebsocketTests.swift — PATCH 21: websockets system tests
+// Websockets system tests
 //
 // Tests RealtimeClient state machine + message encoding/decoding.
 // No real WebSocket — uses contract tests on the message types.

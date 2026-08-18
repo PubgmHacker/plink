@@ -1,6 +1,6 @@
 // Plink/Features/WatchRoom/Ambient/AmbientState.swift
 //
-// GPT-5.6 SOL fix: AmbientState was previously in PurpleAmbientBackdrop.swift
+// AmbientState was previously in PurpleAmbientBackdrop.swift
 // which was deleted. Recreated here as a minimal struct for back-compat.
 // Used by WatchRoomUIState.ambient and AmbientVideoSampler.ambientState.
 

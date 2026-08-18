@@ -1,4 +1,4 @@
-// Plink/RTC/ParticipantVideoView.swift — PATCH 09: LiveKit video rendering
+// LiveKit video rendering
 //
 // P1/P2 Sprint fix: LiveKit integration disabled (see RoomRTCController.swift).
 // Voice/video chat UI hidden on all platforms (audit Option B).

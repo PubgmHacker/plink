@@ -3,20 +3,22 @@ import Foundation
 // MARK: - REST API Client
 /// Generic REST client for room CRUD, user management, etc.
 ///
-/// 🔧 FIX H10: encoder/decoder wrapped in a lock — JSONEncoder/JSONDecoder
-/// are NOT thread-safe under concurrent access from multiple Tasks.
-/// 🔧 FIX H11: request<T> now handles 204 No Content gracefully.
-/// 🔧 FIX C6: APIClient conforms to ObservableObject so it can be injected
-/// via @EnvironmentObject into AdminPanelView (was: each view created its own
-/// unauthenticated APIClient — now fixed with .shared singleton).
+/// Three properties this type guarantees and callers depend on:
+///
+/// - `JSONEncoder`/`JSONDecoder` are not thread-safe under concurrent access,
+///   and this client is used from many Tasks at once, so both are lock-guarded.
+/// - A 204 with an empty body decodes to a value rather than throwing.
+/// - There is one shared, authenticated instance. Views that construct their own
+///   get an unauthenticated client and silently fail every request, so the type
+///   is `ObservableObject` and injected rather than instantiated per view.
 final class APIClient: ObservableObject, @unchecked Sendable {
-    /// 🔧 Pack v3: Singleton — для использования в views без EnvironmentObject
+    /// Shared instance, for call sites that cannot reach an `@EnvironmentObject`.
     static let shared = APIClient()
 
     /// Public so media helpers (voice notes, avatars) can build authenticated URLs.
     let baseURL: URL
 
-    // 🔧 FIX H10: Lock-protected encoder/decoder (not thread-safe by Apple docs)
+    // Apple documents JSONEncoder/JSONDecoder as unsafe for concurrent use.
     private let encoderLock = NSLock()
     private let _encoder = JSONEncoder()
     private let decoderLock = NSLock()
@@ -31,7 +33,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         return _decoder
     }
 
-    // 🔧 FIX H10: authToken accessed from multiple Tasks — protect with lock.
+    // Read and written from concurrent Tasks on every request.
     private let tokenLock = NSLock()
     private var _authToken: String?
     var authToken: String? {
@@ -47,7 +49,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
 
     init(baseURL: String = PlinkConfig.apiURLString) {
         self.baseURL = URL(string: baseURL)!
-        // 🔧 FIX: Was `.convertToSnakeCase` — but the backend reads camelCase everywhere
+        // Was `.convertToSnakeCase` — but the backend reads camelCase everywhere
         // (rooms.ts: `mediaItem`, `hostName`, `maxParticipants`; auth.ts: `refreshToken`;
         // friends.ts: `friendId`; profile.ts: `avatarURL`; messages.ts: `receiverId`).
         // The encoder was silently converting iOS camelCase → snake_case, the backend
@@ -62,7 +64,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         // (only converts keys that actually contain underscores) and provides forward
         // compat if any backend field ever switches to snake_case.
         _decoder.keyDecodingStrategy = .convertFromSnakeCase
-        // 🔧 Pack v2: ISO8601 с поддержкой миллисекунд.
+        // Pack v2: ISO8601 с поддержкой миллисекунд.
         // Бэкенд Prisma возвращает даты как "2026-07-03T16:53:52.778Z"
         // (с миллисекундами). Стандартный .iso8601 Swift НЕ парсит миллисекунды
         // → decoding падает с ошибкой → iOS показывает "Ресурс не найден"
@@ -88,7 +90,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
 
     // MARK: - Generic Request
 
-    /// 🔧 FIX AUTH BUG: Public auth endpoints must NOT send a stale Authorization header.
+    /// FIX AUTH BUG: Public auth endpoints must NOT send a stale Authorization header.
     /// Some servers (and reverse proxies) reject requests carrying an expired token even
     /// on public routes like /auth/signin, returning 401 with "session expired" — which
     /// blocks the login flow entirely.
@@ -100,11 +102,11 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             "auth/signup",
             "auth/refresh",
             "auth/fcm-token",   // FCM registration happens after signin but token may be in-flight
-            "auth/google",
             "auth/apple",
             // auth/guest — только веб /w/:code, в приложении гостевого входа нет
-            "auth/vk",
             "auth/yandex",
+            "auth/forgot-password",
+            "auth/reset-password",
         ]
         return publicPaths.contains(where: { path.hasPrefix($0) })
     }
@@ -132,7 +134,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         }
     }
 
-    // Аудит 26.07.2026 P0: раньше ЛЮБОЙ 401 немедленно постил plinkSessionExpired
+    // Раньше ЛЮБОЙ 401 немедленно постил plinkSessionExpired
     // и выбрасывал на логин, хотя в Keychain лежал валидный refresh-токен, а
     // серверный TTL access-токена (1 час) короче клиентского хардкода (24 часа).
     // Теперь: один тихий рефреш → повтор запроса; sessionExpired — только если
@@ -174,7 +176,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // 🔧 FIX AUTH BUG: Don't attach stale token to public auth endpoints
+        // FIX AUTH BUG: Don't attach stale token to public auth endpoints
         if let token = authToken, !Self.isPublicAuthEndpoint(path) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -191,20 +193,29 @@ final class APIClient: ObservableObject, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200..<300:
-            // 🔧 FIX H11: Handle 204 No Content (empty body) gracefully
+            // A 204 has no body, so handing the empty Data to the decoder throws
+            // even though the request succeeded. Types that have a meaningful
+            // "nothing came back" value declare it via EmptyDecodable.
             if data.isEmpty {
                 if let empty = T.self as? EmptyDecodable.Type {
+                    // T conforms to EmptyDecodable, so emptyValue() returns a T and
+                    // the `as?` succeeds; the cast is the unreachable branch of a
+                    // fallback the type system cannot see through.
+                    // swiftlint:disable:next force_cast
                     return empty.emptyValue() as? T ?? EmptyResponse() as! T
                 }
-                // If T is Optional, decode returns nil — wrap in try?
+                // Guarded by the equality check on the line above: T *is*
+                // EmptyResponse here, and generics give no way to say so.
                 if T.self == EmptyResponse.self {
+                    // swiftlint:disable:next force_cast
                     return EmptyResponse() as! T
                 }
             }
             return try decoder.decode(T.self, from: data)
         case 401:
-            // Аудит 26.07.2026 P1: на публичных auth-маршрутах 401 = неверные креды,
-            // а не «Сессия истекла» — отдаём осмысленный текст вместо unauthorized.
+            // On the public auth routes a 401 means "wrong credentials", not
+            // "session expired" — surface that instead of a generic unauthorized,
+            // which would send the user to a re-login they cannot complete.
             if Self.isPublicAuthEndpoint(path) {
                 let serverMsg = Self.parseErrorMessage(data: data)
                 let friendly: String
@@ -241,7 +252,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Аудит 26.07.2026 P1: post только с main-потока — подписчик
+    /// Post только с main-потока — подписчик
     /// (AuthLaunchGate) мутирует @State и зовёт @MainActor-методы.
     @MainActor
     static func postSessionExpired() {
@@ -292,14 +303,14 @@ final class APIClient: ObservableObject, @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
-        // 🔧 FIX: only set Content-Type when there's a body. Fastify rejects
+        // Only set Content-Type when there's a body. Fastify rejects
         // empty body with Content-Type: application/json → 400 error.
         // This affected POST /rooms/:id/leave (no body).
         if body != nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        // 🔧 FIX AUTH BUG: Don't attach stale token to public auth endpoints
+        // FIX AUTH BUG: Don't attach stale token to public auth endpoints
         if let token = authToken, !Self.isPublicAuthEndpoint(path) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -318,7 +329,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
         case 200..<300:
             return
         case 401:
-            // Аудит 26.07.2026 P1: те же правила, что и в request<T> —
+            // Те же правила, что и в request<T> —
             // на публичных auth-маршрутах 401 = неверные креды, post — только с main.
             if Self.isPublicAuthEndpoint(path) {
                 let serverMsg = Self.parseErrorMessage(data: data)
@@ -342,21 +353,28 @@ final class APIClient: ObservableObject, @unchecked Sendable {
                 throw productError
             }
             throw APIError.serverError(status: httpResponse.statusCode, message: "Request failed")
-        // 🔧 FIX M7: requestNoBody was missing 404 handling
+        // 404 is called out separately so callers can branch on `.notFound`.
+        // Falling through to `default` collapses it into a generic serverError,
+        // and a missing room then looks identical to a broken backend.
         case 404:
             throw APIError.notFound
         case 409:
-            // Аудит 26.07.2026 P1: парсим реальное тело ответа (раньше — Data())
+            // Parse the real response body: the server explains which field
+            // conflicted, and that message is what the user needs to see.
             let serverMsg = Self.parseErrorMessage(data: data)
             throw APIError.conflict(message: serverMsg ?? "Конфликт данных")
         default:
-            throw APIError.serverError(status: httpResponse.statusCode, message: "Request failed")
+            let errorBody = try? JSONDecoder().decode(APIErrorBody.self, from: data)
+            throw APIError.serverError(
+                status: httpResponse.statusCode,
+                message: errorBody?.message ?? Self.parseErrorMessage(data: data) ?? "Request failed"
+            )
         }
     }
 }
 
-// MARK: - Empty Response Helper (FIX H11)
-/// Default value for 204 No Content responses
+// MARK: - Empty Response Helper
+/// Opt-in for types that have a meaningful value for a 204 No Content response.
 protocol EmptyDecodable {
     static func emptyValue() -> Self
 }
@@ -381,11 +399,11 @@ enum APIError: LocalizedError {
     case invalidURL
     case invalidResponse
     case unauthorized
-    /// Аудит 26.07.2026 P0: внутренний сигнал «401 на первой попытке» —
+    /// Внутренний сигнал «401 на первой попытке» —
     /// обёртка request/requestNoBody ловит его, делает одиночный refresh и
     /// повторяет запрос. Наружу этот кейс не выходит.
     case unauthorizedNeedsRefresh
-    /// Аудит 26.07.2026 P1: 401 на публичных auth-маршрутах (signin/signup) —
+    /// 401 на публичных auth-маршрутах (signin/signup) —
     /// это неверные креды, а не истёкшая сессия. Отдельный кейс с текстом сервера.
     case invalidCredentials(message: String)
     /// Плинк+ 02.08.2026: 402 — функция требует подписки. По этому кейсу

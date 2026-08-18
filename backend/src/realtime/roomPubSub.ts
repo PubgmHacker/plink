@@ -1,4 +1,4 @@
-// src/realtime/roomPubSub.ts — Cross-replica fanout via Redis Pub/Sub (runbook §4)
+// src/realtime/roomPubSub.ts — Cross-replica fanout via Redis Pub/Sub
 //
 // Each backend replica runs ONE subscriber per room-channel it has local
 // connections in. When a sync.command is applied on replica A, the Lua script
@@ -6,7 +6,7 @@
 // and rebroadcasts to its local connections — same as if the command had been
 // issued on B.
 //
-// CRITICAL (runbook §4): the connection that SUBSCRIBEs MUST be a separate
+// CRITICAL: the connection that SUBSCRIBEs MUST be a separate
 // ioredis instance from the one used for commands. ioredis enters
 // subscribe-mode on a connection and refuses non-subscribe commands on it.
 
@@ -82,7 +82,7 @@ export class RoomPubSub {
     if (set.size === 0) {
       this.listeners.delete(roomId);
       if (this.subscribedChannels.has(roomId)) {
-        // Аудит 26.07.2026 P1: снимаем флаг ДО await — иначе конкурентный
+        // Снимаем флаг ДО await — иначе конкурентный
         // subscribe() (быстрый реконнект) в окне await считал канал
         // подписанным, пропускал реальный SUBSCRIBE, и реплика переставала
         // получать sync.state до полного опустошения комнаты.

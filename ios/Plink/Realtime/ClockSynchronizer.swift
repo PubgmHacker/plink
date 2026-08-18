@@ -1,5 +1,5 @@
 // Plink/Realtime/ClockSynchronizer.swift
-// Server clock estimator (runbook §5)
+// Server clock estimator
 //
 // Replaces the legacy single-EMA sample taken every 25s. The new design:
 //   - 7 probes at 120ms intervals on connect (rapid convergence)
@@ -15,7 +15,7 @@
 //   - Median (not mean) is robust to occasional large-RTT outliers
 //     (e.g. probe that arrived during a brief network stall).
 //
-// IMPORTANT (runbook §19):
+// IMPORTANT:
 //   'currentServerTime нельзя хранить как единственный снимок времени:
 //    хранить offset к текущим часам.' — This class never stores a snapshot.
 //   It stores an OFFSET that's added to Date() at read time.
@@ -85,7 +85,7 @@ public final class ClockSynchronizer {
     }
 
     /// Current server time in ms, computed on demand from local clock + offset.
-    /// NEVER cached as a snapshot (runbook §19).
+    /// NEVER cached as a snapshot.
     public var serverNowMs: Double {
         Date().timeIntervalSince1970 * 1000 + offsetMs
     }

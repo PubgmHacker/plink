@@ -17,7 +17,7 @@ final class OrientationManager {
         // macOS Catalyst / симулятор: через requestGeometryUpdate
         if #available(iOS 16.0, *) {
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) { _ in }
-            // 🔧 iOS 16+: заменённый API вместо устаревшего attemptRotationToDeviceOrientation().
+            // iOS 16+: заменённый API вместо устаревшего attemptRotationToDeviceOrientation().
             // Просит UIKit пересчитать поддерживаемые ориентации для всех VC в сцене.
             for vc in scene.windows.compactMap({ $0.rootViewController }) {
                 vc.setNeedsUpdateOfSupportedInterfaceOrientations()
@@ -35,7 +35,7 @@ final class OrientationManager {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
         if #available(iOS 16.0, *) {
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-            // 🔧 iOS 16+: заменённый API вместо устаревшего attemptRotationToDeviceOrientation().
+            // iOS 16+: заменённый API вместо устаревшего attemptRotationToDeviceOrientation().
             for vc in scene.windows.compactMap({ $0.rootViewController }) {
                 vc.setNeedsUpdateOfSupportedInterfaceOrientations()
             }
@@ -45,15 +45,20 @@ final class OrientationManager {
         }
     }
 
-    /// Текущая ориентация портретная?
-    /// 🔧 FIX M9: Added explicit parentheses — `??` has lower precedence than `&&`,
-    /// so the old expression parsed as `interfaceOrientation.isPortrait ?? (true && (...))`
-    /// which returned true for landscape orientations when UIDevice was .unknown.
+    /// Whether the device is currently in a portrait orientation.
+    ///
+    /// `UIDevice.orientation` reports `.faceUp`/`.faceDown`/`.unknown` when the
+    /// phone is flat on a table, which is neither portrait nor landscape. Those
+    /// cases fall back to the window scene, which always has a real orientation.
+    ///
+    /// Keep the parentheses in the `??` fallback below: `??` binds looser than
+    /// `&&`, so dropping them makes the default swallow the whole condition and
+    /// landscape reads as portrait whenever the device orientation is unknown.
     var isPortrait: Bool {
         if UIDevice.current.orientation.isPortrait {
             return true
         }
-        // Если UIDevice.unknown (лежит на столе) — проверяем window scene
+        // Flat on a table — the device gives no usable answer, so ask the window.
         if UIDevice.current.orientation == .unknown ||
            UIDevice.current.orientation == .faceUp ||
            UIDevice.current.orientation == .faceDown {
@@ -68,7 +73,7 @@ final class OrientationManager {
 
     // MARK: - Orientation Lock (fix v2)
     //
-    // 🔧 FIX v2 (July 2026): AppDelegate-level orientation lock for RoomView.
+    // FIX v2 (July 2026): AppDelegate-level orientation lock for RoomView.
     // See PlinkAppDelegate in PlinkApp.swift for the full rationale.
     //
     // Why both `lockOrientation(_:)` AND `forceLandscape()`/`forcePortrait()`:

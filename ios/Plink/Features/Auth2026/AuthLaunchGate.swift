@@ -12,6 +12,11 @@ enum LaunchDestination: Equatable {
     case authentication
     case onboarding
     case app
+
+    /// После входа или регистрации: новый человек видит онбординг, повторный — сразу приложение.
+    static func afterAuthentication(needsOnboarding: Bool) -> LaunchDestination {
+        needsOnboarding ? .onboarding : .app
+    }
 }
 
 struct AuthLaunchGate: View {
@@ -134,7 +139,7 @@ struct AuthLaunchGate: View {
         }
     }
 
-    /// Аудит 26.07.2026 P2: у сплэша не было своего таймаута.
+    /// У сплэша не было своего таймаута.
     /// restoreAndValidateSession упирается в дефолтные 60 с URLSession, поэтому
     /// на висящем соединении (плохой Wi-Fi, captive portal) заставка держалась
     /// почти минуту. Ждём не дольше `seconds`: с кэшированным пользователем
@@ -182,13 +187,15 @@ struct AuthLaunchGate: View {
         APIClient.shared.authToken = AuthService.shared.authToken
             ?? AuthTokenStore.shared.token
         authTransitionNonce += 1
-        // Registration must never be held behind onboarding during the smoke
-        // flow; onboarding can be opened later from the profile/settings flow.
         withAnimation(.easeOut(duration: 0.32)) {
-            destination = .app
+            destination = LaunchDestination.afterAuthentication(
+                needsOnboarding: onboardingStore.needsCurrentOnboarding
+            )
         }
-        Logger.app.info("[AuthGate] destination set to app token=\(APIClient.shared.authToken != nil)")
-        flushPendingDeepLink()
+        Logger.app.info("[AuthGate] destination set to \(String(describing: destination)) token=\(APIClient.shared.authToken != nil)")
+        if destination == .app {
+            flushPendingDeepLink()
+        }
     }
 
     // Разрешение на уведомления больше не запрашивается отсюда. Раньше обе
@@ -217,7 +224,7 @@ struct AuthLaunchGate: View {
 
     // MARK: - Отложенные диплинки
     //
-    // Аудит 26.07.2026 P2: ссылка ждала входа в @State pendingURL и терялась,
+    // Ссылка ждала входа в @State pendingURL и терялась,
     // если пользователь уходил регистрироваться и приложение выгружали.
     // Теперь она живёт в UserDefaults — переживает kill приложения (мёртвый
     // DeepLinkRouter.storePending, писавший в тот же слот, удалён).
@@ -298,7 +305,7 @@ struct AuthLaunchGate: View {
 
 /// Сплэш берёт цвета ИЗ ШЕЛЛА (PlinkTheatre), а не держит свою копию.
 ///
-/// Аудит 04.08.2026: здесь лежала третья палитра проекта со своими значениями
+/// Здесь лежала третья палитра проекта со своими значениями
 /// (#060d0f вместо #0B0B0D и т.д.) и с мёртвыми teal-токенами от палитры,
 /// которой в продукте уже нет. Сплэш и вход показываются друг за другом, и
 /// расхождение читалось как смена фона при переходе.
@@ -455,4 +462,5 @@ extension Notification.Name {
     /// Posted after leave/end so Home/Friends/Rooms re-sync active vs history lists.
     static let plinkRoomsDidChange = Notification.Name("plinkRoomsDidChange")
     static let plinkProfileDidUpdate = Notification.Name("plinkProfileDidUpdate")
+    static let plinkOpenChat = Notification.Name("plinkOpenChat")
 }

@@ -1,4 +1,3 @@
-// src/schemas/ai.ts — GPT-5.6 §12
 import { z } from 'zod';
 
 export const aiRequestSchema = z.object({

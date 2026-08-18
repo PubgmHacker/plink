@@ -1,4 +1,4 @@
-// PlinkTests/PresenceTests.swift — PATCH 19: presence system tests
+// Presence system tests
 //
 // Closes the "presence" red system in RegressionMatrix (was red, now green).
 // Tests presence tracking: join, leave, speaking state, host detection.

@@ -1,9 +1,9 @@
-// PlinkTests/YouTubePlaybackControllerRuntimeTests.swift — PATCH 03
+// PlinkTests/YouTubePlaybackControllerRuntimeTests.swift
 //
 // GLM-5.2 master implementation patch — Commit Group 3.
 //
 // Runtime test plan for EmbeddedPlaybackController (YouTube IFrame API).
-// 10 cases per PATCH 03 spec:
+// 10 cases:
 //   1. ready       — prepare() resolves and isReady becomes true within 8s
 //   2. play        — play() transitions isPlaying to true
 //   3. pause       — pause() transitions isPlaying to false

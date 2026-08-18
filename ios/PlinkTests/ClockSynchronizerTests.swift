@@ -1,4 +1,4 @@
-// PlinkTests/ClockSynchronizerTests.swift — PATCH 17: clock sync tests
+// Clock sync tests
 //
 // Closes the "sync" yellow system in RegressionMatrix (was yellow,
 // now green). Tests cover: probe ingestion, offset calculation,

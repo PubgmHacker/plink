@@ -1,6 +1,6 @@
-// Plink/Features/WatchRoom/WatchRoomSupportTypes.swift — PATCH 02
+// Plink/Features/WatchRoom/WatchRoomSupportTypes.swift
 //
-// Slimmed down per PATCH 02 spec. UI views have been extracted to:
+// Slimmed down. UI views have been extracted to:
 //   - PlayerControlLayer.swift  (PlayerTopChrome, PlayerCenterControl,
 //                                 PlayerChromeButton,
 //                                 PlayerLoadingView, BufferingOverlay,
@@ -19,11 +19,11 @@ import SwiftUI
 
 // MARK: - RTC UI States
 //
-// Note: DanmakuMessage and DanmakuPlacement now live in
-// Plink/Features/WatchRoom/Danmaku/DanmakuEngine.swift (PATCH 05).
-// The old DanmakuMessage struct here had a `track: Int` field that was
-// never used for true lane scheduling — PATCH 05 replaces it with the
-// DanmakuEngine actor that assigns lanes dynamically based on availability.
+// Note: DanmakuMessage and DanmakuPlacement live in
+// Plink/Features/WatchRoom/Danmaku/DanmakuEngine.swift.
+// Lane scheduling is the DanmakuEngine actor's job: it assigns lanes
+// dynamically based on availability, so a message carries no static
+// `track: Int` index.
 
 enum MicrophoneUIState: Equatable {
     case off

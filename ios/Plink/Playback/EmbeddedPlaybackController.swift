@@ -1,10 +1,9 @@
-// Plink/Playback/EmbeddedPlaybackController.swift — PATCH 03 (Brain Phase 2)
 //
 // The single official YouTube embedded controller for the room session.
-// Owns one WKWebView per room (runbook §16: 'Не добавлять еще один
+// Owns one WKWebView per room (: 'Не добавлять еще один
 // singleton WebView' — coordinator is per-room, never global).
 //
-// Brain Phase 2 changes:
+// Ownership split and hard constraints:
 //   - YouTube owns play/pause/timeline/captions/quality (official controls visible).
 //   - Plink owns room close/sync/participants/chat/reactions/replace-video only.
 //   - NO loadHTMLString — navigate WKWebView to backend /api/media/youtube-player
@@ -19,7 +18,7 @@
 //   - 'error' (2/5/100/101/150/153) → lastError set, isBuffering cleared.
 //   - poll task: plinkSnapshot() every 250ms (visible) / 1s (background).
 //
-// App Store compliance (runbook §7 + Brain Phase 1.2):
+// App Store compliance:
 //   - Official YouTube IFrame API served from Plink backend (real HTTPS origin).
 //   - NO server-side extraction (no Innertube, no yt-dlp, no Piped).
 //   - NO cookie relay — cookies never leave the device.
@@ -31,7 +30,7 @@ import UIKit
 import WebKit
 import Observation
 
-/// Brain Phase 2: determines who owns transport UI.
+/// Determines who owns transport UI.
 /// `.provider` (YouTube) → hide Plink's PlayerControlLayer.
 /// `.plink` (native HLS/MP4) → render PlayerControlLayer.
 public enum PlayerChromeOwnership: Sendable {
@@ -55,14 +54,14 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
     /// surface YouTube error callback for UI binding.
     public private(set) var lastError: String?
 
-    /// M40: контролы рисует Plink (`controls=0` в обёртке плеера).
+    /// Контролы рисует Plink (`controls=0` в обёртке плеера).
     /// Раньше здесь было `.provider` — панель YouTube поверх видео.
     /// Переключается вместе с параметром `chrome` в URL обёртки: если
     /// вернуть `.provider`, надо вернуть и `chrome=youtube`, иначе видео
     /// останется вообще без органов управления.
     public var chromeOwnership: PlayerChromeOwnership { .plink }
 
-    // MARK: - M40: состояние для своей панели управления
+    // MARK: - Состояние для своей панели управления
 
     /// Доля загруженного (0…1) — рисуется вторым слоем на полосе перемотки.
     public private(set) var buffered: Double = 0
@@ -139,7 +138,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
     private var pollTask: Task<Void, Never>?
     private let bridge = EmbeddedMessageHandler()
 
-    /// Brain Phase 2: backend HTTPS wrapper URL.
+    /// Backend HTTPS wrapper URL.
     /// Set via prepare(_:) — the wrapper page lives at /api/media/youtube-player.
     private static let backendBaseURL = URL(string: PlinkConfig.baseURLString)!
 
@@ -170,7 +169,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
 
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
-        // M14: картинка-в-картинке для встроенного плеера
+        // картинка-в-картинке для встроенного плеера
         config.allowsPictureInPictureMediaPlayback = true
         // Allow autoplay without user gesture (wrapper mutes then unmutes)
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -227,7 +226,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
         components.path = "/api/media/youtube-player"
         components.queryItems = [
             URLQueryItem(name: "id", value: id),
-            // M40: обёртка отдаёт плеер без родных контролов — панель рисует Plink.
+            // Обёртка отдаёт плеер без родных контролов — панель рисует Plink.
             // Значение должно соответствовать `chromeOwnership` выше.
             URLQueryItem(name: "chrome", value: "plink"),
             // Cache-bust so wrapper HTML updates (bridge fixes) land immediately
@@ -336,7 +335,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
             pending = pending.merging(position: target, playing: nil)
             return .unavailable
         }
-        // PATCH 03: plinkSeek returns true on success, undefined if not loaded.
+        // plinkSeek returns true on success, undefined if not loaded.
         let result = await evaluate("window.plinkSeek && window.plinkSeek(\(target));")
         guard result != nil else { return .unavailable }
         position = target
@@ -366,7 +365,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
     }
 
     public func setRate(_ rate: Float) {
-        // M40: скорость нужна своей панели управления. Для синхронизации она
+        // Скорость нужна своей панели управления. Для синхронизации она
         // по-прежнему не используется — `capabilities.supportsRateCorrection`
         // остаётся false, и OrderedSyncController правит рассинхрон точным seek.
         let clamped = max(0.25, min(2.0, rate))
@@ -492,7 +491,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
     }
 
     private func handleError(code: Int) {
-        // Brain §5.1: map official YouTube IFrame API error codes.
+        // Brain: map official YouTube IFrame API error codes.
         // https://developers.google.com/youtube/iframe_api_reference#onError
         let message: String
         switch code {
@@ -510,7 +509,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
 
     // MARK: - Polling
 
-    /// PATCH 03: poll at 250ms while visible, 1s while backgrounded, stop
+    /// Poll at 250ms while visible, 1s while backgrounded, stop
     /// after teardown. Position + duration in one JS round-trip via
     /// plinkSnapshot() to halve the IPC overhead.
     private func startPolling() {
@@ -553,7 +552,7 @@ public final class EmbeddedPlaybackController: PlaybackControlling {
                                 self.isBuffering = false
                             }
                         }
-                        // M40: расширенный снимок для своей панели управления.
+                        // Расширенный снимок для своей панели управления.
                         if let b = dict["buffered"] as? Double, b.isFinite {
                             self.buffered = max(0, min(1, b))
                         }

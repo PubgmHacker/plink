@@ -1,5 +1,5 @@
 // Plink/Services/CrashReporter.swift
-// M12: локальный crash-репортинг без внешних SDK.
+// Локальный crash-репортинг без внешних SDK.
 //
 // Перехватывает NSException и фатальные сигналы, пишет JSON-отчёт
 // на диск и при следующем запуске отправляет на /api/telemetry/crash.

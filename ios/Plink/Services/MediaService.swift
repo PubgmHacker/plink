@@ -66,7 +66,7 @@ final class MediaService {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        // 🔧 v8: backend extractStream expects a watch URL, not embed URL.
+        // Backend extractStream expects a watch URL, not embed URL.
         // Convert embed → watch before sending.
         let urlToSend: String
         if youTubeURL.contains("youtube.com/embed/") {
@@ -89,7 +89,7 @@ final class MediaService {
 
         // 4. Decode — backend /extract-url returns StreamInfo format:
         //    {id, title, author, thumbnailURL, streamURL, duration, isLive, extractor, formats?}
-        // 🔧 v44.2: reverted v44.1 change — this is the correct format that
+        // V44.2: reverted v44.1 change — this is the correct format that
         // plink-backend/src/services/streamExtractor.ts actually returns.
         let response = try decoder.decode(ExtractResponse.self, from: data)
 
@@ -107,7 +107,7 @@ final class MediaService {
         let media = ExtractedMedia(
             id: response.id,
             title: response.title,
-            // 🔧 v8: backend StreamInfo uses 'author' (not 'artist'), map it
+            // Backend StreamInfo uses 'author' (not 'artist'), map it
             artist: response.author,
             thumbnailURL: response.thumbnailURL.flatMap(URL.init(string:)),
             streamURL: streamURL,
@@ -241,7 +241,7 @@ struct ValidateRequest: Codable {
 }
 
 struct ExtractResponse: Codable {
-    /// 🔧 v44.2: matches plink-backend StreamInfo (streamExtractor.ts):
+    /// V44.2: matches plink-backend StreamInfo (streamExtractor.ts):
     /// {id, title, author, thumbnailURL, streamURL, duration, isLive, extractor}
     let id: String
     let title: String

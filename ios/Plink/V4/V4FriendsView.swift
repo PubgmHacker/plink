@@ -6,7 +6,7 @@ import PhotosUI
 import UIKit
 import Foundation
 
-// Аудит 26.07.2026: здесь был статический макет V4FriendsView с захардкоженными
+// Здесь был статический макет V4FriendsView с захардкоженными
 // данными (0 инстанцирований) — удалён; enum сегментов оставлен, он живой.
 
 // MARK: - Friends hub segments
@@ -48,14 +48,14 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
 // MARK: - Live friends
 
 struct V4FriendsViewLive: View {
-    // M16: групповые беседы (мессенджер внутри приложения)
-    // M21/M22: unified inbox — беседы встроены прямо в чаты
+    // Групповые беседы (мессенджер внутри приложения)
+    // Unified inbox — беседы встроены прямо в чаты
     @ObservedObject var groupService = GroupChatService.shared
     @ObservedObject var muteStore = ChatMuteStore.shared
     @State var openGroup: GroupChatDTO? = nil
     let theme: V4Theme
     var store: V4FriendsStore?
-    /// M14: активные комнаты — для «Друг сейчас смотрит».
+    /// Активные комнаты — для «Друг сейчас смотрит».
     var roomsStore: V4RoomsStore?
     /// When false (other tab), pause polling. Root passes tab == friends.
     var isActive: Bool = true
@@ -68,7 +68,7 @@ struct V4FriendsViewLive: View {
     @State var showCreateRoom = false
     @State var watchWithFriend: Friend?
     @State var showAddFriend = false
-    @State var showCreateGroupSheet = false  // M34: CTA «Создать беседу»
+    @State var showCreateGroupSheet = false  // CTA «Создать беседу»
     @State private var showRequests = false
     @State var toast: String?
     @State private var recentRooms: [Room] = []
@@ -102,7 +102,7 @@ struct V4FriendsViewLive: View {
         peopleFriends.filter { $0.isOnline && !$0.deleted }
     }
 
-    /// M14: друзья, которые прямо сейчас хостят активную комнату.
+    /// Друзья, которые прямо сейчас хостят активную комнату.
     var friendsWatchingNow: [(friend: Friend, room: Room)] {
         guard let rooms = roomsStore?.rooms, !rooms.isEmpty else { return [] }
         var seen = Set<String>()
@@ -129,6 +129,46 @@ struct V4FriendsViewLive: View {
     }
 
     private var totalUnread: Int { dmService.totalUnread }
+
+    private func consumePendingChat(_ target: PlinkChatTarget) {
+        segment = .chats
+        switch target {
+        case .dm(let friendId):
+            Task { await presentDM(friendId: friendId) }
+        case .group(let groupId):
+            Task { await presentGroup(groupId: groupId) }
+        }
+        DeepLinkRouter.shared.clearPendingChat()
+    }
+
+    private func presentDM(friendId: String) async {
+        if let existing = store?.friends.first(where: { $0.id == friendId })
+            ?? FriendManager.shared.friends.first(where: { $0.id == friendId }) {
+            dmFriend = existing
+            return
+        }
+        struct UserDTO: Decodable {
+            let username: String?
+            let avatarURL: String?
+        }
+        let user: UserDTO? = try? await APIClient.shared.request("users/\(friendId)")
+        dmFriend = Friend(
+            id: friendId,
+            username: user?.username ?? "Пользователь",
+            avatarURL: user?.avatarURL,
+            isOnline: false,
+            friendsSince: Date()
+        )
+    }
+
+    private func presentGroup(groupId: String) async {
+        if groupService.groups.isEmpty {
+            await groupService.loadGroups()
+        }
+        if let group = groupService.groups.first(where: { $0.id == groupId }) {
+            openGroup = group
+        }
+    }
 
     var body: some View {
         // No NavigationStack — keep living theme visible
@@ -177,6 +217,15 @@ struct V4FriendsViewLive: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(V4.ink)
         .background(Color.clear)
+        .onAppear {
+            if let target = DeepLinkRouter.shared.pendingChat {
+                consumePendingChat(target)
+            }
+        }
+        .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
+            guard let target else { return }
+            consumePendingChat(target)
+        }
         .sheet(item: $dmFriend, onDismiss: {
             Task { await dmService.refreshUnread() }
         }) { friend in
@@ -322,7 +371,7 @@ struct V4FriendsViewLive: View {
             Task { await loadRecentRooms() }
         }
         // Friends list (presence + avatars) while tab visible.
-        // Аудит 26.07.2026 P2: было 1 с — три параллельных цикла давали ~3 запроса
+        // Было 1 с — три параллельных цикла давали ~3 запроса
         // в секунду и жгли батарею/трафик. Мгновенные события идут по realtime,
         // поллинг оставлен fallback-ом и только для активной вкладки на переднем плане.
         .task(id: isActive) {
@@ -844,14 +893,14 @@ struct V4FriendsViewLive: View {
                 .frame(height: 0.5)
                 .padding(.leading, 74) // align under text, past avatar
         }
-                // M22: Telegram-July-2026-style context menu
+                // Telegram-July-2026-style context menu
         .contextMenu {
             // — Primary —
             Button { dmFriend = friend } label: {
                 Label("Открыть чат", systemImage: "message.fill")
             }
             Button {
-                // Аудит 26.07.2026 P1: раньше тут звали chatDidOpen — чат «висел
+                // Раньше тут звали chatDidOpen — чат «висел
                 // открытым» (openFriendId), бейдж молчал, всё входящее авточиталось.
                 Task { await dmService.markChatRead(friendId: friend.id) }
                 toast = "Отмечено как прочитанное"
@@ -898,7 +947,7 @@ struct V4FriendsViewLive: View {
                 }
             } label: { Label("Заблокировать", systemImage: "hand.raised.fill") }
         }
-        // Аудит 26.07.2026 P1: swipeActions удалены — они работают только в List,
+        // swipeActions удалены — они работают только в List,
         // а строки лежат в VStack/ScrollView (мёртвый код, свайпы не срабатывали).
         // Все действия доступны через contextMenu выше.
     }
@@ -907,7 +956,7 @@ struct V4FriendsViewLive: View {
         HapticManager.impact(.medium)
         let willPin = !pinStore.isPinned(friend.id)
         Task {
-            // Аудит 26.07.2026 P2: различаем «сервер подтвердил», «лимит» и
+            // Различаем «сервер подтвердил», «лимит» и
             // «сеть не ответила» — раньше любой сбой показывался как успех.
             let result = await store?.friendManager.setPinned(friendId: friend.id, pinned: willPin)
                 ?? .syncFailed

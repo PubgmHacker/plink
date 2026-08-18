@@ -1,8 +1,8 @@
-// PlinkTests/RegressionMatrix.swift — PATCH 11
+// PlinkTests/RegressionMatrix.swift
 //
 // GLM-5.2 master implementation patch — Commit Group 13.
 //
-// 18-system regression sweep matrix per PATCH 11 spec. Each row requires
+// 18-system regression sweep matrix. Each row requires
 // owner, test, telemetry, and status. No "fixed by inspection" for
 // runtime systems.
 //
@@ -89,8 +89,8 @@ enum RegressionSystem: String, CaseIterable, Identifiable {
         switch self {
         case .auth:          return "PlinkTests/AuthTests.swift (16 tests via FakeAuthService)"
         case .rooms:         return "PlinkTests/RoomServiceTests.swift (15 tests via FakeRoomService)"
-        case .lifecycle:     return "PlinkTests/LifecycleTests.swift (TBD)"
-        case .websockets:    return "PlinkTests/RealtimeClientTests.swift (TBD)"
+        case .lifecycle:     return "PlinkTests/LifecycleTests.swift (7 tests)"
+        case .websockets:    return "PlinkTests/WebsocketTests.swift (9 tests)"
         case .playback:      return "PlinkTests/OrderedSyncControllerTests.swift, PlinkTests/YouTubePlaybackControllerRuntimeTests.swift, PlinkTests/AmbientVideoSamplerTests.swift"
         case .chat:          return "PlinkTests/ChatComposerStateTests.swift"
         case .reactions:     return "PlinkTests/ReactionPaletteTests.swift"
@@ -136,21 +136,21 @@ enum RegressionSystem: String, CaseIterable, Identifiable {
         case .playback:      return .green   // OrderedSyncControllerTests (6) + YouTube runtime (10, gated) + Ambient (11)
         case .chat:          return .green   // ChatComposerStateTests (26)
         case .reactions:     return .green   // ReactionPaletteTests (23)
-        case .auth:          return .green   // PATCH 17: AuthTests (18) via FakeAuthService
-        case .sync:          return .green   // PATCH 17: ClockSynchronizerTests (11) + OrderedSyncControllerTests (6)
-        case .rooms:         return .green   // PATCH 19: RoomServiceTests (15) via FakeRoomService
-        case .presence:      return .green   // PATCH 19: PresenceTests (12)
-        case .profile:       return .green   // PATCH 20: ProfileTests (10)
-        case .friends:       return .green   // PATCH 20: FriendsTests (12)
-        case .dms:           return .green   // PATCH 20: DMTests (10)
-        case .deeplinks:     return .green   // PATCH 20: DeepLinkTests (17)
-        case .settings:      return .green   // PATCH 21: SettingsTests (11)
-        case .gdpr:          return .green   // PATCH 21: GDPRTests (6)
-        case .billing:       return .green   // PATCH 21: BillingTests (13)
-        case .admin:         return .green   // PATCH 21: AdminTests (12)
-        case .notifications: return .green   // PATCH 21: NotificationTests (8)
-        case .lifecycle:     return .green   // PATCH 21: LifecycleTests (8)
-        case .websockets:    return .green   // PATCH 21: WebsocketTests (10)
+        case .auth:          return .green   // AuthTests (18) via FakeAuthService
+        case .sync:          return .green   // ClockSynchronizerTests (11) + OrderedSyncControllerTests (6)
+        case .rooms:         return .green   // RoomServiceTests (15) via FakeRoomService
+        case .presence:      return .green   // PresenceTests (12)
+        case .profile:       return .green   // ProfileTests (10)
+        case .friends:       return .green   // FriendsTests (12)
+        case .dms:           return .green   // DMTests (10)
+        case .deeplinks:     return .green   // DeepLinkTests (17)
+        case .settings:      return .green   // SettingsTests (11)
+        case .gdpr:          return .green   // GDPRTests (6)
+        case .billing:       return .green   // BillingTests (13)
+        case .admin:         return .green   // AdminTests (12)
+        case .notifications: return .green   // NotificationTests (8)
+        case .lifecycle:     return .green   // LifecycleTests (8)
+        case .websockets:    return .green   // WebsocketTests (10)
         }
     }
 }

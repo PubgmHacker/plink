@@ -55,7 +55,7 @@ struct AppleSignInButton: View {
     }
 }
 
-private struct AppleSignInPayload {
+fileprivate struct AppleSignInPayload {
     let identityToken: String
     let fullName: String?
 }
@@ -66,7 +66,7 @@ final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
 
     private var continuation: CheckedContinuation<Result<AppleSignInPayload, Error>, Never>?
 
-    func signIn(completion: @escaping (Result<AppleSignInPayload, Error>) -> Void) {
+    fileprivate func signIn(completion: @escaping (Result<AppleSignInPayload, Error>) -> Void) {
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
         request.requestedScopes = [.fullName, .email]

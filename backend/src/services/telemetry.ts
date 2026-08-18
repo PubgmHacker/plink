@@ -1,36 +1,26 @@
-// src/services/telemetry.ts — Pack 5: OpenTelemetry tracing
+// src/services/telemetry.ts — OpenTelemetry tracing helpers
 //
-// Аудит 11.08.2026. Здесь был мёртвый код, который отчитывался об успехе.
+// `@opentelemetry/api` is the only OpenTelemetry dependency here, and no SDK is
+// registered. `trace.getTracer()` therefore returns a no-op tracer, which means
+// `withSpan`, `setSpanAttribute` and `addSpanEvent` are safe to call from
+// anywhere: they preserve the wrapped function's result and exceptions, and
+// record nothing. `initTelemetry()` reports that state rather than logging
+// success, and warns when OTEL_ENDPOINT is set to something (it is empty in
+// both .env and .env.example) so a configured endpoint that leads nowhere is
+// visible in the log.
 //
-// Прошлая версия делала `await import('@opentelemetry/auto-instrumentations-node')`
-// и искала в модуле экспорт `registerOTel`. Такого экспорта в этом пакете нет
-// и никогда не было — пакет отдаёт `getNodeAutoInstrumentations` и
-// `getResourceDetectors`, а `registerOTel` живёт в `@vercel/otel`. Поэтому
-// `_registerOTel` всегда оставался null, регистрация не происходила НИ РАЗУ,
-// но в лог всё равно уходило «✅ OpenTelemetry initialized».
+// Tracing as such is not missing: `@sentry/node` is initialised in app.ts with
+// `tracesSampleRate` and collects its own traces.
 //
-// Вторая причина, по которой это не работало: `OTEL_ENDPOINT=""` в .env и
-// .env.example, а функция выходит раньше при пустом endpoint. То есть путь
-// был мёртв дважды.
-//
-// Цена этого кода: `@opentelemetry/auto-instrumentations-node` тянул 194
-// пакета (155 из них @opentelemetry/*) и держал 4 high + 30 moderate
-// уязвимостей — 30 из 49 всех prod-уязвимостей бэкенда приходились на
-// трейсер, который ни разу не собрал ни одного спана. Пакет удалён.
-//
-// Что осталось и почему это не потеря: `@opentelemetry/api` (лёгкий, без
-// адвизори) остаётся, `withSpan`/`setSpanAttribute`/`addSpanEvent` работают
-// как раньше. Без зарегистрированного SDK `trace.getTracer()` возвращает
-// no-op трейсер — ровно то поведение, которое в проекте и было все эти
-// месяцы. Ничего не сломалось, потому что ничего и не работало.
-//
-// Трассировка при этом НЕ потеряна: `@sentry/node` инициализируется в
-// app.ts с `tracesSampleRate` и ведёт свои трейсы сам.
-//
-// Если понадобится настоящий OTLP-экспорт в дополнение к Sentry, нужны
-// `@opentelemetry/sdk-node` + `@opentelemetry/exporter-trace-otlp-http` и
-// явный `new NodeSDK({...}).start()` — но добавлять их стоит только когда
-// появится живой коллектор, а не «на будущее».
+// Real OTLP export, if it is ever wanted alongside Sentry, needs
+// `@opentelemetry/sdk-node` + `@opentelemetry/exporter-trace-otlp-http` and an
+// explicit `new NodeSDK({...}).start()` — worth adding only once there is a live
+// collector to receive spans. Keep `@opentelemetry/auto-instrumentations-node`
+// out of it: it drags in roughly 194 transitive packages (155 of them
+// @opentelemetry/*) and with them the bulk of the backend's production
+// advisories. It also does not export `registerOTel` — that symbol belongs to
+// `@vercel/otel`; this package exports `getNodeAutoInstrumentations` and
+// `getResourceDetectors`.
 import { trace, context, SpanStatusCode, SpanKind } from '@opentelemetry/api';
 
 const SERVICE_NAME = 'plink-backend';

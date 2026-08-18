@@ -37,12 +37,12 @@ final class AudioManager: ObservableObject {
     /// Слабая ссылка на AVPlayer видеоплеера комнаты.
     private weak var player: AVPlayer?
 
-    /// Set участников, которые говорят прямо сейчас (по peerId).
+    /// Participants currently speaking, by peerId.
     private var speakingPeers: Set<String> = []
 
-    /// 🔧 FIX H6: Track the current volume animation Task so we can cancel it
-    /// before starting a new one. Was: 10 racing Tasks per call, each writing
-    /// player.volume with stale delta values → unpredictable final volume.
+    /// The in-flight volume animation, held so it can be cancelled before a new
+    /// one starts. Without this each call spawned its own Task and they raced,
+    /// writing player.volume from stale deltas.
     private var volumeAnimTask: Task<Void, Never>?
 
     // MARK: - Init
@@ -101,10 +101,11 @@ final class AudioManager: ObservableObject {
         animateVolume(to: targetVolume, duration: duckDuration)
     }
 
-    /// Плавно меняет громкость плеера за указанное время.
-    /// 🔧 FIX H6: Cancel any in-flight animation before starting a new one.
-    /// Was: spawned 10 racing Tasks per call, each writing player.volume with
-    /// stale delta values → unpredictable final volume on rapid mute→unmute.
+    /// Ramps player volume to `target` over `duration`.
+    ///
+    /// Cancels any in-flight ramp first. Concurrent ramps each write volume from
+    /// their own starting point, so a fast mute→unmute used to settle on an
+    /// arbitrary level.
     private func animateVolume(to target: Float, duration: TimeInterval) {
         guard let player else { return }
 

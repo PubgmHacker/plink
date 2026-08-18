@@ -1,4 +1,3 @@
-// Plink/Features/WatchRoom/WatchReactionLayer.swift — PATCH 02 polish
 //
 // Professional design:
 //   - 8 visible reactions (was 5) — feels alive without crowding

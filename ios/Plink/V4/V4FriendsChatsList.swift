@@ -17,7 +17,7 @@ extension V4FriendsViewLive {
 
     // MARK: - M21/M22 Unified Inbox helpers
 
-    // Аудит 26.07.2026: `id` обязан быть nonisolated — Identifiable требует
+    // `id` обязан быть nonisolated — Identifiable требует
     // синхронного доступа вне актора. Изоляцию несут только те геттеры,
     // что дёргают DMChatService и FriendPinStore (оба @MainActor).
     private enum InboxItem: Identifiable {
@@ -66,7 +66,7 @@ extension V4FriendsViewLive {
                 action: { showAddFriend = true }
             )
 
-            // M34: быстрое создание групповой беседы
+            // Быстрое создание групповой беседы
             Button {
                 HapticManager.impact(.light)
                 showCreateGroupSheet = true
@@ -107,10 +107,10 @@ extension V4FriendsViewLive {
                 }
             }
         }
-        // M21: открыть беседу из unified inbox
+        // Открыть беседу из unified inbox
         .sheet(item: $openGroup) { group in
             NavigationStack {
-                GroupsListView(friends: store?.friends ?? [], meId: dmService.currentUserId)
+                GroupChatView(group: group, meId: dmService.currentUserId)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Закрыть") { openGroup = nil }
@@ -123,7 +123,7 @@ extension V4FriendsViewLive {
         }
     }
 
-    /// M21/M22: Telegram-style group chat row (unified inbox)
+    /// Telegram-style group chat row (unified inbox)
     @ViewBuilder
     private func groupChatRow(_ group: GroupChatDTO) -> some View {
         let unread  = group.unreadCount ?? 0
@@ -215,9 +215,9 @@ extension V4FriendsViewLive {
         .overlay(alignment: .bottom) {
             Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 74)
         }
-        // Аудит 26.07.2026 P1: swipeActions удалены — работают только в List,
+        // swipeActions удалены — работают только в List,
         // строки лежат в VStack/ScrollView (свайпы не срабатывали). Действия — в contextMenu.
-        // M22: контекстное меню (долгий тап)
+        // Контекстное меню (долгий тап)
         .contextMenu {
             Button { openGroup = group } label: {
                 Label("Открыть беседу", systemImage: "person.3.fill")

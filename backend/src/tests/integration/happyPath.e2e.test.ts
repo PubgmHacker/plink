@@ -1,5 +1,5 @@
 // src/tests/integration/happyPath.e2e.test.ts
-// M13: full end-to-end happy path against a RUNNING backend:
+// Full end-to-end happy path against a RUNNING backend:
 //   signup host + viewer → create room → join → realtime tickets →
 //   WebSocket connect → host play command → viewer receives sync.state →
 //   chat message delivered to the viewer.
@@ -112,7 +112,7 @@ describe.runIf(process.env.E2E === '1')('E2E happy path (M13)', () => {
         mediaItem: {
           id: 'dQw4w9WgXcQ',
           title: 'E2E Video',
-          // Аудит 30.07.2026: было `${API_BASE}/api/media/youtube-player?...` — при запуске
+          // Было `${API_BASE}/api/media/youtube-player?...` — при запуске
           // против localhost это резалось SSRF-guard'ом (и правильно).
           // Реальный клиент шлёт публичный YouTube-URL (V4HomeViewLive.swift:871).
           streamURL: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',

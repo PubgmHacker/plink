@@ -1,5 +1,5 @@
 // Plink/Playback/ProviderAdapter.swift
-// Provider abstraction (runbook §6)
+// Provider abstraction
 //
 // A ProviderAdapter knows how to:
 //   1. Take a PlaybackSource and turn it into something AVPlayer (or the
@@ -11,9 +11,9 @@
 //   - NativeHLSProvider:  .hls / .mp4 → AVPlayerItem with custom headers
 //   - YouTubeEmbeddedProvider: .youtube → WKWebView with IFrame API
 //     (App Store compliant flow ONLY — no extraction, no cookie relay,
-//      no raw CDN proxy — runbook §7)
+//      No raw CDN proxy)
 //
-// Per §21: 'PlaybackController не отправляет WebSocket сообщения' —
+// Per: 'PlaybackController не отправляет WebSocket сообщения' —
 // provider adapters never talk to RealtimeClient.
 
 import Foundation

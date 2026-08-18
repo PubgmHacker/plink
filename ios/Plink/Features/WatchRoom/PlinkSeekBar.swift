@@ -1,4 +1,3 @@
-// Plink/Features/WatchRoom/PlinkSeekBar.swift — PATCH 02 polish
 //
 // Professional sizing:
 //   - Track: 6pt idle (was 2pt), 8pt scrubbing (was 4pt)

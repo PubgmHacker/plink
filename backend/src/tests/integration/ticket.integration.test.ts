@@ -1,6 +1,4 @@
 // src/tests/integration/ticket.integration.test.ts
-// Brain Review P0-1 regression tests
-//
 // Verifies:
 //   - first ticket use succeeds (nonce deleted from Redis)
 //   - second ticket use fails (nonce already deleted)
@@ -33,7 +31,7 @@ afterAll(async () => {
   if (redis) await redis.quit().catch(() => {});
 });
 
-describe.skipIf(!redisAvailable)('ticket nonce lifecycle (P0-1 regression)', () => {
+describe.skipIf(!redisAvailable)('ticket nonce lifecycle', () => {
   it('SET then DEL on full nonce UUID succeeds on first use', async () => {
     const userId = randomUUID();
     const nonce = randomUUID();

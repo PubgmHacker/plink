@@ -1,4 +1,3 @@
-// src/services/moderation/moderationPolicy.ts — GPT-5.6 §14
 export const MODERATION_POLICY_VERSION = '1.0.0';
 
 export type ModerationDecision =

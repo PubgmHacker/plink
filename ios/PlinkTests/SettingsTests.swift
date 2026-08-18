@@ -1,4 +1,4 @@
-// PlinkTests/SettingsTests.swift — PATCH 21: settings system tests
+// Settings system tests
 
 import XCTest
 @testable import Plink
@@ -71,9 +71,35 @@ final class SettingsTests: XCTestCase {
     // MARK: - LocalizationManager
 
     func testLocalizationManager_defaultLanguage() {
-        // PATCH 22: LocalizationManager has private init() — use singleton.
+        // LocalizationManager has private init() — use singleton.
         let manager = LocalizationManager.shared
         // Just verify it doesn't crash.
         _ = manager.currentLanguage
+    }
+
+    // MARK: - Linked cinema accounts
+
+    func testLinkedAccountsCoverEveryCinemaThatRequiresLogin() {
+        let linked = Set(LinkedExternalAccount.allCases.compactMap(\.videoService))
+        for svc in VideoService.allCases where svc.requiresAuth {
+            XCTAssertTrue(linked.contains(svc), "\(svc.rawValue) must be in profile connections")
+        }
+        XCTAssertFalse(linked.contains(.smotrim))
+        XCTAssertFalse(linked.contains(.youtube))
+    }
+
+    func testYandexIDUnlocksKinopoiskWithoutSeparateFlag() {
+        ServiceAuthStore.markYandexID(false)
+        ServiceAuthStore.logout(.kinopoisk)
+        XCTAssertFalse(ServiceAuthStore.hasAccess(to: .kinopoisk))
+        ServiceAuthStore.markYandexID(true)
+        XCTAssertTrue(ServiceAuthStore.hasAccess(to: .kinopoisk))
+        XCTAssertTrue(LinkedExternalAccount.yandex.isConnected)
+        ServiceAuthStore.markYandexID(false)
+        XCTAssertFalse(ServiceAuthStore.hasAccess(to: .kinopoisk))
+    }
+
+    func testYandexLoginURLIsPassport() {
+        XCTAssertEqual(LinkedExternalAccount.yandex.loginURL.host, "passport.yandex.ru")
     }
 }

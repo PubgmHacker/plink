@@ -1,6 +1,6 @@
-// Plink/Features/WatchRoom/WatchRoomOverlays.swift — PATCH 02
+// Plink/Features/WatchRoom/WatchRoomOverlays.swift
 //
-// Extracted from WatchRoomSupportTypes.swift per PATCH 02 spec.
+// Extracted from WatchRoomSupportTypes.swift.
 //
 // Contains:
 //   - RoomToastView          (toast notification)
@@ -218,7 +218,7 @@ struct ParticipantAvatar: View {
 
 // MARK: - Danmaku
 //
-// PATCH 05: DanmakuCanvasLayer now renders DanmakuPlacement snapshots from
+// DanmakuCanvasLayer now renders DanmakuPlacement snapshots from
 // the DanmakuEngine actor. Lane assignment, duration, and progress are all
 // computed by the engine — this view only draws the current snapshot.
 //
@@ -226,7 +226,7 @@ struct ParticipantAvatar: View {
 // Each frame it asks the engine for poll(at: now), which returns the
 // surviving placements sorted by lane.
 //
-// Tap on a placement freezes it for 2 seconds (per PATCH 05 spec).
+// Tap on a placement freezes it for 2 seconds.
 // Long press reports/blocks the sender — wired via closures.
 
 struct DanmakuCanvasLayer: View {
@@ -287,7 +287,7 @@ private struct DanmakuItemView: View {
 
     var body: some View {
         TimelineView(.animation) { context in
-            // PATCH 16: use Date-based progress overload — TimelineView
+            // Use Date-based progress overload — TimelineView
             // provides context.date as Date, and DanmakuPlacement stores
             // a parallel createdAtDate for this purpose.
             let progress = placement.progress(at: context.date, speed: 1.0)
@@ -380,7 +380,7 @@ struct CameraActionButton: View {
     }
 }
 
-// MARK: - PATCH 14: Rutube fallback toast
+// MARK: - Rutube fallback toast
 
 /// Toast shown when source is .rutube and the embedded player's JS API
 /// is unavailable. Tapping "Open" launches SFSafariViewController with

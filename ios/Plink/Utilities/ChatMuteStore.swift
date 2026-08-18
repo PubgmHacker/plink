@@ -1,5 +1,5 @@
 // ChatMuteStore.swift
-// M22: Telegram-style per-chat mute state (persisted in UserDefaults)
+// Telegram-style per-chat mute state (persisted in UserDefaults)
 
 import Foundation
 import Combine

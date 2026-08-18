@@ -28,14 +28,14 @@ final class DMChatService: ObservableObject {
     @Published private(set) var historyEpoch: Int = 0
     @Published var isLoading = false
     @Published var errorMessage: String?
-    // Аудит 26.07.2026 P1: явный учёт оптимистичных локальных сообщений вместо
+    // Явный учёт оптимистичных локальных сообщений вместо
     // эвристики «id длиннее 20 символов» — серверные UUID тоже 36 символов,
     // из-за чего удалённые собеседником сообщения «воскресали» при merge.
     private var pendingLocalIDs: Set<String> = []
-    /// Неотправленные сообщения (сеть/сервер отказали): помечаются в UI и никогда
-    /// не выбрасываются из ленты при merge. Аудит 26.07.2026 P1.
+    /// Messages that failed to send (network or server refused): they are flagged in
+    /// the UI and are never dropped from the feed by a merge.
     @Published private(set) var failedMessageIDs: Set<String> = []
-    /// Аудит 26.07.2026 P1: пагинация истории. friendId → есть ли страницы старше.
+    /// Пагинация истории. friendId → есть ли страницы старше.
     @Published private(set) var hasMoreHistoryByFriend: [String: Bool] = [:]
     @Published private(set) var isLoadingOlderHistory = false
     /// Размер серверного окна истории без курсора (take: 200 на бэкенде).
@@ -48,7 +48,7 @@ final class DMChatService: ObservableObject {
 
     private let api: APIClient
     private var unreadPollTask: Task<Void, Never>?
-    /// Аудит 26.07.2026 P2: fallback-интервал опроса непрочитанных. Мгновенные
+    /// fallback-интервал опроса непрочитанных. Мгновенные
     /// события идут через DMRealtimeClient, поэтому раз в секунду больше не бьём —
     /// это жгло батарею и трафик и поллило сервер даже в фоне.
     private static let unreadPollIntervalNs: UInt64 = 15_000_000_000
@@ -86,7 +86,7 @@ final class DMChatService: ObservableObject {
         UserDefaults.standard.set(Array(archivedFriendIDs), forKey: Self.archivedKey)
     }
 
-    // MARK: - Офлайн-кэш инбокса / диалога (Аудит 26.07.2026 P2)
+    // MARK: - Офлайн-кэш инбокса / диалога
 
     /// Снимок инбокса на диске: холодный старт без сети показывает список чатов,
     /// а не пустоту. Свежие сетевые данные всегда важнее кэша.
@@ -299,7 +299,7 @@ final class DMChatService: ObservableObject {
         savePendingChatDeletes()
     }
 
-    /// Аудит 26.07.2026 P2: после подмены localID на серверный id в ленте может
+    /// После подмены localID на серверный id в ленте может
     /// оказаться вторая копия того же сообщения (поллинг успел вставить серверную
     /// версию до ответа POST). Оставляем строку с индексом `keeping`.
     private func removeDuplicateRows(in list: inout [DirectMessage], id: String, keeping idx: Int) {
@@ -311,9 +311,9 @@ final class DMChatService: ObservableObject {
         for i in dups.reversed() { list.remove(at: i) }
     }
 
-    /// Максимум символов текста DM: серверный лимит 280 считается по wire-строке,
-    /// в которую входит маркер стиля пузыря `[[bs:…]]`. UI обязан считать лимит
-    /// динамически, иначе хвост сообщения молча обрезался. Аудит 26.07.2026 P2.
+    /// Maximum DM text length: the server's limit of 280 is counted over the wire
+    /// string, which includes the bubble-style marker `[[bs:…]]`. The UI must compute
+    /// the limit dynamically, otherwise the tail of a message is silently truncated.
     nonisolated static func textLimit(forStyleID styleID: String? = nil) -> Int {
         let id = BubbleStyleRegistry.migrateLegacyID(styleID ?? PlinkBubbleStylePrefs.currentID)
         let markerLen = "[[bs:\(id)]]".count
@@ -507,7 +507,7 @@ final class DMChatService: ObservableObject {
                 lastActivityAtByFriend = activities
                 inboxEpoch &+= 1
             }
-            // Аудит 26.07.2026 P2: снимок инбокса на диск для холодного старта без сети.
+            // Снимок инбокса на диск для холодного старта без сети.
             persistInboxCache()
             // Ревью 26.07.2026: досылаем офлайн-удаления ПОСЛЕ сверки с инбоксом —
             // раньше флэш шёл первым и мог скрыть тред вместе с новыми сообщениями.
@@ -527,7 +527,7 @@ final class DMChatService: ObservableObject {
         }
         let convID = conversationID(with: friendId)
         if !friendName.isEmpty { friendNameById[friendId] = friendName }
-        // Аудит 26.07.2026 P2: до ответа сети показываем последний офлайн-снимок
+        // До ответа сети показываем последний офлайн-снимок
         // диалога (раньше холодный старт без сети давал пустую переписку).
         restoreHistoryCache(friendId: friendId, convID: convID)
         if !quiet {
@@ -551,7 +551,7 @@ final class DMChatService: ObservableObject {
             // Keep only very recent optimistic locals not yet on server.
             historyNetworkConfirmed.insert(convID)
             if messages.isEmpty, let existing = conversations[convID], !existing.isEmpty {
-                // Аудит 26.07.2026 P2: если в ленте лежал только офлайн-кэш, а сервер
+                // Если в ленте лежал только офлайн-кэш, а сервер
                 // отдал пусто — кэш устарел (чат очищен/удалён на другом устройстве).
                 // Собственные неотправленные сообщения при этом сохраняем.
                 if !confirmedBeforeThisLoad {
@@ -570,7 +570,7 @@ final class DMChatService: ObservableObject {
                 var merged = messages
                 if let existing = conversations[convID] {
                     let serverIds = Set(messages.map(\.id))
-                    // Аудит 26.07.2026 P1: оставляем только ЯВНО локальные сообщения
+                    // Оставляем только ЯВНО локальные сообщения
                     // (in-flight / failed). Раньше фильтр «UUID + свежее минуты»
                     // пропускал и серверные сообщения, удалённые собеседником, —
                     // они «воскресали» как призраки при каждом 5-секундном опросе.
@@ -579,7 +579,7 @@ final class DMChatService: ObservableObject {
                             && (pendingLocalIDs.contains(msg.id) || failedMessageIDs.contains(msg.id))
                     }
                     for loc in localsOnly {
-                        // Аудит 26.07.2026 P2: сравниваем ещё и отправителя — раньше
+                        // Сравниваем ещё и отправителя — раньше
                         // входящее сообщение с тем же текстом «съедало» наш локальный
                         // пузырь. Окно по времени остаётся страховкой на случай, когда
                         // POST ещё не ответил; окончательный дедуп идёт по id при ответе.
@@ -591,7 +591,7 @@ final class DMChatService: ObservableObject {
                             merged.append(loc)
                         }
                     }
-                    // Аудит 26.07.2026 P1: страницы, подгруженные пагинацией (старше
+                    // Страницы, подгруженные пагинацией (старше
                     // серверного окна), не затираем поллингом свежего окна.
                     if messages.count >= Self.serverHistoryWindow,
                        let oldestServer = messages.map(\.timestamp).min() {
@@ -644,7 +644,7 @@ final class DMChatService: ObservableObject {
         }
     }
 
-    /// Общий маппинг DTO → DirectMessage (история + пагинация). Аудит 26.07.2026 P1.
+    /// Shared DTO → DirectMessage mapping, used by both history and pagination.
     private func mapDTO(
         _ dto: DMMessageDTO,
         convID: String,
@@ -696,7 +696,7 @@ final class DMChatService: ObservableObject {
         )
     }
 
-    // MARK: - Пагинация истории (Аудит 26.07.2026 P1)
+    // MARK: - Пагинация истории
 
     /// Есть ли сообщения старше уже загруженных (триггер «подгрузить раньше»).
     func hasMoreHistory(for friendId: String) -> Bool {
@@ -746,7 +746,7 @@ final class DMChatService: ObservableObject {
         }
     }
 
-    // MARK: - Явное «прочитано» (Аудит 26.07.2026 P1)
+    // MARK: - Явное «прочитано»
 
     /// Отметить чат прочитанным из списка чатов БЕЗ подмены openFriendId.
     /// Раньше вместо этого звали chatDidOpen — чат «висел открытым»: бейдж молчал,
@@ -768,7 +768,7 @@ final class DMChatService: ObservableObject {
         }
     }
 
-    // MARK: - Повтор отправки (Аудит 26.07.2026 P1)
+    // MARK: - Повтор отправки
 
     /// Повторная отправка неотправленного ТЕКСТОВОГО сообщения (медиа-байты не храним).
     func retrySend(messageId: String, friend: Friend) {
@@ -829,7 +829,7 @@ final class DMChatService: ObservableObject {
             Logger.api.info("DM chat deleted")
         } catch {
             Logger.api.warn("DM chat delete sync failed")
-            // Аудит 26.07.2026 P2: удаление больше не теряется при отказе сети —
+            // Удаление больше не теряется при отказе сети —
             // ставим в очередь и досылаем при следующем опросе непрочитанных.
             pendingChatDeletes[friendId] = deleteCutoff
             savePendingChatDeletes()
@@ -902,7 +902,7 @@ final class DMChatService: ObservableObject {
         var list = conversations[convID] ?? []
         list.append(message)
         conversations[convID] = list
-        pendingLocalIDs.insert(localID) // Аудит 26.07.2026 P1: явный in-flight учёт
+        pendingLocalIDs.insert(localID) // Явный in-flight учёт
         historyEpoch &+= 1
         lastPreviewByFriend[friend.id] = "🎤 Голосовое сообщение"
         touchActivity(friendId: friend.id, at: message.timestamp, preview: "🎤 Голосовое сообщение")
@@ -962,7 +962,7 @@ final class DMChatService: ObservableObject {
                 }
                 pendingLocalIDs.remove(localID)
             } catch {
-                // Аудит 26.07.2026 P1: маркер «не отправлено» вместо тихой потери
+                // Маркер «не отправлено» вместо тихой потери
                 pendingLocalIDs.remove(localID)
                 failedMessageIDs.insert(localID)
                 errorMessage = "Голосовое не отправлено: \(error.localizedDescription)"
@@ -1016,7 +1016,7 @@ final class DMChatService: ObservableObject {
         var list = conversations[convID] ?? []
         list.append(message)
         conversations[convID] = list
-        pendingLocalIDs.insert(localID) // Аудит 26.07.2026 P1: явный in-flight учёт
+        pendingLocalIDs.insert(localID) // Явный in-flight учёт
         historyEpoch &+= 1
         lastPreviewByFriend[friend.id] = preview
         touchActivity(friendId: friend.id, at: message.timestamp, preview: preview)
@@ -1068,7 +1068,7 @@ final class DMChatService: ObservableObject {
                 }
                 pendingLocalIDs.remove(localID)
             } catch {
-                // Аудит 26.07.2026 P1: маркер «не отправлено» вместо тихой потери
+                // Маркер «не отправлено» вместо тихой потери
                 pendingLocalIDs.remove(localID)
                 failedMessageIDs.insert(localID)
                 errorMessage = "Фото не отправлено: \(error.localizedDescription)"
@@ -1115,7 +1115,7 @@ final class DMChatService: ObservableObject {
         let localID = UUID().uuidString
         let styleID = PlinkBubbleStylePrefs.currentID
         // Wire style so peer devices render the same bubble (fits in 280 server limit).
-        // Аудит 26.07.2026 P2: лимит считается тем же textLimit(), что показывает
+        // Лимит считается тем же textLimit(), что показывает
         // композер, — раньше UI обещал 280, а сервис резал под маркер стиля.
         let body = String(trimmed.prefix(Self.textLimit(forStyleID: styleID)))
         let wireContent = PlinkBubbleWire.encode(text: body, styleID: styleID)
@@ -1144,7 +1144,7 @@ final class DMChatService: ObservableObject {
         var list = conversations[convID] ?? []
         list.append(message)
         conversations[convID] = list
-        pendingLocalIDs.insert(localID) // Аудит 26.07.2026 P1: явный in-flight учёт
+        pendingLocalIDs.insert(localID) // Явный in-flight учёт
         historyEpoch &+= 1
         lastPreviewByFriend[friend.id] = body
         touchActivity(friendId: friend.id, at: message.timestamp, preview: body)
@@ -1191,7 +1191,7 @@ final class DMChatService: ObservableObject {
                 }
                 pendingLocalIDs.remove(localID)
             } catch {
-                // Аудит 26.07.2026 P1: помечаем как «не отправлено» (красный маркер
+                // Помечаем как «не отправлено» (красный маркер
                 // + «Повторить» в UI) вместо тихой потери через 60 секунд.
                 pendingLocalIDs.remove(localID)
                 failedMessageIDs.insert(localID)
@@ -1379,7 +1379,7 @@ final class DMChatService: ObservableObject {
         ensureToken()
         struct Resp: Decodable { let success: Bool?; let removed: Int? }
         do {
-            // Аудит 26.07.2026 P1 (смежное): query нельзя класть в path —
+            // Query нельзя класть в path
             // appendingPathComponent кодирует «?» в %3F и роут не матчится.
             let _: Resp = try await api.request(
                 "messages/dm/\(friendId)/pin/\(messageId)",
@@ -1459,7 +1459,7 @@ final class DMChatService: ObservableObject {
         ensureToken()
         struct Resp: Decodable { let success: Bool? }
         do {
-            // Аудит 26.07.2026 P1 (смежное): query нельзя класть в path —
+            // Query нельзя класть в path
             // appendingPathComponent кодирует «?» в %3F и роут не матчится.
             let _: Resp = try await api.request(
                 "messages/dm/message/\(message.id)",

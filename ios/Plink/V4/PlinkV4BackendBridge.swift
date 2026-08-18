@@ -76,7 +76,7 @@ final class V4RoomsStore {
         try await roomService.fetchRoom(id: room.id)
     }
 
-    // M34: герой — приоритет активным комнатам друзей
+    // Герой — приоритет активным комнатам друзей
     var heroRoom: Room? {
         let friendNames = Set(FriendManager.shared.friends.map { $0.username.lowercased() })
         return rooms.first(where: { $0.isActive && friendNames.contains($0.hostName.lowercased()) }) ?? rooms.first
@@ -287,9 +287,9 @@ final class V4AIStore {
         Message(isOwn: false, text: "Привет! Я Plink AI. Спроси про фильмы, попроси создать комнату или узнать что смотрят друзья.", isBot: true)
     ]
     private(set) var state: String = "Готов помочь"
-    private(set) var lastSuggestions: [String] = []  // M34: подсказки после ответа
+    private(set) var lastSuggestions: [String] = []  // Подсказки после ответа
 
-    // M33: персистентная история чата между запусками
+    // Персистентная история чата между запусками
     private struct SavedMessage: Codable { let isBot: Bool; let text: String }
     private static let historyKey = "plink.ai.history.v1"
 
@@ -308,7 +308,7 @@ final class V4AIStore {
         }
     }
 
-    // M34: очистить историю чата
+    // Очистить историю чата
     func clearHistory() {
         messages = [Message(isOwn: false, text: "Привет! Я Plink AI. Спроси про фильмы, попроси создать комнату или узнать что смотрят друзья.", isBot: true)]
         lastSuggestions = []
@@ -325,7 +325,7 @@ final class V4AIStore {
         guard !trimmed.isEmpty else { return }
         messages.append(Message(isOwn: true, text: trimmed, isBot: false))
         persist()
-        AnalyticsService.shared.track("ai_message_sent")  // M35: funnel
+        AnalyticsService.shared.track("ai_message_sent")  // Funnel
         state = "Думаю…"
 
         do {
@@ -479,7 +479,7 @@ final class V4ProfileStore {
         email = user.email
         isPremium = user.isPremium
         isAdmin = user.isAdmin
-        // Аудит 26.07.2026 (P2): раньше сюда уходило собственное поле
+        // Раньше сюда уходило собственное поле
         // `premiumUntil`, которое никто никогда не заполнял → всегда nil.
         // Теперь дату приносит сам ответ сервера.
         premiumUntil = user.premiumUntil
@@ -576,7 +576,7 @@ struct YouTubeVideoSummary: Decodable, Identifiable, Sendable {
     let title: String
     let channel: String
     let thumbnailURL: String?
-    // Brain Phase 3: backend may send `durationSeconds` (new) or `duration` (legacy).
+    // Backend may send `durationSeconds` (new) or `duration` (legacy).
     // Decode either; prefer durationSeconds when present.
     let durationSeconds: Int?
     let duration: Int?

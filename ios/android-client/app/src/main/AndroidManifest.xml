@@ -20,8 +20,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- M12: App Links — https://plink.app/r/<code> и /u/<userId>.
-                 Требует /.well-known/assetlinks.json на домене (отдаётся бэкендом). -->
+            <!-- App Links: https://plink.app/r/<code> and /u/<userId>.
+                 Verification requires /.well-known/assetlinks.json on the
+                 domain, which the backend serves. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

@@ -1,4 +1,4 @@
-// PlinkTests/M35RegressionTests.swift — M35: регрессионные тесты на восстановленные системы
+// Регрессионные тесты на восстановленные системы
 
 import XCTest
 @testable import Plink
@@ -8,7 +8,7 @@ final class M35RegressionTests: XCTestCase {
     // Home no longer duplicates Rooms filters. Discovery is a content feed;
     // room filtering and management belong to the Rooms destination.
 
-    // M32: прогресс истории просмотров ограничен 1.0
+    // Прогресс истории просмотров ограничен 1.0
     func testWatchHistoryProgressClamped() {
         let item = WatchHistoryItem(
             id: "1", mediaItemId: "m", title: "t",
@@ -19,7 +19,7 @@ final class M35RegressionTests: XCTestCase {
         XCTAssertEqual(item.progress, 1.0)
     }
 
-    // M32: прогресс неизвестен без общей длительности
+    // Прогресс неизвестен без общей длительности
     func testWatchHistoryProgressNilWithoutTotal() {
         let item = WatchHistoryItem(
             id: "2", mediaItemId: "m", title: "t",

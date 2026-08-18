@@ -1,7 +1,7 @@
 //
 // PlinkUITests/FunnelSmokeUITests.swift
 //
-// Аудит 30.07.2026: живой прогон воронки «глазами пользователя» —
+// Живой прогон воронки «глазами пользователя» —
 // регистрация → главный экран → создание комнаты → пустая комната.
 // Гоняется против ЛОКАЛЬНОГО бэкенда (localhost:8080), поэтому кейс
 // включается только переменной окружения PLINK_FUNNEL_BACKEND, которую
@@ -118,7 +118,7 @@ final class FunnelSmokeUITests: XCTestCase {
             throw XCTSkip("PLINK_FUNNEL_BACKEND не задан — воронка требует живого локального бэкенда")
         }
         guard backendIsReachable(backend) else {
-            throw XCTSkip("Бэкенд \(backend) не отвечает — воронку прогонять нечем. Поднять: cd backend-3 && npm run dev")
+            throw XCTSkip("Бэкенд \(backend) не отвечает — воронку прогонять нечем. Поднять: cd backend && npm run dev")
         }
 
         let app = XCUIApplication()

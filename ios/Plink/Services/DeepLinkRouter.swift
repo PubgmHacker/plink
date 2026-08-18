@@ -26,6 +26,8 @@ final class DeepLinkRouter: ObservableObject {
 
     /// Текущий распознанный deep-link (управляет навигацией).
     @Published var pendingLink: DeepLinkType = .none
+    /// Открыть конкретный чат (пуш, колокольчик). Друзья-вкладка забирает значение.
+    @Published var pendingChat: PlinkChatTarget?
 
     // MARK: - Config
 
@@ -107,6 +109,15 @@ final class DeepLinkRouter: ObservableObject {
     /// Сбрасывает текущий pending-link (после обработки).
     func clear() {
         pendingLink = .none
+    }
+
+    func openChat(_ target: PlinkChatTarget) {
+        pendingChat = target
+        NotificationCenter.default.post(name: .plinkOpenChat, object: target)
+    }
+
+    func clearPendingChat() {
+        pendingChat = nil
     }
 
     // MARK: - URL Generation

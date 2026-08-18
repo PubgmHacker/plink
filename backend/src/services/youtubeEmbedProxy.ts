@@ -66,7 +66,7 @@ export async function proxyYouTubeEmbed(videoId: string): Promise<string> {
   // Add a base tag to handle any remaining relative URLs
   html = html.replace('<head>', '<head><base href="https://www.youtube.com/">');
 
-  // 🔧 v12.1: inject Safari shim IMMEDIATELY after <head>, BEFORE any YouTube scripts
+  // V12.1: inject Safari shim IMMEDIATELY after <head>, BEFORE any YouTube scripts
   // This runs before YouTube's player JS loads, so when it checks window.safari,
   // navigator.vendor etc., it finds Safari-like values → no 153.
   html = html.replace('<head><base ', '<head>' + SAFARI_SHIM + '<base ');

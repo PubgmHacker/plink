@@ -1,12 +1,10 @@
-// Plink/Services/StoreManager.swift — PATCH 08: StoreKit 2 + backend verification
-//
-// GLM-5.2 master implementation patch — Commit Group 10.
+// StoreKit 2 + backend verification
 //
 // StoreKit 2 subscription manager with server-authoritative entitlement.
 // The backend verifies signed transactions (JWS) and receives App Store
 // Server Notifications V2 to stay in sync even when the app is closed.
 //
-// PATCH 08 spec compliance:
+// Invariants:
 //   - StoreKit 2 API: Product.products, purchase, Transaction.currentEntitlements,
 //     Transaction.updates, AppStore.sync
 //   - NEVER hardcode displayed prices — always use Product.displayPrice
@@ -15,7 +13,7 @@
 //   - Entitlements are server-authoritative (iOS is optimistic UI only)
 //   - Products: monthly, yearly, optional non-consumable lifetime
 //   - Trial wording: "7-day free trial, eligibility determined by App Store"
-//   - Remove "priority sync" — never degrade free sync
+//   - No "priority sync" tier — free sync is never degraded
 //
 // Architecture:
 //   - StoreManager is @MainActor ObservableObject (UI binding).
@@ -49,7 +47,7 @@ import CryptoKit
 // MARK: - Product IDs
 
 enum PlinkProductID {
-    // PATCH Final §12: exactly 1m, 3m, 12m per final unified spec
+    // Exactly three subscription products: 1m, 3m, 12m
     static let monthly = "plink.plus.1m"
     static let quarterly = "plink.plus.3m"
     static let yearly = "plink.plus.12m"
@@ -109,16 +107,16 @@ final class StoreManager: ObservableObject {
         case success
         case failed
         case restoring
-        case verifying  // PATCH 08: backend JWS verification in progress
+        case verifying  // Backend JWS verification in progress
     }
 
-    // MARK: - appAccountToken (Аудит 26.07.2026 P1)
+    // MARK: - appAccountToken
 
     /// Namespace для деривации appAccountToken из userId (RFC 4122 UUID v5).
     /// ВАЖНО: ровно та же константа и формула продублированы на сервере
     /// (billing.ts) — сервер сверяет токен из подписанной Apple транзакции
     /// с аутентифицированным пользователем. Менять только синхронно.
-    // Аудит 26.07.2026 P0: namespace обязан побайтово совпадать с
+    // Namespace обязан побайтово совпадать с
     // PLINK_APP_ACCOUNT_NAMESPACE на сервере (billing.ts) — расхождение
     // означало 403 на КАЖДОЙ покупке после списания денег.
     static let plinkAccountNamespace = UUID(uuidString: "3F2C9A1E-8D5B-4E7A-B6C4-2A9D71F0E583")!
@@ -188,7 +186,7 @@ final class StoreManager: ObservableObject {
         errorMessage = nil
 
         do {
-            // Аудит 26.07.2026 P1: привязываем покупку к аккаунту через
+            // Привязываем покупку к аккаунту через
             // appAccountToken (UUID v5 из userId) — сервер сверяет его
             // с покупателем в billing.ts. Без userId — покупка без токена.
             var options: Set<Product.PurchaseOption> = []
@@ -206,9 +204,9 @@ final class StoreManager: ObservableObject {
                     return
                 }
 
-                // PATCH 08: send JWS to backend for server-authoritative
+                // Send JWS to backend for server-authoritative
                 // entitlement. StoreKit's local state is optimistic UI only.
-                // Аудит 26.07.2026 (P0): передаём именно jwsRepresentation —
+                // Передаём именно jwsRepresentation —
                 // раньше уходил jsonRepresentation, и подпись на сервере
                 // не могла пройти НИКОГДА.
                 let outcome = await verifyWithBackend(
@@ -216,7 +214,7 @@ final class StoreManager: ObservableObject {
                     jws: verification.jwsRepresentation
                 )
 
-                // Аудит 26.07.2026 P1: finish() был безусловным — сервер,
+                // finish() был безусловным — сервер,
                 // не узнавший о покупке, терял второй шанс через
                 // Transaction.updates. Теперь finish() только когда сервер
                 // реально ответил (подтвердил или авторитетно отказал).
@@ -273,7 +271,7 @@ final class StoreManager: ObservableObject {
             for await result in Transaction.currentEntitlements {
                 guard let (transaction, jws) = Self.verifiedTransactionWithJWS(result) else { continue }
                 let outcome = await verifyWithBackend(transaction: transaction, jws: jws)
-                // Аудит 26.07.2026 P1: авторитетный отказ сервера
+                // Авторитетный отказ сервера
                 // не считаем успешным восстановлением.
                 if outcome != .rejected { restored = true }
             }
@@ -324,7 +322,7 @@ final class StoreManager: ObservableObject {
                 return
             }
 
-            // Аудит 26.07.2026 P1: 4xx (например 401 без токена) — авторитетный
+            // 4xx (например 401 без токена) — авторитетный
             // ответ сервера, НЕ включаем премиум по локальному StoreKit;
             // статус не трогаем. Локальный фолбэк только при 5xx/сети.
             if (400..<500).contains(http.statusCode) { return }
@@ -342,7 +340,7 @@ final class StoreManager: ObservableObject {
         transactionListener = Task { [weak self] in
             for await result in StoreKit.Transaction.updates {
                 guard let (transaction, jws) = Self.verifiedTransactionWithJWS(result) else { continue }
-                // Аудит 26.07.2026 P1: finish() только когда сервер ответил
+                // finish() только когда сервер ответил
                 // (200 или авторитетный 4xx). При недоступном бэкенде
                 // транзакцию не закрываем — StoreKit передоставит её позже.
                 let outcome = await self?.verifyWithBackend(transaction: transaction, jws: jws)
@@ -353,9 +351,9 @@ final class StoreManager: ObservableObject {
         }
     }
 
-    // MARK: - Backend verification (PATCH 08)
+    // MARK: - Backend verification
 
-    /// Итог серверной верификации JWS (Аудит 26.07.2026 P1).
+    /// Итог серверной верификации JWS.
     enum VerifyOutcome: Equatable {
         case confirmed    // 200 — entitlement применён с сервера
         case rejected     // 4xx — авторитетный отказ (revoke / чужая транзакция)
@@ -365,7 +363,7 @@ final class StoreManager: ObservableObject {
     /// Sends the signed transaction JWS to backend for verification.
     /// Backend is authoritative — local StoreKit state is optimistic only.
     /// `jws` — verification.jwsRepresentation (RFC 7515), а не jsonRepresentation.
-    /// Аудит 26.07.2026 P1: раньше ЛЮБОЙ не-200 (включая 403 «чужая
+    /// Раньше ЛЮБОЙ не-200 (включая 403 «чужая
     /// транзакция» и 400 «revoked») включал премиум локально (fail-open).
     /// Теперь 4xx — авторитетный отказ без applyLocalTransaction.
     @discardableResult
@@ -432,7 +430,7 @@ final class StoreManager: ObservableObject {
 
     // MARK: - Apply entitlement
 
-    // Аудит 26.07.2026 P1: JS Date.toISOString() всегда отдаёт миллисекунды
+    // JS Date.toISOString() всегда отдаёт миллисекунды
     // ('2026-08-25T10:00:00.000Z'), а ISO8601DateFormatter без
     // .withFractionalSeconds возвращал nil — оплаченный премиум молча терялся.
     private static let isoFormatterFractional: ISO8601DateFormatter = {
@@ -467,7 +465,7 @@ final class StoreManager: ObservableObject {
             PremiumStatusManager.shared.activateLifetime()
             onEntitlementActive?(.lifetime, nil)
         case .premium:
-            // Аудит 26.07.2026 P1: сервер подтвердил премиум — не молчим при
+            // Сервер подтвердил премиум — не молчим при
             // неразобранной дате, активируем с дефолтным окном и логом.
             let expiry: Date
             if let parsed = expiryDate {

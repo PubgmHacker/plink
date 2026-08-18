@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - User Model
 //
-// 🔧 v11 (July 2026): Telegram-style naming split.
+// Telegram-style naming split.
 //   - `username`  → unique @tag (e.g. "@alex_films"), used for search/friends/deeplinks
 //   - `displayName` → human-readable nick (e.g. "Alex Films"), shown in chat/profile
 //
@@ -17,12 +17,14 @@ struct User: Codable, Identifiable, Sendable {
     let username: String          // unique @tag, e.g. "alex_films"
     let email: String
     let avatarURL: String?
-    /// P0: Base64 avatar data stored in DB (replaces filesystem for Railway persistence)
+    /// Base64 avatar bytes, stored in the database rather than on disk: the
+    /// deployment target has an ephemeral filesystem, so an uploaded file is gone
+    /// on the next deploy.
     let avatarData: String?
-    /// 🔧 v11: Telegram-style display name (separate from @username).
+    /// Telegram-style display name (separate from @username).
     /// nil on old backends → falls back to username.
     let displayName: String?
-    /// 🔧 v11: profile cover photo URL (background banner on profile screen).
+    /// Profile cover photo URL (background banner on profile screen).
     let coverURL: String?
     let isOnline: Bool
     let isPremium: Bool
@@ -122,7 +124,7 @@ struct User: Codable, Identifiable, Sendable {
         email = try container.decode(String.self, forKey: .email)
         avatarURL = try container.decodeIfPresent(String.self, forKey: .avatarURL)
         avatarData = try container.decodeIfPresent(String.self, forKey: .avatarData)
-        // 🔧 v11: optional fields, fall back gracefully on old backends
+        // Optional fields, fall back gracefully on old backends
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         coverURL = try container.decodeIfPresent(String.self, forKey: .coverURL)
         isOnline = try container.decodeIfPresent(Bool.self, forKey: .isOnline) ?? true
@@ -169,7 +171,7 @@ struct User: Codable, Identifiable, Sendable {
 
     /// Разбор профиля из кэша `rave_saved_user` (UserDefaults).
     ///
-    /// Аудит 26.07.2026 (P2): кэш пишется `JSONEncoder` со стратегией `.iso8601`,
+    /// Кэш пишется `JSONEncoder` со стратегией `.iso8601`,
     /// а читали его голым `JSONDecoder()` со стратегией `.deferredToDate` — на
     /// `createdAt` всегда прилетал typeMismatch, ошибка глоталась через `try?`,
     /// и фолбэк «узнать свой userID без сети» был мёртвым во всех четырёх местах,
@@ -219,8 +221,8 @@ struct UserPreview: Codable, Identifiable, Sendable, Hashable {
     let id: String
     let username: String
     let avatarURL: String?
-    let avatarData: String?  // P0: base64 support
-    /// 🔧 v11: optional display name (back-compat: nil on old backends)
+    let avatarData: String?  // Base64, as in `User` above.
+    /// Optional display name (back-compat: nil on old backends)
     let displayName: String?
     let isOnline: Bool
 
@@ -229,7 +231,7 @@ struct UserPreview: Codable, Identifiable, Sendable, Hashable {
         displayName?.isEmpty == false ? displayName! : username
     }
 
-    /// 🔧 v11: explicit init with displayName defaulting to nil.
+    /// Explicit init with displayName defaulting to nil.
     init(id: String, username: String, avatarURL: String?,
          avatarData: String? = nil, displayName: String? = nil, isOnline: Bool) {
         self.id = id

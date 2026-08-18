@@ -1,9 +1,28 @@
-// Plink/V4/V4HomeHelpers.swift — M31/M34: вспомогательные секции Главной.
+// Вспомогательные секции Главной.
 // HomeFallbackPlaceholder, FriendsWatchingSection, NewThisWeekSection, TrendingPreviewSheet.
 
 import SwiftUI
 
-// MARK: - M31: fallback, когда trending пуст
+enum HomeTitleFilter {
+    static let allChip = "Для вас"
+    static let chips = ["Для вас", "Новое", "Фантастика", "Аниме", "Хоррор", "Комедии"]
+
+    static func apply(chip: String, items: [V4SearchResult]) -> [V4SearchResult] {
+        guard chip != allChip else { return items }
+        let needle = chip.lowercased()
+        return items.filter {
+            $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle)
+        }
+    }
+
+    static func caption(chip: String) -> String {
+        chip == allChip
+            ? "Чипы ищут слово в названии, это не каталог жанров"
+            : "Ищем «\(chip)» в названии — не жанр каталога"
+    }
+}
+
+// MARK: - Fallback, когда trending пуст
 struct HomeFallbackPlaceholder: View {
     let theme: V4Theme
     var openRoom: () -> Void
@@ -43,7 +62,7 @@ struct HomeFallbackPlaceholder: View {
     }
 }
 
-// MARK: - M31: друзья онлайн
+// MARK: - Друзья онлайн
 struct FriendsWatchingSection: View {
     let theme: V4Theme
     var openRoom: () -> Void
@@ -138,7 +157,7 @@ struct FriendsWatchingSection: View {
     }
 }
 
-// MARK: - M31: новое в Plink
+// MARK: - Новое в Plink
 struct NewThisWeekSection: View {
     let theme: V4Theme
 
@@ -186,7 +205,7 @@ struct NewThisWeekSection: View {
     }
 }
 
-// MARK: - M34: превью перед созданием комнаты
+// MARK: - Превью перед созданием комнаты
 struct TrendingPreviewSheet: View {
     let item: V4SearchResult
     let theme: V4Theme
@@ -260,7 +279,7 @@ struct TrendingPreviewSheet: View {
                             .background(V4.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
-                        // M26: единственная кнопка, которая реально создаёт
+                        // Единственная кнопка, которая реально создаёт
                         // комнату из Главной. Без идентификатора UI-смоук
                         // воронки искал «Создать комнату» на самой Главной,
                         // не находил её (такой кнопки в продукте нет) и падал.

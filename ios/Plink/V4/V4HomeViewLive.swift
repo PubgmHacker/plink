@@ -141,7 +141,7 @@ struct V4HomeViewLive: View {
     @State private var selectedGenre: String = V4HomeViewLive.genres[0]
 
     /// Ряд чипов из макета (.chiprow).
-    static let genres = ["Для вас", "Новое", "Фантастика", "Аниме", "Хоррор", "Комедии"]
+    static let genres = HomeTitleFilter.chips
 
     // MARK: Цвета темы
 
@@ -181,15 +181,9 @@ struct V4HomeViewLive: View {
         return String(clean.prefix(1)).uppercased()
     }
 
-    /// Отбор по выбранному чипу. Полноценные жанры появятся вместе с каталогом,
-    /// пока фильтруем по тексту и не прячем ленту целиком, если совпадений нет.
+    /// Отбор по выбранному чипу. Это поиск слова в названии, не каталог жанров.
     private var visibleTrending: [V4SearchResult] {
-        guard selectedGenre != V4HomeViewLive.genres[0] else { return searchStore.trending }
-        let needle = selectedGenre.lowercased()
-        let filtered = searchStore.trending.filter {
-            $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle)
-        }
-        return filtered.isEmpty ? searchStore.trending : filtered
+        HomeTitleFilter.apply(chip: selectedGenre, items: searchStore.trending)
     }
 
     // MARK: Тело
@@ -224,7 +218,13 @@ struct V4HomeViewLive: View {
                 }
 
                 genreChips
-                    .padding(.bottom, 18)
+                    .padding(.bottom, 8)
+
+                Text(HomeTitleFilter.caption(chip: selectedGenre))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(V4.muted)
+                    .padding(.horizontal, 19)
+                    .padding(.bottom, 14)
 
                 if visibleTrending.isEmpty {
                     // isRefreshing поднимается только в .refreshable, поэтому
@@ -233,6 +233,27 @@ struct V4HomeViewLive: View {
                     // «пусто», пока шла загрузка.
                     if isRefreshing || !didAttemptTrending {
                         HomeSkeletonView().transition(.opacity)
+                    } else if selectedGenre != HomeTitleFilter.allChip {
+                        VStack(spacing: 12) {
+                            Text("В подборке нет названий со словом «\(selectedGenre)»")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(V4.ink)
+                                .multilineTextAlignment(.center)
+                            Button {
+                                selectedGenre = HomeTitleFilter.allChip
+                            } label: {
+                                Text("Сбросить фильтр")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(V4.accentInk)
+                                    .padding(.horizontal, 16)
+                                    .frame(minHeight: 40)
+                                    .background(V4.accent, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 28)
+                        .padding(.horizontal, 19)
                     } else {
                         HomeFallbackPlaceholder(theme: theme, openRoom: { showUnifiedSearch = true })
                             .padding(.bottom, 20)

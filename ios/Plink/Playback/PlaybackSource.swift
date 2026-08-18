@@ -1,5 +1,5 @@
 // Plink/Playback/PlaybackSource.swift
-// Source types (runbook §6)
+// Source types
 //
 // Distinguishes between:
 //   - hls/mp4: native AVPlayer playback (preferred — full sync control)
@@ -7,7 +7,7 @@
 //     sync control via JS bridge)
 //   - external: AirPlay/CarPlay/external route
 //
-// JWT/cookies are NEVER carried in URL query (runbook §2). Headers go
+// JWT/cookies are NEVER carried in URL query. Headers go
 // through AVPlayer's AVURLAssetHTTPHeaderFieldsKey on the resource loader,
 // or signed URL TTL (60–300s) for media URLs.
 
@@ -24,7 +24,7 @@ public enum PlaybackSource: Sendable, Equatable {
     /// with YouTube IFrame API). App Store compliant; NO extraction/relay.
     case youtube(String)
 
-    /// PATCH 10: Rutube video ID — rendered via official Rutube embed
+    /// Rutube video ID — rendered via official Rutube embed
     /// (WKWebView with rutube.ru/play/embed/<id>). App Store compliant;
     /// NO extraction. Synchronized playback is unsupported when Rutube's
     /// JS API does not expose play/pause/seek — controller falls back to
@@ -34,14 +34,14 @@ public enum PlaybackSource: Sendable, Equatable {
     /// External playback route (AirPlay, CarPlay).
     case external(URL)
 
-    /// P0: VK Video — vk.com/video_ext.php embed (WKWebView).
+    /// VK Video, as a vk.com/video_ext.php embed in a WKWebView.
     case vk(String)
 
-    /// P1: Generic web embed / cinema services.
+    /// Generic web embed, used for the cinema services.
     case embed(URL)
 
     /// Stable identifier for logging / metrics — never includes the URL
-    /// (runbook §19: 'Не логировать finalURL.absoluteString, cookies, auth
+    /// (: 'Не логировать finalURL.absoluteString, cookies, auth
     /// headers or extracted URLs').
     public var logTag: String {
         switch self {

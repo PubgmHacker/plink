@@ -1,4 +1,4 @@
-// src/routes/livekit.ts — Stage 9: LiveKit SFU token endpoint (runbook §9)
+// src/routes/livekit.ts — Stage 9: LiveKit SFU token endpoint
 import type { FastifyPluginAsync } from 'fastify';
 import { config } from '../config/index.js';
 import { prisma } from '../config/db.js';
@@ -44,7 +44,7 @@ async function hasActivePlus(userId: string): Promise<boolean> {
  * включая экран покупки Плинк+, поэтому пэйволл можно показать РАНЬШЕ
  * проверки доступности SFU — даже когда ключей LiveKit ещё нет.
  *
- * Аудит 12.08.2026 (P0): флаг был fail-open — `!== 'false'` означало «включено,
+ * Флаг был fail-open — `!== 'false'` означало «включено,
  * пока явно не выключили». То есть любой свежий деплой (Railway без переменной,
  * новый стейдж, локальный запуск) по умолчанию ПРОДАВАЛ подписку за неработающую
  * функцию, а защитой служил комментарий «не забыть перед App Store». Требование

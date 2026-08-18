@@ -131,7 +131,7 @@ export async function tombstoneAccount(userId: string): Promise<{ alreadyDeleted
     /* ignore */
   }
 
-  // Аудит 26.07.2026 (P2): молчаливый catch прятал незакрытые сессии — сбой
+  // Молчаливый catch прятал незакрытые сессии — сбой
   // отзыва не попадал ни в логи, ни в метрики. Бросать нельзя (PII уже вычищен,
   // ответ клиенту обязан уйти), но факт должен быть виден: /auth/refresh теперь
   // отдельно проверяет deletedAt, так что аккаунт всё равно не оживёт.
@@ -145,4 +145,41 @@ export async function tombstoneAccount(userId: string): Promise<{ alreadyDeleted
   });
 
   return { alreadyDeleted: false };
+}
+
+const GUEST_EMAIL_SUFFIX = '@plink.guest.local';
+
+/** Web guests from /w/:code expire after 24h (`scheduledForDeletionAt` on create). */
+export async function purgeExpiredGuestAccounts(limit = 50): Promise<number> {
+  const due = await prisma.user.findMany({
+    where: {
+      email: { endsWith: GUEST_EMAIL_SUFFIX },
+      scheduledForDeletionAt: { lte: new Date() },
+      deletedAt: null,
+    },
+    select: { id: true },
+    take: limit,
+  });
+  let n = 0;
+  for (const row of due) {
+    try {
+      await tombstoneAccount(row.id);
+      n += 1;
+    } catch (err) {
+      console.error('[guest-ttl] tombstone failed', row.id, err instanceof Error ? err.message : err);
+    }
+  }
+  return n;
+}
+
+let guestLoop: ReturnType<typeof setInterval> | null = null;
+
+export function startGuestTombstoneLoop(): void {
+  if (guestLoop) return;
+  guestLoop = setInterval(() => {
+    void purgeExpiredGuestAccounts().catch((err) => {
+      console.error('[guest-ttl] purge failed', err instanceof Error ? err.message : err);
+    });
+  }, 15 * 60 * 1000);
+  guestLoop.unref();
 }

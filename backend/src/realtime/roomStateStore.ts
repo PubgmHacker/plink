@@ -1,4 +1,4 @@
-// src/realtime/roomStateStore.ts — Authoritative room state in Redis (runbook §4)
+// src/realtime/roomStateStore.ts — Authoritative room state in Redis
 //
 // Replaces the in-memory Map<roomId, state> in ws-handler.ts. Two key properties:
 //
@@ -84,19 +84,19 @@ return {1, encoded}
 //   KEYS[1] = room:<roomId>:state
 //   ARGV[1] = effectiveAtServerMs (now)
 //
-// Аудит 26.07.2026 P2: скрипт считал epoch+1, но НЕ записывал состояние —
-// два подряд bump возвращали одно и то же число, а клиенты вообще не узнавали
-// о новой эпохе. Теперь новая эпоха персистится (seq = 0, таймлайн на паузе с
-// сохранённой позицией) и публикуется в room:<roomId>, как это делает
-// APPLY_COMMAND, — иначе механизм эпох существует только на бумаге.
+// The script must persist the new epoch, not just compute it. Returning epoch+1
+// without writing state made two consecutive bumps return the same number and
+// left clients unaware an epoch had changed at all — the mechanism existed only
+// on paper. The new epoch is now stored (seq = 0, timeline paused at the saved
+// position) and published to room:<roomId>, exactly as APPLY_COMMAND does.
 //
-// Ревью P2: positionMs нужно ДОВЕСТИ на прошедшее с момента последней команды
-// время (effectiveAtServerMs пишется как now). Иначе пауза «сохраняла» не
-// позицию, а устаревшее поле, и клиенты отматывали фильм назад на всё время
-// проигрывания. math.floor обязателен: RoomState.positionMs — целое.
+// positionMs is advanced by the time elapsed since the last command, because
+// effectiveAtServerMs is written as now. Storing the stale field instead means a
+// pause saves an old position and every client rewinds by however long playback
+// had been running. math.floor is required: RoomState.positionMs is an integer.
 //
-// Комната без состояния ничего не пишет: первая же sync.command назначит
-// epoch 1 (gateway.currentEpoch → 1 по умолчанию).
+// A room with no state writes nothing: the first sync.command assigns epoch 1
+// (gateway.currentEpoch defaults to 1).
 // ─────────────────────────────────────────────────────────────────────────────
 const BUMP_EPOCH = `
 local stateKey = KEYS[1]

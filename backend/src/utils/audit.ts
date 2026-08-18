@@ -44,4 +44,6 @@ export const AuditActions = {
   ACCOUNT_DELETION_REQUESTED: 'account.deletion.requested',
   ACCOUNT_DELETION_CANCELLED: 'account.deletion.cancelled',
   SIGNOUT_OTHERS: 'auth.signout.others',
+  PASSWORD_RESET_REQUESTED: 'auth.password.reset.requested',
+  PASSWORD_RESET: 'auth.password.reset',
 } as const;

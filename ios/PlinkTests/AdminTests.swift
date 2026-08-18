@@ -1,7 +1,7 @@
-// PlinkTests/AdminTests.swift — PATCH 21: admin system tests
+// Admin system tests
 //
 // Tests AdminModule enum contract (V5/PlinkAdminRoot.swift).
-// Аудит 26.07.2026: тест был написан под мёртвую версию AdminModule
+// Тест был написан под мёртвую версию AdminModule
 // (blocklists/apiPrefix/owner/AdminModuleView) и не компилировался.
 // Переписан под живой enum.
 

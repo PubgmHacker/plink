@@ -1,4 +1,4 @@
-// PlinkTests/FriendsTests.swift — PATCH 20: friends system tests
+// Friends system tests
 //
 // Closes the "friends" red system in RegressionMatrix.
 // Tests Friendship models + FriendManager logic via in-memory state.
@@ -115,7 +115,7 @@ final class FriendsTests: XCTestCase {
 
     // MARK: - FriendManager logic (in-memory)
 
-    // PATCH 22: FriendManager requires APIClient in init — can't test
+    // FriendManager requires APIClient in init — can't test
     // without network. These tests are removed; FriendManager logic
     // is covered by integration tests on Mac CI.
 

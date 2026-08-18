@@ -20,12 +20,12 @@ struct PlinkApprovedV4Root: View {
     @State private var highContrast: Bool = PlinkAppearancePrefs.highContrast
 
     // Показ комнаты идёт через roomToPresent + .fullScreenCover ниже.
-    // Аудит 26.07.2026: @State roomCoordinator не читался ни разу (единственное
+    // @State roomCoordinator не читался ни разу (единственное
     // упоминание во всём проекте — эта строка), вместе с ним удалён и мёртвый
     // V5/PlinkRoomPresentation.swift.
     @State private var roomToPresent: Room?
 
-    // P0: Real backend stores
+    // Backend-backed stores — no mock data in this tree.
     @State private var roomsStore: V4RoomsStore?
     @State private var searchStore = V4SearchStore()
     @State private var friendsStore: V4FriendsStore?
@@ -42,12 +42,16 @@ struct PlinkApprovedV4Root: View {
     // тот же чат, но сразу включает микрофон.
     @State private var aiChatAutoVoice = false
     @State private var lastSharedRoomCode: String?
+    @State private var joinErrorMessage: String?
+    @State private var showJoinError = false
+    @State private var joinPrefillCode = ""
+    @State private var joinStartWithPassword = false
 
-    // Аудит 26.07.2026 P1: единственный консьюмер deep-link'ов (раньше
+    // Единственный консьюмер deep-link'ов (раньше
     // pendingLink никто не читал — комната джойнилась на сервере, UI молчал).
     @State private var pendingFriendInvite: V4FriendInvite?
 
-    // Аудит 26.07.2026 P2: жизненный цикл фоновых сервисов. Раньше
+    // Жизненный цикл фоновых сервисов. Раньше
     // stopUnreadPolling() не звали нигде — DM-опрос и presence-пинги жили вечно.
     @Environment(\.scenePhase) private var scenePhase
 
@@ -134,20 +138,20 @@ struct PlinkApprovedV4Root: View {
         }.preferredColorScheme(.dark).tint(currentAccent)
         .task {
             if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) { theme = live.closestStandardTheme }
-            // M14: комната читает акцент активной темы — единый стиль без прыжка дизайнов
+            // Комната читает акцент активной темы — единый стиль без прыжка дизайнов
             UserDefaults.standard.set(theme.rawValue, forKey: "plink.v4ThemeName")
             await bootstrap()
         }
         .onChange(of: theme) { _, newTheme in
             UserDefaults.standard.set(newTheme.rawValue, forKey: "plink.v4ThemeName")
-            // Аудит 26.07.2026: выбор темы уезжает PUT /api/profile/appearance
+            // Выбор темы уезжает PUT /api/profile/appearance
             // (кросс-девайс). Дедупликация и офлайн-деградация — внутри стора.
             AppearanceStore.shared.syncV4Theme(
                 themeName: newTheme.rawValue,
                 liveIndex: UserDefaults.standard.integer(forKey: "plink.liveTheme")
             )
         }
-        // Аудит 26.07.2026 P2: в фоне гасим DM-опрос / realtime и presence-пинги,
+        // В фоне гасим DM-опрос / realtime и presence-пинги,
         // при возврате поднимаем и сразу подтягиваем свежие бейджи.
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -167,7 +171,7 @@ struct PlinkApprovedV4Root: View {
             if let i = n.object as? Int {
                 liveThemeIndex = i
                 if let l = PlinkPlusLiveTheme.resolve(i) { theme = l.closestStandardTheme }
-                // Аудит 26.07.2026: смена/сброс живой темы тоже уезжает на
+                // смена/сброс живой темы тоже уезжает на
                 // сервер (onChange(of: theme) не сработает, если ближайшая
                 // статическая тема совпала с текущей). Имя темы берём из
                 // plink.v4ThemeName — он пишется ДО поста нотификации, а
@@ -179,7 +183,7 @@ struct PlinkApprovedV4Root: View {
                 )
             }
         }
-        // Аудит 26.07.2026: статическая тема, гидрированная с сервера при
+        // Статическая тема, гидрированная с сервера при
         // старте, — .plinkLiveThemeChanged(0) сам по себе тему не меняет.
         .onReceive(NotificationCenter.default.publisher(for: .plinkV4ThemeRestored)) { n in
             if let raw = n.object as? String, let restored = V4Theme(rawValue: raw) {
@@ -234,10 +238,16 @@ struct PlinkApprovedV4Root: View {
                 onJoined: { room in
                     showJoinByCode = false
                     roomToPresent = room
-                }
+                },
+                initialCode: joinPrefillCode,
+                startWithPassword: joinStartWithPassword
             )
             .environmentObject(APIClient.shared)
             .preferredColorScheme(.dark)
+            .onDisappear {
+                joinPrefillCode = ""
+                joinStartWithPassword = false
+            }
         }
         .alert(
             "Код комнаты",
@@ -272,11 +282,15 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
             Task { await roomsStore?.load() }
         }
-        // Аудит 26.07.2026 P1: deep links — комната открывается, заявка в друзья
+        // Deep links — комната открывается, заявка в друзья
         // подтверждается алертом. @Published отдаёт текущее значение при подписке,
         // так что ссылка, пришедшая до появления экрана, тоже обработается.
         .onReceive(DeepLinkRouter.shared.$pendingLink) { link in
             handleDeepLink(link)
+        }
+        .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
+            guard target != nil else { return }
+            tab = 2
         }
         .alert(
             "Заявка в друзья",
@@ -296,9 +310,17 @@ struct PlinkApprovedV4Root: View {
         } message: { invite in
             Text("Отправить заявку в друзья пользователю @\(invite.username)?")
         }
+        .alert("Не удалось войти", isPresented: $showJoinError) {
+            Button("ОК", role: .cancel) {
+                showJoinError = false
+                joinErrorMessage = nil
+            }
+        } message: {
+            Text(joinErrorMessage ?? "")
+        }
     }
 
-    // MARK: - Deep Links (Аудит 26.07.2026 P1)
+    // MARK: - Deep Links
 
     @MainActor
     private func handleDeepLink(_ link: DeepLinkType) {
@@ -316,7 +338,17 @@ struct PlinkApprovedV4Root: View {
                         Task { await roomsStore?.load() }
                     }
                 } catch {
-                    await MainActor.run { HapticManager.errorOccurred() }
+                    await MainActor.run {
+                        HapticManager.errorOccurred()
+                        if JoinRoomErrorCopy.isPasswordRequired(error) {
+                            joinPrefillCode = code
+                            joinStartWithPassword = true
+                            showJoinByCode = true
+                        } else {
+                            joinErrorMessage = JoinRoomErrorCopy.message(for: error)
+                            showJoinError = true
+                        }
+                    }
                 }
             }
         case .friendInvite(let userId):
@@ -370,7 +402,7 @@ struct PlinkApprovedV4Root: View {
     }
 
     /// Quick Room — one-tap create from first trending video.
-    // Аудит 26.07.2026: здесь были quickCreateRoom() и вторая копия
+    // Здесь были quickCreateRoom() и вторая копия
     // createRoomFromTrending() — обе без единого вызова (живая копия — в
     // V4HomeViewLive). Удалены.
 
@@ -399,7 +431,7 @@ struct PlinkApprovedV4Root: View {
         // Server is authority for isPremium + ADMIN role (e.g. koslakandrej@gmail.com)
         if api.authToken != nil {
             do {
-                // Аудит 26.07.2026 (P2): здесь был второй вызов syncFromServer с
+                // Здесь был второй вызов syncFromServer с
                 // expiry: nil. Теперь fetchCurrentUser() сам синхронизирует премиум
                 // с серверной датой premiumUntil, и дубль только затирал бы её.
                 let user = try await as_.fetchCurrentUser()
@@ -407,7 +439,7 @@ struct PlinkApprovedV4Root: View {
             } catch {
                 Logger.api.warn("[bootstrap] fetchCurrentUser: \(error.localizedDescription)")
             }
-            // Аудит 26.07.2026: гидрация оформления с сервера — тема/бабл
+            // Гидрация оформления с сервера — тема/бабл
             // подтягиваются на iPhone без открытия экрана «Оформление»
             // (смена устройства восстанавливает выбор). Заодно создаётся
             // AppearanceStore.shared → AppearanceStore.live перестаёт быть
@@ -437,7 +469,7 @@ struct PlinkApprovedV4Root: View {
     }
 }
 
-// MARK: - Friend Invite (deep link /u/<id>) — Аудит 26.07.2026 P1
+// MARK: - Friend Invite (deep link /u/<id>)
 
 private struct V4FriendInvite: Identifiable {
     let id = UUID()
@@ -445,7 +477,7 @@ private struct V4FriendInvite: Identifiable {
     let username: String
 }
 
-// MARK: - Liquid Glass Tab Bar (GPT-5.6 Post-V4)
+// MARK: - Liquid Glass Tab Bar
 
 struct PlinkLiquidTabBar: View {
     @Binding var selection: Int
@@ -519,7 +551,7 @@ struct PlinkLiquidTabBar: View {
                     // распределён между размером, цветом и подложкой, а не
                     // держится на одной заливке.
                     .scaleEffect(isSelected ? 1.06 : 1)
-                // M25: Tab 2 = Друзья — unread DM badge
+                // Tab 2 = Друзья — unread DM badge
                 if index == 2, friendsBadge > 0 {
                     Text(friendsBadge > 9 ? "9+" : "\(friendsBadge)")
                         .font(.system(size: 9, weight: .bold))
@@ -557,7 +589,7 @@ struct PlinkLiquidTabBar: View {
     }
 }
 
-// MARK: - Notification Bell (GPT-5.6 Post-V4)
+// MARK: - Notification Bell
 
 struct NotificationInboxButton: View {
     let unreadCount: Int

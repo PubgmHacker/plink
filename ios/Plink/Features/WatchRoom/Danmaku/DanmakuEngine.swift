@@ -1,4 +1,4 @@
-// Plink/Features/WatchRoom/Danmaku/DanmakuEngine.swift — PATCH 05
+// Plink/Features/WatchRoom/Danmaku/DanmakuEngine.swift
 //
 // GLM-5.2 master implementation patch — Commit Group 5.
 //
@@ -79,7 +79,7 @@ struct DanmakuPlacement: Identifiable, Equatable, Sendable {
     let isPremium: Bool
     let isAdmin: Bool
     let createdAt: ContinuousClock.Instant
-    /// PATCH 16: Date representation of createdAt for View-side progress
+    /// Date representation of createdAt for View-side progress
     /// computation. TimelineView provides context.date as Date, and
     /// converting Date → ContinuousClock.Instant is not directly possible.
     /// Storing a parallel Date lets the View compute progress without
@@ -89,7 +89,7 @@ struct DanmakuPlacement: Identifiable, Equatable, Sendable {
     /// 0...1 progress through the lane. View computes x-offset from this.
     /// progress = (now - createdAt) / (duration * speed)
     func progress(at now: ContinuousClock.Instant, speed: Double) -> Double {
-        // PATCH 16: Duration has no .seconds method/property. Use .components
+        // Duration has no .seconds method/property. Use .components
         // tuple (seconds: Int64, attoseconds: Int64) and convert to Double.
         // createdAt.duration(to: now) returns positive duration when
         // createdAt < now (no unary minus needed).
@@ -99,7 +99,7 @@ struct DanmakuPlacement: Identifiable, Equatable, Sendable {
         return elapsed / (duration * max(0.1, speed))
     }
 
-    /// PATCH 16: Date-based progress for View rendering (TimelineView).
+    /// Date-based progress for View rendering (TimelineView).
     func progress(at date: Date, speed: Double) -> Double {
         let elapsed = date.timeIntervalSince(createdAtDate)
         guard duration > 0 else { return 1 }
@@ -197,7 +197,7 @@ actor DanmakuEngine {
             isPremium: message.isPremium,
             isAdmin: message.isAdmin,
             createdAt: now,
-            createdAtDate: Date()  // PATCH 16: parallel Date for View-side progress
+            createdAtDate: Date()  // Parallel Date for View-side progress
         )
 
         // Lane becomes available again when the head of the message has

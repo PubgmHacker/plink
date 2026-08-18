@@ -13,19 +13,19 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
     let maxParticipants: Int
     let hostIsPremium: Bool
     let createdAt: Date
-    /// 🔧 NEW: Privacy level — public (visible to all), friends (friends only), private (link only)
+    /// NEW: Privacy level — public (visible to all), friends (friends only), private (link only)
     var privacy: RoomPrivacy
-    /// 🔧 NEW: Optional password for locked rooms. nil = no password needed.
+    /// NEW: Optional password for locked rooms. nil = no password needed.
     var password: String?
-    /// 🔧 NEW: True if room has a password set
+    /// NEW: True if room has a password set
     var isLocked: Bool { password != nil && !(password?.isEmpty ?? true) }
 
-    /// 🔧 Pack v3: Prisma _count (когда бэкенд отдаёт include: { _count: { select: { participants: true } } })
+    /// Pack v3: Prisma _count (когда бэкенд отдаёт include: { _count: { select: { participants: true } } })
     /// вместо массива participants. Экономит трафик — отдаёт только количество.
     var _count: RoomCount?
 
     var participantCount: Int {
-        // 🔧 Pack v3: Бэкенд отдаёт _count.participants (Prisma include),
+        // Pack v3: Бэкенд отдаёт _count.participants (Prisma include),
         // а не массив participants. Поддерживаем оба варианта.
         if !participants.isEmpty {
             return participants.count
@@ -37,9 +37,10 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
         participantCount >= maxParticipants
     }
 
-    /// 🔧 FIX M8: Was a dead computed property that always returned false.
-    /// Now takes the current user id as a parameter and actually checks.
-    /// Usage: `room.isHost(userId: currentUserId)` instead of `room.isHost`.
+    /// Takes the viewer's id rather than reading it from a singleton: a `Room` is
+    /// decoded from the API and has no notion of who "you" are, so a parameterless
+    /// `isHost` could only ever guess — and the version that guessed returned
+    /// false for everyone, including the actual host.
     func isHost(userId: String) -> Bool {
         hostID == userId
     }
@@ -76,14 +77,15 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
         hostID = try c.decode(String.self, forKey: .hostID)
         hostName = try c.decodeIfPresent(String.self, forKey: .hostName) ?? "Unknown"
         code = try c.decode(String.self, forKey: .code)
-        // 🔧 Pack v3: participants может отсутствовать (бэкенд не всегда отдаёт массив)
+        // Pack v3: participants может отсутствовать (бэкенд не всегда отдаёт массив)
         participants = try c.decodeIfPresent([UserPreview].self, forKey: .participants) ?? []
         mediaItem = try c.decodeIfPresent(MediaItem.self, forKey: .mediaItem)
         isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         maxParticipants = try c.decodeIfPresent(Int.self, forKey: .maxParticipants) ?? 10
         hostIsPremium = try c.decodeIfPresent(Bool.self, forKey: .hostIsPremium) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
-        // 🔧 FIX 2.5: Map old "friends" to new .byLink for backwards compat
+        // Rooms created before link-privacy existed persist "friends"; map it to
+        // .byLink so an old room does not decode as public.
         let privacyRaw = try c.decodeIfPresent(String.self, forKey: .privacy) ?? "public"
         switch privacyRaw {
         case "public": privacy = .publicRoom
@@ -93,7 +95,7 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
         default: privacy = .publicRoom
         }
         password = try c.decodeIfPresent(String.self, forKey: .password)
-        // 🔧 Pack v3: _count (Prisma include) — опциональное
+        // Pack v3: _count (Prisma include) — опциональное
         _count = try c.decodeIfPresent(RoomCount.self, forKey: ._count)
     }
 
@@ -135,10 +137,10 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
     }
 
     // MARK: - Mock Rooms
-    // 🔧 FIX L2: mockRooms removed from production. Was misleading — if the server
-    // returned empty/401, users saw fake "active" rooms with fake participant counts.
-    // Now the UI must handle the empty state explicitly (the UI shows a friendly
-    // empty state instead of fake content).
+    // Mock rooms are DEBUG-only on purpose. Shipping them meant an empty or 401
+    // response rendered as fake "active" rooms with fake participant counts, so a
+    // signed-out user saw a busy app and a broken backend looked healthy. The
+    // production UI has to render the empty state instead.
     #if DEBUG
     /// Mock rooms for SwiftUI previews and unit tests only.
     static var previewMockRooms: [Room] {
@@ -176,9 +178,9 @@ struct CreateRoomRequest: Codable, Sendable {
     let maxParticipants: Int
     let mediaItem: MediaItem?
     let privacy: RoomPrivacy
-    /// 🔧 NEW: Optional password for locked rooms
+    /// NEW: Optional password for locked rooms
     let password: String?
-    /// 🔧 Pack v2: hostName отправляем с клиента (бэкенд берёт из JWT,
+    /// Pack v2: hostName отправляем с клиента (бэкенд берёт из JWT,
     /// но если JWT не содержит username — fallback на это поле).
     /// Бэкенд rooms.ts: `hostName: request.user.username || body.hostName`
     let hostName: String?
@@ -187,7 +189,7 @@ struct CreateRoomRequest: Codable, Sendable {
 // MARK: - Join Room Request
 struct JoinRoomRequest: Codable, Sendable {
     let code: String
-    /// 🔧 NEW: Optional password for locked rooms
+    /// NEW: Optional password for locked rooms
     let password: String?
 }
 
@@ -197,7 +199,7 @@ enum RoomPrivacy: String, CaseIterable, Identifiable, Codable, Sendable {
     case publicRoom = "public"      // видна всем на главной
     case privateRoom = "private"    // закрытая, с паролем
     case byLink = "link"            // только по ссылке, без пароля
-    case friendsRoom = "friends"    // M15: только друзья хоста
+    case friendsRoom = "friends"    // Только друзья хоста
 
     var id: String { rawValue }
 

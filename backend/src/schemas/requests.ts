@@ -41,6 +41,16 @@ export const guestAuthBody = z.object({
   roomCode: z.string().min(4).max(12).optional(),
 }).passthrough();
 
+export const forgotPasswordBody = z.object({
+  email: z.string().email().max(254),
+}).passthrough();
+
+export const resetPasswordBody = z.object({
+  email: z.string().email().max(254),
+  code: z.string().regex(/^\d{6}$/),
+  newPassword: z.string().min(6).max(128),
+}).passthrough();
+
 // ─── billing ─────────────────────────────────────────────────────────────
 
 export const billingVerifyBody = z.object({

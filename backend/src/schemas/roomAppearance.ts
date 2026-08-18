@@ -1,4 +1,3 @@
-// src/schemas/roomAppearance.ts — GPT-5.6 §7
 import { z } from 'zod';
 
 export const roomAppearanceSchema = z.object({

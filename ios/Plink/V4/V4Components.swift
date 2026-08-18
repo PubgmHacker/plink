@@ -208,7 +208,7 @@ struct V4Heading: View {
 struct V4MediaCard: View {
     let title: String
     let meta: String
-    var thumbnailURL: String? = nil   // M32: обложка видео
+    var thumbnailURL: String? = nil   // Обложка видео
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if let urlStr = thumbnailURL, let url = URL(string: urlStr) {

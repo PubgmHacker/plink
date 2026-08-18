@@ -2,8 +2,9 @@ import Foundation
 import Security
 
 // MARK: - Keychain Helper
-/// 🔧 FIX C2: JWT must be stored in Keychain (not UserDefaults).
-/// UserDefaults is unencrypted and readable by anyone with filesystem access.
+/// The JWT belongs in the Keychain, never UserDefaults: UserDefaults is
+/// unencrypted, readable by anyone with filesystem access, and included in
+/// device backups.
 enum KeychainHelper {
     private static let service = "app.plink.auth"
 

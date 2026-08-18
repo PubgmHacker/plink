@@ -1,7 +1,7 @@
 // src/tests/integration/roomStateStore.integration.test.ts
-// Integration tests for RoomStateStore against a real Redis (runbook §12)
+// Integration tests for RoomStateStore against a real Redis
 //
-// Test cases from runbook §12:
+// Test cases from:
 //   - Duplicate actionId не увеличивает seq
 //   - Outdated epoch отклоняется
 //   - Late join получает актуальное media state

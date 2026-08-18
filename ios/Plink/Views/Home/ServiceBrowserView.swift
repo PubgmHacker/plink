@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 // MARK: - ServiceBrowserView
-/// 🔧 REDESIGNED: Full-screen WebView with smart video page detection.
+/// REDESIGNED: Full-screen WebView with smart video page detection.
 ///
 /// When the user navigates to a video page in the service's catalog:
 ///   • For YouTube/VK/Rutube: detects the video page URL pattern automatically
@@ -22,7 +22,7 @@ import WebKit
 struct ServiceBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     let service: VideoService
-    /// 🔧 Passes content URL + title to parent for RoomSetupView
+    /// Passes content URL + title to parent for RoomSetupView
     var onCreateRoom: (String, String) -> Void
 
     @State private var currentURL: URL?
@@ -34,7 +34,7 @@ struct ServiceBrowserView: View {
     @State private var loadFailed = false
     /// Меняется, чтобы пересоздать веб-вью при «Повторить».
     @State private var reloadToken = 0
-    /// 🔧 NEW: When a video page is detected, this is set to the detected video info
+    /// NEW: When a video page is detected, this is set to the detected video info
     @State private var detectedVideo: DetectedVideo?
     /// Smart Wall appears only when the user selects protected content.
     @State private var authWallVideo: DetectedVideo?
@@ -68,13 +68,14 @@ struct ServiceBrowserView: View {
                                 isPageLoading = false
                                 loadFailed = true
                             }
-                        }
+                        },
+                        persistCookies: service.requiresAuth
                     )
                     .id(reloadToken)
 
-                    // 🔧 Pack v3: bottomBar убран — авто-переход через onChange
-                    // Кнопка "Создать комнату" больше не нужна — видео автоматически
-                    // открывает RoomSetupView.
+                    if service.deliveryBucket == .yourScreen || service == .browser {
+                        createFromPageBar
+                    }
                 }
 
                 // Пока грузится страница сервиса, экран был пустым и чёрным:
@@ -123,7 +124,7 @@ struct ServiceBrowserView: View {
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
-            // 🔧 Pack v3: АВТО-переход — мгновенно для free services.
+            // Pack v3: АВТО-переход — мгновенно для free services.
             // Smart Wall appears only when protected content is selected.
             .onChange(of: detectedVideo) {
                 guard let video = detectedVideo else { return }
@@ -136,6 +137,43 @@ struct ServiceBrowserView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Кино/браузер: автодетект срабатывает не на каждой странице (Netflix /browse).
+    /// Кнопка создаёт комнату с текущим URL — хост шарит экран с этой страницы.
+    private var createFromPageBar: some View {
+        Button {
+            let href = currentURL?.absoluteString ?? service.browseURL
+            let heading = pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let video = DetectedVideo(
+                title: heading.isEmpty ? nil : heading,
+                embedURL: href,
+                originalURL: href,
+                service: service
+            )
+            if WatchRoomModel.checkServiceAccess(for: service.serviceType) {
+                HapticManager.impact(.medium)
+                onCreateRoom(href, heading.isEmpty ? service.brandName : heading)
+            } else {
+                authWallVideo = video
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "rectangle.inset.filled.and.person.filled")
+                Text(service.deliveryBucket == .yourScreen
+                     ? "Создать комнату с этой страницы"
+                     : "Создать комнату с этой вкладки")
+                    .font(.system(size: 15, weight: .bold))
+            }
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Cinema2026.background)
     }
 
     // MARK: - Загрузка страницы сервиса
@@ -389,7 +427,7 @@ struct ServiceAuthView: View {
 // MARK: - VideoService + Video Detection
 
 extension VideoService {
-    /// 🔧 Detects if a URL is a video page for this service, and returns the
+    /// Detects if a URL is a video page for this service, and returns the
     /// embeddable video URL if so. Returns nil if the URL is not a video page.
     static func detectVideoURL(_ url: URL, for service: VideoService, title: String?) -> DetectedVideo? {
         let urlString = url.absoluteString
@@ -397,39 +435,22 @@ extension VideoService {
 
         switch service {
         case .youtube:
-            // youtube.com/watch?v=VIDEO_ID or youtu.be/VIDEO_ID
-            // Строгий матч домена (PlinkHost): host.contains("youtube.com")
-            // пропускал youtube.com.evil.ru.
-            if PlinkHost.matches(host, anyOf: PlinkHost.youtubeDomains) {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let videoId = components.queryItems?.first(where: { $0.name == "v" })?.value {
-                    return DetectedVideo(
-                        title: title,
-                        embedURL: "https://www.youtube.com/embed/\(videoId)",
-                        originalURL: urlString,
-                        service: .youtube
-                    )
-                }
-                let videoId = url.lastPathComponent
-                if !videoId.isEmpty, videoId != "/" {
-                    return DetectedVideo(
-                        title: title,
-                        embedURL: "https://www.youtube.com/embed/\(videoId)",
-                        originalURL: urlString,
-                        service: .youtube
-                    )
-                }
+            // Только реальный ролик. lastPathComponent на /feed/trending
+            // давал фейковый id «trending» и сразу создавал комнату.
+            if PlinkHost.matches(host, anyOf: PlinkHost.youtubeDomains),
+               let videoId = RoomCreateMedia.extractYouTubeID(from: urlString) {
+                return DetectedVideo(
+                    title: title,
+                    embedURL: "https://www.youtube.com/embed/\(videoId)",
+                    originalURL: urlString,
+                    service: .youtube
+                )
             }
 
         case .vk:
-            // vk.com/video-OWNER_ID_VIDEO_ID or vk.com/video/OWNER_ID_VIDEO_ID
-            // Строгий матч домена обязателен: embedURL здесь = urlString, то
-            // есть чужая страница загрузилась бы в WebView комнаты под видом
-            // видео ВКонтакте (evil-vk.com.ru содержит подстроку vk.com).
             if PlinkHost.matches(host, anyOf: PlinkHost.vkDomains) {
-                let path = url.path
-                if path.contains("/video") {
-                    // For VK, we use the original URL — VK's player works in WebView
+                let path = url.path.lowercased()
+                if path.contains("/video") || path.contains("/clip") {
                     return DetectedVideo(
                         title: title,
                         embedURL: urlString,
@@ -440,43 +461,34 @@ extension VideoService {
             }
 
         case .rutube:
-            // rutube.ru/video/VIDEO_ID/
-            if PlinkHost.matches(host, anyOf: PlinkHost.rutubeDomains) {
-                let path = url.path
-                if path.contains("/video/") {
-                    // Extract video ID from path
-                    let segments = path.split(separator: "/")
-                    if segments.count >= 2, segments[0] == "video" {
-                        let videoId = String(segments[1])
-                        return DetectedVideo(
-                            title: title,
-                            embedURL: "https://rutube.ru/play/embed/\(videoId)",
-                            originalURL: urlString,
-                            service: .rutube
-                        )
-                    }
-                }
+            if PlinkHost.matches(host, anyOf: PlinkHost.rutubeDomains),
+               let videoId = RoomCreateMedia.extractRutubeVideoId(from: urlString) {
+                return DetectedVideo(
+                    title: title,
+                    embedURL: "https://rutube.ru/play/embed/\(videoId)",
+                    originalURL: urlString,
+                    service: .rutube
+                )
             }
 
         case .kinopoisk, .ivi, .okko, .wink, .start, .premier, .smotrim, .kion, .netflix, .disney:
-            // For cinema services, detect video/content pages by URL patterns
-            // These services use their own players with DRM — we can't extract streams
-            // Instead, the page URL itself becomes the content URL
-            // The WebView will be the player in the room
+            // DRM: страница = контент для режима «ваш экран».
+            // Netflix — /title/ и /watch/, Кинопоиск — /film/, Disney — /play/.
             let path = url.path.lowercased()
-            // Common patterns: /film/, /series/, /video/, /watch/, /play/
-            let videoPatterns = ["/film/", "/series/", "/video/", "/watch/", "/play/", "/movies/", "/show/"]
+            let videoPatterns = [
+                "/film/", "/series/", "/video/", "/watch/", "/play/",
+                "/movies/", "/movie/", "/show/", "/title/", "/clip/", "/episode/",
+            ]
             if videoPatterns.contains(where: { path.contains($0) }) {
                 return DetectedVideo(
                     title: title,
-                    embedURL: urlString,  // use original URL — WebView is the player
+                    embedURL: urlString,
                     originalURL: urlString,
                     service: service
                 )
             }
 
         case .browser, .customURL:
-            // No auto-detection for browser/customURL
             break
         }
 
@@ -486,7 +498,7 @@ extension VideoService {
 
 // MARK: - ServiceWebView (WKWebView wrapper with video detection)
 
-// 🔧 v27 (July 2026): WKProcessPool is DEPRECATED in iOS 15+. The v26
+// WKProcessPool is DEPRECATED in iOS 15+. The v26
 // attempt to isolate via process pools was based on outdated info —
 // removed. Each WKWebView always gets its own WebContent process
 // automatically. The .nonPersistent() data store (kept from v25) is
@@ -498,7 +510,7 @@ struct ServiceWebView: UIViewRepresentable {
     @Binding var pageTitle: String
     @Binding var canGoBack: Bool
     @Binding var canGoForward: Bool
-    /// 🔧 NEW: Called when a video page is detected
+    /// NEW: Called when a video page is detected
     var onVideoDetected: ((DetectedVideo) -> Void)?
     /// Идёт ли загрузка страницы. Без этого сигнала экран сервиса оставался
     /// пустым и чёрным всё время загрузки — на медленной сети выглядело как
@@ -506,13 +518,15 @@ struct ServiceWebView: UIViewRepresentable {
     var onLoadingChange: ((Bool) -> Void)?
     /// Загрузка упала — сеть недоступна или сервис не ответил.
     var onLoadFailed: (() -> Void)?
+    /// Кинотеатры и Яндекс ID: постоянный cookie-jar. YouTube-поиск — нет.
+    var persistCookies: Bool = false
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
-        // 🔧 v25 (July 2026): ISOLATED, NON-PERSISTENT data store for the
+        // ISOLATED, NON-PERSISTENT data store for the
         // search browser.
         //
         // The previous call to WKWebsiteDataStore.default() returned the
@@ -528,9 +542,11 @@ struct ServiceWebView: UIViewRepresentable {
         // session and skips the interstitial. Cookies set during search do
         // NOT persist across app launches, which is fine for a video search
         // screen (the user is browsing, not logging in here).
-        config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        // YouTube-каталог: nonPersistent, иначе антибот путает плеер комнаты.
+        // Кинотеатры / Яндекс ID: CinemaSessionStore — логин один раз.
+        config.websiteDataStore = CinemaSessionStore.store(persistingCookies: persistCookies)
 
-        // 🔧 Pack v3: Register message handler for SPA URL changes.
+        // Pack v3: Register message handler for SPA URL changes.
         // NOTE: this is a coordinator-only message handler, NOT a script
         // injection — YouTube's anti-bot JS cannot see it from the page
         // context (it only sees whatever we add via addUserScript). Keeping
@@ -538,7 +554,7 @@ struct ServiceWebView: UIViewRepresentable {
         let contentController = WKUserContentController()
         contentController.add(context.coordinator, name: "plinkURLChange")
 
-        // 🔧 v25: NO injected scripts for YouTube.
+        // NO injected scripts for YouTube.
         //
         // v9.3 injected an `overflow-x:hidden` style. Even though the script
         // itself is benign, the act of running any WKUserScript at
@@ -564,7 +580,7 @@ struct ServiceWebView: UIViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
 
-        // 🔧 v25 (July 2026): REMOVED customUserAgent for YouTube.
+        // REMOVED customUserAgent for YouTube.
         //
         // Previously this set an iPad Safari UA, hoping YouTube would serve
         // the modern mobile m.youtube.com layout. That worked initially, but
@@ -618,7 +634,7 @@ struct ServiceWebView: UIViewRepresentable {
             self.parent = parent
         }
 
-        // 🔧 Pack v3: Handle SPA URL changes from JavaScript
+        // Pack v3: Handle SPA URL changes from JavaScript
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "plinkURLChange",
                let body = message.body as? [String: Any],
@@ -637,7 +653,7 @@ struct ServiceWebView: UIViewRepresentable {
             }
         }
 
-        // 🔧 Pack v3: Перехватываем КАЖДУЮ навигацию (включая SPA YouTube).
+        // Pack v3: Перехватываем КАЖДУЮ навигацию (включая SPA YouTube).
         // Раньше: только didFinish → YouTube SPA не триггерит → видео играло без создания комнаты.
         // Теперь: decidePolicyFor ловит URLchange → детектим видео → авто-переход.
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -649,7 +665,7 @@ struct ServiceWebView: UIViewRepresentable {
                     lastDetectedURL = urlString
                     let service = Self.serviceFromURL(url)
                     if let service, let detected = VideoService.detectVideoURL(url, for: service, title: nil) {
-                        // 🔧 FIX: CANCEL navigation — don't load the YouTube watch page.
+                        // CANCEL navigation — don't load the YouTube watch page.
                         // Was: .allow → YouTube watch page loaded → video auto-played for
                         // a second before room creation took over.
                         // Now: .cancel → YouTube watch page never loads, no video playback.
@@ -693,7 +709,7 @@ struct ServiceWebView: UIViewRepresentable {
                 self.parent.canGoForward = webView.canGoForward
             }
 
-            // 🔧 Detect video page on full load too
+            // Detect video page on full load too
             if let url = webView.url {
                 let title = webView.title
                 let service = Self.serviceFromURL(url)
@@ -704,7 +720,7 @@ struct ServiceWebView: UIViewRepresentable {
                 }
             }
 
-            // 🔧 v25 (July 2026): SKIP all JS/CSS injection on YouTube.
+            // SKIP all JS/CSS injection on YouTube.
             //
             // YouTube's anti-bot heuristics detect `evaluateJavaScript` calls
             // by timing and side-effects (window._plinkURLObserver global,
@@ -724,7 +740,7 @@ struct ServiceWebView: UIViewRepresentable {
             let isYouTubePage = PlinkHost.isYouTube(webView.url)
             guard !isYouTubePage else { return }
 
-            // 🔧 Pack v3: Inject JS to detect SPA URL changes (Rutube React app
+            // Pack v3: Inject JS to detect SPA URL changes (Rutube React app
             // and other services that use History API without full reload).
             let js = """
             (function() {
@@ -773,7 +789,7 @@ struct ServiceWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            // 🔧 FIX: Rutube opens video in new window. Check for video URL before loading.
+            // Rutube opens video in new window. Check for video URL before loading.
             if let url = navigationAction.request.url {
                 let service = Self.serviceFromURL(url)
                 if let service, let detected = VideoService.detectVideoURL(url, for: service, title: nil) {
@@ -790,7 +806,7 @@ struct ServiceWebView: UIViewRepresentable {
             return nil
         }
 
-        // 🔧 Helper: determine VideoService from URL host
+        // Helper: determine VideoService from URL host
         //
         // Строгий матч домена (PlinkHost). Прошлая версия матчила подстроки и
         // была строже/слабее самой себя в разных местах: `host.contains("rutube")`

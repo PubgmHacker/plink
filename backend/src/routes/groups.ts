@@ -1,4 +1,4 @@
-// src/routes/groups.ts — M16: групповые чаты (беседы), как в Telegram.
+// Групповые чаты (беседы), как в Telegram.
 // Полноценный мессенджер внутри приложения синхронного просмотра.
 // Встроенный ИИ-модератор: муты за маты, NSFW-фото, запрещённые названия.
 import { prisma } from '../config/db.js';
@@ -30,7 +30,7 @@ async function requireMember(groupId: string, userId: string) {
   });
 }
 
-// Аудит 26.07.2026 P1: в группу нельзя добавлять несуществующих/удалённых
+// В группу нельзя добавлять несуществующих/удалённых
 // пользователей и пары с активной блокировкой (в любую сторону) относительно
 // добавляющего — иначе блокировка обходилась созданием группы с жертвой.
 async function filterAddableMemberIds(adderId: string, rawIds: string[]): Promise<string[]> {
@@ -76,7 +76,7 @@ async function filterAddableMemberIds(adderId: string, rawIds: string[]): Promis
 
 export default async function groupRoutes(fastify) {
   // POST /api/groups — создать беседу
-  // Аудит 26.07.2026 P1: rate limit (создание групп не троттлилось вовсе)
+  // Rate limit (создание групп не троттлилось вовсе)
   fastify.post('/groups', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
@@ -86,7 +86,7 @@ export default async function groupRoutes(fastify) {
     if (!cleanTitle) {
       return reply.status(400).send({ error: 'Название беседы обязательно' });
     }
-    // M16: ИИ-модерация названия
+    // ИИ-модерация названия
     if (violatesContentPolicy(cleanTitle) || containsProfanity(cleanTitle)) {
       return reply.status(422).send({
         error: 'Название беседы нарушает правила Plink',
@@ -97,7 +97,7 @@ export default async function groupRoutes(fastify) {
       ? memberIds.filter((x: unknown) => typeof x === 'string').slice(0, MAX_MEMBERS - 1)
       : [];
     const me = request.user.id;
-    // Аудит 26.07.2026 P1: фильтруем несуществующих/удалённых и блокировки
+    // Фильтруем несуществующих/удалённых и блокировки
     const ids = await filterAddableMemberIds(me, rawIds);
     const group = await prisma.groupChat.create({
       data: {
@@ -142,8 +142,8 @@ export default async function groupRoutes(fastify) {
       },
     });
     const roleById = new Map(memberships.map((m) => [m.groupID, m.role]));
-    // M17: unread-счётчики — сообщения после lastReadAt, не мои, не удалённые
-    // Аудит 26.07.2026 P2: один groupBy вместо count на каждую беседу —
+    // unread-счётчики — сообщения после lastReadAt, не мои, не удалённые
+    // Один groupBy вместо count на каждую беседу —
     // список чатов поллится клиентом, 50 групп давали 50 запросов.
     const unreadById = new Map<string, number>();
     const unreadGrouped = await prisma.groupMessage.groupBy({
@@ -202,7 +202,7 @@ export default async function groupRoutes(fastify) {
       });
       return reply.send({ messages });
     }
-    // Аудит 26.07.2026 P2: последние 100 берём desc+reverse — без отдельного
+    // Последние 100 берём desc+reverse — без отдельного
     // count и без OFFSET-скана всей истории беседы.
     const recent = await prisma.groupMessage.findMany({
       where: { groupID: groupId, deletedAt: null },
@@ -213,8 +213,8 @@ export default async function groupRoutes(fastify) {
     return reply.send({ messages: recent.reverse() });
   });
 
-  // M17: POST /api/groups/:id/read — отметить беседу прочитанной
-  // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+  // POST /api/groups/:id/read — отметить беседу прочитанной
+  // Rate limit на все write-роуты групп
   fastify.post('/groups/:id/read', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
@@ -229,11 +229,11 @@ export default async function groupRoutes(fastify) {
     return reply.send({ ok: true });
   });
 
-  // M17: DELETE /api/groups/:id/messages/:messageId — удалить сообщение (soft delete).
+  // DELETE /api/groups/:id/messages/:messageId — удалить сообщение (soft delete).
   // Своё — любой участник; чужое — owner/admin беседы.
   fastify.delete('/groups/:id/messages/:messageId', {
     preHandler: [fastify.authenticate],
-    // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+    // Rate limit на все write-роуты групп
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const groupId = request.params.id;
@@ -253,8 +253,8 @@ export default async function groupRoutes(fastify) {
     return reply.send({ ok: true });
   });
 
-  // M17: POST /api/groups/:id/messages/:messageId/react — переключить эмодзи-реакцию
-  // Аудит 26.07.2026 P1: rate limit (как у DM-реакций)
+  // POST /api/groups/:id/messages/:messageId/react — переключить эмодзи-реакцию
+  // Rate limit (как у DM-реакций)
   fastify.post('/groups/:id/messages/:messageId/react', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
@@ -267,7 +267,7 @@ export default async function groupRoutes(fastify) {
     const emoji = typeof request.body?.emoji === 'string' ? request.body.emoji.trim().slice(0, 8) : '';
     if (!emoji) return reply.status(400).send({ error: 'emoji обязателен' });
 
-    // Аудит 26.07.2026 P2: тогл реакции — атомарный jsonb-UPDATE одним запросом.
+    // Тогл реакции — атомарный jsonb-UPDATE одним запросом.
     // Раньше read-modify-write без транзакции: две одновременные реакции разных
     // участников давали last-write-wins, одна молча исчезала.
     try {
@@ -322,7 +322,7 @@ export default async function groupRoutes(fastify) {
   });
 
   // POST /api/groups/:id/messages — отправить текст/фото (с ИИ-модерацией)
-  // Аудит 26.07.2026 P1: rate limit — спам и заливка base64-фото не троттлились
+  // Rate limit — спам и заливка base64-фото не троттлились
   fastify.post('/groups/:id/messages', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
@@ -332,7 +332,7 @@ export default async function groupRoutes(fastify) {
     const member = await requireMember(groupId, me);
     if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
 
-    // M16: активный мут в этой беседе
+    // Активный мут в этой беседе
     const scope = `group:${groupId}`;
     const mutedSec = muteRemainingSec(scope, me);
     if (mutedSec > 0) {
@@ -356,7 +356,7 @@ export default async function groupRoutes(fastify) {
       return reply.status(413).send({ error: 'Image too large (max 2.25MB)' });
     }
 
-    // M16: NSFW-проверка фото
+    // NSFW-проверка фото
     if (image) {
       const check = await moderateImage(image.dataUrl);
       if (check.nsfw) {
@@ -376,7 +376,7 @@ export default async function groupRoutes(fastify) {
       }
     }
 
-    // M16: маты → мут с эскалацией
+    // Маты → мут с эскалацией
     if (content && containsProfanity(content)) {
       const seconds = muteUser(scope, me, 'profanity');
       void auditModeration({
@@ -430,7 +430,7 @@ export default async function groupRoutes(fastify) {
   });
 
   // POST /api/groups/:id/members — добавить участников (owner/admin)
-  // Аудит 26.07.2026 P1: rate limit + фильтр несуществующих/удалённых/заблокированных
+  // Rate limit + фильтр несуществующих/удалённых/заблокированных
   fastify.post('/groups/:id/members', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
@@ -461,14 +461,14 @@ export default async function groupRoutes(fastify) {
   });
 
   // POST /api/groups/:id/leave — выйти из беседы (владелец выходит — беседа остаётся, роль передаётся)
-  // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+  // Rate limit на все write-роуты групп
   fastify.post('/groups/:id/leave', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const groupId = request.params.id;
     const me = request.user.id;
-    // Аудит 26.07.2026 P2: выход + передача владения — одной транзакцией.
+    // Выход + передача владения — одной транзакцией.
     // Раньше четыре запроса вне транзакции: падение между шагами или два
     // одновременных leave оставляли ownerID на вышедшем либо беседу без владельца.
     // Ревью: удаление опустевшей беседы вынесено ЗА транзакцию и оставлено
@@ -502,7 +502,7 @@ export default async function groupRoutes(fastify) {
   });
 
   // PATCH /api/groups/:id — переименовать (owner/admin, с модерацией)
-  // Аудит 26.07.2026 P1: rate limit на все write-роуты групп
+  // Rate limit на все write-роуты групп
   fastify.patch('/groups/:id', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },

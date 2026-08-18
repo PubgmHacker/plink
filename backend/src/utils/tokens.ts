@@ -13,7 +13,7 @@ export interface TokenPair {
 }
 
 /**
- * GPT-5 BE-P0-01: issue access token with role + mfa + auth_time claims.
+ * Issue access token with role + mfa + auth_time claims.
  * - `role`: USER | MODERATOR | ADMIN | FOUNDER (from DB)
  * - `mfa`: true if user completed 2FA verification in this session
  * - `auth_time`: Unix timestamp (seconds) of when the user authenticated
@@ -32,10 +32,10 @@ export async function issueTokenPair(
 
   const payload: any = {
     id: userId,
-    sub: userId,       // GPT-5: standard JWT subject claim
+    sub: userId,       // Standard JWT subject claim
     iat: now,          // issued at (seconds)
-    auth_time: now,    // GPT-5 BE-P0-01: authentication timestamp
-    mfa: options?.mfaVerified ?? false,  // GPT-5 BE-P0-01: 2FA completed
+    auth_time: now,    // Authentication timestamp
+    mfa: options?.mfaVerified ?? false,  // 2FA completed
     // ⚠️ АУДИТ 26.07.2026 (P0): срок жизни задаётся ЯВНО.
     //
     // Было: `sign(payload, { expiresIn: config.ACCESS_TOKEN_TTL as any })`,
@@ -153,7 +153,7 @@ export async function verifyRefreshToken(fastify: any, refreshToken: string) {
         where: { id: stored.id },
         data: { revokedAt: new Date() },
       });
-      // Аудит 26.07.2026 (P2): кладём отозванный токен в индекс, чтобы его
+      // Кладём отозванный токен в индекс, чтобы его
       // повторное предъявление ловилось за один GET, а не bcrypt-сканом
       // последних N ротаций (см. ниже).
       await rememberRevokedToken(userId, payload, stored.expiresAt, stored.id);
@@ -161,7 +161,7 @@ export async function verifyRefreshToken(fastify: any, refreshToken: string) {
     }
   }
 
-  // ── Аудит 26.07.2026: обнаружение повторного использования ───────────
+  // ── обнаружение повторного использования ───────────
   // Раньше предъявление уже отозванного refresh-токена просто давало 401.
   // Но это классический признак кражи: пользователь обновил сессию, а
   // злоумышленник предъявляет старый токен из перехваченной копии
@@ -172,7 +172,7 @@ export async function verifyRefreshToken(fastify: any, refreshToken: string) {
   // токенов пользователя: активная сессия обрывается у обеих сторон,
   // и владелец аккаунта возвращает контроль повторным входом.
   //
-  // Аудит 26.07.2026 (P2): детект был ограничен `take: 20` — сканировались
+  // Детект был ограничен `take: 20` — сканировались
   // только 20 последних отозванных токенов. Украденный токен, ротированный
   // больше 20 генераций назад, не матчился ни с одной строкой, и вместо
   // инвалидации семьи возвращался обычный 401. Поднять лимит «в лоб» нельзя:

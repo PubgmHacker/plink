@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * M13: offline drift-controller lab.
+ * Offline drift-controller lab.
  *
  * Simulates a viewer player tracking the host reference position and compares
  * the OLD stepped rate controller (1.02 / 1.05 with a 120 ms dead zone) with
@@ -105,8 +105,12 @@ function analyze(name, controller) {
   steady.sort((a, b) => a - b);
   const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
   console.log(`\n=== ${name} (${RUNS} runs) ===`);
-  console.log(`steady-state |drift| (t=20..30s): median ${percentile(steady, 50).toFixed(0)} ms, p95 ${percentile(steady, 95).toFixed(0)} ms`);
-  console.log(`convergence to <80 ms:  cold start ${avg(conv0).toFixed(1)} s | after 500 ms stall ${avg(conv30).toFixed(1)} s | after +250 ms hiccup ${avg(conv60).toFixed(1)} s`);
+  console.log(
+    `steady-state |drift| (t=20..30s): median ${percentile(steady, 50).toFixed(0)} ms, p95 ${percentile(steady, 95).toFixed(0)} ms`,
+  );
+  console.log(
+    `convergence to <80 ms:  cold start ${avg(conv0).toFixed(1)} s | after 500 ms stall ${avg(conv30).toFixed(1)} s | after +250 ms hiccup ${avg(conv60).toFixed(1)} s`,
+  );
 }
 
 analyze('OLD stepped controller', oldController);

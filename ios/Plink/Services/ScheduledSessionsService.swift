@@ -1,5 +1,5 @@
 // Plink/Services/ScheduledSessionsService.swift
-// M12: планирование совместных сеансов — локальное хранение,
+// Планирование совместных сеансов — локальное хранение,
 // пуш-напоминания (UserNotifications) и опциональное добавление
 // в календарь (EventKit). Бэкенд не требуется.
 
@@ -173,7 +173,7 @@ final class ScheduledSessionsService: ObservableObject {
         mirrorToWidget()
     }
 
-    /// M13: mirror a simplified schedule into the shared app-group container
+    /// Mirror a simplified schedule into the shared app-group container
     /// so the home-screen widget can show the next session. The payload is
     /// intentionally decoupled from the ScheduledSession model (title + epoch
     /// only), so the widget never breaks when the model grows new fields.

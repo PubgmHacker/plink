@@ -1,8 +1,8 @@
-// src/realtime/roomQueueStore.ts — M17: очередь видео комнаты (Redis — источник истины).
+// Очередь видео комнаты (Redis — источник истины).
 // ИИ-ассистент реально ставит ролики в очередь. Очередь переживает
 // редеплой через Redis (TTL 24ч). Без Redis — fail-open в память процесса.
 //
-// Аудит 26.07.2026 P2: раньше память была ПЕРВИЧНОЙ (`const mem = queues.get(roomId);
+// Раньше память была ПЕРВИЧНОЙ (`const mem = queues.get(roomId);
 // if (mem) return mem;`) и никогда не инвалидировалась — вторая реплика писала
 // в Redis, а первая вечно отдавала свой кэш. Плюс enqueue был неатомарным
 // read-modify-write: два конкурентных POST теряли элемент. Теперь все мутации
@@ -18,7 +18,7 @@ export type QueuedMedia = {
   source: string;
   addedBy: string;
   addedAtMs: number;
-  /** M18: Plink+ приоритет — элемент встаёт впереди обычных. */
+  /* * Plink+ приоритет — элемент встаёт впереди обычных. */
   priority?: boolean;
 };
 
@@ -27,13 +27,14 @@ export const QUEUE_WIRE_MARKER = '\u2063plink.queue\u2063';
 
 const MAX_QUEUE = 50;
 const QUEUE_TTL_SECONDS = 60 * 60 * 24; // комнаты эфемерны — суток достаточно
-/** Аварийный кэш: используется, только если Redis не настроен или упал. */
+/** Emergency cache, used only when Redis is unconfigured or down. */
 const fallbackQueues = new Map<string, QueuedMedia[]>();
 /**
- * Ревью P2: элементы, которые не доехали до Redis из-за сбоя. Роут уже ответил
- * 201 и разослал очередь участникам, поэтому просто потерять их при первом
- * успешном чтении (оно перезаписывает fallbackQueues данными из Redis) нельзя —
- * досылаем при первой же удачной операции и подмешиваем в чтение до тех пор.
+ * Items that never reached Redis because a write failed. The route has already
+ * answered 201 and broadcast the queue to participants, so they cannot simply be
+ * dropped by the first successful read (which overwrites fallbackQueues with
+ * whatever Redis holds). They are replayed on the next successful operation and
+ * merged into reads until then.
  */
 const pendingEnqueues = new Map<string, QueuedMedia[]>();
 
@@ -250,8 +251,8 @@ export async function enqueueRoomMedia(
       return queue;
     } catch (e: any) {
       console.warn('[roomQueue] enqueue via Redis failed, using memory:', e?.message || e);
-      // Ревью P2: роут ответит 201 и разошлёт очередь, поэтому элемент обязан
-      // доехать до Redis позже — иначе первый же getRoomQueue его сотрёт.
+      // The route answers 201 and broadcasts the queue, so this entry has to
+      // reach Redis eventually or the next getRoomQueue erases it.
       rememberPending(roomId, entry);
     }
   }
@@ -262,7 +263,7 @@ export async function dequeueRoomMedia(roomId: string, itemId: string): Promise<
   return mutateRoomQueue(roomId, itemId, 'remove');
 }
 
-/** M17: переместить элемент в начало очереди («включить сейчас»). */
+/* * переместить элемент в начало очереди («включить сейчас»). */
 export async function promoteRoomMedia(roomId: string, itemId: string): Promise<QueuedMedia[]> {
   return mutateRoomQueue(roomId, itemId, 'promote');
 }
@@ -368,7 +369,7 @@ function enqueueInMemory(roomId: string, entry: QueuedMedia): QueuedMedia[] {
   const queue = [...(fallbackQueues.get(roomId) ?? [])];
   while (queue.length >= MAX_QUEUE) queue.shift();
   if (entry.priority) {
-    // M18: Plink+ приоритет — после других приоритетных, но впереди обычных (FIFO внутри классов)
+    // Plink+ приоритет — после других приоритетных, но впереди обычных (FIFO внутри классов)
     let insertAt = queue.length;
     for (let i = 0; i < queue.length; i++) {
       if (!queue[i].priority) {

@@ -1,4 +1,4 @@
-// PlinkTests/ThemeSnapshotTests.swift — M13: pixel-level UI regression tests.
+// pixel-level UI regression tests.
 //
 // Guards against visual regressions in the theme catalog (the «пропали
 // Amber/Electric» incident). Snapshot tests render real UI and depend on the

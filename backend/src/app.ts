@@ -1,12 +1,8 @@
-// src/app.ts — Fastify application factory (runbook §20)
+// src/app.ts — Fastify application factory
 //
 // Builds the Fastify instance for both runtime (server.ts) and tests.
 // server.ts only adds listener + shutdown hooks; everything else lives here
 // so tests can spin up the app without binding a port.
-//
-// §20 rule: 'app.ts строит Fastify instance для tests. server.ts только
-// запускает listeners и shutdown hooks. Не оставлять 20+ KB inline media
-// implementation в index.ts.'
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -37,24 +33,25 @@ import featureFlagRoutes from './routes/featureFlags.js';
 import aiRoutes from './routes/ai.js';
 import moderationRoutes from './routes/moderation.js';
 import { webRoutes } from './routes/web.js';
-import assetsRoutes from './routes/assets.js';  // самохост шрифтов/кадров лендинга (строгий CSP запрещает CDN)
-import groupRoutes from './routes/groups.js';  // M16: беседы
+import assetsRoutes from './routes/assets.js';  // self-hosted landing fonts/screenshots (the strict CSP forbids a CDN)
+import groupRoutes from './routes/groups.js';  // group chats
 import { livekitRoutes } from "./routes/livekit.js";
 import telemetryRoutes from './routes/telemetry.js';
 import { roomJoinDuration, syncDrift, syncHardCorrections, wsReconnectCount, presenceLeaseCount } from "./observability/slo-metrics.js";
 import { realtimeTicketRoutes } from './routes/realtime.js';
 import devRoutes from './routes/dev.js';
-import webpayRoutes from './routes/webpay.js';  // веб-оплата Plink+ (ЮKassa)
+import webpayRoutes from './routes/webpay.js';  // Plink+ purchase from the web, via YooKassa
+import { startGuestTombstoneLoop } from './services/accountTombstone.js';
 
 export async function buildApp(): Promise<{
   app: FastifyInstance;
-  // P1-13: gateway is null when Redis is unavailable. Callers MUST handle null.
+  // Gateway is null when Redis is unavailable. Callers MUST handle null.
   gateway: RealtimeGateway | null;
 }> {
-  // §2: refuse to boot in production on weak secret / CORS '*' / no audiences
+  // Refuse to boot in production on weak secret / CORS '*' / no audiences
   assertProductionInvariants();
 
-  // P1-4: Redis is REQUIRED for realtime v2 (RoomStateStore, RoomPubSub,
+  // Redis is REQUIRED for realtime v2 (RoomStateStore, RoomPubSub,
   // RoomEventBus, ticket nonce). Refuse to start the gateway if missing.
   if (!redis) {
     if (config.isProduction) {
@@ -77,11 +74,11 @@ export async function buildApp(): Promise<{
   }
 
   const fastify = Fastify({
-    // Аудит 26.07.2026: за прокси Railway `request.ip` возвращал IP прокси,
-    // а не клиента. Из-за этого ВСЕ лимиты по IP складывались в одно общее
-    // ведро (один злоумышленник исчерпывал лимит для всех пользователей),
-    // а в аудит-логи писался неверный адрес. С trustProxy Fastify читает
-    // X-Forwarded-For и видит настоящего клиента.
+    // Required because we run behind Railway's proxy. Without it `request.ip` is the
+    // proxy's address, not the client's, which had two consequences: every per-IP rate
+    // limit shared a single bucket — so one attacker exhausted the limit for all users —
+    // and the audit log recorded the wrong address for every request. With trustProxy,
+    // Fastify reads X-Forwarded-For and sees the real client.
     trustProxy: true,
     // Voice notes (base64 m4a ~up to 60s) + avatars need >1MB default
     bodyLimit: 2 * 1024 * 1024,
@@ -108,35 +105,37 @@ export async function buildApp(): Promise<{
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-ID'],
   });
-  // ── Аудит 26.07.2026 (P2): aud/iss теперь ДЕЙСТВИТЕЛЬНО проверяются ───
+  // JWT: the `aud` and `iss` claims are actually checked here.
   //
-  // Было: `verify: { audience: config.JWT_AUDIENCES, issuer: config.JWT_ISSUER }`.
-  // Под @fastify/jwt работает fast-jwt, а он ждёт ключи `allowedAud` /
-  // `allowedIss`; незнакомые имена просто игнорировались — то есть ни
-  // allowlist аудиторий, ни сверка issuer не выполнялись вовсе.
-  // Вдобавок `sign` не проставлял claim `aud`, а fast-jwt пропускает
-  // валидатор для ОТСУТСТВУЮЩЕГО claim-а: даже с правильным именем опции
-  // проверка осталась бы пустой.
+  // "Actually" because they used to be configured and silently not checked. The old
+  // options were `verify: { audience: …, issuer: … }`, but @fastify/jwt is backed by
+  // fast-jwt, which expects `allowedAud` / `allowedIss`. Unknown option names are
+  // ignored rather than rejected, so neither the audience allowlist nor the issuer check
+  // ran at all. `sign` also never set an `aud` claim, and fast-jwt skips a validator for
+  // a claim that is ABSENT — so even with the right option name the check would have
+  // passed vacuously.
   //
-  // Теперь подписываем первым значением из JWT_AUDIENCES, а на verify
-  // принимаем любое из списка (ios/android/desktop) и сверяем issuer.
+  // Now: sign with the first entry in JWT_AUDIENCES, and on verify accept any entry in
+  // the list (ios/android/desktop) and compare the issuer.
   //
-  // Совместимость: уже выданные токены без `aud` продолжают проходить
-  // verify (пропуск отсутствующего claim-а) и сами истекут в течение
-  // ACCESS_TOKEN_TTL — массового разлогина при деплое не будет.
+  // Already-issued tokens have no `aud` and still verify, by that same skip-if-absent
+  // rule. They expire within ACCESS_TOKEN_TTL, so the fix does not sign everyone out on
+  // deploy.
   //
-  // ⚠️ ВНИМАНИЕ (ревью 26.07.2026): строгий режим `requiredClaims: ['aud']`
-  // ВКЛЮЧАТЬ НЕЛЬЗЯ, пока не исправлены остальные call-site'ы подписи.
-  // @fastify/jwt при передаче опций во второй аргумент `sign()` НЕ мерджит
-  // их с этим глобальным блоком, а ЗАМЕНЯЕТ (jwt.js checkAndMergeOptions →
-  // `mergeOptionsWithKey(options || defaultOptions)`). Поэтому aud/iss тут
-  // получают только токены, подписанные БЕЗ опций (utils/tokens.ts —
-  // access-токен), а realtime-тикеты (routes/realtime.ts, `{ expiresIn }`)
-  // и media stream-token (routes/media.ts, `{ expiresIn: '45m' }`) выходят
-  // вообще без `aud` и без `iss`. Сейчас они проходят verify только потому,
-  // что fast-jwt пропускает валидатор для отсутствующего claim-а; включение
-  // requiredClaims положило бы весь WS и проксирование видео.
-  // Сначала — проставить aud/iss в тех двух местах, потом requiredClaims.
+  // Do NOT add `requiredClaims: ['aud']` yet. It would close the skip-if-absent hole,
+  // and two other signing call sites are still going through it:
+  //
+  //   - realtime tickets — routes/realtime.ts, `sign({ expiresIn })`
+  //   - media stream tokens — routes/media.ts, `sign({ expiresIn: '45m' })`
+  //
+  // Both emit tokens with no `aud` and no `iss`, because @fastify/jwt REPLACES this
+  // global block rather than merging into it when `sign()` is given its own options
+  // (jwt.js `checkAndMergeOptions` → `mergeOptionsWithKey(options || defaultOptions)`).
+  // Only tokens signed with no options at all — the access token in utils/tokens.ts —
+  // pick up the values below. Turning on requiredClaims today would break every
+  // websocket connection and all video proxying.
+  //
+  // The order is: set aud/iss at those two call sites, then add requiredClaims.
   const jwtAudiences = config.JWT_AUDIENCES;
   await fastify.register(jwt, {
     secret: config.JWT_SECRET,
@@ -182,27 +181,30 @@ export async function buildApp(): Promise<{
   fastify.decorate('authenticate', authenticate);
   fastify.addHook('onRequest', securityHeaders);
 
-  // ── Самопроверка проверки покупок (аудит 26.07.2026, P0) ──────────────
-  // До фикса подпись StoreKit проверялась против сертификата, присланного
-  // самим клиентом: любой мог выдать себе Premium навсегда. Здесь на старте
-  // прогоняется заведомо поддельный JWS — он ОБЯЗАН быть отвергнут.
-  // Если однажды проверка снова начнёт пропускать всё, мы узнаем об этом
-  // из логов запуска, а не из отчёта о бесплатных подписках.
+  // ── Purchase-verification self-test ───────────────────────────────────
+  // StoreKit signatures were once verified against a certificate supplied by the client
+  // making the claim, which meant anyone could grant themselves Premium permanently.
+  // So on every boot we feed the verifier a JWS we know is forged: it MUST be rejected.
+  //
+  // The point is the failure mode. If this check ever regresses to accepting everything
+  // again, we find out from a startup log rather than from a report about free
+  // subscriptions.
   if (!JoseConfig.selfTest()) {
-    const message = '[iap] САМОПРОВЕРКА ПРОВАЛЕНА: поддельный JWS принят как валидный';
+    const message = '[iap] self-test FAILED: a forged JWS was accepted as valid';
     if (config.isProduction) {
       fastify.log.fatal(message);
       throw new Error(message);
     }
     fastify.log.error(message);
   } else {
-    fastify.log.info('[iap] самопроверка проверки покупок пройдена');
+    fastify.log.info('[iap] purchase-verification self-test passed');
   }
-  // Самопроверка выше гоняет криптотракт с выключенным обходом, поэтому
-  // включённый ALLOW_UNVERIFIED_IAP больше не маскируется под «проверка
-  // сломана» — но молчать о нём нельзя: подписи покупок реально не проверяются.
+  // The self-test above exercises the crypto path with the bypass forced off, so an
+  // enabled ALLOW_UNVERIFIED_IAP can no longer hide behind a "verification is broken"
+  // reading. It still has to be said out loud, because purchase signatures genuinely
+  // are not being checked.
   if (JoseConfig.unverifiedBypassActive()) {
-    fastify.log.warn('[iap] ALLOW_UNVERIFIED_IAP=true — подписи покупок НЕ проверяются (допустимо только в разработке)');
+    fastify.log.warn('[iap] ALLOW_UNVERIFIED_IAP=true — purchase signatures are NOT verified (development only)');
   }
 
   // ── API routes ────────────────────────────────────────────────────────
@@ -213,31 +215,33 @@ export async function buildApp(): Promise<{
   await fastify.register(profileRoutes, { prefix: '/api' });
   await fastify.register(mediaRoutes, { prefix: '/api' });
   await fastify.register(billingRoutes, { prefix: '/api' });
-  // PATCH 16: Admin API — Brain Review 10 P0-67/P0-69
+  // Admin API
   await fastify.register(adminRoutes, { prefix: '/api' });
   await fastify.register(gdprRoutes, { prefix: '/api' });
   await fastify.register(featureFlagRoutes, { prefix: '/api' });
   await fastify.register(aiRoutes, { prefix: '/api' });
   await fastify.register(moderationRoutes, { prefix: '/api' });
-  await fastify.register(groupRoutes, { prefix: '/api' });  // M16: групповые чаты (беседы)
-await fastify.register(livekitRoutes, { prefix: '/api' });  // Stage 9
+  await fastify.register(groupRoutes, { prefix: '/api' });  // group chats
+  await fastify.register(livekitRoutes, { prefix: '/api' });  // voice; stubbed, see docs/architecture/README.md
   await fastify.register(realtimeTicketRoutes, { prefix: '/api' });
 
-  // Аудит 26.07.2026: публичные страницы БЕЗ префикса /api.
+  // Public pages, deliberately WITHOUT the /api prefix.
   //
-  // Модуль содержал готовый фикс XSS на лендингах комнаты и профиля
-  // (`/r/:code`, `/u/:username`), но НЕ БЫЛ ПОДКЛЮЧЁН — то есть исправление
-  // просто не работало. Здесь же живёт `/.well-known/apple-app-site-association`,
-  // без которого не работают Universal Links: ссылка-приглашение открывала
-  // сайт вместо приложения.
-  await fastify.register(assetsRoutes);  // до webRoutes: /assets/* не должен попасть в 404-страницу лендинга
+  // web.ts was written and then never registered, which made two fixes inside it
+  // inert: an XSS fix on the room and profile share pages (`/r/:code`, `/u/:username`),
+  // and `/.well-known/apple-app-site-association`, without which Universal Links do not
+  // resolve and an invite link opens the website instead of the app.
+  //
+  // Registration order below is behavioural, not stylistic: assetsRoutes must come
+  // before webRoutes, or `/assets/*` is swallowed by the landing 404 page.
+  await fastify.register(assetsRoutes);
   await fastify.register(webRoutes);
-  await fastify.register(webpayRoutes, { prefix: '/api' });  // веб-подписка Plink+
-  await fastify.register(telemetryRoutes, { prefix: '/api' });  // B3: sync telemetry
-  // Аудит 26.07.2026: маршруты разработки (включая полную очистку БД)
-  // регистрировались ВСЕГДА и защищались только переменной окружения.
-  // Одна опечатка в конфиге прода = потеря всех данных. Теперь в проде
-  // они не существуют вовсе — защита не зависит от значения флага.
+  await fastify.register(webpayRoutes, { prefix: '/api' });  // Plink+ web subscription
+  await fastify.register(telemetryRoutes, { prefix: '/api' });  // sync-drift telemetry
+  // The development routes — which include a full database wipe — were once registered
+  // unconditionally and guarded only by an environment variable. One typo in the
+  // production config would have meant total data loss. They now do not exist in
+  // production at all, so the protection does not depend on the value of a flag.
   if (!config.isProduction) {
     await fastify.register(devRoutes, { prefix: '/api' });
   }
@@ -245,7 +249,7 @@ await fastify.register(livekitRoutes, { prefix: '/api' });  // Stage 9
   fastify.log.info('✅ App Store compliant build — legacy stream relay removed.');
 
   // ── Realtime gateway (replaces setupWebSocketHandler) ─────────────────
-  // P1-4: only construct gateway when Redis is available — gateway's
+  // Only construct gateway when Redis is available — gateway's
   // constructor eagerly creates RoomStateStore/RoomPubSub/RoomEventBus
   // which require a live Redis connection.
   let gateway: RealtimeGateway | null = null;
@@ -266,15 +270,18 @@ await fastify.register(livekitRoutes, { prefix: '/api' });  // Stage 9
   fastify.get('/ws', { websocket: true }, async () => {});
   fastify.get('/ws/room/:id', { websocket: true }, async () => {});
 
-  // ── Health (split into liveness + readiness — runbook §19) ────────────
-  // P1-3: /health/ready returns 503 when DB or Redis is down, so
+  // ── Health (split into liveness + readiness) ────────────
+  // /health/ready returns 503 when DB or Redis is down, so
   // orchestrators (k8s, Railway, ELB) stop sending traffic.
-  // ── M12: Universal Links / App Links association files ──────────────────
-  // Аудит 26.07.2026: дубликат iOS AASA удалён — маршрут
-  // /.well-known/apple-app-site-association регистрирует webRoutes (web.ts)
-  // с корректным appID (2QAMUC4Z4P.com.syncwatch.plink). Двойная регистрация
-  // роняла сервер на старте (FST_ERR_DUPLICATED_ROUTE).
-  // Android App Links — SHA256 отпечаток release-сертификата из env
+  // ── Universal Links / App Links association files ──────────────────
+  // Only the Android file is served here. The iOS one
+  // (`/.well-known/apple-app-site-association`) belongs to webRoutes (web.ts), which
+  // serves it with the correct appID. A duplicate registration lived here once and
+  // crashed the server on boot with FST_ERR_DUPLICATED_ROUTE — Fastify rejects a
+  // duplicate path rather than letting one shadow the other, which is how it was found.
+  //
+  // The SHA-256 fingerprint is the release signing certificate's, read from the
+  // environment.
   fastify.get('/.well-known/assetlinks.json', async (_req, reply) => {
     reply.header('content-type', 'application/json');
     return [
@@ -330,9 +337,11 @@ await fastify.register(livekitRoutes, { prefix: '/api' });  // Stage 9
     };
   });
 
-  // Аудит 26.07.2026: /metrics был публичным — раскрывал внутренние счётчики
-  // (онлайн, комнаты, ошибки) любому. В проде доступ только с METRICS_TOKEN;
-  // без заданного токена маршрут в проде отвечает 404, как несуществующий.
+  // /metrics was public, which exposed internal counters — users online, room counts,
+  // error rates — to anyone who asked. In production it now requires METRICS_TOKEN.
+  //
+  // With no token configured it answers 404 rather than 401: the endpoint does not
+  // advertise its own existence to someone probing for it.
   fastify.get('/metrics', async (req, reply) => {
     const token = process.env.METRICS_TOKEN;
     if (process.env.NODE_ENV === 'production') {
@@ -349,7 +358,7 @@ await fastify.register(livekitRoutes, { prefix: '/api' });  // Stage 9
     reply.code(404).send({ error: 'Not Found' });
   });
 
-  // Error handler — P1-5: never leak internal error messages in production
+  // Error handler — internal error messages never leak in production
   // for 5xx (return generic 'Internal Server Error'). For 4xx validation/
   // auth errors, return the safe mapped message. Stack traces are logged
   // and sent to Sentry, never sent to client.
@@ -384,7 +393,11 @@ await fastify.register(livekitRoutes, { prefix: '/api' });  // Stage 9
     });
   });
 
-  return { app: fastify, gateway: gateway };  // P1-13: gateway is RealtimeGateway | null
+  if (process.env.NODE_ENV !== 'test') {
+    startGuestTombstoneLoop();
+  }
+
+  return { app: fastify, gateway: gateway };  // Gateway is RealtimeGateway | null
 }
 
 async function checkDatabase(): Promise<boolean> {

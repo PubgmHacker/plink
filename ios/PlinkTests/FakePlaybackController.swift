@@ -1,5 +1,5 @@
 // PlinkTests/FakePlaybackController.swift
-// Fake player for deterministic seek testing (Brain Review 7 P0-55)
+// Fake player for deterministic seek testing
 //
 // Simulates AVPlayer seek behavior without actual media playback.
 // Tracks all seek calls, their completion, and allows controlling

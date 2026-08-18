@@ -10,18 +10,18 @@ struct ChatMessage: Codable, Identifiable, Sendable {
     let timestamp: Date
     var isRead: Bool
     var senderAvatarURL: String?
-    /// 🔧 Pack v3: Role of sender (USER/MODERATOR/ADMIN/FOUNDER) — для подсветки админов
+    /// Pack v3: Role of sender (USER/MODERATOR/ADMIN/FOUNDER) — для подсветки админов
     var senderRole: String?
-    /// 🔧 v11 (July 2026): Telegram-style display name (separate from @username).
+    /// Telegram-style display name (separate from @username).
     /// Nil on old backends → falls back to senderName.
     var senderDisplayName: String?
-    /// 🔧 v10 (July 2026): Bubble style — confirmed by server in processMessageStyle().
+    /// Bubble style — confirmed by server in processMessageStyle().
     /// Clients must render based on this value (server-confirmed), NOT on what
     /// the local user "thinks" they picked. The server may downgrade a requested
     /// style to 'default' if the user lacks permission. See BubbleStyle.swift.
     var bubbleStyle: String?
 
-    /// 🔧 FIX: Custom CodingKeys — backend sends camelCase, but some fields
+    /// Custom CodingKeys — backend sends camelCase, but some fields
     /// might come as snake_case from older code. Also handle missing isRead
     /// (backend doesn't send it — default to false).
     enum CodingKeys: String, CodingKey {
@@ -29,7 +29,7 @@ struct ChatMessage: Codable, Identifiable, Sendable {
         case isRead = "is_read"  // backend doesn't send this — decodeIfPresent
         case senderAvatarURL, senderRole
         case senderDisplayName
-        case bubbleStyle = "bubbleStyle"  // 🔧 v10: backend sends camelCase
+        case bubbleStyle = "bubbleStyle"  // Backend sends camelCase
     }
 
     init(from decoder: Decoder) throws {
@@ -44,7 +44,7 @@ struct ChatMessage: Codable, Identifiable, Sendable {
         senderAvatarURL = try c.decodeIfPresent(String.self, forKey: .senderAvatarURL)
         senderRole = try c.decodeIfPresent(String.self, forKey: .senderRole)
         senderDisplayName = try c.decodeIfPresent(String.self, forKey: .senderDisplayName)
-        // 🔧 v10: bubbleStyle is optional — old messages (pre-v10) won't have it.
+        // bubbleStyle is optional — old messages (pre-v10) won't have it.
         // Default to 'default' for backward compatibility.
         bubbleStyle = try c.decodeIfPresent(String.self, forKey: .bubbleStyle) ?? "default"
     }
@@ -64,7 +64,7 @@ struct ChatMessage: Codable, Identifiable, Sendable {
         try c.encodeIfPresent(bubbleStyle, forKey: .bubbleStyle)
     }
 
-    // 🔧 Direct init for local messages
+    // Direct init for local messages
     init(id: String, roomID: String, senderID: String, senderName: String,
          text: String, timestamp: Date, isRead: Bool,
          senderAvatarURL: String?, senderRole: String? = nil,
@@ -83,21 +83,21 @@ struct ChatMessage: Codable, Identifiable, Sendable {
         self.bubbleStyle = bubbleStyle ?? "default"
     }
 
-    /// 🔧 Pack v3: True если отправитель — админ
+    /// Pack v3: True если отправитель — админ
     var isSenderAdmin: Bool {
         (senderRole ?? "").uppercased() == "ADMIN" || (senderRole ?? "").uppercased() == "FOUNDER"
     }
 
-    /// 🔧 v11: Telegram-style display name — prefer senderDisplayName, fall back to senderName.
+    /// Telegram-style display name — prefer senderDisplayName, fall back to senderName.
     /// UI code should use this for showing the sender's name in chat bubbles.
     var displaySenderName: String {
         (senderDisplayName?.isEmpty == false) ? senderDisplayName! : senderName
     }
 
-    /// 🔧 v10 → V5: bubble style ID is now used directly as a string.
-    /// The old `BubbleStyle` enum and `effectiveBubbleStyle` accessor have been
-    /// removed. Use `BubbleStyleRegistry.safeDescriptor(id: message.bubbleStyle)`
-    /// to resolve the descriptor for rendering. Legacy backend IDs (`default`,
+    /// The bubble style id is used directly as a string; there is no enum for it.
+    /// Resolve a descriptor for rendering with
+    /// `BubbleStyleRegistry.safeDescriptor(id: message.bubbleStyle)`. Legacy backend
+    /// IDs (`default`,
     /// `cute_duck`, `neon_cyber`, `admin_bubble`) are migrated automatically
     /// via `BubbleStyleRegistry.migrateLegacyID(_:)`.
     var bubbleStyleID: String? { bubbleStyle }
@@ -144,7 +144,7 @@ struct SystemMessage: Identifiable, Sendable {
 /// JSON-схема совпадает с бэкенд-типом `ChatPayload` (server/src/types/index.ts):
 ///   { type, roomID, senderID, senderName, text, bubbleStyle }
 ///
-/// 🔧 v10 (July 2026): added `bubbleStyle` field. This is the user's REQUESTED
+/// Added `bubbleStyle` field. This is the user's REQUESTED
 /// style — the server runs processMessageStyle() on it and may downgrade to
 /// 'default'. The server-confirmed style comes back in the broadcast
 /// ChatMessage's `bubbleStyle` field, which is what clients should render.
@@ -154,7 +154,7 @@ struct ChatPayload: Codable, Sendable {
     let senderID: String
     let senderName: String
     let text: String
-    /// 🔧 v10: requested bubble style (HINT to server). Server may override.
+    /// Requested bubble style (HINT to server). Server may override.
     /// For backward compatibility with old backends, this field is optional
     /// in the JSON — old backends will simply ignore it.
     let bubbleStyle: String?

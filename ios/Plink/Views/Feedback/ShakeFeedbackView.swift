@@ -4,7 +4,7 @@ import UIKit
 // MARK: - Shake to Report (M20)
 // Добавь .shakeToReport() на корневой View чтобы включить shake-фич.
 
-// Аудит 26.07.2026: PlinkShakeWindow (UIWindow-сабкласс) удалён — его никто
+// PlinkShakeWindow (UIWindow-сабкласс) удалён — его никто
 // не инстанцировал, поэтому .plinkShakeDetected никогда не постился и
 // shake-to-report был мёртв. Вместо этого перехватываем motionEnded прямо
 // в extension UIWindow: SwiftUI-окно приложения наследует этот override,

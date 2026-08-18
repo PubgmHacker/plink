@@ -13,7 +13,7 @@ struct WatchRoomContainer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var resolved: SessionIdentity?
     @State private var resolveFailed = false
-    /// Аудит 26.07.2026 (P0): модель живёт в @State и создаётся один раз
+    /// Модель живёт в @State и создаётся один раз
     /// в hydrateSession() — раньше makeScreenForRoom из body пересоздавал её
     /// на каждом пересчёте: комната сбрасывалась, WebSocket утекал.
     @State private var model: WatchRoomModel?
@@ -88,7 +88,7 @@ struct WatchRoomContainer: View {
         // 2) Re-decode cached user (ISO8601) if memory user missing
         if userId == nil || userId?.isEmpty == true {
             if let data = UserDefaults.standard.data(forKey: "rave_saved_user") {
-                // Аудит 26.07.2026 (P2): единый разбор кэша профиля — терпит и
+                // Единый разбор кэша профиля — терпит и
                 // ISO8601 с миллисекундами, и без них (см. User.decodeCached).
                 if let user = User.decodeCached(data) {
                     userId = user.id

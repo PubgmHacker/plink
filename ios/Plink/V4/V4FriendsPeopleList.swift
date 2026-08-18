@@ -16,7 +16,7 @@ extension V4FriendsViewLive {
     // MARK: - Друзья (people only — no chat previews)
 
     @ViewBuilder
-    /// M14: карточка «друг смотрит» с кнопкой присоединения.
+    /// Карточка «друг смотрит» с кнопкой присоединения.
     private func friendWatchingCard(_ friend: Friend, _ room: Room) -> some View {
         Button {
             HapticManager.impact(.medium)
@@ -52,7 +52,7 @@ extension V4FriendsViewLive {
 
     var friendsPeopleBlock: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // M14: «Друг сейчас смотрит — присоединиться»
+            // «Друг сейчас смотрит — присоединиться»
             if !friendsWatchingNow.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     sectionHeader(

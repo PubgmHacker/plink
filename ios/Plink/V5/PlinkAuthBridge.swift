@@ -2,12 +2,13 @@
 //  PlinkAuthBridge.swift
 //  Plink
 //
-//  Phase 2.6 / 2.7 / 4 — V5 Auth bridges.
+//  V5 auth bridges.
 //
 //  Adds the missing methods on `AuthService` that V5 surfaces need but the
-//  real `AuthService` (in `Plink/Services/AuthService.swift`) does not yet
-//  implement. All bridges call the real `APIClient.shared` against the
-//  backend endpoints listed in PLINK_MASTER_PLAN_10_OF_10.md Phase 4.
+//  real `AuthService` (in `Plink/Services/AuthService.swift`) does not
+//  implement. All bridges go through the real `APIClient.shared` and call
+//  `GET /api/auth/check-username`, `POST /api/profile/delete`,
+//  `PUT` + `GET /api/profile/appearance` and `POST /api/auth/signout-others`.
 //
 
 import Foundation
@@ -125,7 +126,7 @@ internal extension AuthService {
     // MARK: 4 — Sign out other sessions
 
     /// Phase 4: real `POST /api/auth/signout-others`
-    /// Аудит 26.07.2026: сервер отзывает все refresh-токены и возвращает
+    /// Сервер отзывает все refresh-токены и возвращает
     /// новую пару для текущего устройства. Старый вызов через requestNoBody
     /// выбрасывал тело ответа — этот девайс терял валидный refresh-токен и
     /// разлогинивался на следующем refresh. Теперь пара сохраняется.

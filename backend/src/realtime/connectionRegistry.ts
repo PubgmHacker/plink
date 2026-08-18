@@ -1,4 +1,4 @@
-// src/realtime/connectionRegistry.ts — Local socket registry (runbook §5)
+// src/realtime/connectionRegistry.ts — Local socket registry
 //
 // Tracks which WebSocket connections are currently in which room ON THIS REPLICA.
 // This is the local fanout target for both:
@@ -18,17 +18,17 @@ export interface PlinkSocket extends WebSocket {
   role?: string;
   activeRoomId?: string;
   isAlive?: boolean;
-  // P0-25: presence lease connectionId — set after bumpRoomPresence,
+  // Presence lease connectionId — set after bumpRoomPresence,
   // used by heartbeat to refresh lease via refreshPresenceLease().
   connectionId?: string;
   _rateBuckets?: Map<string, { count: number; resetAt: number }>;
-  // Аудит 26.07.2026 P2: учёт пропущенных из-за backpressure отправок.
-  // Пассивный зритель ничего не шлёт, поэтому входящий checkSlowConsumer
-  // (messageRouter) его не отсекает — считаем пропуски здесь.
+  // Sends skipped because of backpressure. A passive viewer sends nothing, so
+  // the inbound checkSlowConsumer in messageRouter never sees it; the outbound
+  // skips are counted here instead.
   _dropStreak?: number;
   _dropSince?: number;
-  // Ревью P2: время последнего пропуска — нужно, чтобы отличить непрерывный
-  // затык от двух пропусков, разделённых минутой тишины в комнате.
+  // When the last skip happened — the only way to tell a sustained stall from
+  // two skips a quiet minute apart.
   _lastDropAt?: number;
 }
 
@@ -39,7 +39,7 @@ export class ConnectionRegistry {
   private readonly userSockets = new Map<string, Set<PlinkSocket>>();
 
   join(socket: PlinkSocket, roomId: string): void {
-    // Leave any previous room first (§19: leave старой room при switch)
+    // Leave any previous room first
     if (socket.activeRoomId && socket.activeRoomId !== roomId) {
       this.leave(socket, socket.activeRoomId);
     }
@@ -152,7 +152,7 @@ export class ConnectionRegistry {
     }
   }
 
-  // ── Аудит 26.07.2026 P2: backpressure с эвикцией ────────────────────────
+  // ── backpressure с эвикцией ────────────────────────
   // Раньше сокет с bufferedAmount > 256KB просто пропускался (continue) и
   // навсегда оставался в комнате, тихо теряя sync.state и чат: входящий
   // checkSlowConsumer к нему не применялся, потому что зритель ничего не
@@ -162,14 +162,13 @@ export class ConnectionRegistry {
   private static readonly BACKPRESSURE_BYTES = 256 * 1024;
   private static readonly MAX_DROP_STREAK = 20;
   private static readonly MAX_BACKPRESSURE_MS = 15_000;
-  // Ревью P2: _dropSince сбрасывался только при УСПЕШНОЙ отправке, а попытки
-  // происходят лишь при броадкасте. В тихой комнате между двумя пропусками
-  // проходили десятки секунд, и второй же пропуск давал stuckMs >= 15s —
-  // здоровый клиент вылетал с 1011. Серия считается прерванной, если между
-  // пропусками была пауза длиннее этого окна.
+  // A streak is broken by a gap longer than this. _dropSince is cleared only on
+  // a successful send, and sends are only attempted on a broadcast, so in a
+  // quiet room two skips can sit tens of seconds apart — the second one then
+  // reports stuckMs >= 15s and closes a perfectly healthy client with 1011.
   private static readonly DROP_STREAK_GAP_MS = 5_000;
 
-  /** Отправить, если сокет успевает читать. true — сообщение ушло. */
+  /** Send if the socket is keeping up. Returns true when the message went out. */
   private trySend(socket: PlinkSocket, encoded: string): boolean {
     if (socket.readyState !== socket.OPEN) return false;
     const buffered = (socket.bufferedAmount ?? 0) as number;

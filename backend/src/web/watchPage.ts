@@ -1,17 +1,72 @@
-// Install-free YouTube watch page for /w/:code.
-// Inline JS only (CSP nonce) — no external <script src>. Player iframe is same-origin
-// GET /api/media/youtube-player (loads YT IFrame API inside that document).
+// Install-free watch page for /w/:code (YouTube + VK + Rutube).
+// Inline JS only (CSP nonce) — no external <script src>. YouTube player iframe is
+// same-origin GET /api/media/youtube-player; VK/Rutube use official embed hosts.
 
 import { extractYouTubeId } from '../services/streamExtractor.js';
 
-export type WatchPageOpts = {
-  code: string;
-  roomName: string;
-  mediaTitle: string | null;
-  youtubeId: string;
-  nonce: string;
-  publicOrigin: string;
-};
+export type WebWatchTarget =
+  | { kind: 'youtube'; playerSrc: string; id: string }
+  | { kind: 'rutube'; playerSrc: string; id: string }
+  | { kind: 'vk'; playerSrc: string; id: string };
+
+export function webWatchTargetFromMediaItem(raw: string | null | undefined): WebWatchTarget | null {
+  const yt = youtubeIdFromMediaItem(raw);
+  if (yt) {
+    return {
+      kind: 'youtube',
+      id: yt,
+      playerSrc: `/api/media/youtube-player?id=${encodeURIComponent(yt)}&chrome=youtube`,
+    };
+  }
+  if (!raw) return null;
+  let stream = raw;
+  let videoId = '';
+  if (raw.trim().startsWith('{')) {
+    try {
+      const m = JSON.parse(raw) as { streamURL?: unknown; videoId?: unknown; url?: unknown };
+      if (typeof m.streamURL === 'string') stream = m.streamURL;
+      else if (typeof m.url === 'string') stream = m.url;
+      if (typeof m.videoId === 'string') videoId = m.videoId;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const rutube = extractRutubeId(stream) || (videoId.length >= 8 ? videoId : '');
+  if (rutube && (stream.includes('rutube.ru') || /^[a-f0-9]{32}$/i.test(rutube))) {
+    return {
+      kind: 'rutube',
+      id: rutube,
+      playerSrc: `https://rutube.ru/play/embed/${encodeURIComponent(rutube)}`,
+    };
+  }
+
+  const vk = extractVkEmbed(stream, videoId);
+  if (vk) return vk;
+  return null;
+}
+
+function extractRutubeId(stream: string): string | null {
+  const m = stream.match(/rutube\.ru\/(?:video|play\/embed)\/([a-zA-Z0-9]{8,32})/);
+  return m ? m[1] : null;
+}
+
+function extractVkEmbed(stream: string, videoId: string): WebWatchTarget | null {
+  if (stream.includes('video_ext.php')) {
+    return { kind: 'vk', id: videoId || 'vk', playerSrc: stream };
+  }
+  const fromPath = stream.match(/vk\.com\/video(-?\d+)_(\d+)/);
+  const fromId = videoId.match(/^(-?\d+)_(\d+)$/);
+  const pair = fromPath || fromId;
+  if (!pair) return null;
+  const oid = pair[1];
+  const id = pair[2];
+  return {
+    kind: 'vk',
+    id: `${oid}_${id}`,
+    playerSrc: `https://vk.com/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=2`,
+  };
+}
 
 /** Parse room.mediaItem JSON/string into an 11-char YouTube id, or null. */
 export function youtubeIdFromMediaItem(raw: string | null | undefined): string | null {
@@ -67,9 +122,19 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+export type WatchPageOpts = {
+  code: string;
+  roomName: string;
+  mediaTitle: string | null;
+  target: WebWatchTarget;
+  nonce: string;
+  publicOrigin: string;
+};
+
 export function webWatchPageHTML(opts: WatchPageOpts): string {
   const title = `${opts.roomName} — смотреть в браузере · Plink`;
-  const playerSrc = `/api/media/youtube-player?id=${encodeURIComponent(opts.youtubeId)}&chrome=youtube`;
+  const playerSrc = opts.target.playerSrc;
+  const kind = opts.target.kind;
   const appLink = `plink://r/${opts.code}`;
   const installLink = `/r/${encodeURIComponent(opts.code)}`;
 
@@ -110,7 +175,7 @@ export function webWatchPageHTML(opts: WatchPageOpts): string {
   </header>
   <div class="stage">
     <div class="player-wrap">
-      <iframe id="yt" title="YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" src="${esc(playerSrc)}"></iframe>
+      <iframe id="yt" title="${esc(kind === 'youtube' ? 'YouTube' : kind === 'vk' ? 'VK' : 'Rutube')}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" src="${esc(playerSrc)}"></iframe>
     </div>
     <div class="panel">
       <h1>${esc(opts.roomName)}</h1>
@@ -120,13 +185,16 @@ export function webWatchPageHTML(opts: WatchPageOpts): string {
         <a class="btn btn-primary" href="${esc(appLink)}">Открыть в приложении</a>
         <a class="btn btn-ghost" href="${esc(installLink)}">Установка / код</a>
       </div>
-      <p class="hint">Гость в браузере только следует за хостом. Пауза и перемотка — у ведущего в Plink. Работает для YouTube; кинотеатры — через приложение («ваш экран»).</p>
+      <p class="hint">${kind === 'youtube'
+        ? 'Гость в браузере следует за хостом. Пауза и перемотка — у ведущего. Кинотеатры — в приложении («ваш экран»).'
+        : 'VK и Rutube в браузере открываются официальным плеером. Точный синхрон — в приложении Plink.'}</p>
     </div>
   </div>
   <script nonce="${opts.nonce}">
   (function () {
     var CODE = ${JSON.stringify(opts.code)};
-    var YT_ID = ${JSON.stringify(opts.youtubeId)};
+    var KIND = ${JSON.stringify(kind)};
+    var PLAYER_SRC = ${JSON.stringify(playerSrc)};
     var statusEl = document.getElementById('status');
     var iframe = document.getElementById('yt');
     var token = null;
@@ -181,6 +249,10 @@ export function webWatchPageHTML(opts: WatchPageOpts): string {
     function applyState(state) {
       if (!state) return;
       pendingState = state;
+      if (KIND !== 'youtube') {
+        setStatus(state.playing ? 'Хост смотрит · плеер в браузере без точного seek' : 'Хост на паузе');
+        return;
+      }
       if (!playerReady) return;
       var pos = (state.positionMs || 0) / 1000;
       if (state.playing && state.effectiveAtServerMs) {
@@ -250,25 +322,31 @@ export function webWatchPageHTML(opts: WatchPageOpts): string {
       }
     }
 
+    function joinRoom(password) {
+      var body = { code: CODE };
+      if (password) body.password = password;
+      return api('/api/rooms/join', { method: 'POST', body: body });
+    }
+
     function boot() {
       setStatus('Входим как гость…');
       return api('/api/auth/guest', { method: 'POST', body: { roomCode: CODE } })
         .then(function (auth) {
           token = auth.token;
           setStatus('Входим в комнату…');
-          return api('/api/rooms/join', { method: 'POST', body: { code: CODE } });
+          return joinRoom(null);
+        })
+        .catch(function (err) {
+          var body = err && err.body;
+          if (body && body.code === 'ROOM_PASSWORD_REQUIRED') {
+            var pw = window.prompt('Комната с паролем. Введи пароль:');
+            if (!pw) throw err;
+            return joinRoom(pw);
+          }
+          throw err;
         })
         .then(function (room) {
           roomId = room.id;
-          var media = room.mediaItem;
-          var id = YT_ID;
-          if (media && typeof media === 'object') {
-            if (media.videoId) id = media.videoId;
-            else if (media.id && String(media.id).length === 11) id = media.id;
-          }
-          if (id && id !== YT_ID) {
-            iframe.src = '/api/media/youtube-player?id=' + encodeURIComponent(id) + '&chrome=youtube';
-          }
           setStatus('Билет на синхрон…');
           return api('/api/realtime/ticket', { method: 'POST', body: { roomId: roomId } });
         })
@@ -295,12 +373,12 @@ export function webWatchPageHTML(opts: WatchPageOpts): string {
         })
         .catch(function (err) {
           var body = err && err.body;
-          if (body && body.code === 'ROOM_PASSWORD_REQUIRED') {
-            setStatus('Комната с паролем — открой в приложении Plink', true);
+          if (body && body.code === 'FRIENDS_ONLY') {
+            setStatus('Комната только для друзей хоста — открой в приложении Plink', true);
             return;
           }
-          if (body && body.code === 'FRIENDS_ONLY') {
-            setStatus('Комната только для друзей хоста', true);
+          if (body && body.code === 'ROOM_PASSWORD_REQUIRED') {
+            setStatus('Нужен пароль комнаты', true);
             return;
           }
           setStatus((err && err.message) || 'Не удалось войти', true);
@@ -339,7 +417,7 @@ export function webWatchUnsupportedHTML(opts: {
 </head>
 <body>
   <div class="card">
-    <h1>В браузере пока только YouTube</h1>
+    <h1>В браузере — YouTube, VK и Rutube</h1>
     <p>${esc(opts.reason)}</p>
     <a href="${esc(install)}">Открыть страницу комнаты</a>
   </div>

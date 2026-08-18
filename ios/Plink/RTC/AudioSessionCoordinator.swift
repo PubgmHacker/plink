@@ -1,4 +1,4 @@
-// Plink/RTC/AudioSessionCoordinator.swift — Stage 9: centralized audio session (runbook §19)
+// Plink/RTC/AudioSessionCoordinator.swift — Stage 9: centralized audio session
 //
 // AVAudioSession is configured CENTRALLY. Voice and media must not
 // independently change category/mode/active.
@@ -53,7 +53,7 @@ public final class AudioSessionCoordinator {
                 options: [
                     .allowBluetoothHFP,
                     .defaultToSpeaker,
-                    .duckOthers,  // P1-17: duck media by 30% during voice
+                    .duckOthers,  // Duck media by 30% during voice
                 ]
             )
             try session.setActive(true, options: [])

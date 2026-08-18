@@ -1,6 +1,6 @@
-// src/observability/slo-metrics.ts — Stage 13 telemetry (runbook §14)
+// src/observability/slo-metrics.ts — Stage 13 telemetry
 //
-// All SLO metrics from runbook §14, no PII or tokens:
+// All SLO metrics from, no PII or tokens:
 //   room_join_duration_ms
 //   player_startup_ms
 //   player_rebuffer_count

@@ -1,8 +1,8 @@
 // Plink/Playback/Providers/NativeHLSProvider.swift
-// HLS / MP4 provider via AVPlayer (runbook §6)
+// HLS / MP4 provider via AVPlayer
 //
 // Loads AVPlayerItem from a URL with custom headers (for signed media URLs
-// and DRM tokens — NEVER JWT/cookies per §2/§19).
+// And DRM tokens — NEVER JWT/cookies per/).
 //
 // Capabilities reported:
 //   - seekable: true (HLS/MP4 are always seekable when fully loaded)
@@ -48,7 +48,7 @@ public final class NativeHLSProvider: ProviderAdapter {
             throw ProviderError.unsupportedSource
         }
 
-        // P0-7: AVURLAssetHTTPHeaderFieldsKey is not public API in all SDKs.
+        // AVURLAssetHTTPHeaderFieldsKey is not public API in all SDKs.
         // Use string key "AVURLAssetHTTPHeaderFieldsKey" directly.
         let options: [String: Any] = headers.isEmpty
             ? [:]

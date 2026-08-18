@@ -6,7 +6,7 @@
 //   - window.plinkPlay / plinkPause / plinkSeek / plinkSnapshot
 //   - window.__plinkIsReady() → boolean
 
-// Аудит 26.07.2026 — «свой полноценный плеер».
+// «свой полноценный плеер».
 // `chrome` управляет тем, кто рисует контролы:
 //   'plink' (по умолчанию) → controls:0, всю панель рисует приложение;
 //   'youtube'              → controls:1, прежнее поведение (запасной путь).
@@ -224,7 +224,9 @@ export function youtubePlayerHTML(videoId: string, chrome: 'plink' | 'youtube' =
                     events: {
                         onReady: function() {
                             ready = true;
-                            // M29-YT BUG3: safe mute/unmute — avoid stuck-mute race.
+                            // Restore the caller's mute state rather than assuming
+                            // unmuted: autoplay requires a muted start, and racing
+                            // that with a user unmute leaves playback stuck muted.
                             try {
                                 var wasMuted = player.isMuted ? player.isMuted() : false;
                                 player.mute(); player.playVideo();
