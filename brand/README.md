@@ -4,27 +4,27 @@ Unified logo system for Plink (Плинк) — watch together, frame in frame.
 
 ## Files
 
-| File | Usage | Size |
-|------|-------|------|
+| File                  | Usage                                                             | Size    |
+| --------------------- | ----------------------------------------------------------------- | ------- |
 | `logo-horizontal.svg` | Primary lockup: icon + wordmark (websites, presentations, social) | 400×120 |
-| `logo-stacked.svg` | Vertical lockup: icon above wordmark (app store, splash) | 300×360 |
-| `logo-icon-only.svg` | Standalone icon (favicon, app icon source) | 512×512 |
-| `logo-light-bg.svg` | Horizontal lockup for light/white backgrounds | 400×120 |
-| `wordmark.svg` | Text-only PLINK (watermarks, minimal) | 320×80 |
-| `mark-play.svg` | Simplified play mark (website nav, favicon) | 120×120 |
+| `logo-stacked.svg`    | Vertical lockup: icon above wordmark (app store, splash)          | 300×360 |
+| `logo-icon-only.svg`  | Standalone icon (favicon, app icon source)                        | 512×512 |
+| `logo-light-bg.svg`   | Horizontal lockup for light/white backgrounds                     | 400×120 |
+| `wordmark.svg`        | Text-only PLINK (watermarks, minimal)                             | 320×80  |
+| `mark-play.svg`       | Simplified play mark (website nav, favicon)                       | 120×120 |
 
 ## Brand Colors
 
-| Name | Hex | Usage |
-|------|-----|-------|
-| **Graphite Lift** | `#3A3C42` | Icon body top |
-| **Graphite Deep** | `#16171B` | Icon body bottom |
-| **Ink** | `#08090B` | Silhouettes, letterbox, couch |
-| **Warm** | `#FFD694` | Screen glow — **the** brand constant |
-| **Warm Hot** | `#FFF0D6` | Screen center, text gradient top |
-| **Teal** | `#19E0C0` | Accent (sync, progress, active) |
-| **Violet** | `#7C5CFF` | Secondary accent |
-| **Amber** | `#F5C26B` | Stamps, badges, errors |
+| Name              | Hex       | Usage                                |
+| ----------------- | --------- | ------------------------------------ |
+| **Graphite Lift** | `#3A3C42` | Icon body top                        |
+| **Graphite Deep** | `#16171B` | Icon body bottom                     |
+| **Ink**           | `#08090B` | Silhouettes, letterbox, couch        |
+| **Warm**          | `#FFD694` | Screen glow — **the** brand constant |
+| **Warm Hot**      | `#FFF0D6` | Screen center, text gradient top     |
+| **Teal**          | `#19E0C0` | Accent (sync, progress, active)      |
+| **Violet**        | `#7C5CFF` | Secondary accent                     |
+| **Amber**         | `#F5C26B` | Stamps, badges, errors               |
 
 ## Typography
 
@@ -37,6 +37,7 @@ Unified logo system for Plink (Плинк) — watch together, frame in frame.
 The icon depicts two viewers sitting on a couch, watching a letterboxed film on a glowing screen. The warm screen light is the only color in the brand mark — universal across all themes (Aurora, Cosmos, Magma, Verdant, Ember, Violet).
 
 **Key proportions (must match across all representations):**
+
 - Screen: 54% width × 31% height of icon
 - Letterbox bars: calculated from 2.35:1 aspect ratio
 - Silhouettes: head = circle, shoulders = rounded rectangle
@@ -88,13 +89,12 @@ the repository root is the written half of the same thing.
 [`explorations/`](explorations/) holds two superseded logo rounds, kept because the
 reasoning in them is still useful and the alternatives get re-proposed otherwise:
 
-| Round | Concepts | Outcome |
-|-------|----------|---------|
-| [`round-2/`](explorations/round-2/) | duo-play, sync-rings, film-play | Not adopted |
+| Round                               | Concepts                                      | Outcome     |
+| ----------------------------------- | --------------------------------------------- | ----------- |
+| [`round-2/`](explorations/round-2/) | duo-play, sync-rings, film-play               | Not adopted |
 | [`round-3/`](explorations/round-3/) | wave-play (Spotify-like), two-screens, plex-p | Not adopted |
 
 Each round has a `preview.html` — open it in a browser rather than reading the SVGs.
 Round 3's page also lays the concepts against the competitor icons they were judged
 next to. **Nothing under `explorations/` ships.** The live system is the six SVGs
 listed above; if you are looking for an asset to use, it is one of those.
-

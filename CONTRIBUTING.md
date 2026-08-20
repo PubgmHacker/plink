@@ -245,10 +245,11 @@ Ratchets — real debt, counted, allowed to fall and not to rise:
   The grep is the figure to quote.
 
   `Localization/` is excluded because `LocalizationManager.swift` is the Russian
-  string catalog itself, not a file commented in Russian. Russian *string literals*
+  string catalog itself, not a file commented in Russian. Russian _string literals_
   are a separate matter and not covered by this rule — they are correct product copy
   sitting in the wrong layer; see
   [docs/architecture/localization.md](docs/architecture/localization.md).
+
 - **No ticket references in comments.** 74 remaining (`Pack v3:`, `Phase 2.6:`,
   `FIX C3:`). They point at documents that no longer exist, so the reader learns
   nothing and can verify nothing. Rewrite the ones you touch to state the constraint
