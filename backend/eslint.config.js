@@ -84,6 +84,20 @@ export default tseslint.config(
       // exempted individually below rather than by allowing methods globally.
       'no-console': 'error',
 
+      // CONTRIBUTING.md lists "no TODO/FIXME on main" as a gate, and
+      // ios/.swiftlint.yml has enforced it on the Swift side all along with
+      // `todo: error`. Nothing enforced it here, so half the repository was on
+      // the honour system while the documentation claimed a check. It is at zero
+      // across src/ today, tests included, which is why it goes in as an error
+      // rather than a warning: a marker that appears is new, and the instruction
+      // is the same as on the Swift side — fix it, or file an issue and link it.
+      // location: 'anywhere' so a marker mid-sentence counts; the terms are the
+      // four the Swift rule and this repository's convention already cover.
+      'no-warning-comments': [
+        'error',
+        { terms: ['todo', 'fixme', 'xxx', 'hack'], location: 'anywhere' },
+      ],
+
       // `catch {}` that swallows an error silently is how a failure becomes
       // invisible; see the repository-wide `no-empty` block above for the one
       // exception this codebase makes.

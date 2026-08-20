@@ -59,7 +59,7 @@ format-check: ## Report files Prettier would change, without changing them
 
 # Exits non-zero on an error-severity violation only. The config keeps errors at
 # zero deliberately — force_cast, force_try, todo and the substring-host rule —
-# so a failure here is a real regression, not accumulated debt. The 4,803
+# so a failure here is a real regression, not accumulated debt. The 4,723
 # warnings are measured debt with counts recorded in ios/.swiftlint.yml.
 lint-ios: ## SwiftLint the iOS client (errors gate; warnings are reported)
 	@command -v swiftlint >/dev/null 2>&1 \
@@ -67,7 +67,7 @@ lint-ios: ## SwiftLint the iOS client (errors gate; warnings are reported)
 	  || echo "  swiftlint not found — skipping (brew install swiftlint)"
 
 # Changed files only, for the same reason the Prettier `format` job is: a full pass
-# reports 1,946 findings across 140 of the 218 files SwiftFormat reads, and rewrites
+# reports 1,937 findings across 137 of the 218 files SwiftFormat reads, and rewrites
 # `git blame` for more than half the client. The formatted share grows as files are
 # touched. See ios/.swiftformat.
 format-ios: ## Run SwiftFormat over Swift files changed against BASE_REF

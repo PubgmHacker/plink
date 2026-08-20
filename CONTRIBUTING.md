@@ -159,11 +159,13 @@ it, and its SHA goes into [`.git-blame-ignore-revs`](.git-blame-ignore-revs) so
 `git blame` keeps working.
 
 `ios/` works the same way and for the same reason. A full SwiftFormat pass reports
-1,946 findings across 140 of the 218 files it reads — more than half the client, and a
+1,937 findings across 137 of the 218 files it reads — more than half the client, and a
 `git blame` rewrite of all of it. So `make format-ios` formats only the Swift files
-changed against `origin/main`, and `make format-check-ios` checks only those. Nothing
-enforces this on a pull request yet, because there is no macOS runner; the recipes in
-the `Makefile` are exactly what a CI job would run when one exists.
+changed against `origin/main`, and `make format-check-ios` checks only those. The
+`lint` job in [`ios.yml`](.github/workflows/ios.yml) runs both on a `macos-15` runner
+and asserts the two binaries are on `PATH` first — the Make recipes exit 0 with a skip
+notice when a tool is missing, which is right on a Linux development machine and would
+otherwise let a failed `brew install` produce a green run that checked nothing.
 
 Three things about the configs are load-bearing and easy to undo by accident:
 
@@ -177,7 +179,7 @@ Three things about the configs are load-bearing and easy to undo by accident:
 - `ios/.swiftlint.yml` splits severities on purpose: **`error` is for invariants that
   are currently at zero**, so a failure is a real regression rather than accumulated
   debt, and **`warning` is for measured debt with the count written next to the
-  rule**. Today that is 0 errors and 4,803 warnings. Do not promote a warning to an
+  rule**. Today that is 0 errors and 4,723 warnings. Do not promote a warning to an
   error without first clearing it, and do not raise a threshold to silence a hit —
   a threshold set above the existing debt reports nothing at all, which is worse than
   a warning nobody has cleared yet.
@@ -218,16 +220,25 @@ Ratchets — real debt, counted, allowed to fall and not to rise:
   is not yet universal and the config does not pretend otherwise. New code uses
   tokens; existing code converts as you touch it. See
   [ADR-0010](docs/adr/0010-design-tokens-as-the-only-style-source.md).
-- **English comments** (ADR-0001). 3,790 Russian comment lines remain, across 153
+- **English comments** (ADR-0001). 3,803 Russian comment lines remain, across 154
   files; the ten worst hold a quarter of them. Translate the ones in a file you are
   already editing rather than opening a translation pull request — a bulk pass over
   comments you are not otherwise reading is how a wrong explanation gets confidently
   restated in English. Re-measure with the rule's own pattern:
 
   ```bash
-  grep -rnE '(//|///|\*)\s*.{0,60}[А-Яа-яЁё]{4,}' ios \
+  grep -rnE '(//|///|\*)[ \t]*.{0,60}[А-Яа-яЁё]{4,}' ios \
     --include='*.swift' | grep -v '/Localization/' | wc -l
   ```
+
+  Run it from the repository root, and note that it walks `ios/.spm-cache/` if a
+  build has populated it — 1.4 GB of dependency checkouts, none of them ours. They
+  hold no Cyrillic, so the number is unaffected; it is only slow.
+
+  `swiftlint` reports 3,581 for the same regex rather than 3,803, and the gap is not
+  drift: the rule counts matched regions while this counts matching lines, and
+  SwiftLint's reported line numbers wander on files this dense with multibyte text.
+  The grep is the figure to quote.
 
   `Localization/` is excluded because `LocalizationManager.swift` is the Russian
   string catalog itself, not a file commented in Russian. Russian *string literals*

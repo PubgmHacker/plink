@@ -22,7 +22,7 @@
 #   swiftformat . --lint 2>&1 | grep -c '(docComments)'
 #
 # Scope: `make format-ios` runs this over files changed against origin/main, not the
-# whole tree. A full pass reports 1,946 findings across 140 of the 218 files it reads
+# whole tree. A full pass reports 1,937 findings across 137 of the 218 files it reads
 # (219 Swift files, less the one excluded by name below), and rewrites `git blame` for
 # more than half the client. If a full pass is ever wanted, do it as a commit that
 # changes nothing else and add its SHA to .git-blame-ignore-revs.
@@ -30,7 +30,7 @@
 # The largest contributors, for anyone deciding where a full pass would actually help:
 #
 #   indent 807 · redundantSelf 217 · spaceAroundOperators 141 · hoistPatternLet 108
-#   semicolons 104 · unusedArguments 65 · blankLinesBetweenScopes 64
+#   semicolons 104 · blankLinesBetweenScopes 64 · unusedArguments 63 · braces 46
 
 --swiftversion 5.9
 

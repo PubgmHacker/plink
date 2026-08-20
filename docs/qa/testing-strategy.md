@@ -1,12 +1,7 @@
 # Testing strategy
 
 What is tested, where, what actually gates a merge, and what does not. Every number
-here was measured on 2026-08-16; the commands to re-measure are in each section.
-
-> **Directory names.** This page uses `ios/` and `backend/`. On disk today those
-> directories are still `ios-2/` and `backend-3/` — the rename is in progress and the
-> docs were written for the destination. Substitute accordingly when typing commands
-> until the rename lands.
+here was measured on 2026-08-20; the commands to re-measure are in each section.
 
 ## The shape of it
 
@@ -240,15 +235,6 @@ which is correct on a Linux development machine and dangerous in CI — a failed
 install` would make both steps pass without checking anything. The job checks for the
 binaries on `PATH` in a separate step, so the skip path cannot produce a green run.
 
-The **`format` job checks only changed files.** A full Prettier pass would rewrite
-history across the tree, so the formatted share grows as files are touched. The same
-ratchet applies to Swift via `make format-ios`. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
-
-The **audit gate is `high` because the count is currently zero.** The remaining moderate
-advisories share one root (`@opentelemetry/core` via `@sentry/node` 8) and clear only on
-a major upgrade. A gate set below existing debt reports nothing, so it stays above them
-— deliberately, and written down here rather than left as a silent exception.
-
 ## Adding a test
 
 Pick the tier by what the test touches, not by what it is about:
@@ -277,9 +263,15 @@ exactly this reason.
 
 Recorded so nobody has to rediscover them:
 
-- `landing/` has no tests.
-- No iOS job in CI, for the three reasons above.
-- `ios/project.yml` declares no schemes, so the test action is unspecified.
+- `landing/` has no tests. It typechecks, lints and builds in CI, and nothing asserts
+  behaviour — the largest single gap on this page.
+- The iOS workflow is path-filtered to `ios/**`, so a change that breaks the client
+  from outside that directory — a backend contract, a shared protocol constant — does
+  not run it. The contract tests in `backend/src/tests/contract/` exist to cover that
+  seam; they are not a substitute for the client build.
+- SwiftFormat gates pull requests only. On a push to `main` the step is skipped
+  (`if: github.event_name == 'pull_request'`), because the changed-file comparison has
+  no base branch to diff against.
 - The Android client has a single smoke test.
 - Coverage is collected (`npm run test:coverage`) but no threshold is enforced, so the
   number is informational.
