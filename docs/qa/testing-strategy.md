@@ -8,13 +8,17 @@ here was measured on 2026-08-20; the commands to re-measure are in each section.
 | Where       | Framework      | Files  | Tests | Runs in CI                  |
 | ----------- | -------------- | -----: | ----: | --------------------------- |
 | `backend/`  | vitest 4       |     20 |   194 | Yes — gates every PR        |
-| `ios/`      | XCTest         |     40 |   450 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
+| `ios/`      | XCTest         |     37 |   450 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
 | `android-client/` | JUnit    |      1 |     1 | Yes — `testDebugUnitTest`   |
 | `landing/`  | none           |      0 |     0 | Typecheck, lint, format, build only |
 
 `landing/` has no tests at all. That is a real gap, stated rather than papered over:
 the marketing site is checked by `tsc --noEmit`, ESLint, Prettier and a production
 `next build`, which catches type and syntax breakage but nothing about behaviour.
+
+The `Files` column counts files that hold at least one test. `ios/PlinkTests/` has
+41 Swift files; four are fakes and fixtures with no test of their own
+(`FakeAuthService`, `FakeRoomService`, `FakePlaybackController`, `RegressionMatrix`).
 
 ## Backend: three tiers, and what puts a test in each
 
@@ -269,9 +273,11 @@ Recorded so nobody has to rediscover them:
   from outside that directory — a backend contract, a shared protocol constant — does
   not run it. The contract tests in `backend/src/tests/contract/` exist to cover that
   seam; they are not a substitute for the client build.
-- SwiftFormat gates pull requests only. On a push to `main` the step is skipped
-  (`if: github.event_name == 'pull_request'`), because the changed-file comparison has
-  no base branch to diff against.
+- Both formatting checks gate pull requests only — the Prettier `format` job in
+  `ci.yml` and the SwiftFormat step in `ios.yml` are each guarded by
+  `if: github.event_name == 'pull_request'`, because the changed-file comparison has
+  no base branch to diff against on a push. A commit pushed straight to `main` is
+  never format-checked; on the run for `0455e57` the `format` job reports `skipped`.
 - The Android client has a single smoke test.
 - Coverage is collected (`npm run test:coverage`) but no threshold is enforced, so the
   number is informational.

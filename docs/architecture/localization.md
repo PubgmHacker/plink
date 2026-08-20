@@ -14,7 +14,7 @@ There is one string catalog, and it is Swift: `L10n` in
 
 ```mermaid
 flowchart LR
-    K["L10n.Key<br/>(enum, 438 cases)"] --> T["L10n.table<br/>[Key: [AppLanguage: String]]"]
+    K["L10n.Key<br/>(enum, 441 cases)"] --> T["L10n.table<br/>[Key: [AppLanguage: String]]"]
     L["LocalizationManager.currentLanguage<br/>@Published, persisted"] --> T
     T --> S["string(_:) → String"]
     S -->|"hit"| V[SwiftUI view]
@@ -55,7 +55,7 @@ That is intentional: a visible key gets reported, and a blank label does not.
 | English  | `.english`    | `en` | Complete in the catalog    |
 | Chinese  | `.chinese`    | `zh` | Complete in the catalog    |
 
-"Complete in the catalog" means every one of the 438 keys has all three
+"Complete in the catalog" means every one of the 441 keys has all three
 translations — there are no partial rows. It does **not** mean the app is fully
 translated, which is the next section.
 
@@ -66,13 +66,13 @@ the commands are below.
 
 | Measure                                                | Count |
 | ------------------------------------------------------ | ----: |
-| Keys in the catalog, each with all three languages      |   438 |
+| Keys in the catalog, each with all three languages      |   441 |
 | Keys actually referenced by UI code                     |   184 |
-| Keys translated but referenced nowhere                  |   254 |
-| Call sites through the catalog, across 22 files         |   118 |
-| **Russian string literals hardcoded in views, across 97 files** | **1,164** |
+| Keys translated but referenced nowhere                  |   257 |
+| Call sites through the catalog, across 26 files         |   198 |
+| **Russian string literals hardcoded in views, across 97 files** | **1,204** |
 
-So the catalog is complete and correct, and roughly 40% of it is wired up. The
+So the catalog is complete and correct, and roughly 42% of it is wired up. The
 Plink+ paywall, the service picker and the settings tree read from it. Most of the
 rest of the UI — profile rows, the DM chat, the friends list, the auth screen —
 holds Russian literals inline, which means switching to English or Chinese today
@@ -91,7 +91,18 @@ grep -cE '^\s+case \w+ = "' ios/Plink/Localization/LocalizationManager.swift
 # Hardcoded Russian literals outside the catalog
 grep -rn '"[^"]*[А-Яа-яЁё]' ios/Plink --include='*.swift' \
   | grep -v '^ios/Plink/Localization/' | wc -l
+
+# Call sites, and the distinct keys they reach. Match on `.string(.` rather than on
+# a receiver name: the accessor is reached through four different spellings
+# (`shared.`, `L.`, `l.`, `loc.`), so grepping for any one of them undercounts.
+grep -rnE '\.string\(\.[A-Za-z0-9_]+' ios/Plink --include='*.swift' \
+  | grep -v '/Localization/' | wc -l
+grep -rhoE '\.string\(\.[A-Za-z0-9_]+' ios/Plink --include='*.swift' \
+  | sed 's/.*\.string(\.//' | sort -u | wc -l
 ```
+
+`.localized` is not a catalog call — every hit is `error.localizedDescription` in a
+log line. Do not count it as coverage.
 
 The SwiftLint rule `russian_comment` in
 [`ios/.swiftlint.yml`](../../ios/.swiftlint.yml) covers Russian *comments*, which
