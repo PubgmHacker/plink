@@ -117,7 +117,7 @@ files); the drift samples land at `POST /api/telemetry/sync-sample`.
 .
 ├── ios/                     iOS app, Android client, and the Xcode project generator
 │   ├── Plink/               the app
-│   ├── PlinkTests/          450 XCTest tests (not in CI — see the testing strategy)
+│   ├── PlinkTests/          450 XCTest tests (CI runs these, but only on ios/ changes)
 │   ├── android-client/      thin Android client
 │   └── project.yml          XcodeGen input; the .xcodeproj is generated and gitignored
 ├── backend/
@@ -129,7 +129,7 @@ files); the drift samples land at `POST /api/telemetry/sync-sample`.
 │   └── prisma/              schema and applied migrations
 ├── landing/                 Next.js marketing site and /plus
 ├── docs/                    this tree
-├── brand/                   shipped brand assets; brand-v2/ and brand-v3/ are explorations
+├── brand/                   logo system; explorations/ holds superseded rounds
 └── Makefile                 the entry point for build, lint and format targets
 ```
 

@@ -28,8 +28,12 @@ make check      # lint, typecheck, tests, landing build
 `make check` runs what CI runs on a Linux runner, in the same order. Run it before
 you push; it is much cheaper than a red pipeline.
 
-It does **not** build the iOS app — there is no macOS runner in CI either, so the
-iOS build is verified locally before a release
+It does **not** build the iOS app. CI does, in a separate workflow
+([`ios.yml`](.github/workflows/ios.yml)) on a `macos-15` runner — but only when the
+change touches `ios/`, because macOS runner minutes bill at 10× the Linux rate on a
+private repository. A change that breaks the client from outside that directory will
+not be caught there, so build it locally when you touch a shared contract. Device
+builds and archives are local regardless
 ([runbook](docs/runbooks/ios-build-and-release.md)). `make xcode` regenerates the
 project; `make android` builds the Android client, which CI does check but `check`
 leaves out because a Gradle build is slow enough that nobody would run the target.

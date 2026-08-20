@@ -52,4 +52,49 @@ The icon depicts two viewers sitting on a couch, watching a letterboxed film on 
 
 ## Generation
 
-Icons generated from source SVG. For raster exports, use `ios/scripts/make_app_icons.py` or `landing/scripts/make_brand_assets.py`.
+There is no single build step that turns the SVGs in this directory into the shipped
+icon, and it is worth knowing the real chain before editing anything:
+
+1. [`ios/scripts/make_app_icons.py`](../ios/scripts/make_app_icons.py) is the
+   **geometric source of truth.** It draws the mark with PIL rather than reading an
+   SVG, and renders three candidate directions at 1024/180/120/60 px into
+   `/tmp/plink-icons` — it is a design tool, not part of any build, which is why its
+   output goes to a scratch directory. `PlinkBrandMark.swift` (the in-app SwiftUI
+   mark) states outright that its proportions are taken from this script, so the two
+   must be changed together or the icon and the launch screen stop matching.
+2. The chosen direction is copied by hand to
+   `ios/Plink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`. That
+   file, not anything in this directory, is what ships on the home screen.
+3. [`landing/scripts/make_brand_assets.py`](../landing/scripts/make_brand_assets.py)
+   reads that shipped app icon and derives `landing/public/` — favicons, the
+   apple-touch icon, `og-image.png`. Below roughly 32 px it switches to
+   `plink-icon-plain-1024.png` from this directory instead, because the word PLINK on
+   the screen turns to mud at that size and smears the pool of light the mark depends
+   on.
+
+So `plink-icon-1024.png` here is an export for documents and decks; it is **not**
+byte-identical to the shipped app icon and is not the source of it. Change the icon in
+step 1, re-copy in step 2, then re-run step 3.
+
+## Design references
+
+The two owner-supplied layout references this direction was drawn against live in
+[`docs/design/references/`](../docs/design/references/) — the desktop
+(MacBook + Windows) framing and the auth-window banner. `PLINK_DESIGN_DIRECTION.md` at
+the repository root is the written half of the same thing.
+
+## Explorations
+
+[`explorations/`](explorations/) holds two superseded logo rounds, kept because the
+reasoning in them is still useful and the alternatives get re-proposed otherwise:
+
+| Round | Concepts | Outcome |
+|-------|----------|---------|
+| [`round-2/`](explorations/round-2/) | duo-play, sync-rings, film-play | Not adopted |
+| [`round-3/`](explorations/round-3/) | wave-play (Spotify-like), two-screens, plex-p | Not adopted |
+
+Each round has a `preview.html` — open it in a browser rather than reading the SVGs.
+Round 3's page also lays the concepts against the competitor icons they were judged
+next to. **Nothing under `explorations/` ships.** The live system is the six SVGs
+listed above; if you are looking for an asset to use, it is one of those.
+
