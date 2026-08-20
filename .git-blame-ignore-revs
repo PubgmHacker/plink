@@ -21,6 +21,12 @@
 # utility order only.
 5e000a5260509df39b683a166f34e9e8ba12c34a
 
+# CONTRIBUTING.md, brand/README.md, docs/architecture/README.md: prettier on the
+# three docs edited by the commit before it. Markdown table column padding, one
+# *emphasis* to _emphasis_, one missing trailing blank line. proseWrap is
+# preserve, so no prose moved.
+7c6455428bc259112a013b74bd32b6d3cf766eab
+
 # PENDING: backend/src has not been formatted yet. It predates .prettierrc.json
 # by roughly 13,000 lines of whitespace, and CI enforces formatting only on the
 # files a change touches (the `format` job in .github/workflows/ci.yml) so the
