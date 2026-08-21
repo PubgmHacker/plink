@@ -183,7 +183,7 @@ Three things about the configs are load-bearing and easy to undo by accident:
 - `ios/.swiftlint.yml` splits severities on purpose: **`error` is for invariants that
   are currently at zero**, so a failure is a real regression rather than accumulated
   debt, and **`warning` is for measured debt with the count written next to the
-  rule**. Today that is 0 errors and 4,723 warnings. Do not promote a warning to an
+  rule**. Today that is 0 errors and 4,697 warnings. Do not promote a warning to an
   error without first clearing it, and do not raise a threshold to silence a hit —
   a threshold set above the existing debt reports nothing at all, which is worse than
   a warning nobody has cleared yet.
@@ -214,8 +214,8 @@ Gates — at zero, and the check is what keeps them there:
 
 Ratchets — real debt, counted, allowed to fall and not to rise:
 
-- **Prefer no force unwrapping in Swift.** 37 sites in `ios/Plink/` across 22 files,
-  plus 17 in tests. Most are `URL(string: <literal>)!` and safe by construction; a
+- **Prefer no force unwrapping in Swift.** 36 sites in `ios/Plink/` across 22 files,
+  plus 18 in tests. Most are `URL(string: <literal>)!` and safe by construction; a
   handful are not. Clearing one means deciding what the non-crashing behaviour should
   be, which needs the test suite rather than a lint pass — hence a warning.
 - **Prefer the design tokens over hardcoded typography and colour.** 457 hardcoded
@@ -224,7 +224,7 @@ Ratchets — real debt, counted, allowed to fall and not to rise:
   is not yet universal and the config does not pretend otherwise. New code uses
   tokens; existing code converts as you touch it. See
   [ADR-0010](docs/adr/0010-design-tokens-as-the-only-style-source.md).
-- **English comments** (ADR-0001). 3,803 Russian comment lines remain, across 154
+- **English comments** (ADR-0001). 3,773 Russian comment lines remain, across 152
   files; the ten worst hold a quarter of them. Translate the ones in a file you are
   already editing rather than opening a translation pull request — a bulk pass over
   comments you are not otherwise reading is how a wrong explanation gets confidently
@@ -239,7 +239,7 @@ Ratchets — real debt, counted, allowed to fall and not to rise:
   build has populated it — 1.4 GB of dependency checkouts, none of them ours. They
   hold no Cyrillic, so the number is unaffected; it is only slow.
 
-  `swiftlint` reports 3,581 for the same regex rather than 3,803, and the gap is not
+  `swiftlint` reports 3,555 for the same regex rather than 3,773, and the gap is not
   drift: the rule counts matched regions while this counts matching lines, and
   SwiftLint's reported line numbers wander on files this dense with multibyte text.
   The grep is the figure to quote.

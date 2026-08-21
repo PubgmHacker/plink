@@ -16,7 +16,7 @@
 #             it must not rise.
 #
 # Counts below were measured across Plink/, PlinkTests/, PlinkUITests/ and
-# PlinkWidget/ (219 files, ~64,600 lines): 0 errors, 4,723 warnings. Re-measure
+# PlinkWidget/ (221 files, ~64,900 lines): 0 errors, 4,697 warnings. Re-measure
 # before editing a threshold, and note the count a rule REPORTS is not the same as
 # a raw grep — line_length below is the clearest example, and russian_comment is
 # the largest: the rule reports matched regions, a grep reports matching lines.
@@ -261,9 +261,9 @@ custom_rules:
   # through the string catalog and is not affected by this rule — it matches only
   # comments.
   #
-  # 3,581 regions reported, across 154 files — by far the largest single number in
+  # 3,555 regions reported, across 152 files — by far the largest single number in
   # this file, and a dedicated pass rather than something to clear while passing
-  # through. The same regex run as a line-based grep returns 3,803 (CONTRIBUTING.md
+  # through. The same regex run as a line-based grep returns 3,773 (CONTRIBUTING.md
   # publishes that command): the rule counts matched regions and SwiftLint's line
   # attribution drifts on files this full of multibyte text, so trust the grep for
   # the debt figure and open the file rather than jumping to the reported line.
