@@ -185,19 +185,22 @@ for p in terms privacy support; do
 done
 ```
 
-⚠️ **Run it before every submission, because as of 2026-08-20 it does not pass.** All
-three answer **404**, and the cause is not the code: the routes are in `web.ts`, their
-eight unit tests pass (`npx vitest run src/tests/unit/legalPages.unit.test.ts`), and the
-commit that added them (`df519dd`) has never been pushed. Railway builds on a push to the
-deployment branch ([deployment.md §1](deployment.md#1-a-normal-deploy)), so production is
-still running a build from before those routes existed. What the probe shows is consistent
-with exactly that and rules out the alternatives: `/` and `/health` answer 200, so the host
-is up, and `/plus` and `/.well-known/apple-app-site-association` — both older than
-`df519dd` — answer 200 too, so `webRoutes` is registered and nothing is swallowing the
-paths. **Push, let Railway deploy, re-run the loop until all three print 200, and submit
-after that.** A green local suite is not evidence about production here; only the curl loop
-is. Submitting first means the listing carries the dead link that guideline 3.1.2 rejects,
-and the app's own Settings screen opens three 404s.
+**Run it before every submission.** As of 2026-08-21 all three answer 200 and serve the
+real pages (~42 KB each, with the expected `<title>`), so this is a check rather than a
+known failure — but it is the check that catches the one way this breaks, and it broke
+once already for a reason no local test could see. On 2026-08-20 all three answered 404
+while `/` and `/health` answered 200: the routes were in `web.ts`, their eight unit tests
+passed, and the commit that added them (`df519dd`) had simply never been pushed. Railway
+builds on a push to the deployment branch
+([deployment.md §1](deployment.md#1-a-normal-deploy)), so production was running a build
+from before those routes existed. Two facts located it: `/plus` and
+`/.well-known/apple-app-site-association` both predate `df519dd` and answered 200, so
+`webRoutes` was registered and nothing was swallowing the paths.
+
+The lesson is the reason the loop is a step and not a note: **a green local suite is not
+evidence about production.** Only the curl loop is. Submitting on a 404 means the listing
+carries the dead link that guideline 3.1.2 rejects, and the app's own Settings screen
+opens three 404s.
 
 If those pages ever move to `plink.app`, they move for the app and the listing together:
 change `webOrigin`, not this table. `plink.app` does not currently serve the app — it
@@ -258,8 +261,8 @@ and host Kick.
 
 The two rows that say _verify_ are the only ones on this page whose answer depends on a
 deployment rather than on the code, so they are the two that can be true in the repository
-and false in production at the same time. Run the curl loop in
-[Listing](#listing) — as of 2026-08-20 it returns 404 for all three pages.
+and false in production at the same time. Run the curl loop in [Listing](#listing) — green
+as of 2026-08-21, and it has been red once.
 
 The catalogue does not promise synchronisation it cannot deliver — see
 [ADR-0003](../adr/0003-honest-service-catalog.md). Services that cannot be synced are
