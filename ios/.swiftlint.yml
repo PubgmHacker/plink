@@ -81,14 +81,14 @@ force_cast: error
 force_try: error
 
 # CONTRIBUTING.md forbids TODO/FIXME on main: either fix it, or file an issue and
-# link it. Genuinely zero across all 219 files.
+# link it. Genuinely zero across all 221 files.
 todo: error
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Measured debt.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 37 sites in Plink/ across 22 files, plus 17 in tests. Most are
+# 36 sites in Plink/ across 22 files, plus 18 in tests. Most are
 # `URL(string: <literal or config>)!`, which is safe by construction; a handful
 # (`URL(string: service.browseURL)!`, `.first!` on a FileManager lookup) are not.
 # This is a warning rather than an error because clearing it means deciding, per
@@ -213,8 +213,8 @@ nesting:
 # implicit_optional_initialization  ← SwiftFormat redundantNilInit
 # empty_count                      ← SwiftFormat isEmpty
 #
-# SwiftLint reports 76 `var x: T? = nil` sites; SwiftFormat's redundantNilInit
-# reports 44. The gap is `let` bindings and property-wrapper declarations that
+# SwiftLint reports 74 `var x: T? = nil` sites; SwiftFormat's redundantNilInit
+# reports 42. The gap is `let` bindings and property-wrapper declarations that
 # SwiftFormat leaves alone, so the two numbers are expected to differ.
 implicit_optional_initialization:
   severity: warning

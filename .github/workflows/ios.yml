@@ -128,7 +128,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee "$RUNNER_TEMP/test.log"
 
-      # 32 of the 450 tests skip themselves, all opt-in behind an environment flag and
+      # 32 of the 458 tests skip themselves, all opt-in behind an environment flag and
       # all printing their reason (docs/qa/testing-strategy.md). The count is asserted
       # because a test that starts skipping itself has stopped running, and a run where
       # that happened looks exactly like a green one.

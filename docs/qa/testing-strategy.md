@@ -7,8 +7,8 @@ here was measured on 2026-08-20; the commands to re-measure are in each section.
 
 | Where       | Framework      | Files  | Tests | Runs in CI                  |
 | ----------- | -------------- | -----: | ----: | --------------------------- |
-| `backend/`  | vitest 4       |     20 |   194 | Yes — gates every PR        |
-| `ios/`      | XCTest         |     37 |   450 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
+| `backend/`  | vitest 4       |     21 |   202 | Yes — gates every PR        |
+| `ios/`      | XCTest         |     38 |   458 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
 | `android-client/` | JUnit    |      1 |     1 | Yes — `testDebugUnitTest`   |
 | `landing/`  | none           |      0 |     0 | Typecheck, lint, format, build only |
 
@@ -17,14 +17,16 @@ the marketing site is checked by `tsc --noEmit`, ESLint, Prettier and a producti
 `next build`, which catches type and syntax breakage but nothing about behaviour.
 
 The `Files` column counts files that hold at least one test. `ios/PlinkTests/` has
-41 Swift files; four are fakes and fixtures with no test of their own
+41 Swift files, of which 37 hold tests; the other four are fakes and fixtures
 (`FakeAuthService`, `FakeRoomService`, `FakePlaybackController`, `RegressionMatrix`).
+The 38th file in the column is the funnel test in `ios/PlinkUITests/`, which the CI
+job deliberately does not run.
 
 ## Backend: three tiers, and what puts a test in each
 
 ```
 backend/src/tests/
-├── unit/          8 files,  51 tests   pure functions, no I/O
+├── unit/          9 files,  59 tests   pure functions, no I/O
 ├── contract/      7 files, 121 tests   shapes and invariants, no I/O
 ├── integration/   5 files,  22 tests   real Redis, real Postgres
 ├── setup.ts                            shared bootstrap
@@ -49,7 +51,7 @@ Extract the pure part into its own module rather than reaching for `vi.mock` on
 `config` — a mock hides the coupling, an extraction removes it.
 
 **Contract** — the shapes both sides of the wire agree on, verified without I/O. This
-is the largest tier (121 of 194 tests) and deliberately so: the realtime protocol is
+is the largest tier (121 of 202 tests) and deliberately so: the realtime protocol is
 where a client and a server drift apart silently.
 
 `protocol-parity.contract.test.ts` is worth reading as the pattern. It does not
@@ -77,8 +79,8 @@ A skipped test that says nothing is indistinguishable from a passing one. Runnin
 full suite without Redis prints:
 
 ```
- Test Files  19 passed | 1 skipped (20)
-      Tests  193 passed | 1 skipped (194)
+ Test Files  20 passed | 1 skipped (21)
+      Tests  201 passed | 1 skipped (202)
 
 ──────────────────────────────────────────────────────────────
 ⚠ 1 integration test(s) skipped: REDIS_URL is not set
@@ -101,16 +103,16 @@ For the same reason the config imports the reporter as a typed module rather tha
 naming it as a path string: renaming or deleting the file is then a compile error, not
 a silent runtime miss.
 
-## iOS: 450 tests, on a path-filtered macOS runner
+## iOS: 458 tests, on a path-filtered macOS runner
 
 Measured by running them:
 
 ```
-Executed 450 tests, with 32 tests skipped and 0 failures (0 unexpected) in 1.744 seconds
+Executed 458 tests, with 32 tests skipped and 0 failures (0 unexpected) in 1.809 seconds
 Test Suite 'All tests' passed
 ```
 
-40 files under `ios/PlinkTests/` (36 `XCTestCase` subclasses, 450 test methods) plus one
+41 files under `ios/PlinkTests/` (37 `XCTestCase` subclasses, 458 test methods) plus one
 UI test in `ios/PlinkUITests/`. To run them yourself:
 
 ```bash

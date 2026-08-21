@@ -49,11 +49,11 @@ The bundle identifier says `syncwatch` for a reason that is not cosmetic — see
 
 ```bash
 xcodebuild test -project Plink.xcodeproj -scheme Plink \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
 No `-only-testing` is needed: the `Plink` scheme's test action names `PlinkTests` and
-nothing else (`project.yml` → `schemes:`). Expect **450 tests, 32 skipped, 0 failures**.
+nothing else (`project.yml` → `schemes:`). Expect **458 tests, 32 skipped, 0 failures**.
 The same run happens in CI on every change under `ios/` —
 [`.github/workflows/ios.yml`](../../.github/workflows/ios.yml).
 
@@ -239,10 +239,13 @@ Required sizes:
 | 6.5" iPhone | 1242×2688 | `iphone65-` |
 | 12.9" iPad  | 2048×2732 | `ipad-`     |
 
-Capture from a booted simulator:
+Capture from a booted simulator. Device names are a property of whichever Xcode is
+installed, so list them rather than trusting the one below — the 6.7" frames come from
+a Pro Max / Plus class device, not from the Pro:
 
 ```bash
-xcrun simctl boot "iPhone 16 Pro" 2>/dev/null || true
+xcrun simctl list devices available | grep iPhone
+xcrun simctl boot "iPhone 17 Pro" 2>/dev/null || true
 open -a Simulator
 mkdir -p docs/screenshots
 

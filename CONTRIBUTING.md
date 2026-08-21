@@ -163,7 +163,7 @@ it, and its SHA goes into [`.git-blame-ignore-revs`](.git-blame-ignore-revs) so
 `git blame` keeps working.
 
 `ios/` works the same way and for the same reason. A full SwiftFormat pass reports
-1,937 findings across 137 of the 218 files it reads — more than half the client, and a
+1,937 findings across 137 of the 220 files it reads — more than half the client, and a
 `git blame` rewrite of all of it. So `make format-ios` formats only the Swift files
 changed against `origin/main`, and `make format-check-ios` checks only those. The
 `lint` job in [`ios.yml`](.github/workflows/ios.yml) runs both on a `macos-15` runner

@@ -19,13 +19,13 @@ Everything below exists to serve that one sentence.
 ```mermaid
 flowchart TB
     subgraph clients["Clients"]
-        iOS["iOS app<br/>SwiftUI · 177 files"]
+        iOS["iOS app<br/>SwiftUI · 178 files"]
         AND["Android client<br/>thin · 29 files"]
         WEB["Landing + /plus<br/>Next.js"]
     end
 
     subgraph backend["Backend — Fastify"]
-        REST["REST<br/>168 routes under /api"]
+        REST["REST<br/>171 routes under /api"]
         GW["Realtime gateway<br/>websocket"]
     end
 
@@ -77,7 +77,7 @@ first time two instances disagree about it.
 
 ### REST
 
-168 routes, all under `/api` except the public web pages. Bearer token in the
+171 routes, all under `/api` except the public web pages. Bearer token in the
 `Authorization` header, and — this is the part that surprises people — the token's
 claims are not trusted for authorization. Every authenticated request reconciles the
 user against Postgres behind a 30-second cache, so a ban or a demotion takes effect
@@ -117,11 +117,11 @@ files); the drift samples land at `POST /api/telemetry/sync-sample`.
 .
 ├── ios/                     iOS app, Android client, and the Xcode project generator
 │   ├── Plink/               the app
-│   ├── PlinkTests/          450 XCTest tests (CI runs these, but only on ios/ changes)
+│   ├── PlinkTests/          458 XCTest tests (CI runs these, but only on ios/ changes)
 │   ├── android-client/      thin Android client
 │   └── project.yml          XcodeGen input; the .xcodeproj is generated and gitignored
 ├── backend/
-│   ├── src/routes/          20 modules, 168 REST routes
+│   ├── src/routes/          20 modules, 171 REST routes
 │   ├── src/realtime/        websocket gateway, room state, pub/sub
 │   ├── src/contracts/       shapes shared with the clients
 │   ├── src/services/        12 service modules
@@ -138,18 +138,20 @@ files); the drift samples land at `POST /api/telemetry/sync-sample`.
 The directory names carry version numbers, which is the single most confusing thing
 about this codebase on first contact. What the numbers mean:
 
-| Directory    | Files | What it holds                                                                                                                                                                                                                                                                                       |
-| ------------ | ----: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Features/`  |    42 | Feature-scoped views and their state. The largest directory and the usual place to start.                                                                                                                                                                                                           |
-| `Services/`  |    24 | API client wrappers, persistence, push, presence.                                                                                                                                                                                                                                                   |
-| `V4/`, `V5/` | 22, 7 | Two generations of shared UI. `V4/` is the live one: it declares `enum V4` (the design-token namespace, in `V4Theme.swift`) and is referenced 84 times from `Features/` and `Views/`. `V5/` is a later generation that was never finished — four of its seven types are used nowhere outside `V5/`. |
-| `Views/`     |    20 | Screens predating the `Features/` split.                                                                                                                                                                                                                                                            |
-| `Playback/`  |    13 | Player, position correction, drift measurement.                                                                                                                                                                                                                                                     |
-| `Models/`    |    11 | Domain types shared across features.                                                                                                                                                                                                                                                                |
-| `Design/`    |     8 | Design tokens. The only source of colour, spacing and type ([ADR-0010](../adr/0010-design-tokens-as-the-only-style-source.md)).                                                                                                                                                                     |
-| `Realtime/`  |     7 | Websocket client and the message envelope.                                                                                                                                                                                                                                                          |
-| `AppShell/`  |     4 | App entry, dependency wiring, navigation sections.                                                                                                                                                                                                                                                  |
-| `RTC/`       |     3 | Voice chat. Currently a stub — see below.                                                                                                                                                                                                                                                           |
+| Directory     | Files | What it holds                                                                                                                                                                                                                                                                                       |
+| ------------- | ----: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Features/`   |    42 | Feature-scoped views and their state. The largest directory and the usual place to start.                                                                                                                                                                                                           |
+| `Services/`   |    24 | API client wrappers, persistence, push, presence.                                                                                                                                                                                                                                                   |
+| `V4/`, `V5/`  | 22, 7 | Two generations of shared UI. `V4/` is the live one: it declares `enum V4` (the design-token namespace, in `V4Theme.swift`) and is referenced 84 times from `Features/` and `Views/`. `V5/` is a later generation that was never finished — four of its seven types are used nowhere outside `V5/`. |
+| `Views/`      |    20 | Screens predating the `Features/` split.                                                                                                                                                                                                                                                            |
+| `Playback/`   |    13 | Player, position correction, drift measurement.                                                                                                                                                                                                                                                     |
+| `Models/`     |    11 | Domain types shared across features.                                                                                                                                                                                                                                                                |
+| `Utilities/`  |     8 | Cross-cutting helpers. `PlinkHost.swift` is here: strict host matching ([ADR-0004](../adr/0004-strict-host-matching.md)), and CI fails if the file disappears.                                                                                                                                      |
+| `Design/`     |     8 | Design tokens. The only source of colour, spacing and type ([ADR-0010](../adr/0010-design-tokens-as-the-only-style-source.md)).                                                                                                                                                                     |
+| `Realtime/`   |     7 | Websocket client and the message envelope.                                                                                                                                                                                                                                                          |
+| `AppShell/`   |     4 | App entry, dependency wiring, navigation sections.                                                                                                                                                                                                                                                  |
+| `Networking/` |     3 | `APIClient`, the base URL configuration, and `PlinkURLs` — the one place any URL the app opens or shares is built.                                                                                                                                                                                  |
+| `RTC/`        |     3 | Voice chat. Currently a stub — see below.                                                                                                                                                                                                                                                           |
 
 If you are adding a screen, it goes in `Features/`. If you are adding a colour, you are
 probably not — read ADR-0010 first. If you are reaching for something in `V5/`, check

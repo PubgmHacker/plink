@@ -2,26 +2,27 @@
 
 The HTTP surface of the backend: what the prefixes are, how a request is authorized,
 what an error looks like, and where every route lives. Counts were measured on
-2026-08-16; the command to re-measure them is at the [bottom of the page](#regenerating-the-route-index).
+2026-08-20; the command to re-measure them is at the [bottom of the page](#regenerating-the-route-index).
 
 Realtime messages are not documented here. The websocket protocol has its own
 contract and its own page: [realtime protocol](realtime-protocol.md).
 
 ## Shape
 
-168 routes across 20 modules in [`backend/src/routes/`](../../backend/src/routes/),
+171 routes across 20 modules in [`backend/src/routes/`](../../backend/src/routes/),
 plus seven operational routes defined directly in
 [`backend/src/app.ts`](../../backend/src/app.ts).
 
 | Prefix              | Modules                          | Registered in                        |
 | ------------------- | -------------------------------- | ------------------------------------ |
 | `/api`              | 18 modules, 155 routes           | `app.ts` — one `register` per module |
-| _(none)_            | `web.ts` (11), `assets.ts` (2)   | `app.ts`, deliberately unprefixed    |
+| _(none)_            | `web.ts` (14), `assets.ts` (2)   | `app.ts`, deliberately unprefixed    |
 | `/health`, `/metrics`, `/ws`, `/.well-known` | —      | `app.ts` directly                    |
 
 `web.ts` and `assets.ts` are registered without a prefix on purpose: they serve the
 share links (`/r/:code`, `/u/:username`, `/w/:code`, `/join/:code`), the `/plus`
-purchase page, the Open Graph images those links unfurl into, and
+purchase page, the Terms, Privacy and Support pages the App Store listing and the
+paywall link to, the Open Graph images those links unfurl into, and
 `/.well-known/apple-app-site-association`. A share link with `/api` in it would be
 wrong in every message it appears in, and the association file must sit at that exact
 path or Universal Links stop working — an invite would open the website instead of the
@@ -143,7 +144,7 @@ product. **Do not branch on them** — branch on `code` and on the status. See
 
 `@fastify/rate-limit` is registered with `global: false` (`app.ts:154`), so the
 100/minute default is **not** applied anywhere by itself: a route is limited only if it
-declares `config: { rateLimit: … }`. 63 of the 168 routes do. The remaining 105 have no
+declares `config: { rateLimit: … }`. 63 of the 171 routes do. The remaining 108 have no
 limit, and that is a gap rather than a decision — recorded below.
 
 Where limits exist they are scaled to cost: 10 per 10 minutes on `POST
@@ -189,7 +190,7 @@ Every route the backend serves, grouped by the module that declares it. Paths ar
 contract; request and response bodies are not reproduced here, because a body schema
 pasted into markdown drifts from the code within a release — read the handler.
 
-**○** marks a route with no `fastify.authenticate` preHandler (36 of 168).
+**○** marks a route with no `fastify.authenticate` preHandler (39 of 171).
 **†** marks the five where that is not the same thing as unauthenticated: they
 authenticate by another mechanism — a query-string token, credentials in the body, or a
 JWS signature over the payload — described under [unauthenticated by
@@ -439,9 +440,9 @@ Sync-drift samples and sessions, crash reports, feedback. _(authenticated unless
 - `POST   /api/telemetry/sync-sample`
 - `POST   /api/telemetry/sync-session`
 
-### `web.ts` — 11 routes
+### `web.ts` — 14 routes
 
-Public pages: share links, the /plus page, Open Graph images, the Apple association file. _(no auth.)_
+Public pages: share links, the /plus page, the legal and support pages, Open Graph images, the Apple association file. _(no auth.)_
 
 - `GET    / ○`
 - `GET    /.well-known/apple-app-site-association ○`
@@ -451,7 +452,10 @@ Public pages: share links, the /plus page, Open Graph images, the Apple associat
 - `GET    /og/u/:username.png ○`
 - `GET    /plus ○`
 - `GET    /plus/success ○`
+- `GET    /privacy ○`
 - `GET    /r/:code ○`
+- `GET    /support ○`
+- `GET    /terms ○`
 - `GET    /u/:username ○`
 - `GET    /w/:code ○`
 
@@ -475,12 +479,12 @@ for f in src/routes/*.ts; do
     | grep -oE "\.(get|post|put|patch|delete)(<[^>]*>)? *\( *['\"]/[^'\"]*['\"]" \
     | sed -E "s|^\.||; s|<[^>]*>||; s| *\( *['\"]|  |; s|['\"]\$||" \
     | sed "s|^|$(basename $f)  |"
-done | sort | tee /tmp/plink-routes.txt | wc -l    # expect 168
+done | sort | tee /tmp/plink-routes.txt | wc -l    # expect 171
 ```
 
 Three details in that command are not decoration. `tr '\n' ' '` flattens each file
 first, because a handler whose options object starts on the next line is invisible to a
-line-oriented grep — that alone accounts for 31 of the 168. `(<[^>]*>)?` catches the
+line-oriented grep — that alone accounts for 27 of the 171. `(<[^>]*>)?` catches the
 `fastify.get<{ Params: … }>(…)` generic form. And requiring the path to start with `/`
 is what keeps `response.headers.get('content-length')` out of the list.
 
@@ -493,9 +497,9 @@ generated table can tell them apart from a genuinely public one.
 
 Recorded so nobody has to rediscover them:
 
-- **105 of 168 routes have no rate limit.** `@fastify/rate-limit` is registered with
+- **108 of 171 routes have no rate limit.** `@fastify/rate-limit` is registered with
   `global: false`, so the default never applies. The admin module has none at all; so do
-  all 11 public web pages. This is the largest open item on this page.
+  all 14 public web pages. This is the largest open item on this page.
 - **`featureFlags.ts` gates its admin routes with an inline role check**, bypassing
   `requireAdmin` and therefore the 2FA and recent-auth requirements that every other
   admin route enforces.

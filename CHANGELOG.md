@@ -36,6 +36,10 @@ versioned sections and git tags begin there.
 - **Home-screen widget** and full-screen swipeable trailer feed.
 - **Early Android client** (build and unit tests verified in CI; not yet shipped).
 - Dynamic Type up to XXL, and VoiceOver labels for conversation rows.
+- **Terms, Privacy and Support pages**, served by the app's own backend and linked
+  from the paywall, the settings screen and the web player. The subscription screen's
+  legal links now resolve to something readable instead of dead-ending, and the
+  support page states where to write and what to include.
 
 ### Changed
 
@@ -107,9 +111,16 @@ Not user-visible, but part of this release:
   runs.
 - CI now runs typecheck, lint, the backend suite, a landing build, dependency audit
   and security-invariant checks on every push, plus an unsigned iOS simulator build
-  and its 450 unit tests on any change to the client. Dependabot opens grouped
+  and its 458 unit tests on any change to the client. Dependabot opens grouped
   weekly updates. A dead duplicate workflow that appeared to test iOS — and never
   ran, because it sat outside `.github/` at the repository root — was deleted.
+- The Prettier and SwiftFormat ratchets run on direct pushes as well as on pull
+  requests. Both used to skip on a push for want of a base branch, which made a
+  direct push to `main` the one way into the tree that nothing checked formatting on;
+  they now diff against the commit the push landed on.
+- Every URL the iOS client opens or shares comes from one place
+  (`Networking/PlinkURLs.swift`), so the legal pages follow whichever backend the
+  build points at while share links keep the brand host.
 
 ## Before 1.0.0
 
