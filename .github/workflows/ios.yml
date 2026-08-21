@@ -191,10 +191,29 @@ jobs:
 
       # Swift formatting is a ratchet, like Prettier in ci.yml: only files the change
       # touches have to come out formatted. See CONTRIBUTING.md.
-      - name: SwiftFormat (files changed by this PR)
-        if: github.event_name == 'pull_request'
+      #
+      # Runs on push too. `make format-check-ios` needs one ref to diff against, and
+      # a push has no base branch — so it gets the commit the push landed on top of.
+      # The all-zero SHA (new branch) and a vanished SHA (force-push) both fall back
+      # to HEAD~1, and a root commit has nothing to compare, which is not a failure.
+      - name: SwiftFormat (files changed by this change)
         env:
           BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-          make format-check-ios BASE_REF="origin/$BASE_REF"
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+            base="origin/$BASE_REF"
+          elif [ -n "$BEFORE" ] \
+            && [ "$BEFORE" != '0000000000000000000000000000000000000000' ] \
+            && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          elif git rev-parse --verify -q HEAD~1 >/dev/null; then
+            base='HEAD~1'
+          else
+            echo '✓ Root commit — nothing to compare against'
+            exit 0
+          fi
+
+          echo "Comparing against $base"
+          make format-check-ios BASE_REF="$base"

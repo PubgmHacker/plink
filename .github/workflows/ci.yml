@@ -114,10 +114,14 @@ jobs:
   # it and break `git blame` for the entire route layer. So the formatted share
   # of the repository grows monotonically instead: a file you edit has to come
   # out formatted. See CONTRIBUTING.md for how to clear a directory deliberately.
+  #
+  # Runs on push as well as on pull_request. A push has no base branch, which is
+  # why this job used to skip one — and skipping it there meant a direct push to
+  # main was the one way into the tree that nothing formatted. On push the range
+  # comes from the event's `before` SHA instead.
   format:
-    name: format (files changed by this PR)
+    name: format (files changed by this change)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -136,14 +140,50 @@ jobs:
         run: npm ci --ignore-scripts
         working-directory: backend
 
-      - name: Check formatting of changed files
+      # One place decides what "changed" means, for both this job and the reader.
+      # Three dots for a pull request: the comparison is against the merge base,
+      # so commits that landed on the base branch after the fork are not blamed on
+      # this change. Two dots for a push: `before..HEAD` is exactly what the push
+      # added, and there is no merge base to look for.
+      #
+      # `before` is unusable in two cases, and both mean "no useful range" rather
+      # than "check nothing": a brand-new branch (all-zero SHA) and a force-push
+      # (the old SHA is gone from the remote). HEAD~1 covers the first, and the
+      # second falls through to it too — the last commit is still worth checking.
+      - name: Resolve the range this change covers
+        id: range
         env:
           # Via env rather than inlined into the script: the base branch is
           # attacker-controlled text on a fork PR, and `${{ }}` interpolation
           # pastes it into the shell before bash sees it.
           BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+            echo "range=origin/$BASE_REF...HEAD" >> "$GITHUB_OUTPUT"
+            echo "✓ Comparing against the merge base with origin/$BASE_REF"
+          elif [ -n "$BEFORE" ] \
+            && [ "$BEFORE" != '0000000000000000000000000000000000000000' ] \
+            && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "range=$BEFORE..HEAD" >> "$GITHUB_OUTPUT"
+            echo "✓ Comparing against the pushed-over commit $BEFORE"
+          elif git rev-parse --verify -q HEAD~1 >/dev/null; then
+            echo 'range=HEAD~1..HEAD' >> "$GITHUB_OUTPUT"
+            echo '✓ No usable base — comparing against HEAD~1'
+          else
+            echo 'range=' >> "$GITHUB_OUTPUT"
+            echo '✓ Root commit — nothing to compare against'
+          fi
+
+      - name: Check formatting of changed files
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: |
+          if [ -z "$RANGE" ]; then
+            echo '✓ No range to check'
+            exit 0
+          fi
 
           list="${RUNNER_TEMP:-/tmp}/changed-files.txt"
 
@@ -155,7 +195,7 @@ jobs:
           # Written to a file rather than read into an array: `mapfile` needs bash
           # 4, and the bash on a macOS developer machine is 3.2, so the array form
           # runs here and fails for anyone reproducing it locally.
-          git diff --name-only --diff-filter=ACMR "origin/$BASE_REF...HEAD" \
+          git diff --name-only --diff-filter=ACMR "$RANGE" \
             | grep -v '^landing/' > "$list" || true
 
           if [ ! -s "$list" ]; then
