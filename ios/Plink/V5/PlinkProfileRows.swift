@@ -825,15 +825,20 @@ internal struct HelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Поддержка")
                 SettingsCard {
-                    if let mail = URL(string: "mailto:support@plink.app?subject=Plink%20Support") {
-                        Link(destination: mail) {
+                    // Opens the support page rather than mail: plink.app publishes
+                    // a null MX record (0 ., RFC 7505), so the domain accepts no
+                    // mail and the mailto opened a composer aimed at nowhere. The
+                    // address is printed on the page; move it back here once the
+                    // mailbox works.
+                    if let support = PlinkURLs.support {
+                        Link(destination: support) {
                             HStack(spacing: 12) {
-                                SettingsIconBadge(systemName: "envelope.fill", color: Color(hex: 0x3B82F6))
+                                SettingsIconBadge(systemName: "lifepreserver.fill", color: Color(hex: 0x3B82F6))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(LocalizationManager.shared.string(.pxContactSupport))
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundStyle(V4.ink)
-                                    Text("support@plink.app")
+                                    Text("Справка и контакты")
                                         .font(.system(size: 12))
                                         .foregroundStyle(V4.muted)
                                 }
@@ -847,8 +852,8 @@ internal struct HelpView: View {
                             Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
                         }
                     }
-                    linkRow("Условия использования", url: "https://plink.app/terms", icon: "doc.plaintext")
-                    linkRow("Конфиденциальность", url: "https://plink.app/privacy", icon: "hand.raised.fill")
+                    linkRow("Условия использования", url: PlinkURLs.terms, icon: "doc.plaintext")
+                    linkRow("Конфиденциальность", url: PlinkURLs.privacy, icon: "hand.raised.fill")
                 }
             }
 
@@ -862,9 +867,9 @@ internal struct HelpView: View {
         }
     }
 
-    private func linkRow(_ title: String, url: String, icon: String) -> some View {
+    private func linkRow(_ title: String, url: URL?, icon: String) -> some View {
         Group {
-            if let u = URL(string: url) {
+            if let u = url {
                 Link(destination: u) {
                     HStack(spacing: 12) {
                         SettingsIconBadge(systemName: icon, color: V4.accent)

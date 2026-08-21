@@ -269,14 +269,15 @@ struct PlinkPlusPaywall: View {
     }
 }
 
-// MARK: - Юридические ссылки
+// MARK: - Legal links
 //
-// Один источник вместо трёх копий с force-unwrap (пейволл, экран входа,
-// профиль). URL опциональны — ссылка просто не рисуется, если строка битая,
-// вместо краша на старте вьюхи.
+// They live in PlinkURLs (ios/Plink/Networking/PlinkURLs.swift): one origin for
+// every public page, and it is the API host — the only host that actually serves
+// those pages. What is left here is an alias, so the four call sites on the
+// paywall and the sign-in screen stay as they are.
 enum PlinkLegal {
-    static let terms = URL(string: "https://plink.app/terms")
-    static let privacy = URL(string: "https://plink.app/privacy")
+    static var terms: URL? { PlinkURLs.terms }
+    static var privacy: URL? { PlinkURLs.privacy }
 }
 
 struct PaywallArtwork: View {

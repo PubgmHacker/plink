@@ -1,30 +1,30 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Share Manager (Блок 5 — мгновенный Share-Link)
-/// Управляет потоком «поделиться комнатой»:
-/// 1. Генерирует ссылку `https://yourdomain.com/<roomId>`.
-/// 2. Копирует её в буфер обмена (`UIPasteboard`).
-/// 3. Вызывает нативный `UIActivityViewController` (Share Sheet).
-/// 4. Триггерит Toast «Ссылка скопирована!» через callback.
+// MARK: - Share Manager (block 5 — instant share link)
+/// Drives the "share this room" flow:
+/// 1. Builds `<share-origin>/r/<code>` (see `PlinkURLs`).
+/// 2. Copies it to the clipboard (`UIPasteboard`).
+/// 3. Presents the native `UIActivityViewController` (share sheet).
+/// 4. Fires the "link copied" toast through a callback.
 @MainActor
 final class ShareManager {
 
-    /// Базовый домен приложения (deep-link base).
-    /// В продакшене — реальный домен App Store / Universal Links.
-    static let shareBaseURL = "https://plink.app"
+    /// Origin of the links a user hands to other people. The value, and the
+    /// reason it is that value, live in `PlinkURLs.shareOrigin`.
+    static var shareBaseURL: String { PlinkURLs.shareOrigin }
 
-    /// Генерирует share-link для комнаты.
+    /// Builds the share link for a room.
     static func shareURL(for roomID: String, code: String? = nil) -> URL {
-        // Используем короткий код если есть — удобнее для ручного ввода.
-        if let code, !code.isEmpty {
-            return URL(string: "\(shareBaseURL)/r/\(code)")!
+        // Prefer the short code when there is one: it can be typed by hand.
+        if let code, !code.isEmpty, let url = PlinkURLs.roomLink(code: code) {
+            return url
         }
-        return URL(string: "\(shareBaseURL)/r/\(roomID)")!
+        return PlinkURLs.roomLink(code: roomID) ?? PlinkURLs.shareHome
     }
 
-    /// Полный share-flow: копирует ссылку + показывает Share Sheet.
-    /// `onCopied` — callback для показа Toast в UI-слое.
+    /// Full share flow: copies the link and presents the share sheet.
+    /// `onCopied` lets the UI layer show its toast.
     static func shareRoom(
         roomID: String,
         code: String?,
@@ -34,22 +34,22 @@ final class ShareManager {
         let url = shareURL(for: roomID, code: code)
         let shareText = "Присоединяйся к «\(roomName)» в Плинк! 🎬\n\(url.absoluteString)"
 
-        // 1. Копируем в буфер обмена
+        // 1. Clipboard
         UIPasteboard.general.string = url.absoluteString
         AnalyticsService.shared.shareRoom()
         AnalyticsService.shared.funnelInvite()
 
-        // 2. Toast-уведомление
+        // 2. Toast
         HapticManager.notification(.success)
         onCopied()
 
-        // 3. Нативный Share Sheet
+        // 3. Native share sheet
         let activityVC = UIActivityViewController(
             activityItems: [shareText],
             applicationActivities: nil
         )
 
-        // На iPad нужен popoverAnchor
+        // iPad needs a popover anchor.
         if let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first(where: { $0.activationState == .foregroundActive }),

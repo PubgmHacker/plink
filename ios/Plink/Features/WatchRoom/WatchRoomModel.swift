@@ -372,7 +372,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     public var roomFallbackURL: URL {
-        URL(string: "https://plink.app/r/\(linkRoomCode)") ?? URL(string: "https://plink.app")!
+        PlinkURLs.roomLink(code: linkRoomCode) ?? PlinkURLs.shareHome
     }
 
     public var roomShareText: String {

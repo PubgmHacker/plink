@@ -198,9 +198,9 @@ struct V4ProfileViewLive: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(V4.muted)
                         }
-                        // Поделиться профилем (виральная петля)
+                        // Share the profile (viral loop)
                         if let username = store?.username, !username.isEmpty,
-                           let shareURL = URL(string: "https://plink.app/u/\(username)") {
+                           let shareURL = PlinkURLs.profileLink(username) {
                             ShareLink(item: shareURL) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "square.and.arrow.up")

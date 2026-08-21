@@ -23,6 +23,7 @@ import {
   webWatchTargetFromMediaItem,
   webWatchUnsupportedHTML,
 } from '../web/watchPage.js'
+import { PRIVACY, SUPPORT_EMAIL, TERMS, type LegalDocument } from '../web/legal.js'
 
 const ROOM_CODE_RE = /^[A-Z0-9]{4,12}$/
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,32}$/
@@ -1072,6 +1073,9 @@ ${pageHead({
     </div>
 
     <div class="foot-nav" data-reveal data-d="2">
+      <a href="/terms">Условия использования</a>
+      <a href="/privacy">Конфиденциальность</a>
+      <a href="/support">Поддержка</a>
       <a href="/">Что такое Plink?</a>
     </div>
     <footer data-reveal data-d="2">Plink+ · один аккаунт — сайт и приложение</footer>
@@ -1161,6 +1165,155 @@ ${pageHead({
 </html>`
 }
 
+// Общие стили юридических и справочных страниц: длинный текст, выключка влево.
+// Остальная страница — тот же хром и та же «шапка», что у лендингов.
+function proseStyles(): string {
+  return `<style>
+  .card.prose { max-width:760px; text-align:left }
+  .card.prose h1 { font-size:clamp(32px,5.5vw,54px); text-align:left; margin:0 0 12px }
+  .card.prose .upd { color:var(--dim); font:600 10px/1.8 var(--mono); letter-spacing:.22em;
+        text-transform:uppercase; margin:0 0 34px }
+  .card.prose section { margin:0 0 26px }
+  .card.prose h2 { font:600 15.5px/1.5 var(--sans); color:var(--ink); margin:0 0 8px }
+  .card.prose p { color:var(--mut); font-size:15px; font-weight:300; line-height:1.62;
+        margin:0; max-width:70ch }
+  .card.prose a.mail { color:var(--teal); text-decoration:none;
+        border-bottom:1px solid rgba(25,224,192,.38) }
+  .card.prose a.mail:hover { border-bottom-color:var(--teal) }
+  .card.prose .foot-nav { justify-content:flex-start }
+  .card.prose footer { text-align:left }
+</style>`
+}
+
+/// Юридическая страница. Текст приходит из ../web/legal.ts — это канонический
+/// источник, и в приложении на него ведут ссылки из пейвола и настроек.
+/// Пользовательских данных на странице нет вовсе, но escHTML всё равно стоит:
+/// правка текста не должна становиться правкой разметки.
+function legalLanding(nonce: string, doc: LegalDocument): string {
+  const sections = doc.sections
+    .map((s, i) => {
+      const mail = s.email
+        ? ` <a class="mail" href="mailto:${escHTML(s.email)}">${escHTML(s.email)}</a>`
+        : ''
+      return `    <section data-reveal data-d="2">
+      <h2>${i + 1}. ${escHTML(s.heading)}</h2>
+      <p>${escHTML(s.body)}${mail}</p>
+    </section>`
+    })
+    .join('\n')
+
+  const other = doc.slug === 'terms'
+    ? { href: '/privacy', label: 'Конфиденциальность' }
+    : { href: '/terms', label: 'Условия использования' }
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+${pageHead({
+    title: doc.title,
+    description: doc.description,
+    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+    canonical: `${PUBLIC_ORIGIN}/${doc.slug}`,
+  })}
+${proseStyles()}
+</head>
+<body>
+  ${chrome()}
+  <div class="card prose">
+    <h1 data-reveal>${escHTML(doc.heading)}</h1>
+    <p class="upd" data-reveal data-d="1">Последнее обновление: ${escHTML(doc.updated)}</p>
+${sections}
+    <div class="foot-nav" data-reveal data-d="3">
+      <a href="${other.href}">${other.label}</a>
+      <a href="/support">Поддержка</a>
+      <a href="/">Что такое Plink?</a>
+    </div>
+    <footer data-reveal data-d="3">Plink · смотрим вместе</footer>
+  </div>
+  ${baseScript(nonce)}
+</body>
+</html>`
+}
+
+/// Страница поддержки: адрес для App Store Connect (Support URL) и ответы на
+/// то, с чем в приложении обращаются чаще всего. Каждый пункт описывает
+/// поведение, которое в приложении действительно есть.
+function supportLanding(nonce: string): string {
+  const items: Array<{ q: string; a: string }> = [
+    {
+      q: 'Ссылка на комнату не открылась',
+      a:
+        'Попросите отправителя продиктовать код комнаты и введите его в приложении на экране ' +
+        '«Присоединиться». Код работает всегда, даже если ссылка не открывается на вашем ' +
+        'устройстве.',
+    },
+    {
+      q: 'Видео не синхронизируется',
+      a:
+        'Plink показывает расхождение с ведущим прямо в комнате. Если оно растёт: проверьте сеть, ' +
+        'затем попросите ведущего поставить паузу и снять её — все участники встанут на один кадр. ' +
+        'Для сервисов по подписке синхронного плеера нет, там работает режим «смотрим рядом».',
+    },
+    {
+      q: 'Подписка Plink+',
+      a:
+        'Купленная в приложении подписка управляется в настройках Apple ID: там же её можно ' +
+        'отменить или восстановить. Купленная на сайте — разовый платёж на выбранный срок, ' +
+        'автосписаний нет, продление вручную. Если Plink+ не включился, откройте приложение ' +
+        'заново: статус подписки проверяется при запуске.',
+    },
+    {
+      q: 'Удалить аккаунт',
+      a:
+        'В приложении: «Профиль» → «Удалить аккаунт». Заявка уходит на сервер, и у вас есть ' +
+        '14 дней, чтобы её отменить, войдя снова. После этого данные аккаунта удаляются или ' +
+        'анонимизируются.',
+    },
+  ]
+
+  const sections = items
+    .map(
+      (it, i) => `    <section data-reveal data-d="2">
+      <h2>${i + 1}. ${escHTML(it.q)}</h2>
+      <p>${escHTML(it.a)}</p>
+    </section>`,
+    )
+    .join('\n')
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+${pageHead({
+    title: 'Поддержка — Plink',
+    description: 'Помощь по Plink: комнаты, синхронизация, подписка Plink+, удаление аккаунта.',
+    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+    canonical: `${PUBLIC_ORIGIN}/support`,
+  })}
+${proseStyles()}
+</head>
+<body>
+  ${chrome()}
+  <div class="card prose">
+    <h1 data-reveal>Поддержка</h1>
+    <p class="upd" data-reveal data-d="1">Plink · смотрим вместе</p>
+${sections}
+    <section data-reveal data-d="2">
+      <h2>${items.length + 1}. Написать нам</h2>
+      <p>Если ответа здесь нет — напишите, и опишите, что происходит и на каком устройстве:
+      <a class="mail" href="mailto:${escHTML(SUPPORT_EMAIL)}?subject=Plink%20Support">${escHTML(SUPPORT_EMAIL)}</a></p>
+    </section>
+    <div class="foot-nav" data-reveal data-d="3">
+      <a href="/terms">Условия использования</a>
+      <a href="/privacy">Конфиденциальность</a>
+      <a href="/">Что такое Plink?</a>
+    </div>
+    <footer data-reveal data-d="3">Plink · смотрим вместе</footer>
+  </div>
+  ${baseScript(nonce)}
+</body>
+</html>`
+}
+
 // Корневая страница «Что такое Plink» — сюда ведут все лендинги.
 function homeLanding(nonce: string): string {
   return `<!doctype html>
@@ -1215,6 +1368,9 @@ ${pageHead({
 
     <div class="foot-nav" data-reveal data-d="2">
       <a href="/plus">Подписка Plink+</a>
+      <a href="/support">Поддержка</a>
+      <a href="/terms">Условия использования</a>
+      <a href="/privacy">Конфиденциальность</a>
     </div>
     <footer data-reveal data-d="2">Plink · смотрим вместе · Россия и СНГ</footer>
   </div>
@@ -1398,6 +1554,34 @@ export async function webRoutes(fastify: FastifyInstance) {
     const nonce = newNonce()
     securityHeaders(reply, nonce)
     return reply.type('text/html; charset=utf-8').send(plusSuccessLanding(nonce))
+  })
+
+  // —— Юридические и справочные страницы ——
+  //
+  // Приложение ссылается сюда из пейвола и из настроек. Страницы обслуживаются
+  // бэкендом, а не лендингом, потому что бэкенд — единственный origin, до
+  // которого клиент дозванивается по определению; App Review 3.1.2 требует, чтобы
+  // ссылки на Условия и Конфиденциальность у подписочного приложения открывались.
+  // Кэш — сутки: текст меняется редко, но не должен застревать у CDN навсегда.
+  fastify.get('/terms', async (_req, reply) => {
+    const nonce = newNonce()
+    securityHeaders(reply, nonce)
+    reply.header('Cache-Control', 'public, max-age=86400')
+    return reply.type('text/html; charset=utf-8').send(legalLanding(nonce, TERMS))
+  })
+
+  fastify.get('/privacy', async (_req, reply) => {
+    const nonce = newNonce()
+    securityHeaders(reply, nonce)
+    reply.header('Cache-Control', 'public, max-age=86400')
+    return reply.type('text/html; charset=utf-8').send(legalLanding(nonce, PRIVACY))
+  })
+
+  fastify.get('/support', async (_req, reply) => {
+    const nonce = newNonce()
+    securityHeaders(reply, nonce)
+    reply.header('Cache-Control', 'public, max-age=86400')
+    return reply.type('text/html; charset=utf-8').send(supportLanding(nonce))
   })
 
   // —— Лендинг профиля ——

@@ -132,9 +132,9 @@ extension V4FriendsViewLive {
                                         subtitle: LocalizationManager.shared.string(.frEmptySub),
                                         cta: LocalizationManager.shared.string(.frFind)
                                     ) { showAddFriend = true }
-                                    // M26 UX: инвайт-ссылка прямо из пустого состояния
+                                    // M26 UX: invite link straight from the empty state
                                     if let myId = AuthService.shared.currentUserValue?.id,
-                                       let inviteURL = URL(string: "https://plink.app/u/\(myId)") {
+                                       let inviteURL = PlinkURLs.profileLink(myId) {
                                         ShareLink(item: inviteURL) {
                                             Label(LocalizationManager.shared.string(.frInviteLink), systemImage: "square.and.arrow.up")
                                                 .font(.system(size: 13.5, weight: .semibold))

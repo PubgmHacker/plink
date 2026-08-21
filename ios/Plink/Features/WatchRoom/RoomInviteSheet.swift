@@ -3,8 +3,9 @@ import CoreImage.CIFilterBuiltins
 import UIKit
 
 // MARK: - Room Invite Sheet (M14)
-// «Пригласить» одной кнопкой: QR-код + шер-линк + копирование кода.
-// QR ведёт на https://plink.app/join/<roomId> (universal link из M12).
+// One-tap "invite": QR code, share link, copy the code.
+// The QR encodes model.roomFallbackURL — `<share-origin>/r/<code>` from PlinkURLs.
+// The M12 `/join/<id>` shape survives only in DeepLinkRouter, for old links.
 
 struct RoomInviteSheet: View {
     let model: WatchRoomModel
@@ -103,14 +104,15 @@ struct RoomInviteSheet: View {
     }
 }
 
-// MARK: - P0 5.3: экран пустой комнаты
+// MARK: - P0 5.3: empty room screen
 //
-// Самая слабая точка воронки: создал комнату — ты один, чёрный экран,
-// приглашение спрятано за тапом и иконкой в верхней панели. Этот оверлей
-// показывается, когда в комнате один участник и нет контента: крупная
-// кнопка «Позвать друга», друзья онлайн в один тап, подсказка про соло-старт.
-// (Живёт в этом файле, а не отдельным: новые .swift не попадают в сборку
-// без xcodegen generate — см. project.yml.)
+// The weakest point in the funnel: you create a room, you are alone, the screen
+// is black, and the invite hides behind a tap on a toolbar icon. This overlay
+// shows when the room has one participant and no content: a large "invite a
+// friend" button, friends who are online in one tap, and a hint that starting
+// alone is fine.
+// (It lives in this file rather than its own: a new .swift does not reach the
+// build without `xcodegen generate` — see project.yml.)
 
 struct RoomEmptyStateView: View {
     let model: WatchRoomModel
