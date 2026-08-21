@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { SUPPORT_EMAIL } from '@/lib/constants';
+
 export const metadata: Metadata = {
   title: 'Конфиденциальность — Plink',
   description: 'Политика конфиденциальности Plink',
@@ -64,8 +66,8 @@ export default function PrivacyPage() {
             <h2 className="text-display mb-4 text-xl text-text-primary">5. Ваши права</h2>
             <p>
               Вы вправе запросить копию своих данных, их исправление или удаление. Напишите нам:{' '}
-              <a href="mailto:support@plink.app" className="text-accent underline">
-                support@plink.app
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
+                {SUPPORT_EMAIL}
               </a>
             </p>
           </section>

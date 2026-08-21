@@ -2,6 +2,13 @@
 export const APP_STORE_URL =
   process.env.NEXT_PUBLIC_APP_STORE_URL ?? 'https://apps.apple.com/app/plink/id0000000000';
 export const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_TESTFLIGHT_URL ?? '';
+// Where users are told to write. Import this rather than typing the address into
+// a page: it appears on /terms, /privacy and in the FAQ, and it is wrong today —
+// plink.app publishes a null MX record (`0 .`, RFC 7505), so the domain declares
+// it accepts no mail and anything sent to this address is rejected before it is
+// delivered. Choosing the real channel is the owner's call; keeping it in one
+// place makes that change one line. The backend holds the same constant for the
+// pages the iOS app links to (backend/src/web/legal.ts).
 export const SUPPORT_EMAIL = 'support@plink.app';
 
 // Честный статус платформ — iOS готов, остальные в разработке.

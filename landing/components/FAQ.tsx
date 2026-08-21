@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FAQ_DATA } from '@/lib/constants';
+import { FAQ_DATA, SUPPORT_EMAIL } from '@/lib/constants';
 
 export default function FAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -23,10 +23,10 @@ export default function FAQ() {
               <p className="mt-6 text-text-secondary">
                 Не нашли ответ? Напишите нам —{' '}
                 <a
-                  href="mailto:support@plink.app"
+                  href={`mailto:${SUPPORT_EMAIL}`}
                   className="text-accent underline decoration-accent/30 underline-offset-4 transition-colors hover:decoration-accent focus:outline-none focus:ring-2 focus:ring-accent"
                 >
-                  support@plink.app
+                  {SUPPORT_EMAIL}
                 </a>
               </p>
             </div>

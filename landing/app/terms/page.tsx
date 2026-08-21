@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { SUPPORT_EMAIL } from '@/lib/constants';
+
 export const metadata: Metadata = {
   title: 'Условия использования — Plink',
   description: 'Условия использования сервиса Plink',
@@ -62,8 +64,8 @@ export default function TermsPage() {
             <h2 className="text-display mb-4 text-xl text-text-primary">5. Контакты</h2>
             <p>
               По вопросам, связанным с настоящими Условиями, обращайтесь:{' '}
-              <a href="mailto:support@plink.app" className="text-accent underline">
-                support@plink.app
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
+                {SUPPORT_EMAIL}
               </a>
             </p>
           </section>
