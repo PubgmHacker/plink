@@ -27,9 +27,17 @@
 # preserve, so no prose moved.
 7c6455428bc259112a013b74bd32b6d3cf766eab
 
-# PENDING: backend/src has not been formatted yet. It predates .prettierrc.json
-# by roughly 13,000 lines of whitespace, and CI enforces formatting only on the
-# files a change touches (the `format` job in .github/workflows/ci.yml) so the
+# backend/src/routes/web.ts, docs/architecture/api.md, docs/qa/testing-strategy.md,
+# ios/.swiftlint.yml: prettier on the four files the commit before it edited. web.ts
+# is 750 lines of it and is the first slice of the backend/src debt below to be paid
+# off; the rest is table padding and YAML comment alignment.
+f976e92ad4b12d6f1c1162c7af21487c99da93b3
+
+# PENDING: the rest of backend/src has not been formatted yet. 57 of its 90
+# TypeScript files are still dirty against .prettierrc.json, and formatting them
+# would move 12,870 lines (measured 2026-08-20 — the command is in CONTRIBUTING.md
+# under "Formatting is a ratchet, not a wall"). CI enforces formatting only on the
+# files a change touches (the `format` job in .github/workflows/ci.yml), so the
 # formatted share grows instead of arriving in one commit nobody can review.
 # When that reformat is finally run — `make format`, on its own branch, with no
 # other change in it — add its SHA below.

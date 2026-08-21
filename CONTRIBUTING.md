@@ -147,9 +147,18 @@ just wrote.
 
 ### Formatting is a ratchet, not a wall
 
-`backend/src` predates `.prettierrc.json` by roughly 13,000 lines of whitespace, so
-`npm run format:check` there does **not** pass on a clean checkout. That is a known
-debt, recorded rather than hidden.
+`backend/src` predates `.prettierrc.json`, so `npm run format:check` there does
+**not** pass on a clean checkout. 57 of its 90 TypeScript files are still dirty and
+formatting them would move 12,870 lines. That is a known debt, recorded rather than
+hidden, and it is measured rather than estimated:
+
+```bash
+cd backend
+npx prettier --list-different 'src/**/*.ts' | wc -l          # dirty files
+npx prettier --list-different 'src/**/*.ts' | while read f; do \
+  npx prettier "$f" | diff - "$f" | grep -cE '^[<>]'; done \
+  | paste -sd+ - | bc                                        # lines they would move
+```
 
 CI therefore checks formatting on the files a change touches, not on the whole tree
 — the `format` job in [`ci.yml`](.github/workflows/ci.yml). The consequence for you
@@ -157,10 +166,11 @@ is simple: **a file you edit has to come out formatted**, which for most edits m
 running `make format` before pushing. The formatted share of the repository only
 grows.
 
-`landing/` is already fully formatted and is checked absolutely, in its own job. When
-`backend/src` is finally reformatted it must be its own commit with nothing else in
-it, and its SHA goes into [`.git-blame-ignore-revs`](.git-blame-ignore-revs) so
-`git blame` keeps working.
+`landing/` is already fully formatted and is checked absolutely, in its own job. A
+reformat under `backend/src` — whether the remaining 57 files at once or one file the
+ratchet forced — must be its own commit with nothing else in it, and its SHA goes into
+[`.git-blame-ignore-revs`](.git-blame-ignore-revs) so `git blame` keeps working. That
+file already lists three such commits and says which files each one moved.
 
 `ios/` works the same way and for the same reason. A full SwiftFormat pass reports
 1,937 findings across 137 of the 220 files it reads — more than half the client, and a

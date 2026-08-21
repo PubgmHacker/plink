@@ -212,7 +212,7 @@ From [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), on every push
 | ---------- | ----------------------------------------------------------------------------------------------------------------- |
 | `backend`  | Prisma generate → `tsc --noEmit` → `eslint .` → `vitest run` → `npm audit --audit-level=high`                     |
 | `landing`  | `tsc --noEmit` → `eslint .` → `prettier --check` → `next build` → `npm audit`                                     |
-| `format`   | Prettier, **on files changed by the PR only**                                                                     |
+| `format`   | Prettier, **on the files this change touches**                                                                    |
 | `security` | No external scripts in server-rendered pages · host matching goes through `PlinkHost` · no committed private keys |
 | `android`  | `assembleDebug` → `testDebugUnitTest`                                                                             |
 
@@ -222,13 +222,16 @@ changes — and **not** as required checks, for the reason given above:
 | Job              | Steps                                                                                       |
 | ---------------- | ------------------------------------------------------------------------------------------- |
 | `build-and-test` | `xcodegen generate` → `build-for-testing` → `test-without-building` → assert the skip count |
-| `lint`           | SwiftLint (errors gate) → SwiftFormat, **on files changed by the PR only**                  |
+| `lint`           | SwiftLint (errors gate) → SwiftFormat, **on the files this change touches**                 |
 
 Three of these are worth understanding rather than just obeying:
 
-The **`format` job checks only changed files.** A full Prettier pass would rewrite
-history across the tree, so the formatted share grows as files are touched. The same
-ratchet applies to Swift via `make format-ios`. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
+The **`format` job checks only the files a change touches**, on pushes as well as pull
+requests. A full Prettier pass would rewrite history across the tree, so the formatted
+share grows as files are touched instead. The same ratchet applies to Swift via `make
+format-ios`. Both jobs resolve their own comparison base — see [known
+gaps](#known-gaps) for the two cases where that base is `HEAD~1`. See
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 The **audit gate is `high` because the count is currently zero.** The remaining moderate
 advisories share one root (`@opentelemetry/core` via `@sentry/node` 8) and clear only on
@@ -275,11 +278,13 @@ Recorded so nobody has to rediscover them:
   from outside that directory — a backend contract, a shared protocol constant — does
   not run it. The contract tests in `backend/src/tests/contract/` exist to cover that
   seam; they are not a substitute for the client build.
-- Both formatting checks gate pull requests only — the Prettier `format` job in
-  `ci.yml` and the SwiftFormat step in `ios.yml` are each guarded by
-  `if: github.event_name == 'pull_request'`, because the changed-file comparison has
-  no base branch to diff against on a push. A commit pushed straight to `main` is
-  never format-checked; on the run for `0455e57` the `format` job reports `skipped`.
+- Both formatting checks compare against a base commit rather than the whole tree, so
+  what they verify depends on what the range resolves to. On a pull request it is the
+  merge base; on an ordinary push it is `github.event.before`, which covers every commit
+  the push added. Two cases fall through to `HEAD~1`: the first push of a new branch
+  (all-zero `before`) and any force-push (the old SHA is gone from the remote). In both,
+  only the last commit of the push is checked — files that earlier commits in the same
+  push touched are not.
 - The Android client has a single smoke test.
 - Coverage is collected (`npm run test:coverage`) but no threshold is enforced, so the
   number is informational.
