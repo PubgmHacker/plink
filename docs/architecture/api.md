@@ -13,11 +13,11 @@ contract and its own page: [realtime protocol](realtime-protocol.md).
 plus seven operational routes defined directly in
 [`backend/src/app.ts`](../../backend/src/app.ts).
 
-| Prefix              | Modules                          | Registered in                        |
-| ------------------- | -------------------------------- | ------------------------------------ |
-| `/api`              | 18 modules, 155 routes           | `app.ts` — one `register` per module |
-| _(none)_            | `web.ts` (14), `assets.ts` (2)   | `app.ts`, deliberately unprefixed    |
-| `/health`, `/metrics`, `/ws`, `/.well-known` | —      | `app.ts` directly                    |
+| Prefix                                       | Modules                        | Registered in                        |
+| -------------------------------------------- | ------------------------------ | ------------------------------------ |
+| `/api`                                       | 18 modules, 155 routes         | `app.ts` — one `register` per module |
+| _(none)_                                     | `web.ts` (14), `assets.ts` (2) | `app.ts`, deliberately unprefixed    |
+| `/health`, `/metrics`, `/ws`, `/.well-known` | —                              | `app.ts` directly                    |
 
 `web.ts` and `assets.ts` are registered without a prefix on purpose: they serve the
 share links (`/r/:code`, `/u/:username`, `/w/:code`, `/join/:code`), the `/plus`
@@ -38,13 +38,13 @@ Three postures, and the difference between them is load-bearing.
 
 **`fastify.authenticate`** — the decorator declared at `app.ts:183`, implemented in
 [`backend/src/middleware/auth.ts`](../../backend/src/middleware/auth.ts). It verifies
-the bearer token *and then reconciles the user against the database* on every request,
+the bearer token _and then reconciles the user against the database_ on every request,
 behind a 30-second cache. The role on `request.user` comes from Postgres, never from
 the token. This is [ADR-0011](../adr/0011-authorization-state-read-from-the-database.md),
 and it is the reason a ban, a demotion or an account deletion takes effect within 30
 seconds instead of at token expiry.
 
-Two claims are the exception and are read from the *signed token*, because they
+Two claims are the exception and are read from the _signed token_, because they
 describe the session rather than the user and are not stored anywhere:
 
 - `mfa` — the user completed two-factor authentication in this session.
@@ -66,12 +66,12 @@ the privilege check, which needs a populated `request.user`.
 
 The privilege check is four gates, and a request must clear all of them:
 
-| Gate | Failure response |
-| ---- | ---------------- |
-| `request.user` is populated | `401 Authentication required` |
-| role is `ADMIN` or `FOUNDER` | `403 Admin access required`, **plus an `admin.unauthorized` audit row** |
-| `mfa === true` | `401 step_up_required`, `reason: 'mfa'` |
-| `auth_time` present and within 10 minutes | `401 step_up_required`, `reason: 'stale_auth'` |
+| Gate                                      | Failure response                                                        |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| `request.user` is populated               | `401 Authentication required`                                           |
+| role is `ADMIN` or `FOUNDER`              | `403 Admin access required`, **plus an `admin.unauthorized` audit row** |
+| `mfa === true`                            | `401 step_up_required`, `reason: 'mfa'`                                 |
+| `auth_time` present and within 10 minutes | `401 step_up_required`, `reason: 'stale_auth'`                          |
 
 The last two are step-up authentication: holding an admin role is not enough, the
 session must have completed 2FA and authenticated recently. The stale-auth response
@@ -85,26 +85,26 @@ gaps](#known-gaps).
 
 ### Unauthenticated by design
 
-| Route | Why, and what protects it instead |
-| ----- | --------------------------------- |
-| `POST /api/auth/signup`, `signin`, `refresh`, `forgot-password`, `reset-password`, `guest`, `apple` | Sign-in cannot require sign-in. Body-schema validation via `validateBody`, plus a rate limit on every one of them. |
-| `GET /api/auth/check-username` | Username availability, needed on the sign-up form before an account exists. |
-| `POST /api/billing/webhooks/apple` | Apple calls it. The body is a signed JWS verified against Apple's certificate chain ([ADR-0012](../adr/0012-pinned-apple-root-ca.md)) — the signature *is* the authentication. |
-| `POST /api/webpay/yookassa/webhook` | Same shape, different provider, and the body is not trusted at all: the payment id is re-fetched from the YooKassa API and the grant is issued from that response, never from the webhook body. |
-| `POST /api/webpay/create`, `GET /api/webpay/status` | The `/plus` web purchase flow, which authenticates with email and password in the request body because the browser has no app token. |
-| `POST /api/telemetry/crash` | A client that just crashed may not have a usable token. Rate-limited to 20/hour. |
-| `GET /api/rtc/status` | Reports whether the SFU is configured at all. No room or user data. |
-| `GET /api/media/search`, `trending`, `categories`, `youtube-player`, `youtube-embed` | Public catalog and player-shell endpoints, all rate-limited. |
-| `GET /api/users/:id/avatar`, `GET /api/uploads/*` | Image bytes, served to unauthenticated contexts — Open Graph unfurls and the landing pages. |
-| `GET /assets/*`, everything in `web.ts` | Public web pages, share links, OG images, the Apple association file. |
-| `POST /api/dev/wipe-db` | Not registered in production at all — see below. |
+| Route                                                                                               | Why, and what protects it instead                                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/auth/signup`, `signin`, `refresh`, `forgot-password`, `reset-password`, `guest`, `apple` | Sign-in cannot require sign-in. Body-schema validation via `validateBody`, plus a rate limit on every one of them.                                                                              |
+| `GET /api/auth/check-username`                                                                      | Username availability, needed on the sign-up form before an account exists.                                                                                                                     |
+| `POST /api/billing/webhooks/apple`                                                                  | Apple calls it. The body is a signed JWS verified against Apple's certificate chain ([ADR-0012](../adr/0012-pinned-apple-root-ca.md)) — the signature _is_ the authentication.                  |
+| `POST /api/webpay/yookassa/webhook`                                                                 | Same shape, different provider, and the body is not trusted at all: the payment id is re-fetched from the YooKassa API and the grant is issued from that response, never from the webhook body. |
+| `POST /api/webpay/create`, `GET /api/webpay/status`                                                 | The `/plus` web purchase flow, which authenticates with email and password in the request body because the browser has no app token.                                                            |
+| `POST /api/telemetry/crash`                                                                         | A client that just crashed may not have a usable token. Rate-limited to 20/hour.                                                                                                                |
+| `GET /api/rtc/status`                                                                               | Reports whether the SFU is configured at all. No room or user data.                                                                                                                             |
+| `GET /api/media/search`, `trending`, `categories`, `youtube-player`, `youtube-embed`                | Public catalog and player-shell endpoints, all rate-limited.                                                                                                                                    |
+| `GET /api/users/:id/avatar`, `GET /api/uploads/*`                                                   | Image bytes, served to unauthenticated contexts — Open Graph unfurls and the landing pages.                                                                                                     |
+| `GET /assets/*`, everything in `web.ts`                                                             | Public web pages, share links, OG images, the Apple association file.                                                                                                                           |
+| `POST /api/dev/wipe-db`                                                                             | Not registered in production at all — see below.                                                                                                                                                |
 
 Two of these deserve reading in full rather than trusting the summary.
 
 **`POST /api/dev/wipe-db` does not exist in production.** It used to be registered
 unconditionally and defended only by an environment variable, which meant one typo in
 production config was total data loss. It is now inside `if (!config.isProduction)`, so
-the protection does not depend on the *value* of a flag — the route is absent. It
+the protection does not depend on the _value_ of a flag — the route is absent. It
 additionally requires `DEV_WIPE_SECRET` to match, and refuses when that secret is
 unset.
 
@@ -122,13 +122,13 @@ is rate-limited to 30/minute.
 Every error response is JSON. The shape is `{ error: string }`, with a machine-readable
 `code` on the cases a client must branch on:
 
-| Status | `code` | Meaning |
-| -----: | ------ | ------- |
-| 401 | `TOKEN_EXPIRED` | Access token expired. Refresh and retry. |
-| 401 | `ACCOUNT_GONE` | The account was deleted. Sign out. |
-| 401 | `step_up_required` | Admin route, session needs 2FA or a fresh sign-in. |
-| 403 | `ACCOUNT_BANNED` | Includes `until` as an ISO-8601 timestamp. |
-| 503 | `AUTH_BACKEND_DOWN` | The database was unreachable during authorization. |
+| Status | `code`              | Meaning                                            |
+| -----: | ------------------- | -------------------------------------------------- |
+|    401 | `TOKEN_EXPIRED`     | Access token expired. Refresh and retry.           |
+|    401 | `ACCOUNT_GONE`      | The account was deleted. Sign out.                 |
+|    401 | `step_up_required`  | Admin route, session needs 2FA or a fresh sign-in. |
+|    403 | `ACCOUNT_BANNED`    | Includes `until` as an ISO-8601 timestamp.         |
+|    503 | `AUTH_BACKEND_DOWN` | The database was unreachable during authorization. |
 
 `AUTH_BACKEND_DOWN` is the interesting one. When authorization cannot reach Postgres
 the middleware answers 503, not 401 — deliberately. Answering 401 would make every
@@ -155,14 +155,14 @@ YouTube endpoints because each one can trigger a `yt-dlp` extraction.
 
 Defined directly in `app.ts`, outside any route module and outside `/api`.
 
-| Route | Auth | Notes |
-| ----- | ---- | ----- |
-| `GET /health/live` | none | Liveness. Returns `{status:'alive'}` unconditionally — it answers "is the process up", nothing more. |
-| `GET /health/ready` | none | Readiness. Checks Postgres and Redis and **returns 503 when either is down**, so Railway stops routing traffic to the instance. |
-| `GET /health` | none | Kept for older monitors. Same checks as `/health/ready` plus uptime, version, memory and resolved feature flags. |
-| `GET /metrics` | token in production | Prometheus text format. |
-| `GET /ws`, `GET /ws/room/:id` | ticket | Websocket upgrade. The handlers are intentionally empty — see below. |
-| `GET /.well-known/assetlinks.json` | none | Android App Links. The certificate fingerprint comes from `ANDROID_CERT_SHA256`. |
+| Route                              | Auth                | Notes                                                                                                                           |
+| ---------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/live`                 | none                | Liveness. Returns `{status:'alive'}` unconditionally — it answers "is the process up", nothing more.                            |
+| `GET /health/ready`                | none                | Readiness. Checks Postgres and Redis and **returns 503 when either is down**, so Railway stops routing traffic to the instance. |
+| `GET /health`                      | none                | Kept for older monitors. Same checks as `/health/ready` plus uptime, version, memory and resolved feature flags.                |
+| `GET /metrics`                     | token in production | Prometheus text format.                                                                                                         |
+| `GET /ws`, `GET /ws/room/:id`      | ticket              | Websocket upgrade. The handlers are intentionally empty — see below.                                                            |
+| `GET /.well-known/assetlinks.json` | none                | Android App Links. The certificate fingerprint comes from `ANDROID_CERT_SHA256`.                                                |
 
 `GET /metrics` was public once, which exposed internal counters — users online, room
 counts, error rates — to anyone who asked. In production it now requires

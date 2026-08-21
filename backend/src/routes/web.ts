@@ -12,34 +12,34 @@
 //   • CSP разрешает скрипт только по одноразовому nonce (unsafe-inline нет);
 //   • весь пользовательский текст в разметке по-прежнему через escHTML.
 
-import crypto from 'node:crypto'
-import QRCode from 'qrcode'
-import type { FastifyInstance, FastifyReply } from 'fastify'
-import { prisma } from '../config/db.js'
-import { WEB_PLANS, webPayConfigured } from './webpay.js'
+import crypto from 'node:crypto';
+import QRCode from 'qrcode';
+import type { FastifyInstance, FastifyReply } from 'fastify';
+import { prisma } from '../config/db.js';
+import { WEB_PLANS, webPayConfigured } from './webpay.js';
 import {
   mediaTitleFromMediaItem,
   webWatchPageHTML,
   webWatchTargetFromMediaItem,
   webWatchUnsupportedHTML,
-} from '../web/watchPage.js'
-import { PRIVACY, SUPPORT_EMAIL, TERMS, type LegalDocument } from '../web/legal.js'
+} from '../web/watchPage.js';
+import { PRIVACY, SUPPORT_EMAIL, TERMS, type LegalDocument } from '../web/legal.js';
 
-const ROOM_CODE_RE = /^[A-Z0-9]{4,12}$/
-const USERNAME_RE = /^[a-zA-Z0-9_.]{3,32}$/
+const ROOM_CODE_RE = /^[A-Z0-9]{4,12}$/;
+const USERNAME_RE = /^[a-zA-Z0-9_.]{3,32}$/;
 
-const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? 'https://plink.app'
-const APP_STORE_URL = process.env.APP_STORE_URL ?? 'https://apps.apple.com/app/id0000000000'
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? 'https://plink.app';
+const APP_STORE_URL = process.env.APP_STORE_URL ?? 'https://apps.apple.com/app/id0000000000';
 // До релиза в App Store кнопка установки ведёт в TestFlight (если задан).
-const TESTFLIGHT_URL = process.env.TESTFLIGHT_URL ?? ''
-const ANDROID_STORE_URL = process.env.ANDROID_STORE_URL ?? ''
-const INSTALL_URL = TESTFLIGHT_URL || APP_STORE_URL
+const TESTFLIGHT_URL = process.env.TESTFLIGHT_URL ?? '';
+const ANDROID_STORE_URL = process.env.ANDROID_STORE_URL ?? '';
+const INSTALL_URL = TESTFLIGHT_URL || APP_STORE_URL;
 // Дефолты были заглушками (TEAMID0000 / com.plink.app),
 // из-за чего AASA отдавал несуществующий appID и universal links не работали.
 // Реальные значения — DEVELOPMENT_TEAM из project.yml и bundle id приложения
 // (тот же дефолт, что в billing.ts).
-const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID ?? '2QAMUC4Z4P'
-const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID ?? 'com.syncwatch.plink'
+const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID ?? '2QAMUC4Z4P';
+const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID ?? 'com.syncwatch.plink';
 
 // Экранирование всего, что пришло извне. Без исключений.
 function escHTML(input: unknown): string {
@@ -48,34 +48,40 @@ function escHTML(input: unknown): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/'/g, '&#39;');
 }
 
 function escXML(input: unknown): string {
-  return escHTML(input)
+  return escHTML(input);
 }
 
 // Инлайн SVG-иконки (по мотивам Lucide, ISC) — без эмодзи и внешних хостов.
 const ICON_PATHS: Record<string, string> = {
   play: '<polygon points="7 4 20 12 7 20 7 4"/>',
-  timer: '<line x1="10" y1="2" x2="14" y2="2"/><line x1="12" y1="14" x2="15" y2="11"/><circle cx="12" cy="14" r="8"/>',
+  timer:
+    '<line x1="10" y1="2" x2="14" y2="2"/><line x1="12" y1="14" x2="15" y2="11"/><circle cx="12" cy="14" r="8"/>',
   chat: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
-  spark: '<path d="M12 2l1.9 5.7a2 2 0 0 0 1.4 1.4L21 11l-5.7 1.9a2 2 0 0 0-1.4 1.4L12 20l-1.9-5.7a2 2 0 0 0-1.4-1.4L3 11l5.7-1.9a2 2 0 0 0 1.4-1.4Z"/>',
-  layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
-  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  spark:
+    '<path d="M12 2l1.9 5.7a2 2 0 0 0 1.4 1.4L21 11l-5.7 1.9a2 2 0 0 0-1.4 1.4L12 20l-1.9-5.7a2 2 0 0 0-1.4-1.4L3 11l5.7-1.9a2 2 0 0 0 1.4-1.4Z"/>',
+  layers:
+    '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  users:
+    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
-}
+  download:
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+};
 
 /// Пословный blur-in для дисплей-заголовков (анимация — CSS .bw).
 function blurWords(text: string, startDelay = 0): string {
-  return text.split(' ').map((w, i) =>
-    `<span class="bw" style="--d:${(startDelay + i) * 0.1}s">${escHTML(w)}</span>`
-  ).join('')
+  return text
+    .split(' ')
+    .map((w, i) => `<span class="bw" style="--d:${(startDelay + i) * 0.1}s">${escHTML(w)}</span>`)
+    .join('');
 }
 
 function icon(name: keyof typeof ICON_PATHS, size = 18): string {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name]}</svg>`
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
 }
 
 function securityHeaders(
@@ -85,29 +91,29 @@ function securityHeaders(
   /** /w/:code — fetch API + WS + player iframe (YouTube same-origin, VK/Rutube official) */
   watchMode = false,
 ) {
-  const scriptSrc = scriptNonce ? `script-src 'nonce-${scriptNonce}'; ` : ''
+  const scriptSrc = scriptNonce ? `script-src 'nonce-${scriptNonce}'; ` : '';
   // connect-src: /plus (webpay) и /w (guest join + realtime ticket + WS).
-  const connectSrc = allowConnect || watchMode
-    ? "connect-src 'self' wss: ws:; "
-    : ''
+  const connectSrc = allowConnect || watchMode ? "connect-src 'self' wss: ws:; " : '';
   const frameSrc = watchMode
     ? "frame-src 'self' https://vk.com https://www.vk.com https://rutube.ru https://www.rutube.ru; "
-    : ''
+    : '';
   const imgSrc = watchMode
     ? "img-src 'self' data: https://i.ytimg.com; "
-    : "img-src 'self' data:; "
+    : "img-src 'self' data:; ";
   // font-src 'self' — шрифты самохостятся из /assets/fonts (routes/assets.ts);
   // внешние источники по-прежнему запрещены, CDN шрифтов не подключается.
-  reply.header('Content-Security-Policy',
-    `default-src 'none'; ${imgSrc}style-src 'unsafe-inline'; font-src 'self'; ${scriptSrc}${connectSrc}${frameSrc}base-uri 'none'; form-action 'none'`)
-  reply.header('X-Content-Type-Options', 'nosniff')
-  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
-  reply.header('X-Frame-Options', 'DENY')
-  reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+  reply.header(
+    'Content-Security-Policy',
+    `default-src 'none'; ${imgSrc}style-src 'unsafe-inline'; font-src 'self'; ${scriptSrc}${connectSrc}${frameSrc}base-uri 'none'; form-action 'none'`,
+  );
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 }
 
 function newNonce(): string {
-  return crypto.randomBytes(16).toString('base64')
+  return crypto.randomBytes(16).toString('base64');
 }
 
 /// @font-face для самохостных шрифтов (routes/assets.ts отдаёт их из
@@ -129,17 +135,25 @@ function fontFaces(): string {
       'U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,' +
       'U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF',
     cyrillic: 'U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116',
-  } as const
+  } as const;
 
-  const face = (family: string, file: string, style: string, weights: string, subset: keyof typeof RANGES) =>
+  const face = (
+    family: string,
+    file: string,
+    style: string,
+    weights: string,
+    subset: keyof typeof RANGES,
+  ) =>
     `@font-face{font-family:'${family}';font-style:${style};font-weight:${weights};font-display:swap;` +
-    `src:url(/assets/fonts/${file}-${subset}.woff2) format('woff2');unicode-range:${RANGES[subset]}}`
+    `src:url(/assets/fonts/${file}-${subset}.woff2) format('woff2');unicode-range:${RANGES[subset]}}`;
 
   return (Object.keys(RANGES) as (keyof typeof RANGES)[])
-    .map((s) =>
-      face('Playfair Display', 'playfair-italic', 'italic', '400 800', s) +
-      face('Inter', 'inter', 'normal', '300 700', s))
-    .join('\n  ')
+    .map(
+      (s) =>
+        face('Playfair Display', 'playfair-italic', 'italic', '400 800', s) +
+        face('Inter', 'inter', 'normal', '300 700', s),
+    )
+    .join('\n  ');
 }
 
 // ── Переиспользуемые блоки установщика ─────────────────────────────────
@@ -154,7 +168,7 @@ function appIconSVG(size = 56): string {
   <rect width="64" height="64" rx="15" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1"/>
   <polygon points="26 20 47 32 26 44" fill="#f2f4f3"/>
   <path d="M17 24v16" stroke="#f2f4f3" stroke-width="4" stroke-linecap="round" opacity=".9"/>
-</svg>`
+</svg>`;
 }
 
 /// Блок «это приложение Plink»: иконка + имя + слоган.
@@ -162,7 +176,7 @@ function appIdentity(): string {
   return `<div class="app-id" data-reveal>
     ${appIconSVG(56)}
     <div><b>Plink</b><span>смотрим вместе · кадр в кадр</span></div>
-  </div>`
+  </div>`;
 }
 
 /// Общий «хром» страницы: живой фон (aurora-орбы, луч, зерно, виньетка)
@@ -179,13 +193,14 @@ function chrome(): string {
       <a href="/plus">Plink+</a>
       <a class="nav-cta" href="${escHTML(INSTALL_URL)}">Скачать</a>
     </div>
-  </nav>`
+  </nav>`;
 }
 
 /// Бегущая строка-кинотабло.
 function marquee(): string {
-  const line = 'Now Showing&ensp;·&ensp;Кадр в кадр&ensp;·&ensp;Смотрим вместе&ensp;·&ensp;3 · 2 · 1&ensp;·&ensp;'
-  return `<div class="marquee" aria-hidden="true"><div>${line.repeat(4)}</div></div>`
+  const line =
+    'Now Showing&ensp;·&ensp;Кадр в кадр&ensp;·&ensp;Смотрим вместе&ensp;·&ensp;3 · 2 · 1&ensp;·&ensp;';
+  return `<div class="marquee" aria-hidden="true"><div>${line.repeat(4)}</div></div>`;
 }
 
 /// Базовый скрипт всех страниц: scroll-reveal + 3D-tilt мокапа.
@@ -270,25 +285,30 @@ function baseScript(nonce: string): string {
       }, { passive: true });
     }
   })();
-  </script>`
+  </script>`;
 }
 
 /// Бейджи магазинов — двухстрочные, как настоящие кнопки установки.
 function storeBadges(): string {
-  const apple = `<a class="store-badge lg" href="${escHTML(INSTALL_URL)}">${icon('download', 22)}<span><small>${TESTFLIGHT_URL ? 'Тест в' : 'Загрузите в'}</small><b>${TESTFLIGHT_URL ? 'TestFlight' : 'App Store'}</b></span></a>`
+  const apple = `<a class="store-badge lg" href="${escHTML(INSTALL_URL)}">${icon('download', 22)}<span><small>${TESTFLIGHT_URL ? 'Тест в' : 'Загрузите в'}</small><b>${TESTFLIGHT_URL ? 'TestFlight' : 'App Store'}</b></span></a>`;
   const android = ANDROID_STORE_URL
     ? `<a class="store-badge lg" href="${escHTML(ANDROID_STORE_URL)}">${icon('download', 22)}<span><small>Доступно в</small><b>Google Play</b></span></a>`
-    : `<span class="store-badge lg disabled"><span><small>Скоро в</small><b>Google Play</b></span></span>`
+    : `<span class="store-badge lg disabled"><span><small>Скоро в</small><b>Google Play</b></span></span>`;
   // data-reveal, иначе бейджи проявляются мгновенно между анимируемыми блоками.
-  return `<div class="badges" data-reveal data-d="3">${apple}${android}</div>`
+  return `<div class="badges" data-reveal data-d="3">${apple}${android}</div>`;
 }
 
 /// Мокап телефона с комнатой — как у Rave, но наш контент.
 /// Всё содержимое проходит через escHTML.
-function phoneMockup(roomName: string, mediaTitle: string | null, code: string, live = true): string {
+function phoneMockup(
+  roomName: string,
+  mediaTitle: string | null,
+  code: string,
+  live = true,
+): string {
   const badge = live
     ? '<span class="ps-live"><i></i>синхрон</span>'
-    : '<span class="ps-live">завершён</span>'
+    : '<span class="ps-live">завершён</span>';
   return `<div class="phone" aria-hidden="true">
     <div class="phone-screen">
       <div class="ps-top">${badge}<span class="ps-name">${escHTML(roomName)}</span></div>
@@ -303,29 +323,31 @@ function phoneMockup(roomName: string, mediaTitle: string | null, code: string, 
       </div>
       <div class="ps-code">КОД&nbsp;·&nbsp;${escHTML(code)}</div>
     </div>
-  </div>`
+  </div>`;
 }
 
 // QR ведёт на канонический URL страницы: телефон откроет её же,
 // а там — smart banner, диплинк и кнопки установки.
-const qrCache = new Map<string, string>()
+const qrCache = new Map<string, string>();
 async function qrSVG(url: string): Promise<string> {
-  const hit = qrCache.get(url)
-  if (hit) return hit
+  const hit = qrCache.get(url);
+  if (hit) return hit;
   // Классический QR: тёмные модули на светлой подложке. Инвертированные
   // (светлое на прозрачном) читают не все камеры — старые iOS и часть Android.
   const svg = await QRCode.toString(url, {
-    type: 'svg', margin: 0, errorCorrectionLevel: 'M',
+    type: 'svg',
+    margin: 0,
+    errorCorrectionLevel: 'M',
     color: { dark: '#04201bff', light: '#eafaf7ff' },
-  })
-  if (qrCache.size > 200) qrCache.clear()
-  qrCache.set(url, svg)
-  return svg
+  });
+  if (qrCache.size > 200) qrCache.clear();
+  qrCache.set(url, svg);
+  return svg;
 }
 
 function appStoreNumericID(): string {
-  const match = APP_STORE_URL.match(/id(\d+)/)
-  return match ? match[1] : '0000000000'
+  const match = APP_STORE_URL.match(/id(\d+)/);
+  return match ? match[1] : '0000000000';
 }
 
 // Афиша для превью в мессенджерах. Генерится на лету, без внешних сервисов.
@@ -342,35 +364,35 @@ function ogSVG(title: string, subtitle: string): string {
   <text x="80" y="270" font-family="-apple-system,Helvetica,Arial" font-size="64" font-weight="700" fill="#eafaf7">${escXML(title)}</text>
   <text x="80" y="340" font-family="-apple-system,Helvetica,Arial" font-size="32" fill="#8fb3ae">${escXML(subtitle)}</text>
   <text x="80" y="550" font-family="-apple-system,Helvetica,Arial" font-size="28" font-weight="600" fill="#eafaf7">Plink — смотрите вместе</text>
-</svg>`
+</svg>`;
 }
 
 async function sendOG(reply: FastifyReply, title: string, subtitle: string) {
-  const svg = ogSVG(title, subtitle)
-  reply.header('Cache-Control', 'public, max-age=3600')
+  const svg = ogSVG(title, subtitle);
+  reply.header('Cache-Control', 'public, max-age=3600');
   try {
     // Sharp теперь в dependencies — OG отдаётся PNG
     // (мессенджеры не показывают SVG-превью). catch — на случай проблем
     // с нативным модулем в конкретной среде: тогда честный SVG-фолбэк.
-    const { default: sharp } = await import('sharp')
-    const png = await sharp(Buffer.from(svg)).png().toBuffer()
-    return reply.type('image/png').send(png)
+    const { default: sharp } = await import('sharp');
+    const png = await sharp(Buffer.from(svg)).png().toBuffer();
+    return reply.type('image/png').send(png);
   } catch {
-    return reply.type('image/svg+xml').send(svg)
+    return reply.type('image/svg+xml').send(svg);
   }
 }
 
 // Общая «шапка» страницы: мета, OG, smart app banner, базовые стили.
 function pageHead(opts: {
-  title: string
-  description: string
-  ogImage: string
-  canonical: string
-  deepLink?: string
+  title: string;
+  description: string;
+  ogImage: string;
+  canonical: string;
+  deepLink?: string;
 }): string {
   const banner = opts.deepLink
     ? `app-id=${appStoreNumericID()}, app-argument=${escHTML(opts.deepLink)}`
-    : `app-id=${appStoreNumericID()}`
+    : `app-id=${appStoreNumericID()}`;
   return `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${escHTML(opts.title)}</title>
@@ -803,17 +825,17 @@ function pageHead(opts: {
   .checkout .err.show { display:block }
   .checkout .fine { margin-top:14px; color:var(--dim); font-size:12px; line-height:1.6 }
   @media (min-width:760px){ .plans{grid-template-columns:repeat(3,1fr)} .card.wide-p{max-width:880px} }
-</style>`
+</style>`;
 }
 
 // Простой лендинг (404-кейсы, профиль).
 function landing(opts: {
-  title: string
-  heading: string
-  subheading: string
-  ogImage: string
-  canonical: string
-  nonce: string
+  title: string;
+  heading: string;
+  subheading: string;
+  ogImage: string;
+  canonical: string;
+  nonce: string;
 }): string {
   return `<!doctype html>
 <html lang="ru">
@@ -835,7 +857,7 @@ ${pageHead({ title: opts.title, description: opts.subheading, ogImage: opts.ogIm
   </div>
   ${baseScript(opts.nonce)}
 </body>
-</html>`
+</html>`;
 }
 
 // Лендинг-установщик комнаты: приложение на первом плане (иконка, бейджи
@@ -843,40 +865,43 @@ ${pageHead({ title: opts.title, description: opts.subheading, ogImage: opts.ogIm
 // Единственный источник данных для скрипта — код комнаты, прошедший
 // ROOM_CODE_RE, вставленный через JSON.stringify.
 async function installLanding(opts: {
-  code: string
-  roomName: string
-  hostName: string | null
-  mediaTitle: string | null
-  participants: number
-  isActive: boolean
-  nonce: string
+  code: string;
+  roomName: string;
+  hostName: string | null;
+  mediaTitle: string | null;
+  participants: number;
+  isActive: boolean;
+  nonce: string;
   /** When set, show install-free browser watch CTA (YouTube rooms). */
-  watchPath?: string | null
+  watchPath?: string | null;
 }): Promise<string> {
-  const deepLink = `plink://r/${opts.code}`
-  const canonical = `${PUBLIC_ORIGIN}/r/${opts.code}`
-  const title = `${opts.roomName} — Plink`
+  const deepLink = `plink://r/${opts.code}`;
+  const canonical = `${PUBLIC_ORIGIN}/r/${opts.code}`;
+  const title = `${opts.roomName} — Plink`;
   const description = !opts.isActive
     ? 'Сеанс завершён. Создай свою комнату — кадр в кадр.'
     : opts.mediaTitle
       ? `Сейчас смотрят: ${opts.mediaTitle}. Присоединяйся — кадр в кадр.`
-      : 'Присоединяйся к просмотру — кадр в кадр.'
+      : 'Присоединяйся к просмотру — кадр в кадр.';
   // Для завершённой комнаты нельзя рисовать «СЕАНС ИДЁТ»
   // и счётчик зала — комната уже неактивна.
   const inviteLine = !opts.isActive
     ? 'Сеанс завершён'
     : opts.hostName
       ? `${opts.hostName} зовёт на сеанс`
-      : 'Тебя зовут на сеанс'
-  const codeBoxes = opts.code.split('').map((c) => `<span>${escHTML(c)}</span>`).join('')
+      : 'Тебя зовут на сеанс';
+  const codeBoxes = opts.code
+    .split('')
+    .map((c) => `<span>${escHTML(c)}</span>`)
+    .join('');
   const metaWatching = opts.mediaTitle
     ? `<span class="lg">${icon('play', 14)}<b>${escHTML(opts.mediaTitle)}</b></span>`
-    : ''
+    : '';
   const metaPeople = !opts.isActive
     ? ''
     : opts.participants > 1
       ? `<span class="lg">${icon('users', 14)}в зале: ${opts.participants}</span>`
-      : `<span class="lg">${icon('users', 14)}место свободно</span>`
+      : `<span class="lg">${icon('users', 14)}место свободно</span>`;
   // Ревью аудита: у завершённой комнаты код бесполезен — вход по коду в API
   // требует isActive:true (rooms.ts), поэтому билет, копирование кода и шаг
   // «введи код» не показываем совсем, чтобы страница не противоречила себе.
@@ -895,17 +920,17 @@ async function installLanding(opts: {
             <div class="ticket-note">PLINK&nbsp;CINEMA<br>СЕАНС&nbsp;ИДЁТ</div>
             <button class="copy lg" id="copy" type="button">${icon('copy', 15)}<span id="copy-text">Скопировать код</span></button>
           </div>
-        </div>`
+        </div>`;
   const steps = !opts.isActive
     ? `<div><b>01</b><span>Установи Plink и войди</span></div>
       <div><b>02</b><span>Нажми «Создать комнату»</span></div>
       <div><b>03</b><span>Отправь ссылку друзьям — и вы смотрите вместе</span></div>`
     : `<div><b>01</b><span>Установи Plink и войди</span></div>
       <div><b>02</b><span>Нажми «Войти по коду»</span></div>
-      <div><b>03</b><span>Введи <span class="mono">${escHTML(opts.code)}</span> — и вы смотрите вместе</span></div>`
-  const ctaLink = opts.isActive ? deepLink : 'plink://'
-  const ctaLabel = opts.isActive ? 'Открыть в Plink' : 'Создать свою комнату'
-  const qr = await qrSVG(canonical)
+      <div><b>03</b><span>Введи <span class="mono">${escHTML(opts.code)}</span> — и вы смотрите вместе</span></div>`;
+  const ctaLink = opts.isActive ? deepLink : 'plink://';
+  const ctaLabel = opts.isActive ? 'Открыть в Plink' : 'Создать свою комнату';
+  const qr = await qrSVG(canonical);
 
   return `<!doctype html>
 <html lang="ru">
@@ -925,9 +950,11 @@ ${pageHead({ title, description, ogImage: `${PUBLIC_ORIGIN}/og/r/${opts.code}.pn
         ${ticket}
 
         <a class="btn lg-s" data-reveal data-d="3" id="open" href="${escHTML(ctaLink)}">${icon('play')}${ctaLabel}</a>
-        ${opts.isActive && opts.watchPath
-          ? `<a class="btn lg-s" data-reveal data-d="3" href="${escHTML(opts.watchPath)}" style="margin-top:10px;background:transparent;border:1px solid rgba(255,255,255,.22)">${icon('play')}Смотреть в браузере</a>`
-          : ''}
+        ${
+          opts.isActive && opts.watchPath
+            ? `<a class="btn lg-s" data-reveal data-d="3" href="${escHTML(opts.watchPath)}" style="margin-top:10px;background:transparent;border:1px solid rgba(255,255,255,.22)">${icon('play')}Смотреть в браузере</a>`
+            : ''
+        }
         <!-- Пусто намеренно: текст пишет скрипт уже после снятия display:none,
              иначе мутации live-региона не происходит и скринридер молчит. -->
         <div id="install-hint" role="status" aria-live="polite"></div>
@@ -961,9 +988,11 @@ ${pageHead({ title, description, ogImage: `${PUBLIC_ORIGIN}/og/r/${opts.code}.pn
   (function () {
     var code = ${JSON.stringify(opts.code)};
     var active = ${JSON.stringify(opts.isActive)};
-    var hintText = ${JSON.stringify(opts.isActive
-      ? 'Plink ещё не установлен — скачай и вернись по этой же ссылке.'
-      : 'Plink ещё не установлен — скачай приложение и создай свою комнату.')};
+    var hintText = ${JSON.stringify(
+      opts.isActive
+        ? 'Plink ещё не установлен — скачай и вернись по этой же ссылке.'
+        : 'Plink ещё не установлен — скачай приложение и создай свою комнату.',
+    )};
     var deep = 'plink://r/' + code;
     var copyBtn = document.getElementById('copy');
     var copyText = document.getElementById('copy-text');
@@ -997,23 +1026,26 @@ ${pageHead({ title, description, ogImage: `${PUBLIC_ORIGIN}/og/r/${opts.code}.pn
   })();
   </script>
 </body>
-</html>`
+</html>`;
 }
 
 // ── /plus: подписка Plink+ на сайте ────────────────────────────────────
 // Оплата через ЮKassa; грант пишет те же поля, что покупка в приложении,
 // поэтому подписка появляется в приложении сама (см. webpay.ts).
 function plusLanding(nonce: string): string {
-  const enabled = webPayConfigured()
-  const months: Record<string, number> = { '1m': 1, '3m': 3, '12m': 12 }
-  const fmt = (p: string) => String(Math.round(parseFloat(p)))
-  const perMonth = (id: string, p: string) => Math.round(parseFloat(p) / months[id])
+  const enabled = webPayConfigured();
+  const months: Record<string, number> = { '1m': 1, '3m': 3, '12m': 12 };
+  const fmt = (p: string) => String(Math.round(parseFloat(p)));
+  const perMonth = (id: string, p: string) => Math.round(parseFloat(p) / months[id]);
 
-  const cards = (Object.entries(WEB_PLANS) as Array<[string, { title: string; days: number; price: string }]>)
+  const cards = (
+    Object.entries(WEB_PLANS) as Array<[string, { title: string; days: number; price: string }]>
+  )
     .map(([id, p]) => {
-      const hot = id === '12m'
-      const per = months[id] > 1 ? `≈ ${perMonth(id, p.price)} ₽ в месяц` : 'Гибко: месяц за месяцем'
-      const label = id === '1m' ? 'Месяц' : id === '3m' ? '3 месяца' : 'Год'
+      const hot = id === '12m';
+      const per =
+        months[id] > 1 ? `≈ ${perMonth(id, p.price)} ₽ в месяц` : 'Гибко: месяц за месяцем';
+      const label = id === '1m' ? 'Месяц' : id === '3m' ? '3 месяца' : 'Год';
       return `<div class="plan lg${hot ? ' hot' : ''}">
         ${hot ? '<div class="flag">САМЫЙ ВЫГОДНЫЙ</div>' : ''}
         <h3>${label}</h3>
@@ -1021,18 +1053,20 @@ function plusLanding(nonce: string): string {
         <div class="price">${fmt(p.price)} <small>₽</small></div>
         <div class="note">${per}</div>
         <button type="button" data-plan="${id}" ${enabled ? '' : 'disabled'}>Оформить</button>
-      </div>`
-    }).join('')
+      </div>`;
+    })
+    .join('');
 
   return `<!doctype html>
 <html lang="ru">
 <head>
 ${pageHead({
-    title: 'Plink+ — подписка',
-    description: 'Живые темы, кино-рамки сообщений, ИИ без лимитов и комнаты до 50 человек. Оформите на сайте — подписка появится в приложении автоматически.',
-    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-    canonical: `${PUBLIC_ORIGIN}/plus`,
-  })}
+  title: 'Plink+ — подписка',
+  description:
+    'Живые темы, кино-рамки сообщений, ИИ без лимитов и комнаты до 50 человек. Оформите на сайте — подписка появится в приложении автоматически.',
+  ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+  canonical: `${PUBLIC_ORIGIN}/plus`,
+})}
 </head>
 <body>
   ${chrome()}
@@ -1042,9 +1076,13 @@ ${pageHead({
     <p class="sub" data-reveal data-d="2">Подписка привязана к аккаунту Plink: оформите здесь —
     и при следующем запуске приложение включит Plink+ само.</p>
 
-    ${enabled ? '' : `<div id="install-hint" class="show" style="margin-bottom:6px">
+    ${
+      enabled
+        ? ''
+        : `<div id="install-hint" class="show" style="margin-bottom:6px">
       Оплата картой на сайте подключается. Пока Plink+ можно оформить в приложении.
-    </div>`}
+    </div>`
+    }
 
     <div class="plans" data-reveal data-d="2">${cards}</div>
 
@@ -1132,7 +1170,7 @@ ${pageHead({
   })();
   </script>
 </body>
-</html>`
+</html>`;
 }
 
 function plusSuccessLanding(nonce: string): string {
@@ -1140,11 +1178,11 @@ function plusSuccessLanding(nonce: string): string {
 <html lang="ru">
 <head>
 ${pageHead({
-    title: 'Plink+ — оплата принята',
-    description: 'Подписка появится в приложении автоматически.',
-    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-    canonical: `${PUBLIC_ORIGIN}/plus/success`,
-  })}
+  title: 'Plink+ — оплата принята',
+  description: 'Подписка появится в приложении автоматически.',
+  ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+  canonical: `${PUBLIC_ORIGIN}/plus/success`,
+})}
 </head>
 <body>
   ${chrome()}
@@ -1162,7 +1200,7 @@ ${pageHead({
   </div>
   ${baseScript(nonce)}
 </body>
-</html>`
+</html>`;
 }
 
 // Общие стили юридических и справочных страниц: длинный текст, выключка влево.
@@ -1182,7 +1220,7 @@ function proseStyles(): string {
   .card.prose a.mail:hover { border-bottom-color:var(--teal) }
   .card.prose .foot-nav { justify-content:flex-start }
   .card.prose footer { text-align:left }
-</style>`
+</style>`;
 }
 
 /// Юридическая страница. Текст приходит из ../web/legal.ts — это канонический
@@ -1194,27 +1232,28 @@ function legalLanding(nonce: string, doc: LegalDocument): string {
     .map((s, i) => {
       const mail = s.email
         ? ` <a class="mail" href="mailto:${escHTML(s.email)}">${escHTML(s.email)}</a>`
-        : ''
+        : '';
       return `    <section data-reveal data-d="2">
       <h2>${i + 1}. ${escHTML(s.heading)}</h2>
       <p>${escHTML(s.body)}${mail}</p>
-    </section>`
+    </section>`;
     })
-    .join('\n')
+    .join('\n');
 
-  const other = doc.slug === 'terms'
-    ? { href: '/privacy', label: 'Конфиденциальность' }
-    : { href: '/terms', label: 'Условия использования' }
+  const other =
+    doc.slug === 'terms'
+      ? { href: '/privacy', label: 'Конфиденциальность' }
+      : { href: '/terms', label: 'Условия использования' };
 
   return `<!doctype html>
 <html lang="ru">
 <head>
 ${pageHead({
-    title: doc.title,
-    description: doc.description,
-    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-    canonical: `${PUBLIC_ORIGIN}/${doc.slug}`,
-  })}
+  title: doc.title,
+  description: doc.description,
+  ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+  canonical: `${PUBLIC_ORIGIN}/${doc.slug}`,
+})}
 ${proseStyles()}
 </head>
 <body>
@@ -1232,7 +1271,7 @@ ${sections}
   </div>
   ${baseScript(nonce)}
 </body>
-</html>`
+</html>`;
 }
 
 /// Страница поддержки: адрес для App Store Connect (Support URL) и ответы на
@@ -1269,7 +1308,7 @@ function supportLanding(nonce: string): string {
         '14 дней, чтобы её отменить, войдя снова. После этого данные аккаунта удаляются или ' +
         'анонимизируются.',
     },
-  ]
+  ];
 
   const sections = items
     .map(
@@ -1278,17 +1317,17 @@ function supportLanding(nonce: string): string {
       <p>${escHTML(it.a)}</p>
     </section>`,
     )
-    .join('\n')
+    .join('\n');
 
   return `<!doctype html>
 <html lang="ru">
 <head>
 ${pageHead({
-    title: 'Поддержка — Plink',
-    description: 'Помощь по Plink: комнаты, синхронизация, подписка Plink+, удаление аккаунта.',
-    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-    canonical: `${PUBLIC_ORIGIN}/support`,
-  })}
+  title: 'Поддержка — Plink',
+  description: 'Помощь по Plink: комнаты, синхронизация, подписка Plink+, удаление аккаунта.',
+  ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+  canonical: `${PUBLIC_ORIGIN}/support`,
+})}
 ${proseStyles()}
 </head>
 <body>
@@ -1311,7 +1350,7 @@ ${sections}
   </div>
   ${baseScript(nonce)}
 </body>
-</html>`
+</html>`;
 }
 
 // Корневая страница «Что такое Plink» — сюда ведут все лендинги.
@@ -1320,11 +1359,12 @@ function homeLanding(nonce: string): string {
 <html lang="ru">
 <head>
 ${pageHead({
-    title: 'Plink — смотрим вместе, кадр в кадр',
-    description: 'Совместный просмотр YouTube, VK Видео и Rutube с точной синхронизацией, чатом, реакциями и ИИ-компаньоном.',
-    ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-    canonical: PUBLIC_ORIGIN,
-  })}
+  title: 'Plink — смотрим вместе, кадр в кадр',
+  description:
+    'Совместный просмотр YouTube, VK Видео и Rutube с точной синхронизацией, чатом, реакциями и ИИ-компаньоном.',
+  ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+  canonical: PUBLIC_ORIGIN,
+})}
 </head>
 <body>
   ${chrome()}
@@ -1376,14 +1416,14 @@ ${pageHead({
   </div>
   ${baseScript(nonce)}
 </body>
-</html>`
+</html>`;
 }
 
 export async function webRoutes(fastify: FastifyInstance) {
   // —— Universal Links ——
   fastify.get('/.well-known/apple-app-site-association', async (_req, reply) => {
-    reply.header('Content-Type', 'application/json')
-    reply.header('Cache-Control', 'public, max-age=3600')
+    reply.header('Content-Type', 'application/json');
+    reply.header('Cache-Control', 'public, max-age=3600');
     return {
       applinks: {
         details: [
@@ -1398,39 +1438,44 @@ export async function webRoutes(fastify: FastifyInstance) {
         ],
       },
       webcredentials: { apps: [`${APPLE_TEAM_ID}.${APPLE_BUNDLE_ID}`] },
-    }
-  })
+    };
+  });
 
   // —— Корневая страница «Что такое Plink» ——
   fastify.get('/', async (_req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
-    reply.header('Cache-Control', 'no-store')
-    return reply.type('text/html; charset=utf-8').send(homeLanding(nonce))
-  })
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
+    reply.header('Cache-Control', 'no-store');
+    return reply.type('text/html; charset=utf-8').send(homeLanding(nonce));
+  });
 
   // —— Легаси-ссылки из старых share-текстов ——
   fastify.get<{ Params: { code: string } }>('/join/:code', async (req, reply) => {
-    const code = String(req.params.code ?? '').toUpperCase()
-    return reply.redirect(`/r/${encodeURIComponent(code)}`, 302)
-  })
+    const code = String(req.params.code ?? '').toUpperCase();
+    return reply.redirect(`/r/${encodeURIComponent(code)}`, 302);
+  });
 
   // —— Лендинг-установщик комнаты ——
   fastify.get<{ Params: { code: string } }>('/r/:code', async (req, reply) => {
-    const code = String(req.params.code ?? '').toUpperCase()
+    const code = String(req.params.code ?? '').toUpperCase();
 
     if (!ROOM_CODE_RE.test(code)) {
-      const nonce404 = newNonce()
-      securityHeaders(reply, nonce404)
-      reply.header('Cache-Control', 'no-store')
-      return reply.code(404).type('text/html; charset=utf-8').send(landing({
-        nonce: nonce404,
-        title: 'Plink — комната не найдена',
-        heading: 'Комната не найдена',
-        subheading: 'Ссылка устарела или введена с ошибкой.',
-        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-        canonical: `${PUBLIC_ORIGIN}/r/${encodeURIComponent(code)}`,
-      }))
+      const nonce404 = newNonce();
+      securityHeaders(reply, nonce404);
+      reply.header('Cache-Control', 'no-store');
+      return reply
+        .code(404)
+        .type('text/html; charset=utf-8')
+        .send(
+          landing({
+            nonce: nonce404,
+            title: 'Plink — комната не найдена',
+            heading: 'Комната не найдена',
+            subheading: 'Ссылка устарела или введена с ошибкой.',
+            ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+            canonical: `${PUBLIC_ORIGIN}/r/${encodeURIComponent(code)}`,
+          }),
+        );
     }
 
     const room = await prisma.room.findFirst({
@@ -1443,56 +1488,68 @@ export async function webRoutes(fastify: FastifyInstance) {
         isActive: true,
         _count: { select: { participants: true } },
       },
-    })
+    });
 
     if (!room) {
-      const nonce404 = newNonce()
-      securityHeaders(reply, nonce404)
-      reply.header('Cache-Control', 'no-store')
-      return reply.code(404).type('text/html; charset=utf-8').send(landing({
-        nonce: nonce404,
-        title: 'Plink — комната закрыта',
-        heading: 'Комната закрыта',
-        subheading: 'Но вы можете создать свою за пару секунд.',
-        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-        canonical: `${PUBLIC_ORIGIN}/r/${code}`,
-      }))
+      const nonce404 = newNonce();
+      securityHeaders(reply, nonce404);
+      reply.header('Cache-Control', 'no-store');
+      return reply
+        .code(404)
+        .type('text/html; charset=utf-8')
+        .send(
+          landing({
+            nonce: nonce404,
+            title: 'Plink — комната закрыта',
+            heading: 'Комната закрыта',
+            subheading: 'Но вы можете создать свою за пару секунд.',
+            ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+            canonical: `${PUBLIC_ORIGIN}/r/${code}`,
+          }),
+        );
     }
 
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
     // Без явного Cache-Control прокси кэшировали страницу
     // эвристически и замораживали счётчик зала и название комнаты.
-    reply.header('Cache-Control', 'no-store')
-    const watchTarget = webWatchTargetFromMediaItem(room.mediaItem)
-    const mediaTitle = mediaTitleFromMediaItem(room.mediaItem)
-    return reply.type('text/html; charset=utf-8').send(await installLanding({
-      code,
-      roomName: room.name || 'Комната Plink',
-      hostName: room.hostName || null,
-      mediaTitle,
-      participants: room._count?.participants ?? 0,
-      isActive: room.isActive,
-      nonce,
-      watchPath: room.isActive && watchTarget ? `/w/${encodeURIComponent(code)}` : null,
-    }))
-  })
+    reply.header('Cache-Control', 'no-store');
+    const watchTarget = webWatchTargetFromMediaItem(room.mediaItem);
+    const mediaTitle = mediaTitleFromMediaItem(room.mediaItem);
+    return reply.type('text/html; charset=utf-8').send(
+      await installLanding({
+        code,
+        roomName: room.name || 'Комната Plink',
+        hostName: room.hostName || null,
+        mediaTitle,
+        participants: room._count?.participants ?? 0,
+        isActive: room.isActive,
+        nonce,
+        watchPath: room.isActive && watchTarget ? `/w/${encodeURIComponent(code)}` : null,
+      }),
+    );
+  });
 
   // —— Install-free YouTube watch (guest JWT + sync.v2 follower) ——
   fastify.get<{ Params: { code: string } }>('/w/:code', async (req, reply) => {
-    const code = String(req.params.code ?? '').toUpperCase()
+    const code = String(req.params.code ?? '').toUpperCase();
     if (!ROOM_CODE_RE.test(code)) {
-      const nonce404 = newNonce()
-      securityHeaders(reply, nonce404)
-      reply.header('Cache-Control', 'no-store')
-      return reply.code(404).type('text/html; charset=utf-8').send(landing({
-        nonce: nonce404,
-        title: 'Plink — комната не найдена',
-        heading: 'Комната не найдена',
-        subheading: 'Ссылка устарела или введена с ошибкой.',
-        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-        canonical: `${PUBLIC_ORIGIN}/w/${encodeURIComponent(code)}`,
-      }))
+      const nonce404 = newNonce();
+      securityHeaders(reply, nonce404);
+      reply.header('Cache-Control', 'no-store');
+      return reply
+        .code(404)
+        .type('text/html; charset=utf-8')
+        .send(
+          landing({
+            nonce: nonce404,
+            title: 'Plink — комната не найдена',
+            heading: 'Комната не найдена',
+            subheading: 'Ссылка устарела или введена с ошибкой.',
+            ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+            canonical: `${PUBLIC_ORIGIN}/w/${encodeURIComponent(code)}`,
+          }),
+        );
     }
 
     const room = await prisma.room.findFirst({
@@ -1502,59 +1559,69 @@ export async function webRoutes(fastify: FastifyInstance) {
         mediaItem: true,
         isActive: true,
       },
-    })
+    });
 
-    const nonce = newNonce()
-    reply.header('Cache-Control', 'no-store')
+    const nonce = newNonce();
+    reply.header('Cache-Control', 'no-store');
 
     if (!room || !room.isActive) {
-      securityHeaders(reply, nonce)
-      return reply.code(404).type('text/html; charset=utf-8').send(landing({
-        nonce,
-        title: 'Plink — комната закрыта',
-        heading: 'Комната закрыта',
-        subheading: 'Сеанс уже закончился. Создай свою комнату в приложении.',
-        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-        canonical: `${PUBLIC_ORIGIN}/w/${code}`,
-      }))
+      securityHeaders(reply, nonce);
+      return reply
+        .code(404)
+        .type('text/html; charset=utf-8')
+        .send(
+          landing({
+            nonce,
+            title: 'Plink — комната закрыта',
+            heading: 'Комната закрыта',
+            subheading: 'Сеанс уже закончился. Создай свою комнату в приложении.',
+            ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+            canonical: `${PUBLIC_ORIGIN}/w/${code}`,
+          }),
+        );
     }
 
-    const target = webWatchTargetFromMediaItem(room.mediaItem)
+    const target = webWatchTargetFromMediaItem(room.mediaItem);
     if (!target) {
-      securityHeaders(reply, nonce)
-      return reply.type('text/html; charset=utf-8').send(webWatchUnsupportedHTML({
+      securityHeaders(reply, nonce);
+      return reply.type('text/html; charset=utf-8').send(
+        webWatchUnsupportedHTML({
+          code,
+          roomName: room.name || 'Комната Plink',
+          reason:
+            'В этой комнате кинотеатр или страница хоста. YouTube, VK и Rutube открываются в браузере; кинотеатры — в приложении Plink («ваш экран»).',
+          nonce,
+          publicOrigin: PUBLIC_ORIGIN,
+        }),
+      );
+    }
+
+    securityHeaders(reply, nonce, false, true);
+    return reply.type('text/html; charset=utf-8').send(
+      webWatchPageHTML({
         code,
         roomName: room.name || 'Комната Plink',
-        reason: 'В этой комнате кинотеатр или страница хоста. YouTube, VK и Rutube открываются в браузере; кинотеатры — в приложении Plink («ваш экран»).',
+        mediaTitle: mediaTitleFromMediaItem(room.mediaItem),
+        target,
         nonce,
         publicOrigin: PUBLIC_ORIGIN,
-      }))
-    }
-
-    securityHeaders(reply, nonce, false, true)
-    return reply.type('text/html; charset=utf-8').send(webWatchPageHTML({
-      code,
-      roomName: room.name || 'Комната Plink',
-      mediaTitle: mediaTitleFromMediaItem(room.mediaItem),
-      target,
-      nonce,
-      publicOrigin: PUBLIC_ORIGIN,
-    }))
-  })
+      }),
+    );
+  });
 
   // —— Plink+ на сайте ——
   fastify.get('/plus', async (_req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce, true)
-    reply.header('Cache-Control', 'no-store')
-    return reply.type('text/html; charset=utf-8').send(plusLanding(nonce))
-  })
+    const nonce = newNonce();
+    securityHeaders(reply, nonce, true);
+    reply.header('Cache-Control', 'no-store');
+    return reply.type('text/html; charset=utf-8').send(plusLanding(nonce));
+  });
 
   fastify.get('/plus/success', async (_req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
-    return reply.type('text/html; charset=utf-8').send(plusSuccessLanding(nonce))
-  })
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
+    return reply.type('text/html; charset=utf-8').send(plusSuccessLanding(nonce));
+  });
 
   // —— Юридические и справочные страницы ——
   //
@@ -1564,97 +1631,114 @@ export async function webRoutes(fastify: FastifyInstance) {
   // ссылки на Условия и Конфиденциальность у подписочного приложения открывались.
   // Кэш — сутки: текст меняется редко, но не должен застревать у CDN навсегда.
   fastify.get('/terms', async (_req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
-    reply.header('Cache-Control', 'public, max-age=86400')
-    return reply.type('text/html; charset=utf-8').send(legalLanding(nonce, TERMS))
-  })
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.type('text/html; charset=utf-8').send(legalLanding(nonce, TERMS));
+  });
 
   fastify.get('/privacy', async (_req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
-    reply.header('Cache-Control', 'public, max-age=86400')
-    return reply.type('text/html; charset=utf-8').send(legalLanding(nonce, PRIVACY))
-  })
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.type('text/html; charset=utf-8').send(legalLanding(nonce, PRIVACY));
+  });
 
   fastify.get('/support', async (_req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
-    reply.header('Cache-Control', 'public, max-age=86400')
-    return reply.type('text/html; charset=utf-8').send(supportLanding(nonce))
-  })
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.type('text/html; charset=utf-8').send(supportLanding(nonce));
+  });
 
   // —— Лендинг профиля ——
   fastify.get<{ Params: { username: string } }>('/u/:username', async (req, reply) => {
-    const nonce = newNonce()
-    securityHeaders(reply, nonce)
+    const nonce = newNonce();
+    securityHeaders(reply, nonce);
     // Тот же кейс, что и /r/:code — имя профиля меняется, кэшировать нельзя.
-    reply.header('Cache-Control', 'no-store')
-    const username = String(req.params.username ?? '')
+    reply.header('Cache-Control', 'no-store');
+    const username = String(req.params.username ?? '');
 
     if (!USERNAME_RE.test(username)) {
-      return reply.code(404).type('text/html; charset=utf-8').send(landing({
-        nonce,
-        title: 'Plink — профиль не найден',
-        heading: 'Профиль не найден',
-        subheading: 'Проверьте ссылку.',
-        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-        canonical: `${PUBLIC_ORIGIN}/u/${encodeURIComponent(username)}`,
-      }))
+      return reply
+        .code(404)
+        .type('text/html; charset=utf-8')
+        .send(
+          landing({
+            nonce,
+            title: 'Plink — профиль не найден',
+            heading: 'Профиль не найден',
+            subheading: 'Проверьте ссылку.',
+            ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+            canonical: `${PUBLIC_ORIGIN}/u/${encodeURIComponent(username)}`,
+          }),
+        );
     }
 
     const user = await prisma.user.findFirst({
       where: { username, deletedAt: null, shadowbanned: false },
       // Поля bio в схеме нет.
       select: { displayName: true, username: true },
-    })
+    });
 
     if (!user) {
-      return reply.code(404).type('text/html; charset=utf-8').send(landing({
-        nonce,
-        title: 'Plink — профиль не найден',
-        heading: 'Профиль не найден',
-        subheading: 'Возможно, аккаунт удалён.',
-        ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
-        canonical: `${PUBLIC_ORIGIN}/u/${username}`,
-      }))
+      return reply
+        .code(404)
+        .type('text/html; charset=utf-8')
+        .send(
+          landing({
+            nonce,
+            title: 'Plink — профиль не найден',
+            heading: 'Профиль не найден',
+            subheading: 'Возможно, аккаунт удалён.',
+            ogImage: `${PUBLIC_ORIGIN}/og/default.png`,
+            canonical: `${PUBLIC_ORIGIN}/u/${username}`,
+          }),
+        );
     }
 
-    const display = user.displayName || user.username
-    return reply.type('text/html; charset=utf-8').send(landing({
-      nonce,
-      title: `${display} в Plink`,
-      heading: display,
-      subheading: 'Смотрите вместе в Plink.',
-      ogImage: `${PUBLIC_ORIGIN}/og/u/${username}.png`,
-      canonical: `${PUBLIC_ORIGIN}/u/${username}`,
-    }))
-  })
+    const display = user.displayName || user.username;
+    return reply.type('text/html; charset=utf-8').send(
+      landing({
+        nonce,
+        title: `${display} в Plink`,
+        heading: display,
+        subheading: 'Смотрите вместе в Plink.',
+        ogImage: `${PUBLIC_ORIGIN}/og/u/${username}.png`,
+        canonical: `${PUBLIC_ORIGIN}/u/${username}`,
+      }),
+    );
+  });
 
   // —— Афиши ——
   fastify.get<{ Params: { code: string } }>('/og/r/:code.png', async (req, reply) => {
-    const code = String(req.params.code ?? '').replace(/\.png$/, '').toUpperCase()
-    if (!ROOM_CODE_RE.test(code)) return sendOG(reply, 'Plink', 'Смотрите вместе')
+    const code = String(req.params.code ?? '')
+      .replace(/\.png$/, '')
+      .toUpperCase();
+    if (!ROOM_CODE_RE.test(code)) return sendOG(reply, 'Plink', 'Смотрите вместе');
     const room = await prisma.room.findFirst({
       where: { code, hidden: false },
       // mediaTitle принадлежит WatchHistory, а не Room.
       select: { name: true, mediaItem: true },
-    })
-    return sendOG(reply, room?.name || 'Комната Plink',
-      room?.mediaItem || 'Присоединяйтесь к просмотру')
-  })
+    });
+    return sendOG(
+      reply,
+      room?.name || 'Комната Plink',
+      room?.mediaItem || 'Присоединяйтесь к просмотру',
+    );
+  });
 
   fastify.get<{ Params: { username: string } }>('/og/u/:username.png', async (req, reply) => {
-    const username = String(req.params.username ?? '').replace(/\.png$/, '')
-    if (!USERNAME_RE.test(username)) return sendOG(reply, 'Plink', 'Смотрите вместе')
+    const username = String(req.params.username ?? '').replace(/\.png$/, '');
+    if (!USERNAME_RE.test(username)) return sendOG(reply, 'Plink', 'Смотрите вместе');
     const user = await prisma.user.findFirst({
       where: { username, deletedAt: null, shadowbanned: false },
       select: { displayName: true, username: true },
-    })
-    return sendOG(reply, user?.displayName || user?.username || 'Plink',
-      'Смотрите вместе в Plink')
-  })
+    });
+    return sendOG(reply, user?.displayName || user?.username || 'Plink', 'Смотрите вместе в Plink');
+  });
 
   fastify.get('/og/default.png', async (_req, reply) =>
-    sendOG(reply, 'Plink', 'Смотрите вместе — кадр в кадр'))
+    sendOG(reply, 'Plink', 'Смотрите вместе — кадр в кадр'),
+  );
 }

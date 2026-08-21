@@ -5,12 +5,12 @@ here was measured on 2026-08-20; the commands to re-measure are in each section.
 
 ## The shape of it
 
-| Where       | Framework      | Files  | Tests | Runs in CI                  |
-| ----------- | -------------- | -----: | ----: | --------------------------- |
-| `backend/`  | vitest 4       |     21 |   202 | Yes — gates every PR        |
-| `ios/`      | XCTest         |     38 |   458 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
-| `android-client/` | JUnit    |      1 |     1 | Yes — `testDebugUnitTest`   |
-| `landing/`  | none           |      0 |     0 | Typecheck, lint, format, build only |
+| Where             | Framework | Files | Tests | Runs in CI                                                                                |
+| ----------------- | --------- | ----: | ----: | ----------------------------------------------------------------------------------------- |
+| `backend/`        | vitest 4  |    21 |   202 | Yes — gates every PR                                                                      |
+| `ios/`            | XCTest    |    38 |   458 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
+| `android-client/` | JUnit     |     1 |     1 | Yes — `testDebugUnitTest`                                                                 |
+| `landing/`        | none      |     0 |     0 | Typecheck, lint, format, build only                                                       |
 
 `landing/` has no tests at all. That is a real gap, stated rather than papered over:
 the marketing site is checked by `tsc --noEmit`, ESLint, Prettier and a production
@@ -35,7 +35,7 @@ backend/src/tests/
 
 **Unit** — a function, called directly, no network, no database, no Redis. The
 constraint that decides this tier is not taste, it is [ADR-0006](../adr/0006-fail-fast-configuration.md):
-`src/config/index.ts` validates the environment at *module scope* and throws
+`src/config/index.ts` validates the environment at _module scope_ and throws
 `Missing env: DATABASE_URL` if it cannot. Any module that imports `config`, however
 indirectly, drags that into the test process.
 
@@ -135,12 +135,12 @@ bundle and only that bundle, so the default is already correct — see below.
 
 ### The 32 skips are all opt-in, and all say why
 
-| Class | Skipped | Enabled by |
-| ----- | ------: | ---------- |
-| `DesignAuditShots` | 16 | `DESIGN_AUDIT=1`, or a flag file `/tmp/plink-design-audit` |
-| `YouTubePlaybackControllerRuntimeTests` | 10 | `YOUTUBE_RUNTIME_TESTS=1` (needs network and a device) |
-| `MarketingShots` | 4 | `MARKETING_SHOTS=1`, or `/tmp/plink-marketing-shots` |
-| `ThemeSnapshotTests` | 2 | `SNAPSHOT_TESTS=1` (results depend on simulator model) |
+| Class                                   | Skipped | Enabled by                                                 |
+| --------------------------------------- | ------: | ---------------------------------------------------------- |
+| `DesignAuditShots`                      |      16 | `DESIGN_AUDIT=1`, or a flag file `/tmp/plink-design-audit` |
+| `YouTubePlaybackControllerRuntimeTests` |      10 | `YOUTUBE_RUNTIME_TESTS=1` (needs network and a device)     |
+| `MarketingShots`                        |       4 | `MARKETING_SHOTS=1`, or `/tmp/plink-marketing-shots`       |
+| `ThemeSnapshotTests`                    |       2 | `SNAPSHOT_TESTS=1` (results depend on simulator model)     |
 
 `DesignAuditShots` and `MarketingShots` are not regression tests and do not assert on
 pixels — they render real product screens offscreen and write PNGs, for design review
@@ -174,7 +174,7 @@ Three things were named as blockers before it existed. Only the first turned out
 one:
 
 1. **No macOS runner was provisioned.** True, and the only real blocker. `runs-on:
-   macos-15` resolves it.
+macos-15` resolves it.
 2. **Signing credentials are not in CI secrets.** Irrelevant to a simulator build. With
    `CODE_SIGNING_ALLOWED=NO` there is no certificate and no provisioning profile in the
    picture at all — measured, `** TEST BUILD SUCCEEDED **`. Device builds and archives
@@ -190,10 +190,10 @@ one:
 
 Two schemes are declared, and the split is deliberate:
 
-| Scheme | Test action | Runs in CI |
-| ------ | ----------- | ---------- |
-| `Plink` | `PlinkTests`, with coverage | Yes |
-| `Plink-UITests` | `PlinkUITests` | No |
+| Scheme          | Test action                 | Runs in CI |
+| --------------- | --------------------------- | ---------- |
+| `Plink`         | `PlinkTests`, with coverage | Yes        |
+| `Plink-UITests` | `PlinkUITests`              | No         |
 
 `PlinkUITests` drives the real UI against a backend on `localhost`. In CI it would fail
 for a reason that is not a defect, so it is kept out of the default test action: a red
@@ -208,21 +208,21 @@ because that means a suite was made hermetic.
 
 From [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), on every push:
 
-| Job | Steps |
-| --- | ----- |
-| `backend` | Prisma generate → `tsc --noEmit` → `eslint .` → `vitest run` → `npm audit --audit-level=high` |
-| `landing` | `tsc --noEmit` → `eslint .` → `prettier --check` → `next build` → `npm audit` |
-| `format` | Prettier, **on files changed by the PR only** |
+| Job        | Steps                                                                                                             |
+| ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| `backend`  | Prisma generate → `tsc --noEmit` → `eslint .` → `vitest run` → `npm audit --audit-level=high`                     |
+| `landing`  | `tsc --noEmit` → `eslint .` → `prettier --check` → `next build` → `npm audit`                                     |
+| `format`   | Prettier, **on files changed by the PR only**                                                                     |
 | `security` | No external scripts in server-rendered pages · host matching goes through `PlinkHost` · no committed private keys |
-| `android` | `assembleDebug` → `testDebugUnitTest` |
+| `android`  | `assembleDebug` → `testDebugUnitTest`                                                                             |
 
 From [`.github/workflows/ios.yml`](../../.github/workflows/ios.yml), only when `ios/`
 changes — and **not** as required checks, for the reason given above:
 
-| Job | Steps |
-| --- | ----- |
+| Job              | Steps                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------- |
 | `build-and-test` | `xcodegen generate` → `build-for-testing` → `test-without-building` → assert the skip count |
-| `lint` | SwiftLint (errors gate) → SwiftFormat, **on files changed by the PR only** |
+| `lint`           | SwiftLint (errors gate) → SwiftFormat, **on files changed by the PR only**                  |
 
 Three of these are worth understanding rather than just obeying:
 
