@@ -155,14 +155,50 @@ on whichever environment the build points at; if it does not, stop and read
 | Categories     | Entertainment (primary), Social Networking |
 | Age rating     | 17+                                        |
 | Localizations  | Russian, English, Chinese                  |
-| Privacy policy | landing `/privacy`                         |
-| Terms          | landing `/terms`                           |
+| Privacy policy | backend `/privacy` — see below             |
+| Terms          | backend `/terms` — see below               |
 
 Keywords, RU: `смотреть вместе, фильмы, синхронно, чат, друзья, watch party, co-watch, sync video`
 Keywords, EN: `watch together, movies, sync, chat, friends, watch party, co watch, together, sync`
 
 17+ is because room chat is user-generated and not pre-moderated. Rating it lower
 invites a rejection that costs a review cycle.
+
+**Paste the URLs the backend serves, not the `landing/` routes.** Both exist as pages,
+and only one set is reachable. `landing/app/terms` and `landing/app/privacy` are Next.js
+routes in this repository with no deployment behind them, so pasting `plink.app/terms`
+into App Store Connect submits a link that does not resolve — the ordinary cause of a
+**guideline 3.1.2** rejection for a subscription app, and one that costs a full review
+cycle. The reachable pages come from
+[`backend/src/routes/web.ts`](../../backend/src/routes/web.ts) at `/terms`, `/privacy`
+and `/support`, which is also where the app's own Settings links point
+([`PlinkURLs`](../../ios/Plink/Networking/PlinkURLs.swift) builds them from `webOrigin`,
+which follows the API host). Read the three URLs off the build you are actually
+submitting rather than copying them from here, and confirm each returns 200 before
+filling the form:
+
+```bash
+ORIGIN=$(grep -o 'https://[^"]*' ios/Plink/Networking/PlinkConfig.swift | head -1)
+for p in terms privacy support; do
+  printf '%s/%s -> %s\n' "$ORIGIN" "$p" \
+    "$(curl -s -o /dev/null -w '%{http_code}' "$ORIGIN/$p")"
+done
+```
+
+⚠️ **Run it before every submission, because as of 2026-08-20 it does not pass.** The
+routes exist in `web.ts` and their eight unit tests pass
+(`npx vitest run src/tests/unit/legalPages.unit.test.ts`), but the deployed build is
+older than the commit that added them, so all three answer **404** while `/` and
+`/health` answer 200 — the host is up, the pages are simply not on it. A green local
+test suite is not evidence here; only the curl loop above is. **Deploy the backend, re-run
+it until all three print 200, and submit after that** — otherwise the listing carries the
+exact dead link that guideline 3.1.2 rejects, and the app's own Settings screen opens
+three 404s.
+
+If those pages ever move to `plink.app`, they move for the app and the listing together:
+change `webOrigin`, not this table. `plink.app` does not currently serve the app — it
+resolves to a domain broker's nameservers and returns a redirect to a sales lander, which
+is why `applinks:plink.app` in the entitlements does not yet resolve either.
 
 Privacy declarations: no data sold; usage analytics collected; photo library access used
 only for choosing an avatar.
@@ -210,10 +246,16 @@ and host Kick.
 | -------------------------- | ---------------------------------------------------------------------- |
 | 2.1 Completeness           | Core loop works; disabled features are hidden, not broken              |
 | 3.1.1 In-app purchase      | StoreKit 2 only, no external purchase path                             |
+| 3.1.2 Subscriptions        | Terms and Privacy served by the backend — **verify they answer 200**   |
 | 4.2 Minimum functionality  | Native app, not a web shell                                            |
-| 5.1 Privacy                | Policy URL required and present                                        |
+| 5.1 Privacy                | Policy URL present in the listing — same verification as 3.1.2         |
 | 5.2 Intellectual property  | Host-subscription WebView plus in-app disclaimer; no DRM circumvention |
 | 1.2 User-generated content | Report, Block, host Kick                                               |
+
+The two rows that say _verify_ are the only ones on this page whose answer depends on a
+deployment rather than on the code, so they are the two that can be true in the repository
+and false in production at the same time. Run the curl loop in
+[Listing](#listing) — as of 2026-08-20 it returns 404 for all three pages.
 
 The catalogue does not promise synchronisation it cannot deliver — see
 [ADR-0003](../adr/0003-honest-service-catalog.md). Services that cannot be synced are
@@ -225,7 +267,9 @@ above true. Do not remove it to make the catalogue look better.
 1. Archive (Release, team signing).
 2. Upload via Organizer or Transporter.
 3. Attach screenshots and the review notes.
-4. Submit.
+4. Re-run the [Listing](#listing) curl loop against the environment this build points at.
+   All three pages must answer 200.
+5. Submit.
 
 ---
 
