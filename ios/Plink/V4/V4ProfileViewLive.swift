@@ -49,7 +49,7 @@ struct V4ProfileViewLive: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                cover
+                coverSlot
                 avatarActionRow
                 identityBlock
                 countersCard
@@ -61,9 +61,10 @@ struct V4ProfileViewLive: View {
                     .padding(.top, 14)
             }
             .padding(.bottom, 110)
-            // Амбиент: обложка продолжается вниз размытым свечением — лицо
-            // и карты живут в её свете, а не на постороннем живом фоне.
-            .background(alignment: .top) { coverAmbient }
+            // Задник шапки: обложка + амбиент одним композитом, в котором
+            // под аватар пробит прозрачный вырез (модель Discord) — лицо и
+            // карты живут в свете обложки, а не на постороннем живом фоне.
+            .background(alignment: .top) { headerBackdrop }
         }
         // Обложка — от физического верха экрана, статус-бар лежит на ней
         // (модель ВК). Без этого сверху остаётся полоса живого фона.
@@ -171,7 +172,7 @@ struct V4ProfileViewLive: View {
                 .overlay(Image(uiImage: custom).resizable().scaledToFill())
                 .clipped()
         } else {
-            (store?.coverStyle ?? .hall).artwork()
+            (store?.coverStyle ?? .dusk).artwork()
         }
     }
 
@@ -181,13 +182,13 @@ struct V4ProfileViewLive: View {
     private var coverAmbient: some View {
         coverCanvas
             .scaleEffect(x: 1, y: -1)
-            .frame(height: 320)
+            .frame(height: 400)
             .frame(maxWidth: .infinity)
             .blur(radius: 70)
             .saturation(1.35)
             .mask(LinearGradient(stops: [
-                .init(color: .black.opacity(0.55), location: 0),
-                .init(color: .black.opacity(0.22), location: 0.55),
+                .init(color: .black.opacity(0.60), location: 0),
+                .init(color: .black.opacity(0.26), location: 0.55),
                 .init(color: .clear, location: 1),
             ], startPoint: .top, endPoint: .bottom))
             // Первые 40 pt прячутся под непрозрачной обложкой — шов без линии.
@@ -197,37 +198,67 @@ struct V4ProfileViewLive: View {
     }
 
     /// Обложка как в ВК: полное полотно от края до края под статус-баром.
-    /// Фото выбирает пользователь — пресет V4CoverStyle или своё из галереи
-    /// (кнопка-кисть в углу), выбор синхронизируется через coverURL.
-    private var cover: some View {
+    /// Скримы — только на фото из галереи: у градиентных пресетов контраст
+    /// статус-бара и тёмный низ уже вшиты в само полотно.
+    private var coverPlate: some View {
         ZStack {
             coverCanvas
-            // Скримы сверху и снизу — контраст статус-бара и кольца аватара.
-            LinearGradient(colors: [.black.opacity(0.20), .clear, .black.opacity(0.22)],
-                           startPoint: .top, endPoint: .bottom)
+            if store?.usesCustomCover == true, store?.customCoverImage != nil {
+                LinearGradient(colors: [.black.opacity(0.20), .clear, .black.opacity(0.22)],
+                               startPoint: .top, endPoint: .bottom)
+            }
         }
         .frame(height: coverHeight)
         .frame(maxWidth: .infinity)
         .clipped()
-        .accessibilityHidden(true)
-        .overlay(alignment: .topTrailing) {
-            // Кисть — в верхнем углу: нижняя кромка обложки занята
-            // аватаром и кнопками «Редактировать»/«Поделиться».
-            Button {
-                HapticManager.selection()
-                showCoverPicker = true
-            } label: {
-                Image(systemName: "paintbrush.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(V4.ink)
-                    .frame(width: 32, height: 32)
-                    .plinkGlass(.control, in: Circle(), interactive: true)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Сменить обложку")
-            .padding(.top, 62)
-            .padding(.trailing, 14)
+    }
+
+    /// Обложка + амбиент одним композитом с прозрачным вырезом под аватар
+    /// (модель Discord): в зазоре видна сама страница, а не нарисованное
+    /// кольцо — аватар «врезан» в шапку, к какой бы обложке он ни прилегал.
+    /// Геометрия выреза выводится из констант ряда аватара: центр
+    /// (18 + 56, coverHeight − 54 + 56), диаметр 112 + 2×7 зазора.
+    private var headerBackdrop: some View {
+        ZStack(alignment: .top) {
+            coverAmbient
+            coverPlate
         }
+        .frame(height: coverHeight - 40 + 400, alignment: .top)
+        .overlay(alignment: .topLeading) {
+            Circle()
+                .frame(width: 126, height: 126)
+                .offset(x: 74 - 63, y: coverHeight + 2 - 63)
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// Место обложки в потоке: прозрачный слот (полотно рисует задник),
+    /// сверху — только кисть смены обложки, ей нужен передний план для тапа.
+    private var coverSlot: some View {
+        Color.clear
+            .frame(height: coverHeight)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topTrailing) {
+                // Кисть — в верхнем углу: нижняя кромка обложки занята
+                // аватаром и кнопками «Редактировать»/«Поделиться».
+                Button {
+                    HapticManager.selection()
+                    showCoverPicker = true
+                } label: {
+                    Image(systemName: "paintbrush.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(V4.ink)
+                        .frame(width: 32, height: 32)
+                        .plinkGlass(.control, in: Circle(), interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Сменить обложку")
+                .padding(.top, 62)
+                .padding(.trailing, 14)
+            }
     }
 
     // MARK: Аватар внахлёст + действия
@@ -341,6 +372,13 @@ struct V4ProfileViewLive: View {
             }
             .padding(.top, 5)
 
+            // Строка присутствия (модель ВК): свой профиль всегда «в сети» —
+            // тот же язык, что на профиле друга.
+            Text("в сети")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Color(hex: "#23A55A"))
+                .padding(.top, 4)
+
             badgesRow
         }
         .padding(.horizontal, 18)
@@ -378,43 +416,50 @@ struct V4ProfileViewLive: View {
         }
     }
 
-    /// Аватар 112 pt: масса и толстое кольцо цвета канваса «врезают» круг
-    /// в обложку (модель Discord — вырез, а не наклейка), тень приподнимает.
+    /// Аватар 112 pt без рисованных колец: зазор вокруг круга пробит в
+    /// задник шапки (headerBackdrop), а зазор вокруг точки присутствия —
+    /// сквозь сам аватар (destinationOut). Настоящий вырез Discord: в
+    /// просветах видна страница, а не краска.
     private var avatarBlock: some View {
         Button {
             HapticManager.selection()
             showAvatarPicker = true
         } label: {
-            ZStack(alignment: .bottomTrailing) {
-                Group {
-                    if let local = store?.localAvatarImage {
-                        Image(uiImage: local).resizable().scaledToFill()
-                    } else if let avatarURL {
-                        AsyncImage(url: avatarURL) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable().scaledToFill()
-                            default:
-                                V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
-                            }
+            Group {
+                if let local = store?.localAvatarImage {
+                    Image(uiImage: local).resizable().scaledToFill()
+                } else if let avatarURL {
+                    AsyncImage(url: avatarURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                        default:
+                            V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                         }
-                    } else {
-                        V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                     }
+                } else {
+                    V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                 }
-                .frame(width: 112, height: 112)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(V4.canvas, lineWidth: 6))
-                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
-
-                // Точка присутствия (модель Discord) вместо бейджа камеры:
-                // свой профиль всегда «в сети» — ты на него смотришь.
-                // Редактируемость аватара не потерялась: тап по кругу
-                // по-прежнему открывает пикер (как в ВК, без бейджа).
+            }
+            .frame(width: 112, height: 112)
+            .clipShape(Circle())
+            // Вырез под точку: стирает арку аватара вокруг неё, центры
+            // совпадают (смещение +2 компенсирует разницу диаметров 34/26).
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .frame(width: 34, height: 34)
+                    .offset(x: 2, y: 2)
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
+            // Точка присутствия (модель Discord) вместо бейджа камеры:
+            // свой профиль всегда «в сети» — ты на него смотришь.
+            // Редактируемость аватара не потерялась: тап по кругу
+            // по-прежнему открывает пикер (как в ВК, без бейджа).
+            .overlay(alignment: .bottomTrailing) {
                 Circle()
                     .fill(Color(hex: "#23A55A"))
                     .frame(width: 26, height: 26)
-                    .overlay(Circle().stroke(V4.canvas, lineWidth: 4))
                     .offset(x: -2, y: -2)
             }
         }
@@ -644,27 +689,39 @@ struct V4ProfileViewLive: View {
 
 // MARK: - Статус: пузырь и редактор
 
-/// Статус-«мысль» (модель Discord): стеклянный пузырь с хвостом из двух
-/// точек, шагающих вниз-влево к аватару. Одна оболочка на оба профиля —
-/// свой (кнопка-редактор) и профиль друга (только чтение).
+/// Статус-«мысль» (модель Discord): глухой тёмный пузырь с хвостом из двух
+/// точек, шагающих вниз-влево к аватару. Материал непрозрачный — как у
+/// Discord: реплика читается на любой обложке, стекло на фото тонуло.
+/// Одна оболочка на оба профиля — свой (кнопка-редактор) и друг (чтение).
 struct PlinkStatusBubbleShell<Content: View>: View {
     var interactive = false
     @ViewBuilder var content: () -> Content
+
+    /// Материал пузыря: чуть светлее канваса, чтобы не сливаться с «полом»
+    /// обложки, с волосяной обводкой по краю — как карточки Discord.
+    private var fill: Color { Color(hex: "#1A1E27").opacity(0.97) }
+    private var rim: Color { Color.white.opacity(0.10) }
 
     var body: some View {
         content()
             .padding(.horizontal, 13)
             .padding(.vertical, 10)
-            .plinkGlass(.control, in: RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: interactive)
-            .overlay(alignment: .bottomLeading) { tailDot(9).offset(x: 2, y: 7) }
-            .overlay(alignment: .bottomLeading) { tailDot(5).offset(x: -7, y: 13) }
+            .background(fill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(rim, lineWidth: 1)
+            )
+            .overlay(alignment: .bottomLeading) { tailDot(9).offset(x: -1, y: 8) }
+            .overlay(alignment: .bottomLeading) { tailDot(5).offset(x: -10, y: 15) }
+            .shadow(color: .black.opacity(0.30), radius: 10, y: 4)
     }
 
-    /// Точка хвоста — то же стекло, что и пузырь: мысль из одного материала.
+    /// Точка хвоста — тот же материал, что и пузырь: мысль из одного куска.
     private func tailDot(_ diameter: CGFloat) -> some View {
-        Color.clear
+        Circle()
+            .fill(fill)
+            .overlay(Circle().strokeBorder(rim, lineWidth: 1))
             .frame(width: diameter, height: diameter)
-            .plinkGlass(.control, in: Circle())
     }
 }
 
@@ -761,28 +818,33 @@ struct V4StatusEditorSheet: View {
 
 // MARK: - Обложки профиля
 
-/// Пресеты обложки профиля — живые фотографии (CC0, Wikimedia Commons /
-/// Unsplash), а не процедурная графика: рисованные градиенты читались как
-/// «сделано ИИ». Три сюжета вокруг кино-вечера: зал, неон города, ночь.
+/// Пресеты обложки — базовые градиенты «свет в тёмном зале»: цветной свет
+/// живёт в верхней половине полотна, книзу каждый пресет тонет ровно в
+/// V4.canvas — обложка и страница смыкаются по построению, без швов.
+/// «Перелив» — живой переливающийся градиент, эксклюзив Плинк+.
 /// Выбор хранится токеном `plink://cover/<id>` в поле coverURL — синк
 /// между устройствами задаром; своя картинка — data-URL там же.
 enum V4CoverStyle: String, CaseIterable, Identifiable {
-    case hall, neon, night
+    case dusk, neon, ember, midnight, aurora, graphite, shimmer
 
     var id: String { rawValue }
 
     static let urlPrefix = "plink://cover/"
     var remoteToken: String { Self.urlPrefix + rawValue }
 
-    /// Разбор сохранённого id с маппингом токенов прежних процедурных
-    /// пресетов на ближайшее фото — выбор со старых сборок не теряется.
+    /// Живой пресет — анимируется и продаётся только с Плинк+.
+    var isLive: Bool { self == .shimmer }
+
+    /// Разбор сохранённого id с маппингом токенов прежних поколений
+    /// (фото-пресеты и процедурные) — выбор со старых сборок не теряется.
     static func fromStored(_ id: String?) -> V4CoverStyle? {
         guard let id else { return nil }
         if let style = V4CoverStyle(rawValue: id) { return style }
         switch id {
-        case "beam", "film": return .hall
+        case "hall", "film": return .ember
+        case "night": return .midnight
+        case "beam": return .dusk
         case "marquee": return .neon
-        case "midnight", "aurora", "graphite": return .night
         default: return nil
         }
     }
@@ -794,33 +856,100 @@ enum V4CoverStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .hall: return "Кинозал"
+        case .dusk: return "Сумерки"
         case .neon: return "Неон"
-        case .night: return "Ночь"
+        case .ember: return "Бархат"
+        case .midnight: return "Полночь"
+        case .aurora: return "Сияние"
+        case .graphite: return "Графит"
+        case .shimmer: return "Перелив"
         }
     }
 
-    /// Imageset в Assets.xcassets: кропы 1500×750 (2:1) под полотно 212 pt.
-    /// Источники: Movie theater seats / Neon light trails in Munich /
-    /// Milky Way over Silverthorne — все с Wikimedia Commons, лицензия CC0.
-    var assetName: String {
+    /// Небо пресета: три цвета по диагонали + цвет и точка светового пятна.
+    /// Тёмный «пол» и виньетку добавляет PlinkCoverGradient — один на всех.
+    fileprivate var spec: PlinkCoverSpec {
         switch self {
-        case .hall: return "CoverHall"
-        case .neon: return "CoverNeon"
-        case .night: return "CoverNight"
+        case .dusk: return .init(
+            sky: [Color(hex: "#5D4BD4"), Color(hex: "#9A55C4"), Color(hex: "#3A1E52")],
+            glow: Color(hex: "#FFB2C4"), glowCenter: .init(x: 0.85, y: 0.10), glowStrength: 0.55)
+        case .neon: return .init(
+            sky: [Color(hex: "#2743E0"), Color(hex: "#7A3BFF"), Color(hex: "#3E1260")],
+            glow: Color(hex: "#3EE8FF"), glowCenter: .init(x: 0.12, y: 0.08), glowStrength: 0.60)
+        case .ember: return .init(
+            sky: [Color(hex: "#8C2231"), Color(hex: "#5A1220"), Color(hex: "#20070E")],
+            glow: Color(hex: "#FF9A5A"), glowCenter: .init(x: 0.78, y: 0.10), glowStrength: 0.50)
+        case .midnight: return .init(
+            sky: [Color(hex: "#16264F"), Color(hex: "#0C1530"), Color(hex: "#05070F")],
+            glow: Color(hex: "#4FB4FF"), glowCenter: .init(x: 0.20, y: 0.08), glowStrength: 0.38)
+        case .aurora: return .init(
+            sky: [Color(hex: "#0E4F46"), Color(hex: "#1E8F6E"), Color(hex: "#0F2B4A")],
+            glow: Color(hex: "#59FFC9"), glowCenter: .init(x: 0.72, y: 0.10), glowStrength: 0.45)
+        case .graphite: return .init(
+            sky: [Color(hex: "#3A4150"), Color(hex: "#262B36"), Color(hex: "#14171D")],
+            glow: Color(hex: "#8FA3C4"), glowCenter: .init(x: 0.80, y: 0.08), glowStrength: 0.30)
+        case .shimmer: return .init(
+            sky: [Color(hex: "#6C3BFF"), Color(hex: "#B03BD9"), Color(hex: "#22306E")],
+            glow: Color(hex: "#4FD9FF"), glowCenter: .init(x: 0.25, y: 0.10), glowStrength: 0.60)
         }
     }
 
-    /// Фото обложки. GeometryReader + явный frame — одинаковый центральный
-    /// кроп в полотне 212 pt и в миниатюре пикера, scaledToFill не распирает
-    /// родителя.
-    func artwork() -> some View {
-        GeometryReader { geo in
-            Image(assetName)
-                .resizable()
-                .scaledToFill()
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipped()
+    /// Полотно пресета: статичный градиент или живой «Перелив».
+    @ViewBuilder func artwork() -> some View {
+        if isLive {
+            PlinkShimmerCover(spec: spec)
+        } else {
+            PlinkCoverGradient(spec: spec)
+        }
+    }
+}
+
+/// Рецепт градиентной обложки: диагональное «небо», световое пятно.
+fileprivate struct PlinkCoverSpec {
+    let sky: [Color]
+    let glow: Color
+    let glowCenter: UnitPoint
+    let glowStrength: Double
+}
+
+/// Базовый градиент обложки: небо по диагонали, мягкое световое пятно
+/// (plusLighter — свет складывается, а не пачкает), тёмный «пол» из
+/// V4.canvas — нижняя кромка совпадает со страницей до канала.
+fileprivate struct PlinkCoverGradient: View {
+    let spec: PlinkCoverSpec
+    /// Сдвиг пятна по X в долях ширины — «Перелив» водит светом вживую.
+    var glowDrift: CGFloat = 0
+
+    var body: some View {
+        LinearGradient(colors: spec.sky, startPoint: .topLeading, endPoint: .bottomTrailing)
+            .overlay(
+                RadialGradient(
+                    colors: [spec.glow.opacity(spec.glowStrength), .clear],
+                    center: UnitPoint(x: spec.glowCenter.x + glowDrift, y: spec.glowCenter.y),
+                    startRadius: 0, endRadius: 320
+                )
+                .blendMode(.plusLighter)
+            )
+            .overlay(
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0.45),
+                    .init(color: V4.canvas.opacity(0.92), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            )
+    }
+}
+
+/// Живая обложка Плинк+: медленный дрейф оттенка (±38° за ~9 с) и света —
+/// перелив, а не мигание. TimelineView с шагом 1/20 с — GPU-дёшево, без
+/// таймеров в модели; в пикере миниатюра переливается той же вьюхой.
+fileprivate struct PlinkShimmerCover: View {
+    let spec: PlinkCoverSpec
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            PlinkCoverGradient(spec: spec, glowDrift: CGFloat(sin(t * 0.45)) * 0.28)
+                .hueRotation(.degrees(sin(t * 0.7) * 38))
         }
     }
 }
@@ -845,13 +974,15 @@ struct V4CoverPickerSheet: View {
     @State private var showPhotosPicker = false
     @State private var photosDeniedAlert = false
     @State private var loadError: String?
+    /// Живой «Перелив» — эксклюзив Плинк+: тап без подписки ведёт в пейволл.
+    @State private var showPlusPaywall = false
 
     init(theme: V4Theme, store: V4ProfileStore?) {
         self.theme = theme
         self.store = store
         _selected = State(initialValue: store?.usesCustomCover == true
                           ? .custom
-                          : .preset(store?.coverStyle ?? .hall))
+                          : .preset(store?.coverStyle ?? .dusk))
     }
 
     var body: some View {
@@ -889,8 +1020,7 @@ struct V4CoverPickerSheet: View {
                 Spacer(minLength: 0)
 
                 SettingsPrimaryButton(title: "Применить") {
-                    apply()
-                    dismiss()
+                    if apply() { dismiss() }
                 }
             }
             .padding(18)
@@ -908,11 +1038,25 @@ struct V4CoverPickerSheet: View {
         } message: {
             Text(LocalizationManager.shared.string(.phPhotoLimited))
         }
+        .sheet(isPresented: $showPlusPaywall) {
+            PlinkPlusPaywall(trigger: .theme)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .preferredColorScheme(.dark)
+        }
     }
 
-    private func apply() {
+    /// Применяет выбор; false — применить нельзя (живой пресет без Плинк+,
+    /// показан пейволл) и шит закрывать не надо.
+    private func apply() -> Bool {
         switch selected {
         case .preset(let style):
+            // Подстраховка гейта: живой пресет мог остаться выбранным с
+            // истёкшей подпиской — тогда в пейволл, а не мимо кассы.
+            guard !style.isLive || store?.isPremium == true else {
+                showPlusPaywall = true
+                return false
+            }
             store?.applyCover(style)
         case .custom:
             if let image = pickedImage {
@@ -923,6 +1067,7 @@ struct V4CoverPickerSheet: View {
             }
             // usesCustomCover уже true и фото не меняли — PATCH не нужен.
         }
+        return true
     }
 
     /// Флоу как у аватара: сперва системный запрос доступа (если первый
@@ -988,15 +1133,34 @@ struct V4CoverPickerSheet: View {
 
     private func coverCell(_ style: V4CoverStyle) -> some View {
         let isSelected = selected == .preset(style)
+        let locked = style.isLive && store?.isPremium != true
         return Button {
             HapticManager.selection()
-            withAnimation(.easeInOut(duration: 0.15)) { selected = .preset(style) }
+            if locked {
+                showPlusPaywall = true
+            } else {
+                withAnimation(.easeInOut(duration: 0.15)) { selected = .preset(style) }
+            }
         } label: {
             VStack(spacing: 7) {
                 style.artwork()
                     .frame(height: 86)
                     .frame(maxWidth: .infinity)
                     .modifier(CoverCellChrome(theme: theme, isSelected: isSelected))
+                    .overlay(alignment: .topLeading) {
+                        // Живой пресет подписан всегда: у подписчика — знак
+                        // эксклюзива, у остальных — что тап ведёт в Плинк+.
+                        if style.isLive {
+                            Text("PLINK+")
+                                .font(.system(size: 8.5, weight: .black))
+                                .tracking(0.5)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3.5)
+                                .background(Color(hex: "#A855F7"), in: Capsule())
+                                .padding(6)
+                        }
+                    }
                 Text(style.title)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(isSelected ? V4.ink : V4.muted)
@@ -1004,7 +1168,7 @@ struct V4CoverPickerSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Обложка «\(style.title)»")
+        .accessibilityLabel(locked ? "Обложка «\(style.title)» — доступна с Плинк+" : "Обложка «\(style.title)»")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

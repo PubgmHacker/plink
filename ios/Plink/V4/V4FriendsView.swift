@@ -301,11 +301,21 @@ struct V4FriendsViewLive: View {
         }
         .sheet(item: $profileFriend) { friend in
             NavigationStack {
-                FriendProfileView(userId: friend.id, usernameHint: friend.username) {
-                    watchWithFriend = friend
-                    profileFriend = nil
-                    showCreateRoom = true
-                }
+                FriendProfileView(
+                    userId: friend.id,
+                    usernameHint: friend.username,
+                    onWatchTogether: {
+                        watchWithFriend = friend
+                        profileFriend = nil
+                        showCreateRoom = true
+                    },
+                    // «Написать» (модель ТГ/ВК): из профиля — сразу в личку.
+                    // Тот же синхронный своп шитов, что у «Смотреть вместе».
+                    onMessage: {
+                        profileFriend = nil
+                        dmFriend = friend
+                    }
+                )
                 .toolbar {
                     V4SheetCloseToolbarItem { profileFriend = nil }
                 }

@@ -764,7 +764,7 @@ final class V4ProfileStore {
     /// Пресет обложки профиля. Хранится токеном `plink://cover/<id>` в
     /// серверном coverURL (синк между устройствами) + в defaults для
     /// мгновенной отрисовки до первого /users/me.
-    private(set) var coverStyle: V4CoverStyle = .hall
+    private(set) var coverStyle: V4CoverStyle = .dusk
     /// Своя обложка из галереи: файл на диске + data-URL в том же coverURL.
     /// customCoverImage живёт независимо от флага — после переключения на
     /// пресет фото остаётся в пикере и его можно вернуть без перевыбора.

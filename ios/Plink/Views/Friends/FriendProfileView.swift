@@ -9,6 +9,9 @@ struct FriendProfileView: View {
     let userId: String
     var usernameHint: String = ""
     var onWatchTogether: (() -> Void)? = nil
+    /// «Написать» (модель ТГ/ВК: профиль — хаб действий). nil — кнопки нет:
+    /// из чата с этим же человеком она была бы дверью в ту же комнату.
+    var onMessage: (() -> Void)? = nil
 
     @State private var profile: UserSocialProfile?
     @State private var error: String?
@@ -16,6 +19,8 @@ struct FriendProfileView: View {
     /// Своя (data:image) обложка друга — декодируется один раз в load(),
     /// не в body: base64 на каждый кадр непозволителен.
     @State private var customCover: UIImage?
+    /// Просмотр аватара на весь экран (модель ТГ): тап по кругу.
+    @State private var showAvatarViewer = false
 
     /// Акцент — сохранённая тема приложения: профиль открывается шитом,
     /// у него нет прямого доступа к теме корня.
@@ -32,7 +37,9 @@ struct FriendProfileView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                cover
+                Color.clear
+                    .frame(height: coverHeight)
+                    .frame(maxWidth: .infinity)
                 avatarRow
                 identityBlock
                 if isDeleted {
@@ -43,9 +50,10 @@ struct FriendProfileView: View {
                 }
             }
             .padding(.bottom, 40)
-            // Амбиент: обложка продолжается вниз размытым свечением — лицо
-            // и карты живут в её свете, а не на постороннем фоне.
-            .background(alignment: .top) { coverAmbient }
+            // Задник шапки: обложка + амбиент одним композитом с вырезом
+            // под аватар (модель Discord) — лицо и карты живут в свете
+            // обложки, а в зазоре вокруг аватара видна сама страница.
+            .background(alignment: .top) { headerBackdrop }
         }
         // Обложка — от верхней кромки шита, кнопка закрытия плавает по ней.
         .ignoresSafeArea(edges: .top)
@@ -56,6 +64,13 @@ struct FriendProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .refreshable { await load() }
+        .fullScreenCover(isPresented: $showAvatarViewer) {
+            FriendAvatarViewer(
+                userId: userId,
+                storedURL: profile?.avatarURL,
+                letter: String((profile?.displayTitle ?? usernameHint).prefix(1)).uppercased()
+            )
+        }
     }
 
     // MARK: Обложка + амбиент
@@ -75,7 +90,7 @@ struct FriendProfileView: View {
                 .overlay(Image(uiImage: customCover).resizable().scaledToFill())
                 .clipped()
         } else if let p = profile {
-            (V4CoverStyle.parse(p.coverURL) ?? .hall).artwork()
+            (V4CoverStyle.parse(p.coverURL) ?? .dusk).artwork()
         } else {
             // Профиль ещё грузится — нейтральное полотно вместо флеша
             // дефолтного пресета, который через секунду сменится.
@@ -86,18 +101,21 @@ struct FriendProfileView: View {
         }
     }
 
-    private var cover: some View {
+    /// Скримы — только на фото из галереи: у градиентных пресетов, надгробия
+    /// и полотна загрузки тёмный низ уже вшит в само полотно.
+    private var coverPlate: some View {
         ZStack {
             coverCanvas
-            LinearGradient(
-                colors: [.black.opacity(0.18), .clear, .black.opacity(0.22)],
-                startPoint: .top, endPoint: .bottom
-            )
+            if customCover != nil, !isDeleted {
+                LinearGradient(
+                    colors: [.black.opacity(0.18), .clear, .black.opacity(0.22)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
         }
         .frame(height: coverHeight)
         .frame(maxWidth: .infinity)
         .clipped()
-        .accessibilityHidden(true)
     }
 
     /// Зеркальная размытая копия обложки под её нижней кромкой: цвета на
@@ -106,19 +124,40 @@ struct FriendProfileView: View {
     private var coverAmbient: some View {
         coverCanvas
             .scaleEffect(x: 1, y: -1)
-            .frame(height: 300)
+            .frame(height: 400)
             .frame(maxWidth: .infinity)
             .blur(radius: 70)
             .saturation(1.35)
             .mask(LinearGradient(stops: [
-                .init(color: .black.opacity(0.55), location: 0),
-                .init(color: .black.opacity(0.22), location: 0.55),
+                .init(color: .black.opacity(0.60), location: 0),
+                .init(color: .black.opacity(0.26), location: 0.55),
                 .init(color: .clear, location: 1),
             ], startPoint: .top, endPoint: .bottom))
             // Первые 40 pt прячутся под непрозрачной обложкой — шов без линии.
             .offset(y: coverHeight - 40)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+
+    /// Обложка + амбиент одним композитом с прозрачным вырезом под аватар
+    /// (модель Discord): в зазоре видна сама страница, а не нарисованное
+    /// кольцо. Геометрия выреза — из констант ряда аватара: центр
+    /// (18 + 56, coverHeight − 54 + 56), диаметр 112 + 2×7 зазора.
+    private var headerBackdrop: some View {
+        ZStack(alignment: .top) {
+            coverAmbient
+            coverPlate
+        }
+        .frame(height: coverHeight - 40 + 400, alignment: .top)
+        .overlay(alignment: .topLeading) {
+            Circle()
+                .frame(width: 126, height: 126)
+                .offset(x: 74 - 63, y: coverHeight + 2 - 63)
+                .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     // MARK: Аватар внахлёст + статус
@@ -134,8 +173,21 @@ struct FriendProfileView: View {
                     statusBubble(status)
                 }
                 Spacer(minLength: 8)
+                // Ряд действий (модель ТГ/ВК: профиль — хаб действий):
+                // «Смотреть вместе» — главное, «Написать» — дверь в личку.
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
+                    if !isDeleted, let onMessage {
+                        Button {
+                            HapticManager.selection()
+                            onMessage()
+                        } label: {
+                            Image(systemName: "bubble.left.fill")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .buttonStyle(PlinkGlassIconButtonStyle(diameter: 42))
+                        .accessibilityLabel("Написать сообщение")
+                    }
                     if !isDeleted, let onWatchTogether {
                         Button {
                             HapticManager.selection()
@@ -175,8 +227,15 @@ struct FriendProfileView: View {
         .accessibilityLabel("Статус: \(text)")
     }
 
+    /// Аватар 112 pt без рисованных колец: зазор вокруг круга пробит в
+    /// задник шапки (headerBackdrop), зазор вокруг точки присутствия —
+    /// сквозь сам аватар. Тап открывает просмотр на весь экран (модель ТГ).
     private var avatarBlock: some View {
-        ZStack(alignment: .bottomTrailing) {
+        Button {
+            guard !isDeleted else { return }
+            HapticManager.selection()
+            showAvatarViewer = true
+        } label: {
             Group {
                 if isDeleted {
                     PlinkDeletedAvatar(size: 112)
@@ -191,20 +250,31 @@ struct FriendProfileView: View {
             }
             .frame(width: 112, height: 112)
             .clipShape(Circle())
-            .overlay(Circle().stroke(V4.canvas, lineWidth: 6))
-            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
-
+            // Вырез под точку: стирает арку аватара вокруг неё, центры
+            // совпадают (смещение +2 компенсирует разницу диаметров 34/26).
+            // У надгробия точки нет — и выреза тоже.
+            .overlay(alignment: .bottomTrailing) {
+                if !isDeleted {
+                    Circle()
+                        .frame(width: 34, height: 34)
+                        .offset(x: 2, y: 2)
+                        .blendMode(.destinationOut)
+                }
+            }
+            .compositingGroup()
             // Точка присутствия (модель Discord): зелёная — в сети,
-            // серая — офлайн. У надгробия точки нет.
-            if !isDeleted {
-                Circle()
-                    .fill(isOnline ? Color(hex: "#23A55A") : Color(hex: "#80848E"))
-                    .frame(width: 26, height: 26)
-                    .overlay(Circle().stroke(V4.canvas, lineWidth: 4))
-                    .offset(x: -2, y: -2)
+            // серая — офлайн.
+            .overlay(alignment: .bottomTrailing) {
+                if !isDeleted {
+                    Circle()
+                        .fill(isOnline ? Color(hex: "#23A55A") : Color(hex: "#80848E"))
+                        .frame(width: 26, height: 26)
+                        .offset(x: -2, y: -2)
+                }
             }
         }
-        .accessibilityLabel(isDeleted ? "Удалённый аккаунт" : "Аватар. \(profile?.presenceText ?? "")")
+        .buttonStyle(.plain)
+        .accessibilityLabel(isDeleted ? "Удалённый аккаунт" : "Аватар. \(profile?.presenceText ?? ""). Открыть на весь экран")
     }
 
     // MARK: Идентичность
@@ -416,5 +486,48 @@ struct FriendProfileView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+/// Просмотр аватара на весь экран (модель Телеграма: тап по кругу в
+/// профиле — фото крупно на тёмном). Закрытие — тап в любом месте или крест.
+private struct FriendAvatarViewer: View {
+    let userId: String
+    let storedURL: String?
+    let letter: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color.black.ignoresSafeArea()
+                PlinkStableAvatar(
+                    url: PlinkAvatarURL.stable(userId: userId, stored: storedURL),
+                    letter: letter,
+                    size: min(geo.size.width - 32, geo.size.height - 160),
+                    userId: userId
+                )
+                .clipShape(Circle())
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { dismiss() }
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(.white.opacity(0.14), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 16)
+                .padding(.trailing, 18)
+                .accessibilityLabel("Закрыть")
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
