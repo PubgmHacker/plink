@@ -433,6 +433,9 @@ struct V4ProfileViewLive: View {
                 counterDivider
                 counter(social.map { "\($0.roomsCreated)" } ?? "—", "комнат")
             }
+            // .plain не бьёт по прозрачным зазорам лейбла — без явной формы
+            // тап между колонками уходил в пустоту.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Статистика профиля")
@@ -513,6 +516,9 @@ struct V4ProfileViewLive: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            // .plain не бьёт по прозрачным зазорам лейбла — тап в просвет
+            // между текстом и стеком аватарок не открывал вкладку.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .plinkGlass(.control, cornerRadius: 20)
