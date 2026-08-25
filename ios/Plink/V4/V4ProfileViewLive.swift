@@ -44,7 +44,7 @@ struct V4ProfileViewLive: View {
     /// физического верха экрана: ~62 pt статус-зоны + ~150 pt тела — как в ВК.
     private let coverHeight: CGFloat = 212
     /// Насколько аватар нахлёстывается на нижний край обложки.
-    private let avatarOverlap: CGFloat = 46
+    private let avatarOverlap: CGFloat = 54
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -203,7 +203,7 @@ struct V4ProfileViewLive: View {
         ZStack {
             coverCanvas
             // Скримы сверху и снизу — контраст статус-бара и кольца аватара.
-            LinearGradient(colors: [.black.opacity(0.20), .clear, .black.opacity(0.30)],
+            LinearGradient(colors: [.black.opacity(0.20), .clear, .black.opacity(0.22)],
                            startPoint: .top, endPoint: .bottom)
         }
         .frame(height: coverHeight)
@@ -274,7 +274,7 @@ struct V4ProfileViewLive: View {
                     }
                 }
             }
-            .frame(height: 96)
+            .frame(height: 112)
         }
         .padding(.horizontal, 18)
         // Нахлёст: ряд поднят на обложку, отрицательный нижний отступ
@@ -283,37 +283,32 @@ struct V4ProfileViewLive: View {
         .padding(.bottom, -avatarOverlap)
     }
 
-    /// Статус-пузырь (модель Discord): реплика владельца профиля рядом с
-    /// аватаром, поверх обложки. Пустой — приглашение задать; тап открывает
-    /// редактор. На лице — одна строка, полный текст живёт в редакторе.
+    /// Статус-«мысль» (модель Discord): пузырь с хвостом-точками у аватара,
+    /// до двух строк на лице. Пустой — приглашение задать; тап открывает
+    /// редактор, полный текст живёт в нём.
     private var statusBubble: some View {
         Button {
             HapticManager.selection()
             showStatusEditor = true
         } label: {
-            HStack(spacing: 6) {
-                if store?.statusText.isEmpty != false {
-                    Image(systemName: "plus.bubble.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(V4.muted)
-                    Text("Добавить статус")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(V4.muted)
-                } else {
-                    Text(store?.statusText ?? "")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(V4.ink)
+            PlinkStatusBubbleShell(interactive: true) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if store?.statusText.isEmpty != false {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(V4.muted)
+                        Text("Что смотрим сегодня?")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                    } else {
+                        Text(store?.statusText ?? "")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(V4.ink)
+                    }
                 }
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
             }
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            // Речевой пузырь: острее прижатый к аватару нижний угол — хвост
-            // реплики, как у статуса в Discord.
-            .plinkGlass(.control, in: UnevenRoundedRectangle(
-                topLeadingRadius: 16, bottomLeadingRadius: 5,
-                bottomTrailingRadius: 16, topTrailingRadius: 16
-            ), interactive: true)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(store?.statusText.isEmpty != false ? "Добавить статус" : "Статус: \(store?.statusText ?? ""). Изменить")
@@ -383,9 +378,8 @@ struct V4ProfileViewLive: View {
         }
     }
 
-    /// Аватар 96 pt с бейджем камеры — редактирование очевидно без слов.
-    /// Кольцо цвета канваса отделяет круг от обложки (как в ВК), тень
-    /// приподнимает его над ней.
+    /// Аватар 112 pt: масса и толстое кольцо цвета канваса «врезают» круг
+    /// в обложку (модель Discord — вырез, а не наклейка), тень приподнимает.
     private var avatarBlock: some View {
         Button {
             HapticManager.selection()
@@ -401,16 +395,16 @@ struct V4ProfileViewLive: View {
                             case .success(let image):
                                 image.resizable().scaledToFill()
                             default:
-                                V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 96, isPremium: store?.isPremium == true, isAdmin: isAdmin)
+                                V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                             }
                         }
                     } else {
-                        V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 96, isPremium: store?.isPremium == true, isAdmin: isAdmin)
+                        V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                     }
                 }
-                .frame(width: 96, height: 96)
+                .frame(width: 112, height: 112)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(V4.canvas, lineWidth: 3))
+                .overlay(Circle().stroke(V4.canvas, lineWidth: 6))
                 .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
 
                 // Точка присутствия (модель Discord) вместо бейджа камеры:
@@ -419,8 +413,8 @@ struct V4ProfileViewLive: View {
                 // по-прежнему открывает пикер (как в ВК, без бейджа).
                 Circle()
                     .fill(Color(hex: "#23A55A"))
-                    .frame(width: 22, height: 22)
-                    .overlay(Circle().stroke(V4.canvas, lineWidth: 3))
+                    .frame(width: 26, height: 26)
+                    .overlay(Circle().stroke(V4.canvas, lineWidth: 4))
                     .offset(x: -2, y: -2)
             }
         }
@@ -648,7 +642,31 @@ struct V4ProfileViewLive: View {
     }
 }
 
-// MARK: - Редактор статуса
+// MARK: - Статус: пузырь и редактор
+
+/// Статус-«мысль» (модель Discord): стеклянный пузырь с хвостом из двух
+/// точек, шагающих вниз-влево к аватару. Одна оболочка на оба профиля —
+/// свой (кнопка-редактор) и профиль друга (только чтение).
+struct PlinkStatusBubbleShell<Content: View>: View {
+    var interactive = false
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(.horizontal, 13)
+            .padding(.vertical, 10)
+            .plinkGlass(.control, in: RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: interactive)
+            .overlay(alignment: .bottomLeading) { tailDot(9).offset(x: 2, y: 7) }
+            .overlay(alignment: .bottomLeading) { tailDot(5).offset(x: -7, y: 13) }
+    }
+
+    /// Точка хвоста — то же стекло, что и пузырь: мысль из одного материала.
+    private func tailDot(_ diameter: CGFloat) -> some View {
+        Color.clear
+            .frame(width: diameter, height: diameter)
+            .plinkGlass(.control, in: Circle())
+    }
+}
 
 /// Шит «Свой статус» (модель Discord): одно поле, лимит 100 символов —
 /// как на сервере (PATCH /profile обрезает и превращает «» в NULL).

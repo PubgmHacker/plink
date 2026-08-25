@@ -22,7 +22,7 @@ struct FriendProfileView: View {
     private let theme = V4Theme.saved
     /// Шит без статус-бара — полотно ниже, чем во вкладке профиля (212).
     private let coverHeight: CGFloat = 176
-    private let avatarOverlap: CGFloat = 46
+    private let avatarOverlap: CGFloat = 54
 
     private var isDeleted: Bool {
         profile?.deleted == true || usernameHint.hasPrefix("deleted_")
@@ -90,7 +90,7 @@ struct FriendProfileView: View {
         ZStack {
             coverCanvas
             LinearGradient(
-                colors: [.black.opacity(0.18), .clear, .black.opacity(0.30)],
+                colors: [.black.opacity(0.18), .clear, .black.opacity(0.22)],
                 startPoint: .top, endPoint: .bottom
             )
         }
@@ -154,7 +154,7 @@ struct FriendProfileView: View {
                     }
                 }
             }
-            .frame(height: 96)
+            .frame(height: 112)
         }
         .padding(.horizontal, 18)
         // Нахлёст: ряд поднят на обложку, отрицательный нижний отступ
@@ -163,38 +163,35 @@ struct FriendProfileView: View {
         .padding(.bottom, -avatarOverlap)
     }
 
-    /// Статус-пузырь как у своего профиля, но реплика чужая — только чтение.
+    /// Статус-«мысль» как у своего профиля, но реплика чужая — только чтение.
     private func statusBubble(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(V4.ink)
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .plinkGlass(.control, in: UnevenRoundedRectangle(
-                topLeadingRadius: 16, bottomLeadingRadius: 5,
-                bottomTrailingRadius: 16, topTrailingRadius: 16
-            ))
-            .accessibilityLabel("Статус: \(text)")
+        PlinkStatusBubbleShell {
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(V4.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
+        .accessibilityLabel("Статус: \(text)")
     }
 
     private var avatarBlock: some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
                 if isDeleted {
-                    PlinkDeletedAvatar(size: 96)
+                    PlinkDeletedAvatar(size: 112)
                 } else {
                     PlinkStableAvatar(
                         url: PlinkAvatarURL.stable(userId: userId, stored: profile?.avatarURL),
                         letter: String((profile?.displayTitle ?? usernameHint).prefix(1)).uppercased(),
-                        size: 96,
+                        size: 112,
                         userId: userId
                     )
                 }
             }
-            .frame(width: 96, height: 96)
+            .frame(width: 112, height: 112)
             .clipShape(Circle())
-            .overlay(Circle().stroke(V4.canvas, lineWidth: 3))
+            .overlay(Circle().stroke(V4.canvas, lineWidth: 6))
             .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
 
             // Точка присутствия (модель Discord): зелёная — в сети,
@@ -202,8 +199,8 @@ struct FriendProfileView: View {
             if !isDeleted {
                 Circle()
                     .fill(isOnline ? Color(hex: "#23A55A") : Color(hex: "#80848E"))
-                    .frame(width: 22, height: 22)
-                    .overlay(Circle().stroke(V4.canvas, lineWidth: 3))
+                    .frame(width: 26, height: 26)
+                    .overlay(Circle().stroke(V4.canvas, lineWidth: 4))
                     .offset(x: -2, y: -2)
             }
         }
