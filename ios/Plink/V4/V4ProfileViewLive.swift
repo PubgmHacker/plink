@@ -45,6 +45,16 @@ struct V4ProfileViewLive: View {
     private var avatarURL: URL? { currentAvatarURL ?? store?.avatarURL }
     /// Обложка ложится под статус-бар, поэтому высота считается от
     /// физического верха экрана: ~62 pt статус-зоны + ~150 pt тела — как в ВК.
+    /// Акцент лица профиля: обложка владельца, а не тема приложения. Своя
+    /// фотография — тон считается с неё (PlinkCoverAccent), пресет отдаёт
+    /// свой. Тема остаётся оформлением приложения: настройки, шиты, пикеры.
+    @MainActor private var faceAccent: Color {
+        if store?.usesCustomCover == true, let image = store?.customCoverImage {
+            return PlinkCoverAccent.of(image)
+        }
+        return (store?.coverStyle ?? .dusk).accent
+    }
+
     private let coverHeight: CGFloat = 212
     /// Насколько аватар нахлёстывается на нижний край обложки.
     private let avatarOverlap: CGFloat = 54
@@ -234,18 +244,35 @@ struct V4ProfileViewLive: View {
     /// Геометрия выреза выводится из констант ряда аватара: центр
     /// (18 + 56, coverHeight − 54 + 56), диаметр 112 + 2×7 зазора.
     private var headerBackdrop: some View {
-        ZStack(alignment: .top) {
-            coverAmbient
-            coverPlate
+        let strip = coverHeight - 40 + 400
+        return ZStack(alignment: .top) {
+            // Канва под композитом. Вырез открывает то, что лежит ниже
+            // ВСЕГО профиля, а ниже лежит V4LivingBackground с ярким пятном
+            // темы ровно в левом верхнем углу — под аватаром. Отсюда и брался
+            // синий «ободок» на фиолетовой обложке. Своя канва закрывает
+            // пятно и тает к низу полосы, чтобы живой фон вернулся без шва.
+            LinearGradient(stops: [
+                .init(color: V4.canvas, location: 0),
+                .init(color: V4.canvas, location: min(0.95, (coverHeight + 120) / strip)),
+                .init(color: V4.canvas.opacity(0), location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: strip)
+            .frame(maxWidth: .infinity)
+
+            ZStack(alignment: .top) {
+                coverAmbient
+                coverPlate
+            }
+            .frame(height: strip, alignment: .top)
+            .overlay(alignment: .topLeading) {
+                Circle()
+                    .frame(width: 126, height: 126)
+                    .offset(x: 74 - 63, y: coverHeight + 2 - 63)
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
         }
-        .frame(height: coverHeight - 40 + 400, alignment: .top)
-        .overlay(alignment: .topLeading) {
-            Circle()
-                .frame(width: 126, height: 126)
-                .offset(x: 74 - 63, y: coverHeight + 2 - 63)
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
+        .frame(height: strip, alignment: .top)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -306,7 +333,7 @@ struct V4ProfileViewLive: View {
                                 .minimumScaleFactor(0.8)
                         }
                     }
-                    .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 42, cornerRadius: 14))
+                    .buttonStyle(PlinkGlassButtonStyle(tint: faceAccent, height: 42, cornerRadius: 14))
                     .accessibilityHint("Имя, почта и личные данные")
 
                     if let username = store?.username, !username.isEmpty,
@@ -414,7 +441,7 @@ struct V4ProfileViewLive: View {
                         HStack(spacing: 5) {
                             Image(systemName: badge.symbol)
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(theme.accentColor)
+                                .foregroundStyle(faceAccent)
                             Text(badge.title)
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(V4.ink)
@@ -449,11 +476,11 @@ struct V4ProfileViewLive: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
+                            V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), seed: AuthService.shared.currentUserValue?.id ?? store?.username ?? "", size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                         }
                     }
                 } else {
-                    V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), theme: theme, size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
+                    V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), seed: AuthService.shared.currentUserValue?.id ?? store?.username ?? "", size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                 }
             }
             .frame(width: 112, height: 112)
@@ -533,7 +560,7 @@ struct V4ProfileViewLive: View {
     /// карты нет: строка «История просмотров» остаётся в разделах ниже.
     @ViewBuilder private var watchRailCard: some View {
         if let history = social?.watchHistory, !history.isEmpty {
-            ProfileWatchRailCard(history: history, accent: theme.accentColor) {
+            ProfileWatchRailCard(history: history, accent: faceAccent) {
                 showHistory = true
             }
             .padding(.horizontal, 18)
@@ -615,7 +642,7 @@ struct V4ProfileViewLive: View {
                 if alive.isEmpty {
                     Image(systemName: "person.2.badge.plus")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(theme.accentColor)
+                        .foregroundStyle(faceAccent)
                 } else {
                     // Стек внахлёст: до пяти живых аватарок, кольцо цвета
                     // канваса отделяет круги друг от друга.
@@ -693,7 +720,7 @@ struct V4ProfileViewLive: View {
             // а длинный @username отжимал заголовок в «Управление ак…».
             V4ProfileRow(
                 icon: "person.crop.circle.badge.checkmark",
-                tint: theme.accentColor,
+                tint: faceAccent,
                 title: "Управление аккаунтом"
             ) { showAccountCenter = true }
 
@@ -701,7 +728,7 @@ struct V4ProfileViewLive: View {
 
             V4ProfileRow(
                 icon: "chart.bar.fill",
-                tint: theme.accentColor,
+                tint: faceAccent,
                 title: "Статистика и достижения"
             ) { showStats = true }
 
@@ -711,7 +738,7 @@ struct V4ProfileViewLive: View {
             // как статистика и настройки, а не лентой на лице профиля.
             V4ProfileRow(
                 icon: "clock.arrow.circlepath",
-                tint: theme.accentColor,
+                tint: faceAccent,
                 title: "История просмотров",
                 value: historyManager.history.isEmpty ? nil : "\(historyManager.history.count)"
             ) { showHistory = true }
@@ -739,7 +766,7 @@ struct V4ProfileViewLive: View {
         VStack(spacing: 0) {
             V4ProfileRow(
                 icon: "gearshape.fill",
-                tint: theme.accentColor,
+                tint: faceAccent,
                 title: "Общие настройки"
             ) { showSettings = true }
         }
@@ -929,6 +956,23 @@ enum V4CoverStyle: String, CaseIterable, Identifiable {
         case .aurora: return "Сияние"
         case .graphite: return "Графит"
         case .shimmer: return "Перелив"
+        }
+    }
+
+    /// Акцент лица профиля. Берётся от самой обложки, а не от темы: кнопка
+    /// «Редактировать», иконки разделов и рельса на фиолетовой обложке не
+    /// имеют права быть синими только потому, что в настройках выбрана
+    /// «Электрик». Не спектральное среднее полотна, а его сигнальный тон,
+    /// поднятый до читаемого на стекле уровня.
+    var accent: Color {
+        switch self {
+        case .dusk: return Color(hex: "#7C5CFF")
+        case .neon: return Color(hex: "#4C6BFF")
+        case .ember: return Color(hex: "#FF7A52")
+        case .midnight: return Color(hex: "#4FB4FF")
+        case .aurora: return Color(hex: "#2FD9A6")
+        case .graphite: return Color(hex: "#93A7C8")
+        case .shimmer: return Color(hex: "#B24BE8")
         }
     }
 

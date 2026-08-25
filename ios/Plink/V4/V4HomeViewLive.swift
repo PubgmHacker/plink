@@ -447,7 +447,7 @@ struct V4HomeViewLive: View {
         HStack(spacing: 10) {
             V4Avatar(
                 letter: avatarLetter,
-                theme: theme,
+                seed: AuthService.shared.currentUserValue?.id ?? "",
                 isPremium: PremiumStatusManager.shared.isPremium,
                 imageURL: PlinkAvatarURL.resolve(userId: AuthService.shared.currentUserValue?.id, stored: nil)
             )

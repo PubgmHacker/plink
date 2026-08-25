@@ -48,15 +48,13 @@ struct PlinkStableAvatar: View {
         }
     }
 
+    /// Цвет личности (Plink/Design/Identity): тот же ключ, что у V4Avatar,
+    /// поэтому человек выглядит одинаково в чате, в списке друзей и на лице
+    /// профиля. Раньше здесь была пара «акцент темы + purple» — все буквы в
+    /// приложении были одного цвета и менялись вместе с оформлением.
     private var letterView: some View {
         ZStack {
-            Circle().fill(
-                LinearGradient(
-                    colors: [Cinema2026.accent.opacity(0.75), Color.purple.opacity(0.55)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            Circle().fill(PlinkAvatarPalette.gradient(for: userId ?? letter))
             Text(letter)
                 .font(.system(size: max(10, size * 0.38), weight: .bold))
                 .foregroundColor(.white)

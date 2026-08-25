@@ -34,7 +34,7 @@ extension V4FriendsViewLive {
             NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
         } label: {
             HStack(spacing: 12) {
-                V4Avatar(letter: String(friend.displayTitle.prefix(1)).uppercased(), theme: theme, size: 40)
+                V4Avatar(letter: String(friend.displayTitle.prefix(1)).uppercased(), seed: friend.id, size: 40)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(friend.displayTitle)
                         .font(.system(size: 14, weight: .bold))

@@ -533,7 +533,7 @@ struct V4FriendsViewLive: View {
             HStack(spacing: 12) {
                 V4Avatar(
                     letter: PlinkAvatarURL.letter(from: invite.fromUsername),
-                    theme: theme,
+                    seed: invite.fromUserID,
                     size: 44,
                     imageURL: PlinkAvatarURL.resolve(userId: invite.fromUserID, stored: invite.fromAvatarURL)
                 )
@@ -1315,7 +1315,7 @@ private struct FriendRequestsSheet: View {
                                 VStack(spacing: 0) {
                                     ForEach(store.outgoing) { req in
                                         HStack(spacing: 12) {
-                                            V4Avatar(letter: String(req.toUser.username.prefix(1)), theme: theme, size: 40)
+                                            V4Avatar(letter: String(req.toUser.username.prefix(1)), seed: req.toUser.id, size: 40)
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(req.toUser.username)
                                                     .font(.system(size: 15, weight: .bold))
@@ -1359,7 +1359,7 @@ private struct FriendRequestsSheet: View {
 
     private func incomingRow(_ req: FriendRequest) -> some View {
         HStack(spacing: 12) {
-            V4Avatar(letter: String(req.fromUser.username.prefix(1)), theme: theme, size: 40)
+            V4Avatar(letter: String(req.fromUser.username.prefix(1)), seed: req.fromUser.id, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text(req.fromUser.username)
                     .font(.system(size: 15, weight: .bold))

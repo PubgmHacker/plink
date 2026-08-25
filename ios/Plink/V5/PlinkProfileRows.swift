@@ -1074,11 +1074,11 @@ internal struct AccountCenterView: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            V4Avatar(letter: String(displayName.prefix(1)), theme: theme, size: 56)
+                            V4Avatar(letter: String(displayName.prefix(1)), seed: user?.id ?? username, size: 56)
                         }
                     }
                 } else {
-                    V4Avatar(letter: String(displayName.prefix(1)), theme: theme, size: 56)
+                    V4Avatar(letter: String(displayName.prefix(1)), seed: user?.id ?? username, size: 56)
                 }
             }
             .frame(width: 56, height: 56)

@@ -8,14 +8,16 @@ import Foundation
 
 struct V4Avatar: View {
     let letter: String
-    let theme: V4Theme
+    /// Ключ личности: идентификатор или @ник владельца буквы. Пусто — цвет
+    /// выводится из самой буквы. Тема приложения здесь не участвует: один
+    /// человек — один цвет во всех списках, у любого смотрящего.
+    var seed: String = ""
     var size: CGFloat = 43
     var isPremium: Bool = false
     var isAdmin: Bool = false
     /// Optional remote photo — falls back to letter gradient when missing/failed.
     var imageURL: URL? = nil
     var body: some View {
-        let (_, c1, c2, _) = theme.colors
         ZStack {
             if let imageURL {
                 AsyncImage(url: imageURL) { phase in
@@ -23,11 +25,11 @@ struct V4Avatar: View {
                     case .success(let image):
                         image.resizable().scaledToFill()
                     default:
-                        letterFallback(c1: c1, c2: c2)
+                        letterFallback
                     }
                 }
             } else {
-                letterFallback(c1: c1, c2: c2)
+                letterFallback
             }
         }
         .frame(width: size, height: size)
@@ -40,10 +42,13 @@ struct V4Avatar: View {
         .plinkIdentityRing(isAdmin: isAdmin, isPremium: isPremium, diameter: size)
     }
 
-    private func letterFallback(c1: Color, c2: Color) -> some View {
+    /// Градиент личности вместо градиента темы: до 25.08.2026 буква красилась
+    /// парой из V4Theme.colors, поэтому все люди в списке были одного цвета,
+    /// и этот цвет менялся вместе с оформлением приложения.
+    private var letterFallback: some View {
         ZStack {
             Circle()
-                .fill(LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .fill(PlinkAvatarPalette.gradient(for: seed.isEmpty ? letter : seed))
             Text(letter)
                 // Буква растёт вместе с кругом: фиксированные 14–16 pt в
                 // аватаре 96 pt (хиро профиля) выглядели горошиной.

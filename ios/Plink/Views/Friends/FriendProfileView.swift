@@ -31,9 +31,15 @@ struct FriendProfileView: View {
     @State private var isSendingRequest = false
     @State private var friendRequestSent = false
 
-    /// Акцент — сохранённая тема приложения: профиль открывается шитом,
-    /// у него нет прямого доступа к теме корня.
-    private let theme = V4Theme.saved
+    /// Акцент лица — обложка ХОЗЯИНА профиля, а не тема смотрящего. Чужой
+    /// профиль тем более не имеет права краситься моими настройками: у
+    /// надгробия акцента нет вовсе, у фотографии тон считается с неё.
+    @MainActor private var faceAccent: Color {
+        if isDeleted { return Color(hex: "#93A7C8") }
+        if let customCover { return PlinkCoverAccent.of(customCover) }
+        if let p = profile { return (V4CoverStyle.parse(p.coverURL) ?? .dusk).accent }
+        return V4CoverStyle.dusk.accent
+    }
     /// Шит без статус-бара — полотно ниже, чем во вкладке профиля (212).
     private let coverHeight: CGFloat = 176
     private let avatarOverlap: CGFloat = 54
@@ -58,7 +64,7 @@ struct FriendProfileView: View {
                     if profile?.closed == true {
                         // Закрытый профиль (модель ВК): идентичность и
                         // присутствие видны, статистика/просмотры/друзья — нет.
-                        ProfileClosedCard(accent: theme.accentColor)
+                        ProfileClosedCard(accent: faceAccent)
                             .padding(.horizontal, 18)
                             .padding(.top, 16)
                     } else {
@@ -109,7 +115,7 @@ struct FriendProfileView: View {
                 ProfileFriendListSheet(
                     userId: userId,
                     title: "Друзья",
-                    accent: theme.accentColor,
+                    accent: faceAccent,
                     onFriend: { friend in
                         // Синхронный своп шитов — тот же приём, что у
                         // «Написать» в V4FriendsView: список закрывается,
@@ -199,18 +205,33 @@ struct FriendProfileView: View {
     /// кольцо. Геометрия выреза — из констант ряда аватара: центр
     /// (18 + 56, coverHeight − 54 + 56), диаметр 112 + 2×7 зазора.
     private var headerBackdrop: some View {
-        ZStack(alignment: .top) {
-            coverAmbient
-            coverPlate
+        let strip = coverHeight - 40 + 400
+        return ZStack(alignment: .top) {
+            // Своя канва под композитом: сквозь вырез видна страница профиля,
+            // а не корневой живой фон, у которого светлое пятно темы стоит
+            // ровно под аватаром — тот самый «ободок, зависящий от темы».
+            LinearGradient(stops: [
+                .init(color: V4.canvas, location: 0),
+                .init(color: V4.canvas, location: min(0.95, (coverHeight + 120) / strip)),
+                .init(color: V4.canvas.opacity(0), location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: strip)
+            .frame(maxWidth: .infinity)
+
+            ZStack(alignment: .top) {
+                coverAmbient
+                coverPlate
+            }
+            .frame(height: strip, alignment: .top)
+            .overlay(alignment: .topLeading) {
+                Circle()
+                    .frame(width: 126, height: 126)
+                    .offset(x: 74 - 63, y: coverHeight + 2 - 63)
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
         }
-        .frame(height: coverHeight - 40 + 400, alignment: .top)
-        .overlay(alignment: .topLeading) {
-            Circle()
-                .frame(width: 126, height: 126)
-                .offset(x: 74 - 63, y: coverHeight + 2 - 63)
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
+        .frame(height: strip, alignment: .top)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -256,7 +277,7 @@ struct FriendProfileView: View {
                                     .minimumScaleFactor(0.8)
                             }
                         }
-                        .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 42, cornerRadius: 14))
+                        .buttonStyle(PlinkGlassButtonStyle(tint: faceAccent, height: 42, cornerRadius: 14))
                         .accessibilityLabel("Смотреть вместе")
                     }
                 }
@@ -393,7 +414,7 @@ struct FriendProfileView: View {
                         HStack(spacing: 5) {
                             Image(systemName: badge.symbol)
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(theme.accentColor)
+                                .foregroundStyle(faceAccent)
                             Text(badge.title)
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(V4.ink)
@@ -486,7 +507,7 @@ struct FriendProfileView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 46, cornerRadius: 16))
+            .buttonStyle(PlinkGlassButtonStyle(tint: faceAccent, height: 46, cornerRadius: 16))
             .disabled(isSendingRequest || friendRequestSent)
             .padding(.horizontal, 18)
             .padding(.top, 16)
@@ -498,13 +519,13 @@ struct FriendProfileView: View {
 
     @ViewBuilder private var historyCard: some View {
         if let history = profile?.watchHistory, !history.isEmpty {
-            ProfileWatchRailCard(history: history, accent: theme.accentColor)
+            ProfileWatchRailCard(history: history, accent: faceAccent)
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
         } else if isLoading, profile == nil {
             HStack {
                 Spacer()
-                ProgressView().tint(theme.accentColor)
+                ProgressView().tint(faceAccent)
                 Spacer()
             }
             .padding(.top, 28)
@@ -528,7 +549,7 @@ struct FriendProfileView: View {
                         Text("Повторить")
                     }
                 }
-                .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 40, cornerRadius: 14))
+                .buttonStyle(PlinkGlassButtonStyle(tint: faceAccent, height: 40, cornerRadius: 14))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
