@@ -24,16 +24,28 @@ export type PrismaLike = {
   };
 };
 
-function mediaTitleFromRoom(room: { name?: string; mediaItem?: string | null }): string {
+function mediaMetaFromRoom(room: { name?: string; mediaItem?: string | null }): {
+  title: string;
+  thumb: string | null;
+  kind: string | null;
+} {
+  let title: string | null = null;
+  let thumb: string | null = null;
+  let kind: string | null = null;
   if (room.mediaItem) {
     try {
       const parsed = typeof room.mediaItem === 'string' ? JSON.parse(room.mediaItem) : room.mediaItem;
-      if (parsed?.title && typeof parsed.title === 'string') return parsed.title.slice(0, 200);
+      if (parsed?.title && typeof parsed.title === 'string') title = parsed.title.slice(0, 200);
+      // Постер — только http(s): data-URL в строку истории не пускаем.
+      if (parsed?.thumbnailURL && typeof parsed.thumbnailURL === 'string' && /^https?:\/\//i.test(parsed.thumbnailURL)) {
+        thumb = parsed.thumbnailURL.slice(0, 2000);
+      }
+      if (parsed?.mediaType && typeof parsed.mediaType === 'string') kind = parsed.mediaType.slice(0, 32);
     } catch {
       /* ignore */
     }
   }
-  return (room.name || 'Комната').slice(0, 200);
+  return { title: title ?? (room.name || 'Комната').slice(0, 200), thumb, kind };
 }
 
 /** Record one watch-history row (dedupe: same user+room within last hour). */
@@ -53,11 +65,14 @@ export async function recordWatchHistory(
     });
     if (recent) return;
 
+    const meta = mediaMetaFromRoom(room);
     await prisma.watchHistory.create({
       data: {
         userID: userId,
         roomID: room.id,
-        mediaTitle: mediaTitleFromRoom(room),
+        mediaTitle: meta.title,
+        mediaThumb: meta.thumb,
+        mediaKind: meta.kind,
       },
     });
   } catch (e: any) {

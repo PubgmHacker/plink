@@ -383,7 +383,7 @@ export async function buildApp(): Promise<{
       status: ok ? 'ok' : 'degraded',
       timestamp: Date.now(),
       uptime: process.uptime(),
-      version: '2.1.0-sync',
+      version: '2.2.0-social',
       environment: config.NODE_ENV,
       services: {
         database: db ? 'up' : 'down',

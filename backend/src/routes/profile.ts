@@ -24,6 +24,122 @@ function parseAvatarDataURL(avatarData: string): { mime: string; buffer: Buffer 
   return { mime, buffer };
 }
 
+// ─── Social profile helpers (VK-style privacy + media art) ───
+
+/// Watch-history poster with live fallback: rows written before the
+/// mediaThumb column existed pull art from the room's current mediaItem,
+/// so old history gets posters without a backfill.
+function historyMedia(h: {
+  mediaThumb?: string | null;
+  mediaKind?: string | null;
+  room?: { mediaItem?: string | null } | null;
+}): { thumb: string | null; kind: string | null } {
+  let thumb = h.mediaThumb ?? null;
+  let kind = h.mediaKind ?? null;
+  if ((!thumb || !kind) && h.room?.mediaItem) {
+    try {
+      const parsed = JSON.parse(h.room.mediaItem);
+      if (!thumb && typeof parsed?.thumbnailURL === 'string' && /^https?:\/\//i.test(parsed.thumbnailURL)) {
+        thumb = parsed.thumbnailURL.slice(0, 2000);
+      }
+      if (!kind && typeof parsed?.mediaType === 'string') {
+        kind = parsed.mediaType.slice(0, 32);
+      }
+    } catch {
+      /* ignore malformed mediaItem */
+    }
+  }
+  return { thumb, kind };
+}
+
+/// Accepted friendships live as directed rows in both directions, but legacy
+/// data may hold only one — check both before treating the viewer as a stranger.
+async function areFriends(a: string, b: string): Promise<boolean> {
+  if (!a || !b || a === b) return false;
+  const row = await prisma.friendship.findFirst({
+    where: { OR: [{ userID: a, friendID: b }, { userID: b, friendID: a }] },
+    select: { id: true },
+  });
+  return Boolean(row);
+}
+
+/// Friend rail for profiles: pinned first, then newest friendships.
+/// Tombstoned accounts are skipped; presence resolved per friend.
+async function friendsPreview(userId: string, take = 12): Promise<Array<{
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarURL: string | null;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+}>> {
+  const rows = await prisma.friendship.findMany({
+    where: { userID: userId },
+    orderBy: [{ isPinned: 'desc' }, { friendsSince: 'desc' }],
+    take,
+    include: {
+      friend: {
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          avatarURL: true,
+          isOnline: true,
+          lastSeenAt: true,
+          updatedAt: true,
+          createdAt: true,
+          deletedAt: true,
+        },
+      },
+    },
+  });
+
+  let resolvePresence: any = null;
+  try {
+    resolvePresence = (await import('../services/presence.js')).resolvePresence;
+  } catch {
+    /* optional */
+  }
+
+  const out: Array<{
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarURL: string | null;
+    isOnline: boolean;
+    lastSeenAt: string | null;
+  }> = [];
+  for (const r of rows as any[]) {
+    const f = r.friend;
+    if (!f || f.deletedAt) continue;
+    let isOnline = Boolean(f.isOnline);
+    let lastSeenAt: string | null = null;
+    if (resolvePresence) {
+      try {
+        const p = resolvePresence({
+          id: f.id,
+          isOnline: f.isOnline,
+          lastSeenAt: f.lastSeenAt ?? null,
+          updatedAt: f.updatedAt ?? f.createdAt,
+        });
+        isOnline = Boolean(p.isOnline);
+        lastSeenAt = p.lastSeenAt ?? null;
+      } catch {
+        /* optional */
+      }
+    }
+    out.push({
+      id: String(f.id),
+      username: String(f.username ?? 'user'),
+      displayName: (f.displayName as string | null) ?? null,
+      avatarURL: (f.avatarURL as string | null) ?? null,
+      isOnline,
+      lastSeenAt,
+    });
+  }
+  return out;
+}
+
 export default async function profileRoutes(fastify) {
   // POST /users/me/avatar — upload avatar as base64 data URL, persist in DB.
   // Rate limited, MIME-validated, and size-capped: this endpoint writes
@@ -171,6 +287,7 @@ export default async function profileRoutes(fastify) {
         displayName: true,
         coverURL: true,
         statusText: true,
+        profileClosed: true,
         isPremium: true,
         premiumUntil: true,
         role: true,
@@ -191,6 +308,7 @@ export default async function profileRoutes(fastify) {
       displayName: string | null;
       coverURL: string | null;
       statusText: string | null;
+      profileClosed: boolean;
       isPremium: boolean;
       premiumUntil: Date | null;
       role: string;
@@ -236,10 +354,12 @@ export default async function profileRoutes(fastify) {
   // Pack v3: PATCH /users/me — обновление username + avatarURL + displayName + coverURL
   // Added displayName + coverURL (Telegram-style naming split).
   fastify.patch('/users/me', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { username, avatarURL, displayName, coverURL, statusText } = request.body;
+    const { username, avatarURL, displayName, coverURL, statusText, profileClosed } = request.body;
     const data: any = {};
     if (username && username.trim().length >= 2) data.username = username.trim();
     if (avatarURL !== undefined) data.avatarURL = avatarURL;
+    // profileClosed — VK-style closed profile: friends-only stats/history/friend list.
+    if (typeof profileClosed === 'boolean') data.profileClosed = profileClosed;
     // displayName — optional Telegram-style display name (1-50 chars).
     // Empty string clears it (user wants to fall back to @username).
     if (displayName !== undefined) {
@@ -290,7 +410,7 @@ export default async function profileRoutes(fastify) {
       where: { id: request.user.id },
       data,
       select: { id: true, username: true, email: true, avatarURL: true, avatarData: true,
-                displayName: true, coverURL: true, statusText: true,
+                displayName: true, coverURL: true, statusText: true, profileClosed: true,
                 isPremium: true, premiumUntil: true, role: true, createdAt: true }
     });
     reply.send(updated);
@@ -460,6 +580,7 @@ export default async function profileRoutes(fastify) {
           avatarURL: true,
           coverURL: true,
           statusText: true,
+          profileClosed: true,
           isOnline: true,
           lastSeenAt: true,
           isPremium: true,
@@ -502,11 +623,14 @@ export default async function profileRoutes(fastify) {
         lastSeenAt: null,
         isPremium: false,
         isDeleted: true,
+        isClosed: false,
+        isFriend: false,
         friendsCount: 0,
         roomsCreated: 0,
         filmsWatched: 0,
         watchTimeMinutes: 0,
         watchHistory: [],
+        friends: [],
         badges: [],
         joinedAt: raw.createdAt ?? null,
       });
@@ -526,36 +650,6 @@ export default async function profileRoutes(fastify) {
       updatedAt: (raw.updatedAt as Date | null | undefined) ?? null,
     };
 
-    // Explicit tuple types — never let Promise.all collapse into a giant union
-    const friendsCount: number = await prisma.friendship.count({ where: { userID: id } });
-    const roomsCreated: number = await prisma.room.count({ where: { hostID: id } });
-    const watchHistory: Array<{
-      id: string;
-      mediaTitle: string | null;
-      watchedAt: Date;
-      roomID: string | null;
-    }> = await prisma.watchHistory.findMany({
-      where: { userID: id },
-      orderBy: { watchedAt: 'desc' },
-      take: 20,
-      select: {
-        id: true,
-        mediaTitle: true,
-        watchedAt: true,
-        roomID: true,
-      },
-    });
-    const totalHistory: number = await prisma.watchHistory.count({ where: { userID: id } });
-    const watchTimeMinutes = totalHistory * 90;
-
-    const badges: string[] = [];
-    if (totalHistory >= 100) badges.push('cinemaniac');
-    if (friendsCount >= 50) badges.push('social');
-    if (roomsCreated >= 100) badges.push('host');
-    if (roomsCreated >= 10) badges.push('host_rising');
-    if (totalHistory >= 10) badges.push('regular');
-    if (profileUser.isPremium) badges.push('plink_plus');
-
     let isOnline: boolean = profileUser.isOnline;
     let lastSeenAt: string | null = null;
     try {
@@ -572,6 +666,77 @@ export default async function profileRoutes(fastify) {
       /* optional */
     }
 
+    // ─── VK-style privacy gate ───
+    // Closed profile hides stats, watch history and friends from strangers.
+    // Identity (name, avatar, cover, status) and presence stay public — as in VK.
+    const viewerId: string = request.user.id;
+    const isSelf = viewerId === profileUser.id;
+    const isFriend = isSelf ? false : await areFriends(viewerId, profileUser.id);
+    const closed = Boolean((raw as any).profileClosed) && !isSelf && !isFriend;
+
+    if (closed) {
+      return reply.send({
+        id: profileUser.id,
+        username: profileUser.username,
+        displayName: profileUser.displayName ?? profileUser.username,
+        avatarURL: profileUser.avatarURL,
+        coverURL: profileUser.coverURL,
+        statusText: profileUser.statusText,
+        isOnline,
+        lastSeenAt,
+        isPremium: profileUser.isPremium,
+        isDeleted: false,
+        isClosed: true,
+        isSelf: false,
+        isFriend,
+        friendsCount: 0,
+        roomsCreated: 0,
+        filmsWatched: 0,
+        watchTimeMinutes: 0,
+        watchHistory: [],
+        friends: [],
+        badges: [],
+        joinedAt: profileUser.createdAt,
+      });
+    }
+
+    // Explicit tuple types — never let Promise.all collapse into a giant union
+    const friendsCount: number = await prisma.friendship.count({ where: { userID: id } });
+    const roomsCreated: number = await prisma.room.count({ where: { hostID: id } });
+    const watchHistory: Array<{
+      id: string;
+      mediaTitle: string | null;
+      mediaThumb: string | null;
+      mediaKind: string | null;
+      watchedAt: Date;
+      roomID: string | null;
+      room: { mediaItem: string | null } | null;
+    }> = await prisma.watchHistory.findMany({
+      where: { userID: id },
+      orderBy: { watchedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        mediaTitle: true,
+        mediaThumb: true,
+        mediaKind: true,
+        watchedAt: true,
+        roomID: true,
+        room: { select: { mediaItem: true } },
+      },
+    }) as any;
+    const totalHistory: number = await prisma.watchHistory.count({ where: { userID: id } });
+    const watchTimeMinutes = totalHistory * 90;
+    const friends = await friendsPreview(id, 12);
+
+    const badges: string[] = [];
+    if (totalHistory >= 100) badges.push('cinemaniac');
+    if (friendsCount >= 50) badges.push('social');
+    if (roomsCreated >= 100) badges.push('host');
+    if (roomsCreated >= 10) badges.push('host_rising');
+    if (totalHistory >= 10) badges.push('regular');
+    if (profileUser.isPremium) badges.push('plink_plus');
+
     return reply.send({
       id: profileUser.id,
       username: profileUser.username,
@@ -583,19 +748,61 @@ export default async function profileRoutes(fastify) {
       lastSeenAt,
       isPremium: profileUser.isPremium,
       isDeleted: false,
+      isClosed: false,
+      isSelf,
+      isFriend,
       friendsCount,
       roomsCreated,
       filmsWatched: totalHistory,
       watchTimeMinutes,
-      watchHistory: watchHistory.map((h) => ({
-        id: h.id,
-        title: h.mediaTitle ?? 'Без названия',
-        watchedAt: h.watchedAt,
-        roomId: h.roomID,
-      })),
+      watchHistory: watchHistory.map((h) => {
+        const media = historyMedia(h);
+        return {
+          id: h.id,
+          title: h.mediaTitle ?? 'Без названия',
+          thumb: media.thumb,
+          kind: media.kind,
+          watchedAt: h.watchedAt,
+          roomId: h.roomID,
+        };
+      }),
+      friends,
       badges,
       joinedAt: profileUser.createdAt,
     });
+  });
+
+  // GET /api/users/:id/friends — full friend list (VK-style friend browsing).
+  // 403 {error:'closed'} when the owner closed the profile and the viewer
+  // is neither the owner nor a friend.
+  fastify.get('/users/:id/friends', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    let target: any = null;
+    try {
+      target = await prisma.user.findUnique({
+        where: { id },
+        select: { id: true, username: true, profileClosed: true, deletedAt: true } as any,
+      });
+    } catch {
+      target = await prisma.user.findUnique({
+        where: { id },
+        select: { id: true, username: true },
+      });
+    }
+    if (!target) return reply.status(404).send({ error: 'User not found' });
+
+    const { isDeletedUser } = await import('../services/accountTombstone.js');
+    if (isDeletedUser(target)) return reply.status(404).send({ error: 'User not found' });
+
+    const viewerId: string = request.user.id;
+    const isSelf = viewerId === id;
+    if (Boolean(target.profileClosed) && !isSelf && !(await areFriends(viewerId, id))) {
+      return reply.status(403).send({ error: 'closed' });
+    }
+
+    const friends = await friendsPreview(id, 200);
+    reply.send({ friends });
   });
 
   // GET /api/users/me/profile — self profile (same shape)
@@ -611,6 +818,7 @@ export default async function profileRoutes(fastify) {
         avatarURL: true,
         coverURL: true,
         statusText: true,
+        profileClosed: true,
         isOnline: true,
         isPremium: true,
         createdAt: true,
@@ -618,16 +826,25 @@ export default async function profileRoutes(fastify) {
     });
     if (!user) return reply.status(404).send({ error: 'User not found' });
 
-    const [friendsCount, roomsCreated, watchHistory, totalHistory] = await Promise.all([
+    const [friendsCount, roomsCreated, watchHistory, totalHistory, friends] = await Promise.all([
       prisma.friendship.count({ where: { userID: id } }),
       prisma.room.count({ where: { hostID: id } }),
       prisma.watchHistory.findMany({
         where: { userID: id },
         orderBy: { watchedAt: 'desc' },
         take: 20,
-        select: { id: true, mediaTitle: true, watchedAt: true, roomID: true },
+        select: {
+          id: true,
+          mediaTitle: true,
+          mediaThumb: true,
+          mediaKind: true,
+          watchedAt: true,
+          roomID: true,
+          room: { select: { mediaItem: true } },
+        },
       }),
       prisma.watchHistory.count({ where: { userID: id } }),
+      friendsPreview(id, 12),
     ]);
 
     const badges: string[] = [];
@@ -647,16 +864,26 @@ export default async function profileRoutes(fastify) {
       statusText: user.statusText,
       isOnline: user.isOnline,
       isPremium: user.isPremium,
+      // Own profile is never gated, but the flag drives the settings toggle.
+      isClosed: Boolean((user as any).profileClosed),
+      isSelf: true,
+      isFriend: false,
       friendsCount,
       roomsCreated,
       filmsWatched: totalHistory,
       watchTimeMinutes: totalHistory * 90,
-      watchHistory: watchHistory.map((h: any) => ({
-        id: h.id,
-        title: h.mediaTitle ?? 'Без названия',
-        watchedAt: h.watchedAt,
-        roomId: h.roomID,
-      })),
+      watchHistory: watchHistory.map((h: any) => {
+        const media = historyMedia(h);
+        return {
+          id: h.id,
+          title: h.mediaTitle ?? 'Без названия',
+          thumb: media.thumb,
+          kind: media.kind,
+          watchedAt: h.watchedAt,
+          roomId: h.roomID,
+        };
+      }),
+      friends,
       badges,
       joinedAt: user.createdAt,
     });

@@ -35,6 +35,9 @@ model User {
   /// Discord-style custom status shown on the profile card (≤100 chars).
   /// Null = no status set.
   statusText   String?
+  /// VK-style closed profile: stats, watch history and the friend list are
+  /// visible to friends only. Identity (name, avatar, cover, status) stays public.
+  profileClosed Boolean @default(false)
   isOnline     Boolean  @default(false)
   /// Last time the user was seen online (login / WS / heartbeat). Backs the
   /// "last seen N minutes ago" label.
@@ -267,6 +270,11 @@ model WatchHistory {
   roomID    String?
   room      Room?    @relation(fields: [roomID], references: [id], onDelete: SetNull)
   mediaTitle String?
+  /// Poster URL of the media at watch time (denormalized from room.mediaItem —
+  /// survives room deletion, roomID goes SetNull).
+  mediaThumb String?
+  /// MediaItem.mediaType at watch time: movie | series | music | video | livestream.
+  mediaKind  String?
   watchedAt DateTime @default(now())
 
   @@index([userID, watchedAt])
