@@ -20,6 +20,8 @@ struct GroupsListView: View {
     @ObservedObject private var service = GroupChatService.shared
     @State private var showCreate = false
 
+    private let theme = V4Theme.saved
+
     var body: some View {
         List {
             // skeleton-загрузка вместо spinner
@@ -34,20 +36,26 @@ struct GroupsListView: View {
                 VStack(spacing: 10) {
                     Image(systemName: "person.3.fill")
                         .font(.system(size: 34))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(V4.muted)
                     Text(L.string(.groupsEmpty))
                         .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(V4.ink)
                     Text(L.string(.groupsEmptySubtitle))
                         .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(V4.muted)
                         .multilineTextAlignment(.center)
                     Button {
                         showCreate = true
                     } label: {
                         Text(L.string(.groupsCreate))
                             .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(theme.buttonTextColor)
+                            .padding(.horizontal, 18)
+                            .frame(minHeight: 44)
+                            .background(theme.accentColor)
+                            .clipShape(Capsule())
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
                     .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity)
@@ -85,6 +93,9 @@ struct GroupsListView: View {
         }
         .sheet(isPresented: $showCreate) {
             CreateGroupSheet(friends: friends)
+                .preferredColorScheme(.dark)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .task { await service.loadGroups() }
         .refreshable { await service.loadGroups() }
@@ -130,7 +141,7 @@ struct GroupsListView: View {
             if let unread = group.unreadCount, unread > 0 {
                 Text(unread > 99 ? "99+" : "\(unread)")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(V4.accentInk)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(V4.accent))
@@ -150,17 +161,26 @@ struct CreateGroupSheet: View {
     @State private var selected: Set<String> = []
     @State private var creating = false
 
+    private let theme = V4Theme.saved
+
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("Название") {
                     TextField("Например: Киновечер \u{1F3AC}", text: $title)
+                        .foregroundStyle(V4.ink)
+                        .listRowBackground(V4.surface.opacity(0.55))
                 }
                 Section("Участники (\(selected.count))") {
                     if friends.isEmpty {
                         Text(L.string(.groupsAddFriendsHint))
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(V4.muted)
+                            .listRowBackground(V4.surface.opacity(0.55))
                     }
                     ForEach(friends) { friend in
                         Button {
@@ -169,47 +189,78 @@ struct CreateGroupSheet: View {
                             } else {
                                 selected.insert(friend.id)
                             }
+                            HapticManager.selection()
                         } label: {
                             HStack {
                                 Text(friend.displayName ?? "@\(friend.username)")
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(V4.ink)
                                 Spacer()
                                 Image(systemName: selected.contains(friend.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selected.contains(friend.id) ? .green : .secondary)
+                                    .foregroundStyle(selected.contains(friend.id) ? theme.accentColor : V4.muted)
                             }
                         }
                         .buttonStyle(.plain)
+                        .listRowBackground(V4.surface.opacity(0.55))
                     }
                 }
                 if let err = service.errorMessage {
                     Section {
                         Text(err)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(V4.danger)
+                            .listRowBackground(V4.surface.opacity(0.55))
                     }
                 }
+            }
+            .scrollContentBackground(.hidden)
+            .background {
+                ZStack {
+                    V4.canvas
+                    RadialGradient(
+                        colors: [theme.accentColor.opacity(0.10), .clear],
+                        center: UnitPoint(x: 0.5, y: 0),
+                        startRadius: 0,
+                        endRadius: 420
+                    )
+                }
+                .ignoresSafeArea()
+            }
+            // Главное действие — большая кнопка снизу; тулбар оставлен закрытию.
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    creating = true
+                    service.errorMessage = nil
+                    Task {
+                        let ok = await service.createGroup(
+                            title: trimmedTitle,
+                            memberIds: Array(selected)
+                        )
+                        creating = false
+                        if ok { dismiss() }
+                    }
+                } label: {
+                    Group {
+                        if creating {
+                            ProgressView().tint(theme.buttonTextColor)
+                        } else {
+                            Text("Создать беседу")
+                                .font(.system(size: 15.5, weight: .bold))
+                                .foregroundStyle(theme.buttonTextColor)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(trimmedTitle.isEmpty ? theme.accentColor.opacity(0.4) : theme.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(trimmedTitle.isEmpty || creating)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
             }
             .navigationTitle("Новая беседа")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(creating ? "…" : "Создать") {
-                        creating = true
-                        service.errorMessage = nil
-                        Task {
-                            let ok = await service.createGroup(
-                                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                memberIds: Array(selected)
-                            )
-                            creating = false
-                            if ok { dismiss() }
-                        }
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || creating)
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
         }
         .preferredColorScheme(.dark)
@@ -279,6 +330,8 @@ struct GroupChatView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var sending = false
 
+    private let theme = V4Theme.saved
+
     /// Быстрые реакции в контекстном меню.
     private let quickReactions = ["\u{2764}\u{FE0F}", "\u{1F602}", "\u{1F525}", "\u{1F44D}", "\u{1F62E}"]
 
@@ -333,12 +386,23 @@ struct GroupChatView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(Color.red.opacity(0.18))
+                .background(V4.danger.opacity(0.18))
             }
 
             inputBar
         }
-        .background(Color.black.ignoresSafeArea())
+        .background {
+            ZStack {
+                V4.canvas
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(0.10), .clear],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: 420
+                )
+            }
+            .ignoresSafeArea()
+        }
         .navigationTitle(group.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -457,7 +521,7 @@ struct GroupChatView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 26))
-                    .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending ? .gray : .blue)
+                    .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending ? V4.muted : theme.accentColor)
             }
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
         }

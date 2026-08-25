@@ -21,6 +21,22 @@
 // AVSpeechSynthesizer удалены — чат остаётся чатом, голос остаётся вводом.
 //
 // Цвет: акцент всегда из активной темы (theme.accentColor), не зашивается в экран.
+//
+// 21.08.2026, чистка витрины. Крупный заголовок «ИИ» на чёрной подложке и
+// полноэкранный дизмер «Будет доступно скоро» сняты: титул наезжал на
+// карточку, подложка обрывалась полосой и читалась вторым экраном, а текст
+// плашки ложился на кнопки под дизмером. Теперь лента в превью-режиме
+// (V4ReelsPanel isPreview) — без мёртвых контролов, с тихим бейджем «Скоро»
+// на кадре; сверху только микро-метка «ТРЕЙЛЕРЫ», скрим живёт в фоне ленты.
+//
+// 23.08.2026, онбординг вместо тихого бейджа. Решение владельца: «скоро»
+// должно быть крупным онбордингом на весь раздел, а не подписью слева, при
+// этом позади должна угадываться лента, и уже работающие чат с ИИ и голос
+// должны быть видны сразу. Раздел закрывает слой на фросте: живая Metal-сфера
+// ассистента (AssistantOrbView.swift), «Скоро» крупно и два рабочих входа —
+// «Чат с ИИ» и «Голосовой ввод». Док и метка «ТРЕЙЛЕРЫ» на время онбординга
+// не рисуются (их роли выполняют кнопки слоя) и вернутся вместе с живой
+// лентой, когда подключится каталог.
 
 import SwiftUI
 import UIKit
@@ -317,10 +333,14 @@ struct V4AIViewLive: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Лента занимает весь экран и сама оставляет место под шапку и док.
-            // Рилсы ВИДНЫ — поверх честный оверлей «будет доступно скоро»,
-            // а не скрытая вкладка и не фейковый продакшен-фид.
+            // Каталог ещё не подключён, поэтому лента в превью-режиме: кадры
+            // и названия видны и листаются, а контролы, которым нечего делать
+            // без живых данных, просто не рисуются. Прежний вариант — дизмер
+            // на весь экран с плашкой «Будет доступно скоро» поверх живых
+            // кнопок — выглядел как сломанный экран, а не как продукт.
             V4ReelsPanel(
                 theme: theme,
+                isPreview: true,
                 onWatchTogether: { reel in
                     Task { await store.send("Собери комнату на «\(reel.title)»") }
                     NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
@@ -338,12 +358,12 @@ struct V4AIViewLive: View {
                 }
             )
             .ignoresSafeArea()
+            // Лента под онбордингом — декорация: видна силуэтами за фростом,
+            // но не листается и не ловит касания.
+            .allowsHitTesting(false)
 
-            reelsComingSoonOverlay
-
-            dock
+            onboarding
         }
-        .overlay(alignment: .top) { header }
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: capture.isCapturing)
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -363,51 +383,114 @@ struct V4AIViewLive: View {
         Task { await store.send(text) }
     }
 
-    /// Лента остаётся на фоне; действия по плейсхолдерам блокируются оверлеем.
-    private var reelsComingSoonOverlay: some View {
+    /// Онбординг раздела: фрост поверх ленты — карточки позади читаются
+    /// силуэтами, — живая Metal-сфера ассистента, крупное «Скоро» и два
+    /// уже работающих входа: чат с ИИ и голосовой ввод.
+    private var onboarding: some View {
         ZStack {
-            Color.black.opacity(0.42)
+            Rectangle()
+                .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
-            VStack(spacing: 10) {
-                Text("СКОРО")
+            // Градиент прижимает низ — тексты и кнопки стоят на тёмном,
+            // а верх оставляет ленте больше просвета. Верх намеренно почти
+            // открыт (0.12): позади онбординга должно угадываться живое —
+            // карточки трейлеров, — иначе фрост читается глухой заглушкой.
+            LinearGradient(
+                colors: [.black.opacity(0.12), .black.opacity(0.55)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 16)
+
+                AssistantOrbView(state: .idle)
+                    .frame(width: 216, height: 216)
+                    .accessibilityHidden(true)
+
+                Text("ЛЕНТА ТРЕЙЛЕРОВ И РИЛСОВ")
                     .font(.system(size: 11, weight: .heavy))
-                    .tracking(2)
-                    .foregroundStyle(Color.white.opacity(0.72))
-                Text("Будет доступно скоро")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
+                    .tracking(2.4)
+                    .foregroundStyle(.white.opacity(0.65))
+                    .padding(.top, 16)
+
+                Text("Скоро")
+                    .font(.system(size: 44, weight: .heavy))
+                    .tracking(-1)
+                    .foregroundStyle(V4.ink)
+                    .padding(.top, 2)
+
+                Text("Подборки трейлеров под ваши вечера уже в работе. А чат с ИИ и голосовой ввод работают прямо сейчас.")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(V4.muted)
                     .multilineTextAlignment(.center)
-                Text("Лента трейлеров уже на своём месте — подключаем живой каталог.")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.78))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
+                    .lineSpacing(3.5)
+                    .frame(maxWidth: 300)
+                    .padding(.top, 10)
+
+                VStack(spacing: 10) {
+                    Button {
+                        HapticManager.impact(.medium)
+                        NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Чат с ИИ")
+                        }
+                    }
+                    .buttonStyle(PlinkProminentButtonStyle(
+                        tint: .white, textColor: .black,
+                        height: 48, cornerRadius: 16, fillsWidth: true
+                    ))
+                    .accessibilityIdentifier("ai.onboarding.chat")
+
+                    Button {
+                        HapticManager.impact(.light)
+                        NotificationCenter.default.post(name: .plinkOpenAIVoice, object: nil)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("Голосовой ввод")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                    }
+                    .buttonStyle(PlinkGlassButtonStyle(
+                        tint: nil, height: 48, cornerRadius: 16, fillsWidth: true
+                    ))
+                    .accessibilityIdentifier("ai.onboarding.voice")
+                }
+                .frame(maxWidth: 300)
+                .padding(.top, 26)
+
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 72)
+            .padding(.horizontal, 24)
+            // Контент — выше таб-бара; сам слой закрывает раздел целиком.
+            .padding(.bottom, 96)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Рилсы. Будет доступно скоро")
+        .accessibilityIdentifier("ai.onboarding")
     }
 
     /// Шапка только называет экран и не перехватывает касания ленты.
+    /// Раньше здесь стоял крупный заголовок «ИИ» с надстрокой «ТРЕЙЛЕРЫ» на
+    /// собственной чёрной подложке: 32-птшный титул наезжал на карточку, а
+    /// полоса подложки обрывалась и читалась отдельным экраном. Вкладку и так
+    /// называет таб-бар; сверху достаточно тихой метки, скрим — в фоне ленты.
+    ///
+    /// 23.08.2026: пока раздел закрыт онбордингом, шапка и док не в иерархии
+    /// (онбординг сам называет раздел и даёт входы в чат и голос); вернутся
+    /// вместе с живой лентой.
     private var header: some View {
-        HStack(spacing: 10) {
-            V4Heading(eyebrow: "ТРЕЙЛЕРЫ", title: "ИИ")
-            Spacer()
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 6)
-        .padding(.bottom, 14)
-        .background(
-            LinearGradient(
-                colors: [Color.black.opacity(0.75), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea(edges: .top)
-        )
-        .allowsHitTesting(false)
+        Text("ТРЕЙЛЕРЫ")
+            .font(.system(size: 11, weight: .heavy))
+            .tracking(2.4)
+            .foregroundStyle(Color.white.opacity(0.65))
+            .frame(maxWidth: .infinity)
+            // Единый «вдох» шапок от статус-бара (см. topBar Главной).
+            .padding(.top, 20)
+            .allowsHitTesting(false)
     }
 
     /// Зона большого пальца: строка открывает чат, круглая кнопка пишет голос.

@@ -32,7 +32,7 @@ struct FriendProfileView: View {
                         } label: {
                             Label("Смотреть вместе", systemImage: "play.rectangle.fill")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Cinema2026.background)
+                                .foregroundStyle(V4.accentInk)
                                 .frame(maxWidth: .infinity)
                                 .frame(minHeight: 52)
                                 .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 16))

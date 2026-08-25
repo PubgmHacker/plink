@@ -152,9 +152,13 @@ public final class PlaybackCoordinator: AnyObject {
                 surfaceEpoch &+= 1
             }
         } catch {
+            // Полуготовый контроллер (живой WKWebView, таймеры поллинга) не
+            // должен висеть после провала prepare — сносим его и очищаем
+            // поверхность. teardown() сам обнуляет lastError и бампает
+            // surfaceEpoch, поэтому сообщение об ошибке ставим уже после него.
+            teardown()
             lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             isPreparing = false
-            surfaceEpoch &+= 1
             throw error
         }
         isPreparing = false

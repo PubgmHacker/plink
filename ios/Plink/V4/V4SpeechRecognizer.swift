@@ -27,11 +27,20 @@ final class V4SpeechRecognizer: ObservableObject {
     func start() {
         transcript = ""
         wantsRecording = true
+        // Двухступенчатый запрос: распознавание речи, затем микрофон. Оба ключа
+        // обязаны быть в Info.plist — без NSSpeechRecognitionUsageDescription
+        // requestAuthorization не показывал диалог, а мгновенно ронял процесс
+        // (TCC kill), что выглядело как «вылет вместо запроса разрешения».
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             Task { @MainActor in
                 guard status == .authorized else { return }
                 guard self?.wantsRecording == true else { return }
-                self?.beginSession()
+                AVAudioApplication.requestRecordPermission { granted in
+                    Task { @MainActor in
+                        guard granted, self?.wantsRecording == true else { return }
+                        self?.beginSession()
+                    }
+                }
             }
         }
     }

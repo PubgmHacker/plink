@@ -589,7 +589,7 @@ struct RoomVoiceButton: View {
 
                 if showsLock {
                     V4GlyphIcon(glyph: .lock, size: 8, filled: true, weight: .regular)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(PlinkRoomAccent.ink)
                         .padding(3)
                         .background(PlinkRoomAccent.current, in: Circle())
                         .offset(x: 3, y: -3)
@@ -746,13 +746,13 @@ struct CatchUpBanner: View {
                         if loading {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(.black)
+                                .tint(PlinkRoomAccent.ink)
                         } else {
                             Text(l.string(.catchUpAction))
                         }
                     }
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(PlinkRoomAccent.ink)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 9)
                     .background(PlinkRoomAccent.current, in: Capsule(style: .continuous))
@@ -826,7 +826,7 @@ struct PauseRequestBanner: View {
                 } label: {
                     Text(l.string(.pauseAskAccept))
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(PlinkRoomAccent.ink)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
                         .background(PlinkRoomAccent.current, in: Capsule(style: .continuous))

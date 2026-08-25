@@ -30,7 +30,9 @@ struct ShakeDetectorModifier: ViewModifier {
             }
             .sheet(isPresented: $showFeedback) {
                 FeedbackSheetView()
+                    .preferredColorScheme(.dark)
                     .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
             }
     }
 }
@@ -52,6 +54,8 @@ struct FeedbackSheetView: View {
     @State private var selectedType: FeedbackType = .bug
     @State private var isSending = false
     @State private var sent = false
+
+    private let theme = V4Theme.saved
 
     enum FeedbackType: String, CaseIterable {
         case bug = "Ошибка"
@@ -81,9 +85,17 @@ struct FeedbackSheetView: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background(selectedType == type ? V4.accent.opacity(0.15) : Color(.secondarySystemBackground))
-                                .foregroundStyle(selectedType == type ? V4.accent : .secondary)
-                                .clipShape(Capsule())
+                                .background {
+                                    Capsule()
+                                        .fill(selectedType == type ? theme.accentColor.opacity(0.16) : V4.surface.opacity(0.75))
+                                        .overlay {
+                                            Capsule().stroke(
+                                                selectedType == type ? theme.accentColor.opacity(0.38) : V4.line,
+                                                lineWidth: 1
+                                            )
+                                        }
+                                }
+                                .foregroundStyle(selectedType == type ? theme.accentColor : V4.muted)
                         }
                         .buttonStyle(.plain)
                     }
@@ -92,14 +104,18 @@ struct FeedbackSheetView: View {
                 // Text field
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(.secondarySystemBackground))
+                        .fill(V4.surface.opacity(0.75))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12).stroke(V4.line, lineWidth: 1)
+                        }
                     if feedbackText.isEmpty {
                         Text("Опиши что случилось... ")
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(V4.muted.opacity(0.7))
                             .padding(14)
                     }
                     TextEditor(text: $feedbackText)
                         .scrollContentBackground(.hidden)
+                        .foregroundStyle(V4.ink)
                         .padding(10)
                 }
                 .frame(height: 130)
@@ -107,7 +123,7 @@ struct FeedbackSheetView: View {
                 // Send button
                 if sent {
                     Label("Отправлено! Спасибо ❤️", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(V4.free)
                         .font(.system(size: 15, weight: .semibold))
                         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() } }
                 } else {
@@ -116,16 +132,16 @@ struct FeedbackSheetView: View {
                     } label: {
                         Group {
                             if isSending {
-                                ProgressView().tint(.white)
+                                ProgressView().tint(theme.buttonTextColor)
                             } else {
                                 Text("Отправить")
                                     .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(theme.buttonTextColor)
                             }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty ? V4.accent.opacity(0.4) : V4.accent)
+                        .background(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty ? theme.accentColor.opacity(0.4) : theme.accentColor)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .disabled(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
@@ -135,12 +151,22 @@ struct FeedbackSheetView: View {
                 Spacer()
             }
             .padding(20)
+            .background {
+                ZStack {
+                    V4.canvas
+                    RadialGradient(
+                        colors: [theme.accentColor.opacity(0.10), .clear],
+                        center: UnitPoint(x: 0.5, y: 0),
+                        startRadius: 0,
+                        endRadius: 420
+                    )
+                }
+                .ignoresSafeArea()
+            }
             .navigationTitle("Обратная связь")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
         }
     }

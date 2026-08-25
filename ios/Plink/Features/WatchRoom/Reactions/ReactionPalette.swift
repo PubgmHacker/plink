@@ -16,11 +16,11 @@
 //     seasonal items. Premium emojis are larger in the picker and have
 //     a subtle star badge.
 //
-// Backend contract: the backend accepts ANY single emoji codepoint in
-// reaction.send — the palette gate is client-side only. This means
-// premium users keep their reactions visible to free users (no
-// interop penalty), and the gate exists purely to drive subscription
-// value.
+// Backend contract: the backend validates reaction.send against its own
+// allowlist in messageRouter.ts, which MUST stay a superset of this
+// palette — any emoji offered here but missing there comes back as
+// INVALID_REACTION to the user. Premium gating is enforced twice:
+// client-side here and server-side by entitlement.
 //
 // Validation:
 //   - Free emojis: validated against a static set on send.

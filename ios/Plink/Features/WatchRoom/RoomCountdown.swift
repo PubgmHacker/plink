@@ -50,11 +50,12 @@ struct RoomCountdownOverlay: View {
 /// Комната читает акцент выбранной V4-темы — интерфейс перестаёт «прыгать»
 /// между двумя дизайн-мирами при входе в просмотр.
 enum PlinkRoomAccent {
-    static var current: Color {
-        if let raw = UserDefaults.standard.string(forKey: "plink.v4ThemeName"),
-           let theme = V4Theme(rawValue: raw) {
-            return theme.accentColor
-        }
-        return Cinema2026.accent
-    }
+    /// Единый резолвер V4Theme.saved: уважает и живую тему Plink+
+    /// (сводя её к ближайшей стандартной), и plink.v4ThemeName.
+    static var current: Color { V4Theme.saved.accentColor }
+
+    /// Цвет текста и глифов ПОВЕРХ акцентной заливки: у ember акцент светлый —
+    /// текст чёрный, у остальных тем белый. Жёсткий `.black` на акценте делал
+    /// подписи нечитаемыми на тёмных акцентах (violet/plink).
+    static var ink: Color { V4Theme.saved.buttonTextColor }
 }

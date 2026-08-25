@@ -278,6 +278,9 @@ struct DMChatView: View {
                 dmService.sendMessage("Мы создали комнату «\(name)» · код \(code). Смотрим вместе!", to: friend)
             }
             .environmentObject(APIClient.shared)
+            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showPeerProfile) {
             NavigationStack {
@@ -290,9 +293,7 @@ struct DMChatView: View {
                     }
                 )
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Закрыть") { showPeerProfile = false }
-                    }
+                    V4SheetCloseToolbarItem { showPeerProfile = false }
                 }
             }
             .presentationDetents([.medium, .large])
@@ -402,6 +403,7 @@ struct DMChatView: View {
                 },
                 onCancel: { showForwardSheet = false }
             )
+            .preferredColorScheme(.dark)
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -1778,6 +1780,8 @@ struct PhotoSendPreviewSheet: View {
     let onCancel: () -> Void
     let onSend: () -> Void
 
+    private let theme = V4Theme.saved
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -1804,19 +1808,36 @@ struct PhotoSendPreviewSheet: View {
                     .foregroundStyle(Cinema2026.secondary)
 
                 Spacer(minLength: 0)
+
+                // Главное действие — большая кнопка под пальцем, а не мелкий
+                // текст в тулбаре: закрытие живёт справа сверху (V4SheetCloseButton).
+                Button(action: onSend) {
+                    Text("Отправить")
+                        .font(.system(size: 15.5, weight: .bold))
+                        .foregroundStyle(theme.buttonTextColor)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(theme.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
             .padding(20)
-            .background(Cinema2026.background.ignoresSafeArea())
+            .background {
+                ZStack {
+                    V4.canvas
+                    RadialGradient(
+                        colors: [theme.accentColor.opacity(0.10), .clear],
+                        center: UnitPoint(x: 0.5, y: 0),
+                        startRadius: 0,
+                        endRadius: 420
+                    )
+                }
+                .ignoresSafeArea()
+            }
             .navigationTitle("Отправить фото")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Отправить", action: onSend)
-                        .fontWeight(.bold)
-                }
+                V4SheetCloseToolbarItem(action: onCancel)
             }
         }
     }
@@ -1921,19 +1942,22 @@ private struct VoiceNoteBubble: View {
         .padding(.horizontal, 12)
         .padding(.vertical, PlinkTelegramBubbleMetrics.padV)
         .background(
+            // Заливки те же, что у текстовых пузырей (PlinkBubbleStyle.fillLayer):
+            // один цвет исходящих во всех чатах — сине-зелёный градиент,
+            // живший только у голосовых, выбивался из палитры.
             ZStack {
-                Color(hex: "#1A1C20")
+                V4.raised
                 if isOwn {
+                    Cinema2026.outgoingBubble
+                } else {
                     LinearGradient(
                         colors: [
-                            Color(red: 0.22, green: 0.64, blue: 1.0),
-                            Color(red: 0.11, green: 0.78, blue: 0.48)
+                            Color(hex: "#2B3138"),
+                            Color(hex: "#232930")
                         ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                } else {
-                    Color(hex: "#2E333A")
                 }
             }
         )
@@ -2058,12 +2082,15 @@ private struct DMForwardSheet: View {
     let onPick: (Friend) -> Void
     let onCancel: () -> Void
 
+    private let theme = V4Theme.saved
+
     var body: some View {
         NavigationStack {
             List {
                 if friends.isEmpty {
                     Text(LocalizationManager.shared.string(.dmNoForwardFriends))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(V4.muted)
+                        .listRowBackground(Color.clear)
                 }
                 ForEach(friends, id: \.id) { f in
                     Button {
@@ -2081,20 +2108,33 @@ private struct DMForwardSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(f.displayTitle)
                                     .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(V4.ink)
                                 Text(f.isOnline ? "в сети" : "не в сети")
                                     .font(.system(size: 12))
-                                    .foregroundStyle(f.isOnline ? .green : .secondary)
+                                    .foregroundStyle(f.isOnline ? V4.free : V4.muted)
                             }
                         }
                     }
+                    .listRowBackground(V4.surface.opacity(0.55))
                 }
+            }
+            .scrollContentBackground(.hidden)
+            .background {
+                ZStack {
+                    V4.canvas
+                    RadialGradient(
+                        colors: [theme.accentColor.opacity(0.10), .clear],
+                        center: UnitPoint(x: 0.5, y: 0),
+                        startRadius: 0,
+                        endRadius: 420
+                    )
+                }
+                .ignoresSafeArea()
             }
             .navigationTitle("Переслать")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { onCancel() }
-                }
+                V4SheetCloseToolbarItem(action: onCancel)
             }
         }
         .presentationDetents([.medium, .large])

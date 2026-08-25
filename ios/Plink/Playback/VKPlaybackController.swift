@@ -150,7 +150,11 @@ public final class VKPlaybackController: PlaybackControlling {
                 guard let self else { return }
                 let snap = await self.evaluate("window.plinkVKSnapshot && window.plinkVKSnapshot();")
                 if let dict = snap as? [String: Any] {
-                    if let t = dict["time"] as? Double { self.position = t }
+                    // <video>.currentTime — NaN, пока не загрузились метаданные.
+                    // Без .isFinite позиция становится NaN, и вся арифметика
+                    // дрейфа в OrderedSyncController (>=750/>=80/<80) даёт false —
+                    // коррекция молча выключается. Мирроринг RutubePlaybackController.
+                    if let t = dict["time"] as? Double, t.isFinite { self.position = t }
                     if let d = dict["duration"] as? Double, d > 0 { self.duration = d }
                 }
                 try? await Task.sleep(for: .milliseconds(800))

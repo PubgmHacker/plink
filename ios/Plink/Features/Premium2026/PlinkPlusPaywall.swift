@@ -56,19 +56,31 @@ struct PlinkPlusPaywall: View {
             Cinema2026.background.ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 22) {
                     PaywallArtwork(trigger: trigger)
-                        .frame(height: 250)
+                        .padding(.top, 34)
 
-                    VStack(spacing: 8) {
+                    VStack(spacing: 10) {
+                        // Бренд-марка Plink+ — тот же фиолетовый, что чип на
+                        // профиле; акцент действий остаётся системным.
+                        Text("PLINK+")
+                            .font(.system(size: 11, weight: .heavy))
+                            .tracking(2.2)
+                            .foregroundStyle(PlinkPlusBrand.violet)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(PlinkPlusBrand.violet.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().stroke(PlinkPlusBrand.violet.opacity(0.28), lineWidth: 1))
                         Text(headline)
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.system(size: 28, weight: .heavy))
+                            .tracking(-0.6)
                             .foregroundStyle(Cinema2026.text)
                             .multilineTextAlignment(.center)
                         Text(L.string(.plusTagline))
-                            .font(.subheadline)
+                            .font(.system(size: 14))
                             .foregroundStyle(Cinema2026.secondary)
                             .multilineTextAlignment(.center)
+                            .lineSpacing(3)
                     }
                     .padding(.horizontal, 24)
 
@@ -78,7 +90,12 @@ struct PlinkPlusPaywall: View {
                 }
                 .padding(.bottom, 24)
             }
-            .safeAreaInset(edge: .bottom) { purchaseBar }
+            .safeAreaInset(edge: .bottom) {
+                // Плавающий CTA без тарифов — выключенная кнопка поверх
+                // пустого экрана читалась как поломка. Нет тарифов — нет бара:
+                // действие в этот момент одно, «Повторить» в карточке.
+                if !plans.isEmpty { purchaseBar }
+            }
 
             closeButton
         }
@@ -101,20 +118,22 @@ struct PlinkPlusPaywall: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 22)
         } else {
-            VStack(spacing: 12) {
-                Text(L.string(.plusPlansUnavailable))
-                    .font(.subheadline)
-                    .foregroundStyle(Cinema2026.secondary)
-                    .multilineTextAlignment(.center)
-                Button(L.string(.commonRetry)) {
+            // Тот же V4EmptyState, что на Главной и в Друзьях: строка текста
+            // с голой ссылкой «Повторить» читалась как недоделка.
+            V4EmptyState(
+                icon: "wifi.slash",
+                title: L.string(.plusPlansUnavailableTitle),
+                subtitle: L.string(.plusPlansUnavailableSub),
+                accent: Cinema2026.accent,
+                accentInk: V4.accentInk,
+                primary: .init(title: L.string(.commonRetry), icon: "arrow.clockwise") {
                     Task { await load() }
                 }
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(Cinema2026.accent)
-            }
-            .frame(maxWidth: .infinity)
+            )
+            .padding(.vertical, 28)
+            .padding(.horizontal, 14)
+            .plinkGlass(.control, cornerRadius: 24)
             .padding(.horizontal, 24)
-            .padding(.vertical, 18)
         }
     }
 
@@ -157,7 +176,10 @@ struct PlinkPlusPaywall: View {
             .foregroundStyle(Cinema2026.secondary)
             .disabled(store.purchaseState == .restoring)
 
-            if let error = store.errorMessage {
+            // Ошибка загрузки тарифов живёт в карточке planSection — здесь она
+            // дублировалась красной строкой. Внизу остаются только ошибки
+            // покупки/восстановления, которые случаются при загруженных планах.
+            if let error = store.errorMessage, !plans.isEmpty {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(Cinema2026.danger)
@@ -197,7 +219,7 @@ struct PlinkPlusPaywall: View {
         case .capacity: return L.string(.plusHeadlineCapacity)
         case .cameraFilter: return L.string(.plusHeadlineCameraFilter)
         case .settings: return L.string(.plusHeadlineSettings)
-        case .voiceChat: return L.string(.plusHeadlineCapacity)
+        case .voiceChat: return L.string(.plusHeadlineVoiceChat)
         }
     }
 
@@ -280,20 +302,20 @@ enum PlinkLegal {
     static var privacy: URL? { PlinkURLs.privacy }
 }
 
+/// Единственный фиолетовый Plink+ — тот же, что у чипа PLINK+ на профиле
+/// (V4ProfileViewLive.roleChip). Премиум узнаётся по цвету, действия
+/// остаются на системном акценте.
+enum PlinkPlusBrand {
+    static let violet = Color(hex: "#A855F7")
+}
+
 struct PaywallArtwork: View {
     let trigger: PlinkPlusPaywall.Trigger
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Cinema2026.accent.opacity(0.2), Cinema2026.background],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            Image(systemName: symbol)
-                .font(.system(size: 60))
-                .foregroundStyle(Cinema2026.accent)
-        }
+        // Тот же стеклянный медальон, что у пустых состояний: плоская иконка
+        // на градиентной подложке выбивалась из языка Liquid Glass.
+        V4GlassMedallion(icon: symbol, accent: PlinkPlusBrand.violet, size: 84)
     }
 
     private var symbol: String {
@@ -302,7 +324,8 @@ struct PaywallArtwork: View {
         case .theme: return "paintpalette.fill"
         case .capacity: return "person.3.fill"
         case .cameraFilter: return "camera.filters"
-        case .settings: return "star.circle.fill"
+        // Медальон сам круглый — star.circle.fill рисовал круг в круге.
+        case .settings: return "star.fill"
         case .voiceChat: return "mic.fill"
         }
     }

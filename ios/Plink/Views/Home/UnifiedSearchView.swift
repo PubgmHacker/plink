@@ -19,6 +19,7 @@ struct UnifiedSearchView: View {
     @State private var showRoomCreation = false
     // «Посмотреть позже»
     @ObservedObject private var watchlist = WatchlistService.shared
+    private let theme = V4Theme.saved
 
     enum SearchChip: String, CaseIterable {
         case all = "Всё"
@@ -29,21 +30,32 @@ struct UnifiedSearchView: View {
 
     var body: some View {
         NavigationStack {
-            Cinema2026.background.ignoresSafeArea().overlay {
+            ZStack {
+                V4.canvas
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(0.10), .clear],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: 420
+                )
+            }
+            .ignoresSafeArea()
+            .overlay {
                 VStack(spacing: 0) {
                     // Chips
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(SearchChip.allCases, id: \.self) { chip in
                                 Button {
+                                    HapticManager.selection()
                                     selectedChip = chip
                                 } label: {
                                     Text(chip.rawValue)
                                         .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(selectedChip == chip ? Cinema2026.background : Cinema2026.text)
+                                        .foregroundStyle(selectedChip == chip ? theme.buttonTextColor : Cinema2026.text)
                                         .padding(.horizontal, 14)
                                         .frame(minHeight: 32)
-                                        .background(selectedChip == chip ? Cinema2026.accent : Cinema2026.surface, in: Capsule())
+                                        .background(selectedChip == chip ? theme.accentColor : Cinema2026.surface, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -67,9 +79,7 @@ struct UnifiedSearchView: View {
                 searchStore.search(new)
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
             .sheet(isPresented: $showRoomCreation) {
                 RoomCreationView(
@@ -80,6 +90,8 @@ struct UnifiedSearchView: View {
                 )
                 .environmentObject(APIClient.shared)
                 .preferredColorScheme(.dark)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
         }
     }
@@ -192,13 +204,19 @@ struct UnifiedSearchView: View {
             .padding(.top, 8)
     }
 
-    /// MediaItem для watchlist из результата поиска.
+    /// MediaItem для watchlist из результата поиска. Пустой запрос падает
+    /// на полку Главной, где теперь стоят и карточки кинотеатров, — у них
+    /// источник .url и страница просмотра вместо youtube.com/watch.
     private func watchlistItem(_ item: V4SearchResult) -> MediaItem {
-        MediaItem(
+        let isYouTube = item.origin == .youtube
+        return MediaItem(
             id: item.id, title: item.title, artist: nil,
             thumbnailURL: item.artworkURL?.absoluteString,
-            streamURL: "https://www.youtube.com/watch?v=\(item.id)",
-            duration: nil, mediaType: .video, source: .youtube, videoId: item.id
+            streamURL: item.watchURL,
+            duration: nil,
+            mediaType: isYouTube ? .video : (item.isSeries ? .series : .movie),
+            source: isYouTube ? .youtube : .url,
+            videoId: isYouTube ? item.id : nil
         )
     }
 
@@ -206,16 +224,23 @@ struct UnifiedSearchView: View {
         Button {
             HapticManager.impact(.light)
             dismiss()
-            // Create room from this video
+            // Create room from this video. Карточка кинотеатра (полка
+            // Главной при пустом запросе) открывает страницу просмотра,
+            // ролик YouTube — прежний embed.
             Task {
-                let videoId = item.id
-                let mediaItem = MediaItem(
-                    id: "https://www.youtube.com/embed/\(videoId)",
-                    title: item.title, artist: nil,
-                    thumbnailURL: item.artworkURL?.absoluteString,
-                    streamURL: "https://www.youtube.com/embed/\(videoId)",
-                    duration: nil, mediaType: .video, source: .youtube, videoId: videoId
-                )
+                let mediaItem: MediaItem
+                if item.origin == .youtube {
+                    let videoId = item.id
+                    mediaItem = MediaItem(
+                        id: "https://www.youtube.com/embed/\(videoId)",
+                        title: item.title, artist: nil,
+                        thumbnailURL: item.artworkURL?.absoluteString,
+                        streamURL: "https://www.youtube.com/embed/\(videoId)",
+                        duration: nil, mediaType: .video, source: .youtube, videoId: videoId
+                    )
+                } else {
+                    mediaItem = watchlistItem(item)
+                }
                 let request = CreateRoomRequest(
                     name: item.title, maxParticipants: 4, mediaItem: mediaItem,
                     privacy: .publicRoom, password: nil,

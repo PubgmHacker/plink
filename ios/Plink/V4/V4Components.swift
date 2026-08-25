@@ -45,7 +45,9 @@ struct V4Avatar: View {
             Circle()
                 .fill(LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing))
             Text(letter)
-                .font(.system(size: size == 43 ? 16 : 14, weight: .black))
+                // Буква растёт вместе с кругом: фиксированные 14–16 pt в
+                // аватаре 96 pt (хиро профиля) выглядели горошиной.
+                .font(.system(size: max(14, size * 0.375), weight: .black))
                 .foregroundStyle(V4.ink)
         }
     }
@@ -194,7 +196,10 @@ struct V4Heading: View {
             Text(eyebrow)
                 .font(.system(size: 10.88, weight: .heavy))
                 .tracking(1.1968)
-                .foregroundStyle(V4.accent)
+                // Надзаголовок — служебная микро-метка, а не акцент: ярко-синие
+                // капс-строки над каждым титулом складывались с акцентными
+                // кнопками ниже в «три синих пятна подряд» и дешевили экран.
+                .foregroundStyle(V4.muted)
             Text(title)
                 .font(.system(size: 32, weight: .bold))
                 .tracking(-1.6)
@@ -256,28 +261,73 @@ struct V4Hero: View {
     let theme: V4Theme
     let action: () -> Void
     var liveThemeIndex: Int = 0
+    /// Сервис, где идёт контент («Иви», «Netflix», «YouTube»). Рисуется
+    /// заметным бейджем над заголовком: похороненный первым сегментом
+    /// мелкой меты источник было не разглядеть — а «чей это фильм и где
+    /// показывается» для витрины агрегатора главный вопрос.
+    var provider: String? = nil
+    /// Кадр контента. Без него герой — пустой градиент, который ничего не
+    /// говорит о видео; градиенты ниже остаются фоном на время загрузки.
+    var artworkURL: URL? = nil
     var body: some View {
         let (_, c1, c2, _) = theme.colors
-        // Use Plink+ colors if active
-        let btnAccent = PlinkPlusLiveTheme.resolve(liveThemeIndex)?.accentColor ?? theme.accentColor
-        let btnText = PlinkPlusLiveTheme.resolve(liveThemeIndex)?.buttonTextColor ?? theme.buttonTextColor
         ZStack(alignment: .bottomLeading) {
             LinearGradient(colors: [c1, Color.oklch(0.10,0.02,190)], startPoint: .topLeading, endPoint: .bottomTrailing)
             RadialGradient(colors: [c2, .clear], center: UnitPoint(x: 0.72, y: 0.22), startRadius: 0, endRadius: height * 0.42)
+            if let artworkURL {
+                // Кадр — оверлеем над Color.clear: сам scaledToFill-имидж
+                // отчитывается layout-шириной больше экрана (16:9 при заданной
+                // высоте) и распирал бы ZStack за края.
+                Color.clear
+                    .frame(height: height)
+                    .overlay {
+                        AsyncImage(url: artworkURL) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.clear
+                        }
+                    }
+                    .clipped()
+            }
+            // Скрим поверх кадра — иначе заголовок и мета тонут в артворке.
             LinearGradient(colors: [.clear, Color.oklch(0.06,0.01,190,alpha:0.95)], startPoint: UnitPoint(x:0.5,y:0.28), endPoint: .bottom)
             VStack(alignment: .leading, spacing: 10) {
+                if let provider, !provider.isEmpty {
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(brandColor(provider))
+                            .frame(width: 7, height: 7)
+                        Text(provider.uppercased())
+                            .font(.system(size: 12.5, weight: .heavy))
+                            .tracking(2.0)
+                            .foregroundStyle(.white.opacity(0.95))
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.38), in: Capsule())
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
+                    .accessibilityLabel("Сервис: \(provider)")
+                }
+                // Названия с YouTube бывают в пять строк — такой заголовок
+                // съедает весь кадр героя целиком.
                 Text(title).font(.system(size: 26.4, weight: .bold)).foregroundStyle(V4.ink)
+                    .lineLimit(2)
                 Text(meta).font(.system(size: 13.12)).foregroundStyle(V4.muted)
+                    .lineLimit(1)
                 Button(action: action) {
                     HStack(spacing: 7) {
                         Image(systemName: "play.fill").font(.system(size: 12, weight: .bold))
                         Text(button)
                     }
                 }
+                // Белая, как Play у Apple TV и Netflix: главная CTA статична
+                // и не зависит от темы — тема живёт в фоне героя (градиенты
+                // выше). Акцентная заливка перекрашивала кнопку с каждой
+                // палитрой и терялась на пёстрых кадрах.
                 .buttonStyle(
                     PlinkProminentButtonStyle(
-                        tint: btnAccent,
-                        textColor: btnText,
+                        tint: .white,
+                        textColor: .black,
                         height: 48,
                         cornerRadius: 16,
                         fillsWidth: false
@@ -289,7 +339,72 @@ struct V4Hero: View {
         .clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous))
         .shadow(color: .black.opacity(0.40), radius: 27, y: 25)
     }
+
+    /// Фирменный цвет точки в бейдже сервиса. Неизвестный сервис получает
+    /// нейтральную белую точку — бейдж остаётся читаемым без словаря брендов.
+    private func brandColor(_ name: String) -> Color {
+        switch name.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "иви", "ivi":     return Color(red: 0.92, green: 0.00, blue: 0.24)
+        case "netflix":        return Color(red: 0.90, green: 0.03, blue: 0.08)
+        case "youtube":        return Color(red: 1.00, green: 0.00, blue: 0.00)
+        case "кинопоиск":      return Color(red: 1.00, green: 0.40, blue: 0.00)
+        default:               return .white.opacity(0.75)
+        }
+    }
 }
+
+// MARK: - Кнопка закрытия шита
+
+/// Единая кнопка закрытия модальных экранов: круглый стеклянный крестик
+/// в правом верхнем углу — как у нативных шитов Apple (Music, App Store).
+///
+/// 22.08.2026: заменила текстовую «Закрыть» в
+/// ToolbarItem(placement: .cancellationAction) во всех шитах. Синий текст
+/// слева — паттерн iOS 13: красился системным tint вместо темы и выбивался
+/// из Liquid Glass-языка V4. Крестик всегда справа — закрытие в одном и том
+/// же месте на каждом экране; вторичные действия шита живут слева.
+struct V4SheetCloseButton: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button {
+            HapticManager.impact(.light)
+            action()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(V4.ink)
+                .frame(width: 32, height: 32)
+                .plinkGlass(.control, in: Circle(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Закрыть")
+        .accessibilityIdentifier("sheet.close")
+    }
+}
+
+/// Крестик закрытия для системного тулбара. На iOS 26 навигационная панель
+/// сама оборачивает каждый элемент в собственную стеклянную капсулу — поверх
+/// нашего 32-пт стекла вырастал второй серый круг, чужой всему UI. Скрываем
+/// системную подложку: остаётся единый V4-крестик, тот же, что в инлайновых
+/// шапках шитов.
+struct V4SheetCloseToolbarItem: ToolbarContent {
+    var action: () -> Void
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarTrailing) {
+                V4SheetCloseButton(action: action)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                V4SheetCloseButton(action: action)
+            }
+        }
+    }
+}
+
 
 
 

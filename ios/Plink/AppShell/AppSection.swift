@@ -6,7 +6,7 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable, Sendable {
-    case home, rooms, ai, friends, profile
+    case home, rooms, ai, friends, profile, settings
 
     var id: Self { self }
 
@@ -17,6 +17,7 @@ enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .ai: "ИИ"
         case .friends: "Друзья"
         case .profile: "Профиль"
+        case .settings: "Настройки"
         }
     }
 
@@ -27,6 +28,7 @@ enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .ai: "sparkles"
         case .friends: "person.2.fill"
         case .profile: "person.crop.circle.fill"
+        case .settings: "gearshape.fill"
         }
     }
 

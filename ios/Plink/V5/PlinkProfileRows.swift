@@ -8,63 +8,70 @@ import SwiftUI
 // MARK: - Shared settings chrome
 
 private enum SettingsUI {
-    static let cardRadius: CGFloat = 16
-    static let iconSize: CGFloat = 32
+    /// Радиус карточек — тот же 24, что у карт лица профиля и хаба
+    /// «Общих настроек»: до 23.08.2026 здесь жили свои 16 pt, и внутренние
+    /// экраны выглядели «из другого приложения».
+    static let cardRadius: CGFloat = 24
+    static let iconSize: CGFloat = 34
 }
 
 /// Full-screen settings scaffold used by all profile sheets.
+/// Фон — канвас V4 с радиальным свечением акцента темы: тот же, что у корня
+/// «Общих настроек» и статистики. Раньше здесь жил собственный сине-серый
+/// градиент с индиго-пятном — при переходе из корня настроек фон заметно
+/// «переключался» на чужую палитру.
 struct SettingsScaffold<Content: View>: View {
     let title: String
     let subtitle: String?
+    /// Надзаголовок-крошка: раздел, которому принадлежит экран («Профиль»,
+    /// «Управление аккаунтом», «Общие настройки»). Шапка — V4Heading, тот же
+    /// блок, что у хаба настроек и корневых вкладок: до 23.08.2026 здесь жил
+    /// собственный титул 28 heavy без крошки, и окно выглядело чужим.
+    let eyebrow: String
+    /// true — экран открыт шитом (корень своего NavigationStack): крестик
+    /// в шапке, системная навигационная панель скрыта — как у хаба настроек.
+    /// false — экран пришёл пушем: возврат несёт системная «Назад», второй
+    /// выход не нужен (раньше здесь жил тулбарный крестик — на iOS 26
+    /// панель заворачивала его в собственное стекло, вырастал серый круг).
+    let showsClose: Bool
     @ViewBuilder var content: Content
     @Environment(\.dismiss) private var dismiss
 
-    init(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
+    private let theme = V4Theme.saved
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        eyebrow: String = "Настройки",
+        showsClose: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
         self.subtitle = subtitle
+        self.eyebrow = eyebrow
+        self.showsClose = showsClose
         self.content = content()
     }
 
     var body: some View {
         ZStack {
-            // Soft layered background (not pure empty black)
-            LinearGradient(
-                colors: [
-                    Color(hex: 0x0B1018),
-                    Color(hex: 0x0A0D12),
-                    Color(hex: 0x0E1520),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            V4.canvas.ignoresSafeArea()
+            RadialGradient(
+                colors: [theme.accentColor.opacity(0.10), .clear],
+                center: UnitPoint(x: 0.5, y: 0), startRadius: 0, endRadius: 420
             )
             .ignoresSafeArea()
 
-            Circle()
-                .fill(V4.accent.opacity(0.08))
-                .frame(width: 280, height: 280)
-                .blur(radius: 60)
-                .offset(x: 120, y: -180)
-
-            Circle()
-                .fill(Color(hex: 0x6366F1).opacity(0.06))
-                .frame(width: 220, height: 220)
-                .blur(radius: 50)
-                .offset(x: -140, y: 320)
-
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(.system(size: 28, weight: .heavy))
-                            .foregroundStyle(V4.ink)
-                        if let subtitle {
-                            Text(subtitle)
-                                .font(.system(size: 14))
-                                .foregroundStyle(V4.muted)
-                                .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .top, spacing: 12) {
+                        V4Heading(eyebrow: eyebrow, title: title, subtitle: subtitle)
+                        if showsClose {
+                            Spacer(minLength: 0)
+                            V4SheetCloseButton { dismiss() }
                         }
                     }
-                    .padding(.top, 8)
+                    .padding(.top, showsClose ? 18 : 8)
 
                     content
                 }
@@ -73,22 +80,7 @@ struct SettingsScaffold<Content: View>: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(V4.muted)
-                        .frame(width: 32, height: 32)
-                        .background(V4.surface.opacity(0.9), in: Circle())
-                        .overlay(Circle().stroke(V4.line))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Закрыть")
-            }
-        }
+        .toolbar(showsClose ? .hidden : .automatic, for: .navigationBar)
         .preferredColorScheme(.dark)
     }
 }
@@ -96,9 +88,10 @@ struct SettingsScaffold<Content: View>: View {
 struct SettingsSectionLabel: View {
     let text: String
     var body: some View {
+        // Типографика лейбла — та же, что у групп хаба «Общих настроек».
         Text(text.uppercased())
-            .font(.system(size: 11, weight: .heavy))
-            .tracking(1.0)
+            .font(.system(size: 10.56, weight: .heavy))
+            .tracking(1.16)
             .foregroundStyle(V4.muted)
             .padding(.leading, 4)
             .padding(.bottom, 2)
@@ -108,50 +101,56 @@ struct SettingsSectionLabel: View {
 struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(spacing: 0) {
-            content
-        }
         // Карточка настроек — на стекле, как вся навигация приложения.
-        // Раньше это была плоская заливка V4.surface на 72 %: на живом фоне
-        // с движущимися пятнами она читалась вырезанным прямоугольником.
-        .plinkGlass(.control, cornerRadius: SettingsUI.cardRadius)
+        // Разделители карточка вставляет сама МЕЖДУ строками: раньше каждая
+        // строка носила собственный нижний оверлей, и под последней строкой
+        // оставалась линия, упиравшаяся в скругление карты.
+        _VariadicView.Tree(SettingsCardRows()) { content }
+            .padding(.vertical, 4)
+            .plinkGlass(.control, cornerRadius: SettingsUI.cardRadius)
+    }
+}
+
+/// Раскладка строк карточки: волосяной разделитель между соседями,
+/// после последней строки — ничего (язык sectionsGroup лица профиля).
+private struct SettingsCardRows: _VariadicView_MultiViewRoot {
+    @ViewBuilder
+    func body(children: _VariadicView.Children) -> some View {
+        let lastID = children.last?.id
+        VStack(spacing: 0) {
+            ForEach(children) { child in
+                child
+                if child.id != lastID {
+                    V4RowSeparator()
+                }
+            }
+        }
     }
 }
 
 struct SettingsIconBadge: View {
     let systemName: String
-    var color: Color = V4.accent
+    var color: Color = V4Theme.saved.accentColor
     var body: some View {
-        // Плотная заливка вместо opacity(0.16): бледные плашки превращали
-        // список в «стену серых строк», где ни одна иконка не читалась.
-        RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .fill(color.opacity(0.92))
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [.white.opacity(0.30), .clear],
-                            startPoint: .top,
-                            endPoint: .center
-                        )
-                    )
-                    .blendMode(.overlay)
-            )
-            .frame(width: SettingsUI.iconSize, height: SettingsUI.iconSize)
-            .overlay(
-                Image(systemName: systemName)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-            )
-            .shadow(color: color.opacity(0.30), radius: 4, y: 2)
+        // Мягкий круглый чип — побайтово тот же, что у строк лица профиля
+        // (V4ProfileRow). Плотная цветная плашка со скруглением 11 читалась
+        // чужим языком рядом с круглыми чипами остального приложения.
+        ZStack {
+            Circle().fill(color.opacity(0.14))
+            Circle().stroke(color.opacity(0.22), lineWidth: 1)
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(color)
+        }
+        .frame(width: SettingsUI.iconSize, height: SettingsUI.iconSize)
     }
 }
 
-private struct SettingsToggleRow: View {
+struct SettingsToggleRow: View {
     let icon: String
     let title: String
     var subtitle: String? = nil
-    var iconColor: Color = V4.accent
+    var iconColor: Color = V4Theme.saved.accentColor
     @Binding var isOn: Bool
     var enabled: Bool = true
 
@@ -172,23 +171,20 @@ private struct SettingsToggleRow: View {
             Spacer(minLength: 8)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .tint(V4.accent)
+                .tint(V4Theme.saved.accentColor)
                 .disabled(!enabled)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .opacity(enabled ? 1 : 0.55)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
-        }
     }
 }
 
-private struct SettingsInfoRow: View {
+struct SettingsInfoRow: View {
     let icon: String
     let title: String
     var value: String
-    var iconColor: Color = V4.accent
+    var iconColor: Color = V4Theme.saved.accentColor
     var actionTitle: String? = nil
     var action: (() -> Void)? = nil
 
@@ -209,25 +205,23 @@ private struct SettingsInfoRow: View {
                 Button(action: action) {
                     Text(actionTitle)
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(V4.accent)
+                        .foregroundStyle(V4Theme.saved.accentColor)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
-        }
     }
 }
 
-private struct SettingsNavRow: View {
+struct SettingsNavRow: View {
     let icon: String
     let title: String
     var subtitle: String? = nil
-    var iconColor: Color = V4.accent
-    var trailing: String = "›"
+    var iconColor: Color = V4Theme.saved.accentColor
+    /// false — строка-действие без обещания перехода (язык V4ProfileRow).
+    var showsChevron: Bool = true
     var action: () -> Void
 
     var body: some View {
@@ -245,25 +239,26 @@ private struct SettingsNavRow: View {
                     }
                 }
                 Spacer()
-                Text(trailing)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(V4.muted)
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(V4.muted.opacity(0.7))
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
-        }
     }
 }
 
-private struct SettingsChoiceRow: View {
+struct SettingsChoiceRow: View {
     let title: String
     let options: [(String, String)] // id, label
     @Binding var selection: String
+
+    private let theme = V4Theme.saved
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -273,57 +268,72 @@ private struct SettingsChoiceRow: View {
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
 
+            // Сегменты — капсулы: выбранная залита акцентом, остальные на
+            // стекле. Прямоугольники со скруглением 10 и плоской заливкой
+            // V4.raised были единственными «квадратными» контролами экрана.
             HStack(spacing: 8) {
                 ForEach(options, id: \.0) { id, label in
                     let selected = selection == id
-                    Button {
+                    let button = Button {
+                        HapticManager.selection()
                         withAnimation(.easeInOut(duration: 0.15)) { selection = id }
                     } label: {
                         Text(label)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(selected ? V4.accentInk : V4.ink)
+                            .foregroundStyle(selected ? theme.buttonTextColor : V4.ink)
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: 36)
-                            .background(selected ? V4.accent : V4.raised.opacity(0.8))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+
+                    if selected {
+                        button
+                            .background(theme.accentColor, in: Capsule())
+                            .shadow(color: theme.accentColor.opacity(0.30), radius: 7, y: 3)
+                    } else {
+                        button
+                            .plinkGlass(.control, in: Capsule(), interactive: true)
+                    }
                 }
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 12)
         }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line).frame(height: 1)
-        }
     }
 }
 
-private struct SettingsPrimaryButton: View {
+/// Главная кнопка экрана настроек — единый PlinkProminentButtonStyle.
+/// Белая с чёрным текстом, как Play у Apple TV и Netflix: главная CTA
+/// статична и не зависит от темы — акцентная заливка перекрашивала кнопку
+/// с каждой палитрой и терялась на пёстрых обложках (канон V4Components).
+struct SettingsPrimaryButton: View {
     let title: String
     var isLoading: Bool = false
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                if isLoading { ProgressView().tint(V4.accentInk) }
-                Text(title)
-                    .font(.system(size: 16, weight: .bold))
+        Button {
+            HapticManager.impact(.medium)
+            action()
+        } label: {
+            ZStack {
+                Text(title).opacity(isLoading ? 0 : 1)
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.black)
+                }
             }
-            .foregroundStyle(V4.accentInk)
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(
-                LinearGradient(
-                    colors: [V4.accent, Color(hex: 0x26D9A4)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ),
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            PlinkProminentButtonStyle(
+                tint: .white,
+                textColor: .black,
+                height: 52,
+                cornerRadius: 16
+            )
+        )
         .disabled(isLoading)
     }
 }
@@ -331,6 +341,10 @@ private struct SettingsPrimaryButton: View {
 // MARK: - PersonalDataView
 
 internal struct PersonalDataView: View {
+    /// true — экран открыт шитом с лица профиля (кнопка «Редактировать»):
+    /// нужен крестик. false — пришёл пушем из центра аккаунта.
+    var asSheet: Bool = false
+
     @State private var displayName: String = ""
     @State private var nickname: String = ""
     @State private var email: String = ""
@@ -342,39 +356,44 @@ internal struct PersonalDataView: View {
     var body: some View {
         SettingsScaffold(
             title: "Личные данные",
-            subtitle: "Имя, никнейм и идентификатор аккаунта"
+            subtitle: "Имя, никнейм и почта аккаунта",
+            eyebrow: "Управление аккаунтом",
+            showsClose: asSheet
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Профиль")
                 SettingsCard {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(LocalizationManager.shared.string(.pxDisplayName))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(V4.muted)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 12)
-                        TextField("Как тебя видят друзья", text: $displayName)
-                            .textInputAutocapitalization(.words)
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 10)
-                            .foregroundStyle(V4.ink)
-                    }
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(V4.line).frame(height: 1)
-                    }
+                    // Оба поля — один ребёнок карточки: между полями свой
+                    // разделитель от кромки текста (14), а не строковый (60).
+                    VStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(LocalizationManager.shared.string(.pxDisplayName))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(V4.muted)
+                                .padding(.horizontal, 14)
+                                .padding(.top, 12)
+                            TextField("Как тебя видят друзья", text: $displayName)
+                                .textInputAutocapitalization(.words)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 10)
+                                .foregroundStyle(V4.ink)
+                        }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("@username")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(V4.muted)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 12)
-                        TextField("уникальный_ник", text: $nickname)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 12)
-                            .foregroundStyle(V4.ink)
+                        Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 14)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("@username")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(V4.muted)
+                                .padding(.horizontal, 14)
+                                .padding(.top, 12)
+                            TextField("уникальный_ник", text: $nickname)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 12)
+                                .foregroundStyle(V4.ink)
+                        }
                     }
                 }
             }
@@ -383,22 +402,13 @@ internal struct PersonalDataView: View {
                 SettingsSectionLabel(text: "Аккаунт")
                 SettingsCard {
                     SettingsInfoRow(icon: "envelope.fill", title: "Email", value: email.isEmpty ? "—" : email)
-                    SettingsInfoRow(
-                        icon: "number",
-                        title: "Account ID",
-                        value: accountID.isEmpty ? "—" : accountID,
-                        actionTitle: copied ? "Скопировано" : "Копировать"
-                    ) {
-                        UIPasteboard.general.string = accountID
-                        withAnimation { copied = true }
-                    }
                 }
             }
 
             if let saveMessage {
                 Text(saveMessage)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(V4.accent)
+                    .foregroundStyle(V4Theme.saved.accentColor)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
 
@@ -406,6 +416,30 @@ internal struct PersonalDataView: View {
                 Task { await save() }
             }
             .padding(.top, 4)
+
+            // Технический UUID убран с лица экрана: пользователю он не нужен,
+            // а 36-символьная простыня выглядела как отладочный дамп. Полный
+            // идентификатор нужен только поддержке — тихая строка внизу
+            // копирует его целиком одним тапом.
+            if !accountID.isEmpty {
+                Button {
+                    UIPasteboard.general.string = accountID
+                    HapticManager.selection()
+                    withAnimation { copied = true }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 9.5, weight: .semibold))
+                        Text(copied ? "ID скопирован" : "ID для поддержки: \(accountID.prefix(8))…")
+                            .font(.system(size: 11.5, weight: .medium))
+                    }
+                    .foregroundStyle(V4.muted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .accessibilityLabel("Скопировать идентификатор аккаунта для поддержки")
+            }
         }
         .onAppear {
             if let u = AuthService.shared.currentUserValue {
@@ -470,7 +504,6 @@ internal struct PrivacySecurityView: View {
     @AppStorage("privacy_discoverable") private var discoverable = true
     @AppStorage("privacy_online_status") private var showOnlineStatus = true
     @AppStorage("privacy_dm_from") private var dmFromFriendsOnly = true
-    @State private var showSessions = false
 
     private var inviteBinding: Binding<String> {
         Binding(get: { inviteRaw }, set: { inviteRaw = $0 })
@@ -479,10 +512,12 @@ internal struct PrivacySecurityView: View {
     var body: some View {
         SettingsScaffold(
             title: "Приватность",
-            subtitle: "Кто может тебя находить, приглашать и писать"
+            subtitle: "Кто может тебя находить, приглашать и писать",
+            eyebrow: "Управление аккаунтом"
         ) {
+            // Без секционного лейбла: карта одна, а «ПРИВАТНОСТЬ» под
+            // заголовком «Приватность» читалась дублем.
             VStack(alignment: .leading, spacing: 8) {
-                SettingsSectionLabel(text: "Приватность")
                 SettingsCard {
                     SettingsChoiceRow(
                         title: "Кто может приглашать в комнату",
@@ -515,50 +550,10 @@ internal struct PrivacySecurityView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SettingsSectionLabel(text: "Безопасность")
-                SettingsCard {
-                    // Раньше здесь стоял Toggle, который писал
-                    // только в локальный @State и притворялся рабочей 2FA.
-                    // На сервере есть поля twofaEnabled/twofaSecret, но нет
-                    // пользовательских роутов включения/выключения (есть только
-                    // step-up verify для админов в /auth/admin-verify). Пока
-                    // роутов нет — честная строка «Скоро» без переключателя.
-                    SettingsInfoRow(
-                        icon: "lock.shield.fill",
-                        title: "Двухфакторная защита",
-                        value: "Скоро",
-                        iconColor: Color(hex: 0xA855F7)
-                    )
-                    SettingsNavRow(
-                        icon: "laptopcomputer.and.iphone",
-                        title: "Активные сессии",
-                        subtitle: "Устройства, где выполнен вход",
-                        iconColor: Color(hex: 0x3B82F6)
-                    ) {
-                        showSessions = true
-                    }
-                    SettingsNavRow(
-                        icon: "rectangle.portrait.and.arrow.right",
-                        title: "Выйти на этом устройстве",
-                        subtitle: "Потребуется войти снова",
-                        iconColor: V4.danger
-                    ) {
-                        AuthService.shared.signOutLocally()
-                    }
-                }
-            }
-
             infoBanner(
                 icon: "shield.checkered",
                 text: "Plink не продаёт личные данные. Жалобы и блокировки работают в чате комнаты."
             )
-        }
-        .sheet(isPresented: $showSessions) {
-            NavigationStack {
-                ActiveSessionsView()
-            }
-            .preferredColorScheme(.dark)
         }
     }
 }
@@ -585,8 +580,11 @@ struct ActiveSessionsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: "Сессии",
-            subtitle: "Сервер пока не хранит список устройств — видно только текущее"
+            // Тот же заголовок, что у строки-входа: «Активные сессии» —
+            // название не меняется по пути (когезия навигации).
+            title: "Активные сессии",
+            subtitle: "Сервер пока не хранит список устройств — видно только текущее",
+            eyebrow: "Безопасность и вход"
         ) {
             SettingsCard {
                 SettingsInfoRow(
@@ -602,7 +600,7 @@ struct ActiveSessionsView: View {
                     title: "Завершить остальные сессии",
                     subtitle: "Другие устройства выйдут из аккаунта",
                     iconColor: V4.danger,
-                    trailing: ""
+                    showsChevron: false
                 ) {
                     showConfirm = true
                 }
@@ -610,13 +608,13 @@ struct ActiveSessionsView: View {
 
             if signingOut {
                 ProgressView()
-                    .tint(V4.accent)
+                    .tint(V4Theme.saved.accentColor)
                     .frame(maxWidth: .infinity)
             }
             if let msg = resultMessage {
                 Text(msg)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(resultIsError ? V4.danger : V4.accent)
+                    .foregroundStyle(resultIsError ? V4.danger : V4Theme.saved.accentColor)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
@@ -647,6 +645,414 @@ struct ActiveSessionsView: View {
     }
 }
 
+// MARK: - ChangePasswordView
+
+/// Смена пароля через существующий reset-flow сервера: код на почту →
+/// новый пароль. Отдельного роута «сменить по старому паролю» на бэкенде
+/// нет, а reset-flow покрывает и «забыл», и «хочу сменить» — честно и
+/// без выдуманных экранов.
+internal struct ChangePasswordView: View {
+    @State private var codeSent = false
+    @State private var code = ""
+    @State private var newPassword = ""
+    @State private var working = false
+    @State private var message: String?
+    @State private var messageIsError = false
+    @State private var done = false
+
+    private var email: String { AuthService.shared.currentUserValue?.email ?? "" }
+    private var canConfirm: Bool {
+        code.trimmingCharacters(in: .whitespaces).count >= 4 && newPassword.count >= 8
+    }
+
+    var body: some View {
+        SettingsScaffold(
+            title: "Пароль",
+            subtitle: "Смена по коду из письма",
+            eyebrow: "Безопасность и вход"
+        ) {
+            SettingsCard {
+                SettingsInfoRow(
+                    icon: "envelope.fill",
+                    title: "Код придёт на почту",
+                    value: email.isEmpty ? "—" : email
+                )
+            }
+
+            if codeSent {
+                VStack(alignment: .leading, spacing: 8) {
+                    SettingsSectionLabel(text: "Новый пароль")
+                    SettingsCard {
+                        VStack(alignment: .leading, spacing: 0) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Код из письма")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(V4.muted)
+                                    .padding(.horizontal, 14)
+                                    .padding(.top, 12)
+                                TextField("6 цифр", text: $code)
+                                    .keyboardType(.numberPad)
+                                    .textContentType(.oneTimeCode)
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 10)
+                                    .foregroundStyle(V4.ink)
+                            }
+
+                            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 14)
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Новый пароль — минимум 8 символов")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(V4.muted)
+                                    .padding(.horizontal, 14)
+                                    .padding(.top, 12)
+                                SecureField("••••••••", text: $newPassword)
+                                    .textContentType(.newPassword)
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 12)
+                                    .foregroundStyle(V4.ink)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let message {
+                Text(message)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(messageIsError ? V4.danger : V4Theme.saved.accentColor)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+            }
+
+            if done {
+                infoBanner(
+                    icon: "checkmark.shield.fill",
+                    text: "Пароль обновлён. На других устройствах может потребоваться войти заново."
+                )
+            } else if codeSent {
+                SettingsPrimaryButton(title: "Сменить пароль", isLoading: working) {
+                    Task { await confirm() }
+                }
+                .disabled(!canConfirm)
+                .opacity(canConfirm ? 1 : 0.55)
+
+                Button {
+                    Task { await sendCode(resend: true) }
+                } label: {
+                    Text("Отправить код ещё раз")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .disabled(working)
+            } else {
+                SettingsPrimaryButton(title: "Отправить код", isLoading: working) {
+                    Task { await sendCode(resend: false) }
+                }
+                .disabled(email.isEmpty)
+            }
+        }
+        #if DEBUG
+        .onAppear {
+            // Дизайн-превью второй стадии: `-plink.designrow password.sent`
+            // показывает поля кода и нового пароля без похода на бэкенд.
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-plink.designrow"),
+               args.indices.contains(i + 1), args[i + 1] == "password.sent" {
+                codeSent = true
+            }
+        }
+        #endif
+    }
+
+    private func sendCode(resend: Bool) async {
+        guard !email.isEmpty else { return }
+        working = true
+        message = nil
+        defer { working = false }
+        do {
+            try await AuthService.shared.requestPasswordReset(email: email)
+            codeSent = true
+            messageIsError = false
+            message = resend ? "Код отправлен ещё раз" : nil
+            HapticManager.impact(.light)
+        } catch {
+            messageIsError = true
+            message = "Не удалось отправить код: \(error.localizedDescription)"
+            HapticManager.errorOccurred()
+        }
+    }
+
+    private func confirm() async {
+        working = true
+        message = nil
+        defer { working = false }
+        do {
+            try await AuthService.shared.confirmPasswordReset(
+                email: email,
+                code: code.trimmingCharacters(in: .whitespaces),
+                newPassword: newPassword
+            )
+            done = true
+            messageIsError = false
+            message = nil
+            HapticManager.impact(.medium)
+        } catch {
+            messageIsError = true
+            message = "Не удалось сменить пароль: \(error.localizedDescription)"
+            HapticManager.errorOccurred()
+        }
+    }
+}
+
+// MARK: - AccountCenterView
+
+/// Строка-переход центра аккаунта: тот же вид, что SettingsNavRow, но ведёт
+/// пушем через NavigationLink — внутренние экраны закрываются системной
+/// «Назад», а не россыпью вложенных шитов.
+private struct AccountNavRow<Destination: View>: View {
+    let icon: String
+    let title: String
+    var subtitle: String? = nil
+    var iconColor: Color = V4Theme.saved.accentColor
+    @ViewBuilder var destination: () -> Destination
+
+    var body: some View {
+        NavigationLink {
+            destination()
+        } label: {
+            HStack(spacing: 12) {
+                SettingsIconBadge(systemName: icon, color: iconColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(V4.muted)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(V4.muted)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Разделители рисует SettingsCard между соседями — собственный
+        // нижний оверлей оставлял линию под последней строкой карты.
+    }
+}
+
+/// Единый центр аккаунта — модель «Управление VK ID»: одно место, где
+/// собраны личные данные, вход и безопасность, приватность и доступ к
+/// данным. Раньше эти экраны были рассыпаны по хабу настроек, а
+/// безопасность пряталась внутри «Приватности».
+internal struct AccountCenterView: View {
+    var store: V4ProfileStore?
+    /// true — открыт шитом с лица профиля; false — пушем из настроек.
+    var asSheet: Bool = false
+
+    private let theme = V4Theme.saved
+
+    #if DEBUG
+    /// Дизайн-превью: `-plink.designrow personal|password|password.sent|sessions|
+    /// privacy|services|blocked|delete` пушит внутренний экран сразу —
+    /// скриншоты без ручных тапов (язык -plink.designsheet лица профиля).
+    @State private var debugRow: String?
+    #endif
+
+    private var user: User? { AuthService.shared.currentUserValue }
+    private var displayName: String { store?.displayName ?? user?.displayName ?? user?.username ?? "—" }
+    private var username: String { store?.username ?? user?.username ?? "" }
+    private var email: String { store?.email ?? user?.email ?? "" }
+
+    var body: some View {
+        SettingsScaffold(
+            title: "Управление аккаунтом",
+            subtitle: "Данные, вход, приватность и доступ",
+            showsClose: asSheet
+        ) {
+            identityCard
+
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionLabel(text: "Аккаунт")
+                SettingsCard {
+                    AccountNavRow(
+                        icon: "person.text.rectangle.fill",
+                        title: "Личные данные",
+                        subtitle: "Имя, никнейм и почта"
+                    ) {
+                        PersonalDataView()
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionLabel(text: "Безопасность и вход")
+                SettingsCard {
+                    AccountNavRow(
+                        icon: "key.fill",
+                        title: "Пароль",
+                        subtitle: "Смена по коду из письма",
+                        iconColor: Color(hex: 0xF59E0B)
+                    ) {
+                        ChangePasswordView()
+                    }
+                    AccountNavRow(
+                        icon: "laptopcomputer.and.iphone",
+                        title: "Активные сессии",
+                        subtitle: "Устройства, где выполнен вход",
+                        iconColor: Color(hex: 0x3B82F6)
+                    ) {
+                        ActiveSessionsView()
+                    }
+                    // На сервере есть поля twofaEnabled/twofaSecret, но нет
+                    // пользовательских роутов включения — честная строка «Скоро».
+                    SettingsInfoRow(
+                        icon: "lock.shield.fill",
+                        title: "Двухфакторная защита",
+                        value: "Скоро",
+                        iconColor: Color(hex: 0xA855F7)
+                    )
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionLabel(text: "Приватность")
+                SettingsCard {
+                    AccountNavRow(
+                        icon: "hand.raised.fill",
+                        title: "Приватность",
+                        subtitle: "Кто может находить, приглашать и писать",
+                        iconColor: Color(hex: 0x22C55E)
+                    ) {
+                        PrivacySecurityView()
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionLabel(text: "Данные и доступ")
+                SettingsCard {
+                    AccountNavRow(
+                        icon: "play.rectangle.on.rectangle.fill",
+                        title: "Кинотеатры и Яндекс ID",
+                        subtitle: connectedSubtitle
+                    ) {
+                        ConnectedServicesView()
+                    }
+                    AccountNavRow(
+                        icon: "person.slash.fill",
+                        title: "Заблокированные",
+                        subtitle: "Их сообщения скрыты",
+                        iconColor: V4.danger
+                    ) {
+                        BlockedUsersView()
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsSectionLabel(text: "Опасная зона")
+                SettingsCard {
+                    AccountNavRow(
+                        icon: "trash.fill",
+                        title: "Удалить аккаунт",
+                        subtitle: "Необратимо после периода ожидания",
+                        iconColor: V4.danger
+                    ) {
+                        DeleteAccountView()
+                    }
+                }
+            }
+        }
+        #if DEBUG
+        .onAppear {
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-plink.designrow"), args.indices.contains(i + 1) {
+                debugRow = args[i + 1]
+            }
+        }
+        .navigationDestination(isPresented: Binding(
+            get: { debugRow != nil },
+            set: { if !$0 { debugRow = nil } }
+        )) {
+            switch debugRow {
+            case "personal": PersonalDataView()
+            case "password", "password.sent": ChangePasswordView()
+            case "sessions": ActiveSessionsView()
+            case "privacy": PrivacySecurityView()
+            case "services": ConnectedServicesView()
+            case "blocked": BlockedUsersView()
+            case "delete": DeleteAccountView()
+            default: EmptyView()
+            }
+        }
+        #endif
+    }
+
+    private var connectedSubtitle: String {
+        let n = LinkedExternalAccount.connectedCount
+        return n > 0 ? "Подключено: \(n)" : "Подключение аккаунтов"
+    }
+
+    /// Мини-шапка идентичности — как карточка владельца в VK ID: сразу
+    /// видно, каким аккаунтом управляешь.
+    private var identityCard: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let local = store?.localAvatarImage {
+                    Image(uiImage: local).resizable().scaledToFill()
+                } else if let url = store?.avatarURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                        default:
+                            V4Avatar(letter: String(displayName.prefix(1)), theme: theme, size: 56)
+                        }
+                    }
+                } else {
+                    V4Avatar(letter: String(displayName.prefix(1)), theme: theme, size: 56)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(V4.line, lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(displayName)
+                    .font(.system(size: 17, weight: .heavy))
+                    .tracking(-0.3)
+                    .foregroundStyle(V4.ink)
+                    .lineLimit(1)
+                if !username.isEmpty {
+                    Text("@\(username)")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(1)
+                }
+                if !email.isEmpty {
+                    Text(email)
+                        .font(.system(size: 12))
+                        .foregroundStyle(V4.muted.opacity(0.85))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .plinkGlass(.control, cornerRadius: SettingsUI.cardRadius)
+    }
+}
+
 // MARK: - PlaybackSettingsView
 
 internal struct PlaybackSettingsView: View {
@@ -664,7 +1070,8 @@ internal struct PlaybackSettingsView: View {
     var body: some View {
         SettingsScaffold(
             title: "Воспроизведение",
-            subtitle: "Качество, субтитры и комфорт просмотра"
+            subtitle: "Качество, субтитры и комфорт просмотра",
+            eyebrow: "Общие настройки"
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Видео")
@@ -712,7 +1119,7 @@ internal struct PlaybackSettingsView: View {
                         icon: "figure.walk.motion",
                         title: "Меньше анимаций",
                         subtitle: "Упростить motion и живые фоны",
-                        iconColor: Color(hex: 0xF59E0B),
+                        iconColor: V4.amber,
                         isOn: $reduceMotionOverride
                     )
                 }
@@ -773,9 +1180,10 @@ internal struct HelpView: View {
     var body: some View {
         SettingsScaffold(
             title: "Помощь",
-            subtitle: "Ответы, поддержка и юридическая информация"
+            subtitle: "Ответы, поддержка и юридическая информация",
+            eyebrow: "Общие настройки"
         ) {
-            // Search
+            // Поиск — на стекле, как поисковые поля Главной и Друзей.
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(V4.muted)
                 TextField("Поиск по статьям", text: $query)
@@ -783,9 +1191,7 @@ internal struct HelpView: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 48)
-            .background(V4.surface.opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(V4.line))
+            .plinkGlass(.control, cornerRadius: 14)
 
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Статьи")
@@ -795,7 +1201,7 @@ internal struct HelpView: View {
                             HelpArticleView(article: article)
                         } label: {
                             HStack(spacing: 12) {
-                                SettingsIconBadge(systemName: "doc.text.fill", color: V4.accent)
+                                SettingsIconBadge(systemName: "doc.text.fill", color: V4Theme.saved.accentColor)
                                 Text(article.title)
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(V4.ink)
@@ -807,9 +1213,6 @@ internal struct HelpView: View {
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 14)
-                        }
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
                         }
                     }
                     if filtered.isEmpty {
@@ -848,9 +1251,6 @@ internal struct HelpView: View {
                             }
                             .padding(14)
                         }
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
-                        }
                     }
                     linkRow("Условия использования", url: PlinkURLs.terms, icon: "doc.plaintext")
                     linkRow("Конфиденциальность", url: PlinkURLs.privacy, icon: "hand.raised.fill")
@@ -872,7 +1272,7 @@ internal struct HelpView: View {
             if let u = url {
                 Link(destination: u) {
                     HStack(spacing: 12) {
-                        SettingsIconBadge(systemName: icon, color: V4.accent)
+                        SettingsIconBadge(systemName: icon, color: V4Theme.saved.accentColor)
                         Text(title)
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(V4.ink)
@@ -881,9 +1281,6 @@ internal struct HelpView: View {
                             .foregroundStyle(V4.muted)
                     }
                     .padding(14)
-                }
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
                 }
             }
         }
@@ -925,29 +1322,37 @@ internal struct BlockedUsersView: View {
     var body: some View {
         SettingsScaffold(
             title: "Заблокированные",
-            subtitle: "Их сообщения скрыты в чатах"
+            subtitle: "Их сообщения скрыты в чатах",
+            eyebrow: "Данные и доступ"
         ) {
             if loading {
-                ProgressView().tint(V4.accent).frame(maxWidth: .infinity).padding(.top, 40)
+                ProgressView().tint(V4Theme.saved.accentColor).frame(maxWidth: .infinity).padding(.top, 40)
             } else if blocked.isEmpty {
+                // Пустое состояние — в общем каркасе состояний V4: иконка в
+                // мягком круге на стеклянной карте, а не плоская заливка.
                 VStack(spacing: 14) {
-                    Image(systemName: "person.slash")
-                        .font(.system(size: 40))
-                        .foregroundStyle(V4.accent.opacity(0.7))
+                    ZStack {
+                        Circle().fill(V4Theme.saved.accentColor.opacity(0.13))
+                        Circle().stroke(V4Theme.saved.accentColor.opacity(0.22), lineWidth: 1)
+                        Image(systemName: "person.slash")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(V4Theme.saved.accentColor)
+                    }
+                    .frame(width: 58, height: 58)
                     Text(LocalizationManager.shared.string(.pxEmptyList))
-                        .font(.headline)
+                        .font(.system(size: 16.5, weight: .heavy))
+                        .tracking(-0.3)
                         .foregroundStyle(V4.ink)
                     Text(LocalizationManager.shared.string(.pxBlockHint))
-                        .font(.subheadline)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineSpacing(2)
                         .foregroundStyle(V4.muted)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 12)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
-                .background(V4.surface.opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(V4.line))
+                .padding(.vertical, 40)
+                .plinkGlass(.control, cornerRadius: 20)
             } else {
                 SettingsCard {
                     ForEach(blocked) { u in
@@ -957,17 +1362,15 @@ internal struct BlockedUsersView: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(V4.ink)
                             Spacer()
-                            Button("Разблок.") {
+                            Button("Разблокировать") {
+                                HapticManager.selection()
                                 UserBlockManager.shared.unblockUser(u.id)
                                 blocked.removeAll { $0.id == u.id }
                             }
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(V4.accent)
+                            .foregroundStyle(V4Theme.saved.accentColor)
                         }
                         .padding(14)
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
-                        }
                     }
                 }
             }
@@ -1001,7 +1404,8 @@ internal struct DeleteAccountView: View {
     var body: some View {
         SettingsScaffold(
             title: "Удалить аккаунт",
-            subtitle: "Необратимо после периода ожидания"
+            subtitle: "Необратимо после периода ожидания",
+            eyebrow: "Опасная зона"
         ) {
             infoBanner(
                 icon: "exclamationmark.triangle.fill",
@@ -1063,11 +1467,12 @@ internal struct DeleteAccountView: View {
 
 // MARK: - Shared helpers
 
-private func infoBanner(icon: String, text: String) -> some View {
-    HStack(alignment: .top, spacing: 12) {
+internal func infoBanner(icon: String, text: String) -> some View {
+    let accent = V4Theme.saved.accentColor
+    return HStack(alignment: .top, spacing: 12) {
         Image(systemName: icon)
             .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(V4.accent)
+            .foregroundStyle(accent)
             .frame(width: 28)
         Text(text)
             .font(.system(size: 13))
@@ -1076,11 +1481,11 @@ private func infoBanner(icon: String, text: String) -> some View {
     }
     .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(V4.accent.opacity(0.08))
+    .background(accent.opacity(0.08))
     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay(
         RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(V4.accent.opacity(0.18), lineWidth: 1)
+            .stroke(accent.opacity(0.18), lineWidth: 1)
     )
 }
 

@@ -104,6 +104,27 @@ public enum WatchRoomCompositionRoot {
         return nil
     }
 
+    /// Derive a PlaybackSource from a raw stream URL — used when the host
+    /// promotes a queued item via «включить сейчас» (RoomQueueWire.Item has a
+    /// streamURL string, not a Room). Same provider order as
+    /// mediaSourceFromRoom so a queued item plays through the right controller.
+    static func mediaSource(fromStreamURL urlString: String, videoIdHint: String? = nil) -> PlaybackSource? {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let hint = videoIdHint?.trimmingCharacters(in: .whitespacesAndNewlines),
+           isValidYouTubeVideoId(hint) {
+            return .youtube(hint)
+        }
+        if let ytId = extractYouTubeVideoId(from: trimmed) { return .youtube(ytId) }
+        if let rutubeId = extractRutubeVideoId(from: trimmed) { return .rutube(rutubeId) }
+        if let vkId = extractVKVideoId(from: trimmed) { return .vk(vkId) }
+        if let url = URL(string: trimmed), url.scheme == "http" || url.scheme == "https" {
+            if trimmed.contains(".m3u8") { return .hls(url, headers: [:]) }
+            if trimmed.contains(".mp4") || trimmed.hasSuffix(".mov") { return .mp4(url, headers: [:]) }
+            return .embed(url)
+        }
+        return nil
+    }
+
     /// Resolve a valid 11-char YouTube id from mediaItem fields.
     private static func resolveYouTubeVideoId(from mediaItem: MediaItem) -> String? {
         // 1) Explicit videoId field

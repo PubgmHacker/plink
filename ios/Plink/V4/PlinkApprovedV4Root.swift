@@ -13,8 +13,25 @@ import Foundation
 // MARK: - Section
 
 struct PlinkApprovedV4Root: View {
-    @State private var tab=0
-    @State private var theme:V4Theme = .electric
+    // Дизайн-превью: `-plink.designtab N` открывает оболочку сразу на нужной
+    // вкладке — скриншоты экранов в симуляторе без ручных тапов. Только DEBUG.
+    @State private var tab: Int = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-plink.designtab"), args.indices.contains(i + 1),
+           let t = Int(args[i + 1]), (0...4).contains(t) {
+            return t
+        }
+        #endif
+        return 0
+    }()
+    // Стартуем с последней сохранённой темы, а не с жёсткой .electric:
+    // иначе первый кадр всегда синий, а через секунды серверная гидрация
+    // (hydrateFromBackendAndApplyToV4 → .plinkV4ThemeRestored) резко
+    // перекидывала на выбранную тему — «синяя вспышка» при каждом входе.
+    // Ключ plink.v4ThemeName пишется при каждой смене и при гидрации.
+    @State private var theme: V4Theme =
+        V4Theme(rawValue: UserDefaults.standard.string(forKey: "plink.v4ThemeName") ?? "") ?? .electric
     @State private var appearance=false
     @State private var liveThemeIndex: Int = UserDefaults.standard.integer(forKey: "plink.liveTheme")
     @State private var highContrast: Bool = PlinkAppearancePrefs.highContrast
@@ -32,8 +49,6 @@ struct PlinkApprovedV4Root: View {
     @State private var aiStore = V4AIStore()
     @State private var profileStore: V4ProfileStore?
     @State private var showCreateRoom = false
-    /// Ссылка из буфера, с которой открывается мастер комнаты.
-    @State private var pendingCreateLink: (url: String, service: VideoService)?
     @State private var showJoinByCode = false
     // 02.08.2026: текстовый чат с ИИ — общий экран поверх вкладок, а не режим вкладки «ИИ».
     // Открывается с «Главной» (поиск и карточка ассистента) и из шапки вкладки «ИИ».
@@ -76,7 +91,7 @@ struct PlinkApprovedV4Root: View {
             }
             // 07.08.2026: жёсткая рамка вокруг вкладок.
             //
-            // Все пять экранов живут здесь одновременно и гасятся через
+            // Все шесть экранов живут здесь одновременно и гасятся через
             // .opacity — вкладки не пересоздаются при переключении. Побочный
             // эффект: ZStack принимает ширину самого широкого ребёнка, поэтому
             // одна секция на одном экране, вылезшая за границу (ряд с
@@ -87,9 +102,10 @@ struct PlinkApprovedV4Root: View {
             //
             // GeometryReader сообщает наверх ровно предложенный размер и
             // никогда не размер своих детей, поэтому содержимое вкладок
-            // физически не может раздуть оболочку. Явный .frame + .clipped()
-            // обрезают вылезающее вбок: промах в вёрстке теперь выглядит как
-            // обрезанная карточка на одном экране, а не как поехавший интерфейс.
+            // физически не может раздуть оболочку. Явный .frame + маска по
+            // ширине экрана обрезают вылезающее вбок: промах в вёрстке теперь
+            // выглядит как обрезанная карточка на одном экране, а не как
+            // поехавший интерфейс.
             //
             // Внимание: .frame(maxWidth: .infinity) здесь НЕ работает — он
             // задаёт нижнюю границу, а не верхнюю, и ребёнка шире предложенного
@@ -102,12 +118,7 @@ struct PlinkApprovedV4Root: View {
                         searchStore: searchStore,
                         roomsStore: roomsStore,
                         openRoom: { openFirstRoom() },
-                        liveThemeIndex: liveThemeIndex,
-                        openRoomsTab: { tab = 1 },
-                        createRoomWithLink: { url, service in
-                            pendingCreateLink = (url, service)
-                            showCreateRoom = true
-                        }
+                        liveThemeIndex: liveThemeIndex
                     )
                         .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
                     V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
@@ -118,11 +129,24 @@ struct PlinkApprovedV4Root: View {
                     // экран «ИИ» узнаёт об уходе только отсюда — и обрывает запись.
                     V4AIViewLive(theme:theme, store:aiStore, isActive: tab == 3)
                         .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
+                    // Настройки — не вкладка: шесть кнопок теснили таббар, а
+                    // маршрут не ежедневный. Вход — строка «Общие настройки»
+                    // на лице профиля, шитом (правка 22.08.2026).
                     V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
                         .opacity(tab == 4 ? 1 : 0).allowsHitTesting(tab == 4)
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-                .clipped()
+                // Маска вместо .clipped(): гард всё так же срезает
+                // горизонтальные вылеты (ширина маски = ширине экрана), но
+                // не отрезает легальный полноэкранный фон вкладки под
+                // статус-баром и home-индикатором. .clipped() упирался в
+                // safe area, и у ленты «ИИ» фон обрывался ровно по линии
+                // статус-бара — сверху просвечивал синий LivingBackground
+                // жёсткой полосой «другого экрана».
+                .mask {
+                    Rectangle()
+                        .frame(width: geo.size.width, height: geo.size.height + 400)
+                }
                 .animation(.easeInOut(duration: 0.15), value: tab)
             }
             PlinkLiquidTabBar(
@@ -214,24 +238,9 @@ struct PlinkApprovedV4Root: View {
             V4AIChatView(theme: theme, store: aiStore, autoStartVoice: aiChatAutoVoice)
         }
         .sheet(isPresented: $showCreateRoom) {
-            // Если пришли по ссылке из буфера — мастер открывается сразу на
-            // шаге настройки: сервис и видео уже известны.
-            Group {
-                if let link = pendingCreateLink {
-                    RoomCreationView(
-                        prefilledLink: link.url,
-                        service: link.service,
-                        onRoomCreated: handleRoomCreated
-                    )
-                } else {
-                    RoomCreationView(onRoomCreated: handleRoomCreated)
-                }
-            }
-            .environmentObject(APIClient.shared)
-            .preferredColorScheme(.dark)
-            // Ссылка одноразовая: иначе следующее «Создать комнату» снова
-            // открылось бы на старом видео.
-            .onDisappear { pendingCreateLink = nil }
+            RoomCreationView(onRoomCreated: handleRoomCreated)
+                .environmentObject(APIClient.shared)
+                .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showJoinByCode) {
             JoinRoomSheet(
@@ -485,11 +494,19 @@ struct PlinkLiquidTabBar: View {
     /// Unread DMs — red badge on «Друзья» tab when user is not in that chat.
     var friendsUnread: Int = 0
     @ObservedObject private var dmService = DMChatService.shared
-    @Namespace private var selectionNS
+    /// Ширина ряда вкладок — для пересчёта позиции пальца в индекс при ведении.
+    @State private var barWidth: CGFloat = 0
+    /// X пальца, пока он прижат к бару (nil — отпущен). Пока палец держит
+    /// бар, пилюля выделения не перескакивает по слотам, а непрерывно едет
+    /// за пальцем и слегка «приподнимается» — как ведение по бару в Telegram.
+    /// Отпустил — пилюля пружиной садится в центр ближайшего слота.
+    @State private var dragX: CGFloat? = nil
     private var activeSecondary: Color { let (_, c1, _, _) = theme.colors; return c1 }
 
     // M25 UX: Друзья — в центре (чаще всего используется), ИИ — 4-я позиция.
     // M25 i18n: подписи через LocalizationManager (RU/EN/ZH).
+    // 22.08.2026: вкладок пять — настройки живут строкой «Общие настройки»
+    // на лице профиля: шестая кнопка теснила капсулу, а маршрут редкий.
     private var items: [(String, String)] {
         let l = LocalizationManager.shared
         return [
@@ -523,10 +540,7 @@ struct PlinkLiquidTabBar: View {
         HStack(spacing: 2) {
             ForEach(items.indices, id: \.self) { index in
                 Button {
-                    HapticManager.selection()
-                    withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.26)) {
-                        selection = index
-                    }
+                    select(index)
                 } label: {
                     tabLabel(index)
                 }
@@ -536,6 +550,97 @@ struct PlinkLiquidTabBar: View {
                 .accessibilityLabel(items[index].1)
                 .accessibilityAddTraits(selection == index ? .isSelected : [])
             }
+        }
+        .background {
+            // Пилюля выделения — ОДНА на весь бар, позиционируется числом,
+            // а не matchedGeometryEffect по слотам: только так она может
+            // встать между вкладками и непрерывно следовать за пальцем.
+            GeometryReader { g in
+                let W = g.size.width
+                Capsule(style: .continuous)
+                    .fill(activeSecondary.opacity(dragX == nil ? 0.16 : 0.22))
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(
+                                activeSecondary.opacity(dragX == nil ? 0.30 : 0.44),
+                                lineWidth: 1
+                            )
+                    }
+                    .shadow(
+                        color: activeSecondary.opacity(dragX == nil ? 0 : 0.26),
+                        radius: 10, y: 3
+                    )
+                    .frame(width: slotWidth(W), height: 50)
+                    // «Подъём» при зажатии: чуть крупнее, ярче и с тенью —
+                    // палец чувствует, что схватил пилюлю.
+                    .scaleEffect(dragX == nil ? 1 : 1.07)
+                    .position(x: pillX(W), y: g.size.height / 2)
+                    .onAppear { barWidth = W }
+                    .onChange(of: W) { _, w in barWidth = w }
+            }
+        }
+        // Ведение пальцем по бару (как в Telegram): зажал — пилюля
+        // приподнялась и едет за пальцем, вкладки переключаются на лету при
+        // пересечении слотов; отпустил — пилюля садится в ближайший слот.
+        // Тап продолжает работать через Button (и остаётся доступным для
+        // VoiceOver). simultaneousGesture: при обычном тапе жест выбирает ту
+        // же вкладку, что и кнопка, — конфликт исключён.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if dragX == nil {
+                        HapticManager.impact(.light)
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
+                            dragX = value.location.x
+                        }
+                    } else {
+                        withAnimation(.interactiveSpring(response: 0.16, dampingFraction: 0.88)) {
+                            dragX = value.location.x
+                        }
+                    }
+                    select(at: value.location.x)
+                }
+                .onEnded { value in
+                    select(at: value.location.x)
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                        dragX = nil
+                    }
+                }
+        )
+    }
+
+    // MARK: слот-геометрия (5 равных слотов, spacing 2)
+
+    private var slotSpacing: CGFloat { 2 }
+
+    private func slotWidth(_ W: CGFloat) -> CGFloat {
+        (W - slotSpacing * CGFloat(items.count - 1)) / CGFloat(items.count)
+    }
+
+    private func slotCenter(_ index: Int, in W: CGFloat) -> CGFloat {
+        CGFloat(index) * (slotWidth(W) + slotSpacing) + slotWidth(W) / 2
+    }
+
+    /// Центр пилюли: под пальцем (с зажимом до краёв бара), иначе — центр
+    /// выбранного слота.
+    private func pillX(_ W: CGFloat) -> CGFloat {
+        let half = slotWidth(W) / 2
+        if let x = dragX { return min(max(x, half), W - half) }
+        return slotCenter(selection, in: W)
+    }
+
+    /// Индекс из горизонтальной позиции пальца: слоты вкладок равной ширины.
+    private func select(at x: CGFloat) {
+        guard barWidth > 0 else { return }
+        let span = slotWidth(barWidth) + slotSpacing
+        select(min(items.count - 1, max(0, Int(x / span))))
+    }
+
+    private func select(_ index: Int) {
+        guard index != selection else { return }
+        HapticManager.selection()
+        withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.26)) {
+            selection = index
         }
     }
 
@@ -565,27 +670,15 @@ struct PlinkLiquidTabBar: View {
             Text(items[index].1)
                 .font(.system(size: 9.5, weight: .semibold))
                 .lineLimit(1)
+                // Шесть слотов: «Настройки» на узких экранах ужимается,
+                // а не обрезается многоточием.
+                .minimumScaleFactor(0.8)
         }
         .foregroundStyle(isSelected ? activeSecondary : V4.muted)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            if isSelected {
-                selectionPill
-            }
-        }
         .padding(.vertical, 7)
         .contentShape(Rectangle())
         .accessibilityIdentifier("tab.\(index).content")
-    }
-
-    private var selectionPill: some View {
-        Capsule(style: .continuous)
-            .fill(activeSecondary.opacity(0.16))
-            .overlay {
-                Capsule(style: .continuous)
-                    .strokeBorder(activeSecondary.opacity(0.30), lineWidth: 1)
-            }
-            .matchedGeometryEffect(id: "selected-tab", in: selectionNS)
     }
 }
 

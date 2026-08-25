@@ -73,7 +73,20 @@ struct V4AIChatView: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: capture.isCapturing)
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(V4.cardBG.ignoresSafeArea())
+        // Фон экрана — канвас приложения: V4.cardBG (цвет карточек, светлее
+        // канваса) делал весь чат «выцветшим» рядом с остальными экранами.
+        .background {
+            ZStack {
+                V4.canvas
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(0.10), .clear],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: 420
+                )
+            }
+            .ignoresSafeArea()
+        }
         .preferredColorScheme(.dark)
         .onAppear {
             if autoStartVoice { capture.startLocked(surface: "ai_chat_autostart") }
@@ -87,9 +100,12 @@ struct V4AIChatView: View {
             RoomCreationView(onRoomCreated: { _ in showManualCreate = false })
                 .environmentObject(APIClient.shared)
                 .preferredColorScheme(.dark)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .fullScreenCover(item: $presentedRoom) { room in
             WatchRoomContainer(room: room)
+                .preferredColorScheme(.dark)
         }
     }
 
@@ -362,8 +378,7 @@ struct V4AIChatView: View {
                 V4GlyphIcon(glyph: .plus, size: 18, weight: .regular)
                     .foregroundStyle(V4.ink)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Color.white.opacity(0.07)))
-                    .overlay(Circle().stroke(Color.white.opacity(0.14)))
+                    .plinkGlass(.control, in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
@@ -512,22 +527,23 @@ struct AIActionButton: View {
             }
 
             HStack(spacing: 8) {
+                let theme = V4Theme.saved
                 Button {
                     Task { await confirm() }
                 } label: {
                     HStack(spacing: 5) {
                         if loading {
-                            ProgressView().tint(.white)
+                            ProgressView().tint(theme.buttonTextColor)
                         } else {
                             V4GlyphIcon(glyph: .check, size: 12, weight: .semibold)
                         }
                         Text(LocalizationManager.shared.string(.rcCreate))
                             .font(.system(size: 12, weight: .bold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.buttonTextColor)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 44)
-                    .background(Color.accentColor)
+                    .background(theme.accentColor)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)

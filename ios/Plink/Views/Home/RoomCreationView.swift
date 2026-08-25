@@ -132,15 +132,12 @@ struct RoomCreationView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { dismiss() }
-                        .foregroundStyle(Cinema2026.secondary)
-                }
                 ToolbarItem(placement: .principal) {
                     Text(stepTitle)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Cinema2026.text)
                 }
+                V4SheetCloseToolbarItem { dismiss() }
             }
         }
         .sheet(isPresented: $showAuthSheet) {
@@ -431,7 +428,7 @@ struct RoomCreationView: View {
             } label: {
                 Text("Далее")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(V4.accentInk)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -529,7 +526,7 @@ struct RoomCreationView: View {
                                        startPoint: .leading, endPoint: .trailing),
                         in: RoundedRectangle(cornerRadius: 18)
                     )
-                    .foregroundStyle(.black)
+                    .foregroundStyle(V4.accentInk)
                     .shadow(color: Cinema2026.accent.opacity(0.4), radius: 12, y: 6)
                 }
                 .buttonStyle(.plain)
@@ -896,11 +893,14 @@ struct ServiceAuthSheet: View {
                     .padding(.bottom, 30)
             }
             .background(Cinema2026.bg.ignoresSafeArea())
-            .navigationBarHidden(true)
+            .toolbar {
+                V4SheetCloseToolbarItem { dismiss() }
+            }
             .sheet(isPresented: $webShown) {
                 ServiceBrowserView(service: service) { _, _ in
                     onAuthorized()
                 }
+                .preferredColorScheme(.dark)
             }
         }
     }

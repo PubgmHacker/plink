@@ -22,7 +22,10 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
         switch self {
         case .friends: return "Друзья"
         case .chats: return "Чаты"
-        case .rooms: return "Комнаты"
+        // «Вечера», не «Комнаты»: сегмент показывает историю совместных
+        // просмотров, а «Комнаты» уже есть в таб-баре — два одинаковых
+        // слова вели в разные места.
+        case .rooms: return "Вечера"
         }
     }
 
@@ -42,6 +45,22 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
         case .rooms:   return .room
         }
     }
+
+    /// Дизайн-превью: `-plink.designsegment <0|1|2>` открывает хаб сразу на
+    /// нужном сегменте — скриншоты «Чатов»/«Комнат» без тапов по симулятору.
+    /// Тот же приём, что -plink.designchip на Главной.
+    static var launchDefault: FriendsHubSegment {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-plink.designsegment"),
+           args.indices.contains(i + 1),
+           let raw = Int(args[i + 1]),
+           let seg = FriendsHubSegment(rawValue: raw) {
+            return seg
+        }
+        #endif
+        return .friends
+    }
 }
 
 
@@ -60,9 +79,14 @@ struct V4FriendsViewLive: View {
     /// When false (other tab), pause polling. Root passes tab == friends.
     var isActive: Bool = true
     /// Default: Друзья (not chats) — full friend list / carousel first.
-    @State private var segment: FriendsHubSegment = .friends
+    /// В DEBUG стартовый сегмент можно задать -plink.designsegment.
+    @State private var segment: FriendsHubSegment = .launchDefault
     /// Для переезда пилюли выделения между сегментами.
     @Namespace private var segmentNS
+    /// Куда толкать контент при смене сегмента: вправо по порядку —
+    /// новый экран въезжает справа, назад — слева. Ставится в момент
+    /// тапа, до анимируемой смены `segment`.
+    @State private var segPush: Edge = .trailing
     @State var dmFriend: Friend?
     @State var profileFriend: Friend?
     @State var showCreateRoom = false
@@ -131,7 +155,14 @@ struct V4FriendsViewLive: View {
     private var totalUnread: Int { dmService.totalUnread }
 
     private func consumePendingChat(_ target: PlinkChatTarget) {
-        segment = .chats
+        if segment != .chats {
+            // Диплинк в чат — тот же направленный переход, что и тап по
+            // сегменту, а не мгновенная подмена контента.
+            segPush = FriendsHubSegment.chats.rawValue > segment.rawValue ? .trailing : .leading
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                segment = .chats
+            }
+        }
         switch target {
         case .dm(let friendId):
             Task { await presentDM(friendId: friendId) }
@@ -176,7 +207,8 @@ struct V4FriendsViewLive: View {
             header
                 .accessibilityIdentifier("screen.friends")
                 .padding(.horizontal, 18)
-                .padding(.top, 10)
+                // Единый «вдох» шапок от статус-бара (см. topBar Главной).
+                .padding(.top, 18)
                 .padding(.bottom, 10)
 
             segmentPicker
@@ -190,19 +222,35 @@ struct V4FriendsViewLive: View {
                         roomInvitesBlock
                     }
 
-                    switch segment {
-                    case .friends:
-                        friendsPeopleBlock
-                    case .chats:
-                        // Прототип 03.08.2026: во вкладке «Чаты» вместо
-                        // колокольчика — явная карточка заявок. Иконка в шапке
-                        // одна на все сегменты и легко теряется.
-                        if requestBadge > 0 {
-                            friendRequestsCard
+                    // Один VStack на весь сменяемый контент: id(segment)
+                    // перерождает поддерево целиком, и оно уходит/приходит
+                    // направленным толчком (вперёд — справа, назад — слева).
+                    // ZStack обязателен: во время перехода старый и новый
+                    // экраны существуют одновременно, и в VStack они бы
+                    // выстроились столбиком — здесь они накладываются.
+                    ZStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 20) {
+                            switch segment {
+                            case .friends:
+                                friendsPeopleBlock
+                            case .chats:
+                                // Прототип 03.08.2026: во вкладке «Чаты» вместо
+                                // колокольчика — явная карточка заявок. Иконка в шапке
+                                // одна на все сегменты и легко теряется.
+                                if requestBadge > 0 {
+                                    friendRequestsCard
+                                }
+                                chatsBlock
+                            case .rooms:
+                                recentBlock
+                            }
                         }
-                        chatsBlock
-                    case .rooms:
-                        recentBlock
+                        .id(segment)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: segPush).combined(with: .opacity),
+                            removal: .move(edge: segPush == .trailing ? .leading : .trailing)
+                                .combined(with: .opacity)
+                        ))
                     }
                 }
                 .padding(.bottom, 100)
@@ -233,9 +281,7 @@ struct V4FriendsViewLive: View {
                 DMChatView(friend: friend)
                     .environmentObject(dmService)
                     .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Закрыть") { dmFriend = nil }
-                        }
+                        V4SheetCloseToolbarItem { dmFriend = nil }
                     }
             }
             .preferredColorScheme(.dark)
@@ -250,13 +296,12 @@ struct V4FriendsViewLive: View {
                     showCreateRoom = true
                 }
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Закрыть") { profileFriend = nil }
-                    }
+                    V4SheetCloseToolbarItem { profileFriend = nil }
                 }
             }
             .preferredColorScheme(.dark)
             .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showCreateRoom, onDismiss: {
             // Keep watchWithFriend until create finishes if still creating; clear if cancelled
@@ -290,9 +335,14 @@ struct V4FriendsViewLive: View {
             )
             .environmentObject(APIClient.shared)
             .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showCreateGroupSheet) {
             CreateGroupSheet(friends: store?.friends ?? [])
+                .preferredColorScheme(.dark)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAddFriend) {
             if let store {
@@ -306,6 +356,8 @@ struct V4FriendsViewLive: View {
                         }
                     }
                 }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             } else {
                 Text(LocalizationManager.shared.string(.loading)).padding()
             }
@@ -321,6 +373,7 @@ struct V4FriendsViewLive: View {
         }
         .fullScreenCover(item: $roomToOpen) { room in
             WatchRoomContainer(room: room)
+                .preferredColorScheme(.dark)
         }
         .overlay(alignment: .top) {
             if let toast {
@@ -511,7 +564,11 @@ struct V4FriendsViewLive: View {
         HStack(spacing: 6) {
             ForEach(FriendsHubSegment.allCases) { seg in
                 Button {
+                    guard seg != segment else { return }
                     HapticManager.selection()
+                    // Направление до смены сегмента: вперёд по порядку —
+                    // новый контент въезжает справа, назад — слева.
+                    segPush = seg.rawValue > segment.rawValue ? .trailing : .leading
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         segment = seg
                     }
@@ -535,15 +592,18 @@ struct V4FriendsViewLive: View {
                         if seg == .friends, let n = store?.friends.count, n > 0 {
                             Text("\(n)")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(segment == seg ? theme.buttonTextColor.opacity(0.8) : V4.muted)
+                                .foregroundStyle(segment == seg ? Color.black.opacity(0.45) : V4.muted)
                         }
                         if seg == .rooms, !recentRooms.isEmpty {
                             Text("\(recentRooms.count)")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(segment == seg ? theme.buttonTextColor.opacity(0.8) : V4.muted)
+                                .foregroundStyle(segment == seg ? Color.black.opacity(0.45) : V4.muted)
                         }
                     }
-                    .foregroundStyle(segment == seg ? theme.buttonTextColor : V4.ink.opacity(0.75))
+                    // Активный сегмент — белая пилюля с чёрным текстом, как
+                    // главные CTA приложения; цвет темы из пилюль убран —
+                    // сегменты не должны спорить с акцентными кнопками экрана.
+                    .foregroundStyle(segment == seg ? Color.black.opacity(0.92) : V4.ink.opacity(0.75))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background {
@@ -551,7 +611,8 @@ struct V4FriendsViewLive: View {
                         // а не гаснет и зажигается заново на новом месте.
                         if segment == seg {
                             Capsule(style: .continuous)
-                                .fill(theme.accentColor)
+                                .fill(.white)
+                                .shadow(color: .black.opacity(0.28), radius: 10, y: 3)
                                 .matchedGeometryEffect(id: "friends.segment", in: segmentNS)
                         }
                     }
@@ -622,8 +683,12 @@ struct V4FriendsViewLive: View {
                 eyebrow: "ВМЕСТЕ",
                 title: segment == .friends ? "Друзья"
                     : segment == .chats ? "Общение"
-                    : "Комнаты"
+                    : "Вечера"
             )
+            // Заголовок меняется вместе с сегментом — мягким кроссфейдом,
+            // а не мгновенной подменой строки.
+            .id(segment)
+            .transition(.opacity)
             Spacer(minLength: 8)
 
             // Заявки — icon only, badge if incoming
@@ -636,9 +701,7 @@ struct V4FriendsViewLive: View {
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(requestBadge > 0 ? theme.accentColor : V4.ink)
                         .frame(width: 40, height: 40)
-                        .background(V4.surface.opacity(0.5))
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(V4.line.opacity(0.8)))
+                        .plinkGlass(.control, in: Circle())
 
                     if requestBadge > 0 {
                         Text(requestBadge > 9 ? "9+" : "\(requestBadge)")
@@ -662,9 +725,7 @@ struct V4FriendsViewLive: View {
                 V4GlyphIcon(glyph: .plus, size: 17, weight: .regular)
                     .foregroundStyle(theme.accentColor)
                     .frame(width: 40, height: 40)
-                    .background(V4.surface.opacity(0.5))
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(V4.line.opacity(0.8)))
+                    .plinkGlass(.control, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Добавить друга")
@@ -673,26 +734,21 @@ struct V4FriendsViewLive: View {
 
     // MARK: - Section chrome
 
+    // Заголовок секции — чистая типографика без цветных плашек: акцентный
+    // квадратик с иконкой и капсула-счётчик выглядели дешёвыми виджетами
+    // и тянули цвет темы в каждый заголовок. Иконка остаётся в сигнатуре
+    // (вызовы не трогаем), но не рисуется; счётчик — тихая цифра рядом.
     func sectionHeader(title: String, icon: String, count: Int?, actionTitle: String? = nil, action: (() -> Void)? = nil) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(theme.accentColor)
-                .frame(width: 28, height: 28)
-                .background(theme.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 20, weight: .heavy))
+                .tracking(-0.3)
                 .foregroundStyle(V4.ink)
 
             if let count, count > 0 {
                 Text("\(count)")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(V4.muted)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(V4.surface.opacity(0.55), in: Capsule())
-                    .overlay(Capsule().stroke(V4.line.opacity(0.6)))
             }
 
             Spacer()
@@ -713,42 +769,29 @@ struct V4FriendsViewLive: View {
         VStack(spacing: 0) {
             content()
         }
-        .background(V4.surface.opacity(0.38))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(V4.line.opacity(0.65), lineWidth: 1)
-        )
+        // Корпус хаба — на стекле, как карточки настроек и поиска: плоская
+        // заливка V4.surface на живом фоне читалась вырезанным прямоугольником.
+        .plinkGlass(.control, cornerRadius: 18)
         .padding(.horizontal, 16)
     }
 
-    func emptyInside(icon: String, title: String, subtitle: String, cta: String? = nil, action: (() -> Void)? = nil) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 30))
-                .foregroundStyle(theme.accentColor.opacity(0.85))
-            Text(title)
-                .font(.system(size: 16, weight: .semibold))
-            Text(subtitle)
-                .font(.system(size: 13))
-                .foregroundStyle(V4.muted)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-            if let cta, let action {
-                Button(action: action) {
-                    Text(cta)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(theme.buttonTextColor)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(theme.accentColor, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
+    /// Все пустые состояния хаба — через общий V4EmptyState: одна формула
+    /// «сцена → заголовок → пояснение → действие» на всё приложение.
+    /// Для ошибок передаётся `style: .plain` — луч проектора зарезервирован
+    /// за «в мире пусто», сбой получает компактный кружок.
+    func emptyInside(icon: String, title: String, subtitle: String, ctaIcon: String = "plus", cta: String? = nil, style: V4EmptyStyle = .scene, action: (() -> Void)? = nil) -> some View {
+        V4EmptyState(
+            icon: icon,
+            title: title,
+            subtitle: subtitle,
+            accent: theme.accentColor,
+            accentInk: theme.buttonTextColor,
+            style: style,
+            primary: (cta != nil && action != nil)
+                ? .init(title: cta!, icon: ctaIcon, run: action!)
+                : nil
+        )
+        .padding(.vertical, 30)
         .padding(.horizontal, 12)
     }
 
@@ -778,9 +821,10 @@ struct V4FriendsViewLive: View {
                         .padding(.vertical, 36)
                 } else if recentRooms.isEmpty {
                     emptyInside(
-                        icon: "play.rectangle.fill",
-                        title: "Пока пусто",
-                        subtitle: "Создай комнату с другом — здесь появит��я история «с кем и что»",
+                        icon: "play.rectangle.on.rectangle.fill",
+                        title: "Здесь будут ваши вечера",
+                        subtitle: "Создай комнату с другом — история «с кем и что смотрели» соберётся сама.",
+                        ctaIcon: "plus",
                         cta: "Создать комнату"
                     ) { showCreateRoom = true }
                 } else {
@@ -1175,31 +1219,43 @@ private struct FriendRequestsSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors: [Color(hex: 0x0B1018), Color(hex: 0x0A0D12)],
-                    startPoint: .top,
-                    endPoint: .bottom
+                V4.canvas.ignoresSafeArea()
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(0.10), .clear],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: 420
                 )
                 .ignoresSafeArea()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if store.requests.isEmpty && store.outgoing.isEmpty {
-                            VStack(spacing: 12) {
-                                Image(systemName: "tray")
-                                    .font(.system(size: 36))
-                                    .foregroundStyle(theme.accentColor)
+                            VStack(spacing: 14) {
+                                ZStack {
+                                    Circle().fill(theme.accentColor.opacity(0.13))
+                                    Circle().stroke(theme.accentColor.opacity(0.22), lineWidth: 1)
+                                    Image(systemName: "tray")
+                                        .font(.system(size: 22, weight: .semibold))
+                                        .foregroundStyle(theme.accentColor)
+                                }
+                                .frame(width: 58, height: 58)
                                 Text(LocalizationManager.shared.string(.frNoRequests))
-                                    .font(.headline)
+                                    .font(.system(size: 16.5, weight: .heavy))
+                                    .tracking(-0.3)
                                     .foregroundStyle(V4.ink)
                                 Text(LocalizationManager.shared.string(.frNoRequestsSub))
-                                    .font(.subheadline)
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .lineSpacing(2)
                                     .foregroundStyle(V4.muted)
                                     .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 12)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 60)
-                            .padding(.horizontal, 24)
+                            .padding(.vertical, 40)
+                            .plinkGlass(.control, cornerRadius: 20)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 24)
                         } else {
                             if !store.requests.isEmpty {
                                 Text(LocalizationManager.shared.string(.frIncoming))
@@ -1213,9 +1269,7 @@ private struct FriendRequestsSheet: View {
                                         incomingRow(req)
                                     }
                                 }
-                                .background(V4.surface.opacity(0.55))
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(V4.line))
+                                .plinkGlass(.control, cornerRadius: 16)
                                 .padding(.horizontal, 16)
                             }
 
@@ -1240,7 +1294,9 @@ private struct FriendRequestsSheet: View {
                                                     .foregroundStyle(V4.muted)
                                             }
                                             Spacer()
-                                            Text("⏳")
+                                            Image(systemName: "hourglass")
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .foregroundStyle(V4.muted)
                                         }
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 12)
@@ -1249,9 +1305,7 @@ private struct FriendRequestsSheet: View {
                                         }
                                     }
                                 }
-                                .background(V4.surface.opacity(0.55))
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(V4.line))
+                                .plinkGlass(.control, cornerRadius: 16)
                                 .padding(.horizontal, 16)
                             }
                         }
@@ -1263,9 +1317,7 @@ private struct FriendRequestsSheet: View {
             .navigationTitle("Заявки")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
             .task { await store.load() }
         }
@@ -1497,13 +1549,22 @@ private struct AddFriendSheet: View {
                     }
                 }
             }
-            .background(V4.canvas.ignoresSafeArea())
+            .background {
+                ZStack {
+                    V4.canvas
+                    RadialGradient(
+                        colors: [theme.accentColor.opacity(0.10), .clear],
+                        center: UnitPoint(x: 0.5, y: 0),
+                        startRadius: 0,
+                        endRadius: 420
+                    )
+                }
+                .ignoresSafeArea()
+            }
             .navigationTitle("Добавить друга")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
         }
         .preferredColorScheme(.dark)

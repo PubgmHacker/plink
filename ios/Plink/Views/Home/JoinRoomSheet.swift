@@ -104,9 +104,7 @@ struct JoinRoomSheet: View {
             .navigationTitle("Войти по коду")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
             .onAppear {
                 if roomCode.isEmpty, !initialCode.isEmpty {

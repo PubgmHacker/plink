@@ -161,9 +161,20 @@ final class StoreManager: ObservableObject {
             products = storeProducts.sorted { $0.price < $1.price }
             purchaseState = .idle
         } catch {
-            errorMessage = "Failed to load products: \(error.localizedDescription)"
+            errorMessage = Self.humanError(error, fallback: .plusErrorLoad)
             purchaseState = .failed
         }
+    }
+
+    /// Человеческий текст вместо сырого NSError: офлайн распознаём явно,
+    /// остальное сводим к одному внятному действию. NSURLErrorDomain-строки
+    /// («ошибка -1008») пользователю не показываются никогда.
+    static func humanError(_ error: Error, fallback: L10n.Key) -> String {
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            return LocalizationManager.shared.string(.plusErrorOffline)
+        }
+        return LocalizationManager.shared.string(fallback)
     }
 
     // MARK: - Purchase
@@ -174,7 +185,7 @@ final class StoreManager: ObservableObject {
             await loadProducts()
         }
         guard let product = products.first(where: { $0.id == PlinkProductID.monthly }) else {
-            errorMessage = "Monthly product not available"
+            errorMessage = LocalizationManager.shared.string(.plusErrorLoad)
             purchaseState = .failed
             return
         }
@@ -200,7 +211,7 @@ final class StoreManager: ObservableObject {
             case .success(let verification):
                 guard let transaction = Self.verifiedTransaction(verification) else {
                     purchaseState = .failed
-                    errorMessage = "Transaction verification failed"
+                    errorMessage = LocalizationManager.shared.string(.plusErrorServerReject)
                     return
                 }
 
@@ -228,7 +239,7 @@ final class StoreManager: ObservableObject {
                     // премиум не включаем, ретраи бессмысленны — закрываем.
                     await transaction.finish()
                     purchaseState = .failed
-                    errorMessage = "Покупка отклонена сервером"
+                    errorMessage = LocalizationManager.shared.string(.plusErrorServerReject)
                 case .unavailable:
                     // Бэкенд недоступен: офлайн-грейс уже применён,
                     // finish() НЕ зовём — StoreKit передоставит транзакцию,
@@ -242,14 +253,14 @@ final class StoreManager: ObservableObject {
 
             case .pending:
                 purchaseState = .idle
-                errorMessage = "Payment pending confirmation"
+                errorMessage = LocalizationManager.shared.string(.plusErrorPending)
 
             @unknown default:
                 purchaseState = .idle
             }
         } catch {
             purchaseState = .failed
-            errorMessage = "Purchase failed: \(error.localizedDescription)"
+            errorMessage = Self.humanError(error, fallback: .plusErrorPurchase)
         }
     }
 
@@ -284,11 +295,11 @@ final class StoreManager: ObservableObject {
                 }
             } else {
                 purchaseState = .idle
-                errorMessage = "No active subscriptions found"
+                errorMessage = LocalizationManager.shared.string(.plusErrorNoRestore)
             }
         } catch {
             purchaseState = .failed
-            errorMessage = "Restore failed: \(error.localizedDescription)"
+            errorMessage = Self.humanError(error, fallback: .plusErrorRestore)
         }
     }
 

@@ -10,7 +10,8 @@ struct ConnectedServicesView: View {
     var body: some View {
         SettingsScaffold(
             title: "Кинотеатры",
-            subtitle: "Войдите один раз. Сессия остаётся на этом iPhone — в комнате не придётся логиниться снова."
+            subtitle: "Войдите один раз. Сессия остаётся на этом iPhone — в комнате не придётся логиниться снова.",
+            eyebrow: "Данные и доступ"
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 SettingsSectionLabel(text: "Яндекс")
@@ -40,6 +41,7 @@ struct ConnectedServicesView: View {
 
     private func accountRow(_ account: LinkedExternalAccount) -> some View {
         let connected = account.isConnected
+        let accent = V4Theme.saved.accentColor
         return HStack(spacing: 12) {
             if let svc = account.videoService {
                 ServiceLogoView(service: svc, size: 22)
@@ -55,10 +57,11 @@ struct ConnectedServicesView: View {
                     .foregroundStyle(V4.ink)
                 Text(connected ? "Подключён" : "Не подключён")
                     .font(.system(size: 12))
-                    .foregroundStyle(connected ? V4.accent : V4.muted)
+                    .foregroundStyle(connected ? accent : V4.muted)
             }
             Spacer()
             Button {
+                HapticManager.selection()
                 if connected {
                     account.disconnect()
                     tick += 1
@@ -68,16 +71,15 @@ struct ConnectedServicesView: View {
             } label: {
                 Text(connected ? "Отключить" : "Войти")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(connected ? V4.danger : V4.accent)
+                    .foregroundStyle(connected ? V4.danger : accent)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(connected ? "Отключить \(account.title)" : "Войти в \(account.title)")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 58)
-        }
+        // Разделители между строками рисует SettingsCard — свой оверлей
+        // оставлял линию и под последней строкой карты.
     }
 }
 

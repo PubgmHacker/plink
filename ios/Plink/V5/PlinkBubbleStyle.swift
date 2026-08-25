@@ -617,46 +617,38 @@ struct PlinkMessageBubble: View {
         }
     }
 
-    // MARK: - TikTok Live Chat style
-    // Minimal dark pill, no tail, compact padding, username above
+    // MARK: - Standard bubble (Telegram night style)
+    // Непрозрачная заливка + форма с хвостиком (V5BubbleShape). Прошлая
+    // версия рисовала «TikTok-пилюли»: чужие сообщения — чёрная капсула
+    // 45–60% прозрачности, которая на тёмном фоне комнаты сливалась в ничто,
+    // и свои/чужие переставали различаться; готовые fillLayer/borderLayer
+    // при этом лежали мёртвым кодом. Возвращены как единственный путь.
     @ViewBuilder
     private var standardBubble: some View {
         let isDecorative = frame.isDecorative
-        let padH: CGFloat = isDecorative ? PlinkTelegramBubbleMetrics.decorativePadH : 13
-        let padV: CGFloat = isDecorative ? PlinkTelegramBubbleMetrics.decorativePadV : 8
+        let padH: CGFloat = isDecorative ? PlinkTelegramBubbleMetrics.decorativePadH : PlinkTelegramBubbleMetrics.padH
+        let padV: CGFloat = isDecorative ? PlinkTelegramBubbleMetrics.decorativePadV : PlinkTelegramBubbleMetrics.padV
 
-        ZStack(alignment: .center) {
-            // Background: TikTok uses dark semi-transparent pill
-            Capsule()
-                .fill(
-                    isOwn
-                        ? LinearGradient(colors: [Cinema2026.accent.opacity(0.88), Cinema2026.accent.opacity(0.65)],
-                                         startPoint: .leading, endPoint: .trailing)
-                        : LinearGradient(colors: [Color.black.opacity(0.60), Color.black.opacity(0.45)],
-                                         startPoint: .leading, endPoint: .trailing)
-                )
-                .blur(radius: 0.3)
+        MessageRichText(text: text, fontSize: fontSize, textColor: bubbleTextColor)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, padH)
+            .padding(.vertical, padV)
+            .background(fillLayer.clipShape(shape))
+            .overlay(borderLayer)
+            .overlay(alignment: .center) {
+                if isDecorative { TikTokFrameDecor(frame: frame) }
+            }
+            .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+    }
 
-            // Thin colored border for own msgs / frame color for others
-            Capsule()
-                .strokeBorder(
-                    isOwn
-                        ? Cinema2026.accent.opacity(0.35)
-                        : (isDecorative ? (frame.borderColors.first ?? Color.white.opacity(0.08)) : Color.white.opacity(0.08)),
-                    lineWidth: isOwn ? 0 : (isDecorative ? 1.5 : 0.5)
-                )
-
-            MessageRichText(text: text, fontSize: fontSize,
-                            textColor: isOwn ? .black : .white)
-                .fixedSize(horizontal: false, vertical: true)
-                .multilineTextAlignment(.leading)
-                .padding(.horizontal, padH)
-                .padding(.vertical, padV)
-                .overlay(alignment: .center) {
-                    if isDecorative { TikTokFrameDecor(frame: frame) }
-                }
+    /// Белый на тёмных заливках; тёмный — на ярких циановых (accent/pulse),
+    /// у которых fillColors светлее текста.
+    private var bubbleTextColor: Color {
+        switch frame {
+        case .accent, .pulse: return Color(hex: "#08222B")
+        default: return .white
         }
-        .shadow(color: .black.opacity(0.22), radius: 4, x: 0, y: 2)
     }
 
     @ViewBuilder
@@ -664,15 +656,10 @@ struct PlinkMessageBubble: View {
         switch frame {
         case .quiet:
             if isOwn {
-                // Telegram-style outgoing blue/green, fully opaque.
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.22, green: 0.64, blue: 1.0),
-                        Color(red: 0.11, green: 0.78, blue: 0.48)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                // Исходящие — акцентный градиент (тот же outgoingBubble, что у
+                // голосовых и фото): один цвет исходящих во всех чатах, вместо
+                // сине-зелёного градиента, живущего отдельно от палитры.
+                Cinema2026.outgoingBubble
             } else {
                 // Telegram night incoming: clean graphite gray — readable on any wallpaper.
                 LinearGradient(

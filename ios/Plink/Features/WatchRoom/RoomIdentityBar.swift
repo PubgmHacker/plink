@@ -54,14 +54,14 @@ struct RoomIdentityBar: View {
                 }
 
                 ShareLink(item: model.roomShareText) {
-                    Label("Invite", systemImage: "square.and.arrow.up")
+                    Label("Позвать", systemImage: "square.and.arrow.up")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Cinema2026.background)
+                        .foregroundStyle(PlinkRoomAccent.ink)
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
-                        .background(Cinema2026.accent, in: Capsule())
+                        .background(PlinkRoomAccent.current, in: Capsule())
                 }
-                .accessibilityLabel("Invite to room")
+                .accessibilityLabel("Пригласить в комнату")
             }
         }
         .padding(.horizontal, 16)

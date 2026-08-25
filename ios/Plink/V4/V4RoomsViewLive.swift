@@ -85,7 +85,8 @@ struct V4RoomsViewLive: View {
             .accessibilityLabel(searchExpanded ? "Закрыть поиск" : "Найти комнату")
         }
         .padding(.horizontal, 18)
-        .padding(.top, 10)
+        // Единый «вдох» шапок от статус-бара (см. topBar Главной).
+        .padding(.top, 18)
         .padding(.bottom, 16)
     }
 
@@ -122,8 +123,14 @@ struct V4RoomsViewLive: View {
 
     // MARK: - Два крупных действия
 
+    // Пара равных по весу карточек. Раньше левая была сплошной ярко-синей
+    // плитой (растянутый btn-primary), а правая почти сливалась с фоном —
+    // пара читалась как «кричащая + мёртвая». Теперь обе на одном каркасе:
+    // акцентная — заливка с бликом и мягким свечением, вторая — живое стекло
+    // поверх фона; чипы иконок одного размера, высоты выровнены, текст
+    // прижат к низу, чтобы базовые линии пары совпадали.
     private var actionTiles: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 12) {
             actionTile(
                 icon: "plus",
                 title: "Создать комнату",
@@ -134,7 +141,7 @@ struct V4RoomsViewLive: View {
                 createRoom()
             }
             actionTile(
-                icon: "keyboard",
+                icon: "number",
                 title: "Войти по коду",
                 subtitle: "6 символов от друга",
                 accent: false
@@ -144,6 +151,8 @@ struct V4RoomsViewLive: View {
                 joinByCode()
             }
         }
+        // Обе плитки тянутся до высоты соседа — без жёстких констант.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func actionTile(
@@ -153,39 +162,80 @@ struct V4RoomsViewLive: View {
         accent: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 9) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .black))
-                    .foregroundStyle(accent ? theme.buttonTextColor : V4.ink)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        accent ? AnyShapeStyle(theme.buttonTextColor.opacity(0.18))
-                               : AnyShapeStyle(V4.raised),
-                        in: Circle()
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        let content = VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(accent ? theme.buttonTextColor : theme.accentColor)
+                .frame(width: 36, height: 36)
+                .background(
+                    accent ? AnyShapeStyle(theme.buttonTextColor.opacity(0.16))
+                           : AnyShapeStyle(theme.accentColor.opacity(0.14)),
+                    in: Circle()
+                )
+                .overlay(
+                    Circle().stroke(
+                        accent ? theme.buttonTextColor.opacity(0.24)
+                               : theme.accentColor.opacity(0.22),
+                        lineWidth: 1
                     )
-                Text(title)
-                    .font(.system(size: 14.5, weight: .heavy))
-                    .foregroundStyle(accent ? theme.buttonTextColor : V4.ink)
-                Text(subtitle)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent ? theme.buttonTextColor.opacity(0.72) : V4.muted)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                )
+
+            Spacer(minLength: 6)
+
+            Text(title)
+                .font(.system(size: 15, weight: .heavy))
+                .tracking(-0.3)
+                .foregroundStyle(accent ? theme.buttonTextColor : V4.ink)
+            Text(subtitle)
+                .font(.system(size: 11.5, weight: .semibold))
+                .lineSpacing(2)
+                .foregroundStyle(accent ? theme.buttonTextColor.opacity(0.76) : V4.muted)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(16)
+
+        return Button(action: action) {
+            Group {
+                if accent {
+                    content
+                        .background {
+                            ZStack {
+                                shape.fill(theme.accentColor)
+                                // Блик сверху + затемнение к низу: объём вместо
+                                // плоской заливки, тем же приёмом, что кнопки
+                                // PlinkProminentButtonStyle.
+                                shape.fill(
+                                    LinearGradient(
+                                        colors: [.white.opacity(0.20), .clear, .black.opacity(0.16)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                            }
+                        }
+                        .overlay(
+                            shape.stroke(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.32), .white.opacity(0.05)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                lineWidth: 1
+                            )
+                        )
+                        .shadow(color: theme.accentColor.opacity(0.30), radius: 16, y: 8)
+                } else {
+                    // Стекло приносит свой кант и тень — дополнительных не надо.
+                    content.plinkGlass(.control, in: shape)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                accent ? AnyShapeStyle(theme.accentColor) : AnyShapeStyle(V4.surface),
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(accent ? Color.clear : V4.line, lineWidth: 1)
-            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
     }
 
     // MARK: - Контент
@@ -195,38 +245,116 @@ struct V4RoomsViewLive: View {
         if let rs = roomsStore {
             switch rs.state {
             case .loading:
-                RoundedRectangle(cornerRadius: 29)
-                    .fill(V4.cardBG)
-                    .frame(height: 235)
-                    .padding(.horizontal, 18)
-                    .overlay { ProgressView().tint(theme.accentColor) }
+                roomsSkeleton
             case .loaded:
                 loadedContent(rs)
             case .empty:
                 emptyState
             case .failed(let error):
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundStyle(V4.amber)
-                    Text(error).font(.subheadline).foregroundStyle(V4.muted)
-                    Button("Повторить") { Task { await roomsStore?.load() } }
-                        .buttonStyle(.borderedProminent)
-                        .tint(theme.accentColor)
-                        .foregroundStyle(theme.buttonTextColor)
-                        .frame(minHeight: 44)
+                // Раньше: голый жёлтый треугольник, серая строка и системный
+                // .borderedProminent посреди пустого экрана — читалось как
+                // алерт из туториала. Теперь ошибка — собранная карточка в
+                // языке приложения, с понятным следующим шагом.
+                stateCard(
+                    icon: "wifi.exclamationmark",
+                    iconTint: V4.amber,
+                    title: error,
+                    message: "Проверь соединение — и попробуем ещё раз.",
+                    buttonTitle: "Повторить"
+                ) {
+                    Task { await roomsStore?.load() }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 50)
             case .idle:
                 Color.clear.frame(height: 100)
             }
         } else {
-            ProgressView()
-                .tint(theme.accentColor)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 60)
+            roomsSkeleton
         }
+    }
+
+    /// Скелет реального макета (герой + два ряда) с мягкой пульсацией —
+    /// вместо пустого прямоугольника со спиннером, который выглядел дырой.
+    private var roomsSkeleton: some View {
+        VStack(spacing: 12) {
+            ghost(height: 208, radius: 30)
+            ghost(height: 92, radius: 20)
+            ghost(height: 92, radius: 20)
+        }
+        .padding(.horizontal, 18)
+        .modifier(V4RoomsGhostPulse())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Загружаем комнаты")
+    }
+
+    private func ghost(height: CGFloat, radius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(V4.cardBG)
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(V4.line, lineWidth: 1)
+            )
+            .frame(height: height)
+    }
+
+    /// Единый каркас пустых и ошибочных состояний: иконка в мягком круге,
+    /// заголовок, одна строка объяснения и кнопка следующего шага — стиль
+    /// кнопки общий с остальным приложением (PlinkProminentButtonStyle).
+    private func stateCard(
+        icon: String,
+        iconTint: Color,
+        title: String,
+        message: String,
+        buttonTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle().fill(iconTint.opacity(0.13))
+                Circle().stroke(iconTint.opacity(0.22), lineWidth: 1)
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(iconTint)
+            }
+            .frame(width: 58, height: 58)
+            .padding(.bottom, 14)
+
+            Text(title)
+                .font(.system(size: 16.5, weight: .heavy))
+                .tracking(-0.3)
+                .foregroundStyle(V4.ink)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 6)
+
+            Text(message)
+                .font(.system(size: 12.5, weight: .semibold))
+                .lineSpacing(2)
+                .foregroundStyle(V4.muted)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 20)
+
+            Button(buttonTitle) {
+                HapticManager.impact(.light)
+                action()
+            }
+            .buttonStyle(
+                PlinkProminentButtonStyle(
+                    tint: theme.accentColor,
+                    textColor: theme.buttonTextColor,
+                    height: 46,
+                    cornerRadius: 23,
+                    fillsWidth: false
+                )
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 30)
+        .background(V4.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(V4.line, lineWidth: 1)
+        )
+        .padding(.horizontal, 18)
     }
 
     @ViewBuilder
@@ -238,13 +366,18 @@ struct V4RoomsViewLive: View {
         if all.isEmpty && searchQuery.isEmpty {
             emptyState
         } else if all.isEmpty {
+            // Пустой поиск — транзитное состояние, без сцены с проектором:
+            // луч зарезервирован за «в мире пусто», здесь достаточно типографики.
             VStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.title2)
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(V4.muted)
-                Text("Ничего не найдено").font(.headline)
+                Text("Ничего не найдено")
+                    .font(.system(size: 17, weight: .heavy))
+                    .tracking(-0.3)
+                    .foregroundStyle(V4.ink)
                 Text("Проверь название комнаты или имя владельца")
-                    .font(.subheadline)
+                    .font(.system(size: 13))
                     .foregroundStyle(V4.muted)
                     .multilineTextAlignment(.center)
             }
@@ -291,20 +424,29 @@ struct V4RoomsViewLive: View {
         }
     }
 
+    // Пустой экран приглашает к действию: сцена с лучом проектора (общий
+    // язык пустых состояний V4EmptyState) и кнопка «Создать комнату» прямо
+    // в состоянии — не заставляем взгляд возвращаться к плиткам наверху.
+    // stateCard с кружком остаётся языком ошибок — у пустоты и сбоя
+    // намеренно разные знаки.
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "popcorn.fill")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(theme.accentColor)
-            Text("Пока никто не смотрит").font(.headline)
-            Text("Создай комнату и позови друзей или войди по коду")
-                .font(.subheadline)
-                .foregroundStyle(V4.muted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 30)
-        .padding(.vertical, 46)
+        V4EmptyState(
+            icon: "popcorn.fill",
+            title: "Пока никто не смотрит",
+            subtitle: "Создай комнату и позови друзей — или войди по коду из шести символов.",
+            accent: theme.accentColor,
+            accentInk: theme.buttonTextColor,
+            primary: .init(title: "Создать комнату", icon: "plus",
+                           a11yID: "rooms.emptyCreate", run: createRoom)
+        )
+        .padding(.vertical, 30)
+        .padding(.horizontal, 16)
+        .background(V4.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(V4.line, lineWidth: 1)
+        )
+        .padding(.horizontal, 18)
     }
 
     private func sectionTitle(_ text: String) -> some View {
@@ -715,5 +857,22 @@ struct V4RoomsViewLive: View {
                 .blur(radius: 10)
                 .offset(x: 110, y: -64)
         }
+    }
+}
+
+/// Пульс скелета загрузки: 0.55 ↔ 1.0. При включённом Reduce Motion
+/// анимации нет — скелет стоит на постоянных 0.8.
+private struct V4RoomsGhostPulse: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(reduceMotion ? 0.8 : (dim ? 0.55 : 1))
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                value: dim
+            )
+            .onAppear { if !reduceMotion { dim = true } }
     }
 }

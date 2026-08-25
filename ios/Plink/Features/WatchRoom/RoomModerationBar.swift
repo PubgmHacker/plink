@@ -119,7 +119,7 @@ struct RoomModerationBar: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(selected ? .black : .white.opacity(0.85))
+            .foregroundStyle(selected ? PlinkRoomAccent.ink : .white.opacity(0.85))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(

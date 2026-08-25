@@ -940,9 +940,7 @@ private struct ForgotPasswordSheet: View {
             .navigationTitle("Новый пароль")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
             .onAppear {
                 if email.isEmpty { email = prefilledEmail }

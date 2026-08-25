@@ -279,7 +279,7 @@ struct ClipboardVideoCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "doc.on.clipboard.fill")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(V4.accentInk)
                     .frame(width: 42, height: 42)
                     .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 12))
 

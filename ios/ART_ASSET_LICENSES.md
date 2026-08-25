@@ -74,6 +74,26 @@ Wikimedia Commons — юридически чисто (срок охраны и�
 - «Есть API-ключ» — ключ даёт доступ к данным, а не права на изображения.
 - «Показываем размыто и мелко» — переработкой это не считается.
 
+## Обложки профиля
+
+Пресеты обложки профиля (`CoverHall`, `CoverNeon`, `CoverNight` в
+`Assets.xcassets`) — фотографии из набора Unsplash, импортированного на
+Wikimedia Commons. Лицензия CC0 (public domain): коммерческое использование
+разрешено, атрибуция не требуется — соответствует п. 3 списка допустимых
+источников. Узнаваемых лиц и логотипов в кадрах нет. Из оригиналов сделан
+центральный кроп 2:1 и даунскейл до 1500×750 (`sips`, JPEG q80); EXIF при
+пересжатии не сохраняется.
+
+| Ассет | Название файла на Commons | Снято | Лицензия | Проверено |
+|---|---|---|---|---|
+| `CoverHall` | [Movie theater seats (Unsplash).jpg](https://commons.wikimedia.org/wiki/File:Movie_theater_seats_(Unsplash).jpg) | 2016 | CC0 | 2026-08-23 |
+| `CoverNeon` | [Neon light trails in Munich (Unsplash).jpg](https://commons.wikimedia.org/wiki/File:Neon_light_trails_in_Munich_(Unsplash).jpg) | 2017 | CC0 | 2026-08-23 |
+| `CoverNight` | [Milky Way Silverthorne (Unsplash).jpg](https://commons.wikimedia.org/wiki/File:Milky_Way_Silverthorne_(Unsplash).jpg) | 2017 | CC0 | 2026-08-23 |
+
+Своя обложка пользователя (кнопка «Из галереи») — пользовательский контент,
+в бандл не входит; хранится файлом в Documents и data-URL в поле `coverURL`
+профиля.
+
 ## Иконка приложения и знак бренда
 
 `scripts/make_app_icons.py` и `PlinkBrandMark.swift` — собственная отрисовка,

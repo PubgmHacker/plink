@@ -94,6 +94,21 @@ public final class OrderedSyncController {
         }
     }
 
+    /// Re-issues the last authoritative transition to the player. Called right
+    /// after PlaybackProxy attaches its real target: authoritative states that
+    /// arrived during the (seconds-long) controller `prepare` were applied while
+    /// the proxy had no target, so their seek was queued as `pendingSeek` but
+    /// `play()`/`pause()` was skipped (`seekResult == .unavailable` → early
+    /// return). Without this a late-joiner seeks to the right spot yet never
+    /// starts playing. Deliberately bypasses the ordering watermark — it replays
+    /// the SAME stored state (same epoch/seq), it does not accept a new one.
+    /// No-op until at least one state has been applied, so the host who has not
+    /// received any state yet is unaffected.
+    public func reapplyLastState() async {
+        guard hasAppliedAnyState, let state = lastAppliedState else { return }
+        await applyTransition(state)
+    }
+
     private func applyTransition(_ state: RealtimeRoomState) async {
         // ── 3. Compute target position ──────────────────────────────────
         let elapsed: Double

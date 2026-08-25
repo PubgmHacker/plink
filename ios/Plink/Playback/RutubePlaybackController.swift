@@ -72,6 +72,11 @@ public final class RutubePlaybackController: PlaybackControlling {
     private var videoId: String?
     private var pollTask: Task<Void, Never>?
     private var jsApiConfirmed = false
+    /// Выставляется навигационным делегатом по завершении загрузки embed-
+    /// страницы (didFinish) — сигнал готовности, которого ждёт prepare().
+    private var pageDidFinishLoad = false
+    /// Сильная ссылка на навигационный делегат: WKWebView держит его слабо.
+    private var navigationDelegateBox: RutubeNavigationDelegate?
 
     public init() {}
 
@@ -89,6 +94,7 @@ public final class RutubePlaybackController: PlaybackControlling {
         self.videoId = id
         isReady = false
         lastError = nil
+        pageDidFinishLoad = false
 
         // Isolated WKContentWorld — Rutube's JS cannot touch
         // app's message handlers.
@@ -105,6 +111,22 @@ public final class RutubePlaybackController: PlaybackControlling {
         web.backgroundColor = UIColor(red: 0x0D/255, green: 0x00/255, blue: 0x1A/255, alpha: 1)
         web.scrollView.isScrollEnabled = false
         web.translatesAutoresizingMaskIntoConstraints = false
+
+        // Навигационный делегат сообщает о завершении загрузки embed-страницы,
+        // разблокируя ожидание в prepare() (модель — YTWebNavigationDelegate
+        // YouTube-контроллера). Ставится ДО load.
+        let nav = RutubeNavigationDelegate { [weak self] ok, err in
+            Task { @MainActor in
+                guard let self else { return }
+                if ok {
+                    self.pageDidFinishLoad = true
+                } else {
+                    self.lastError = err ?? "Не удалось загрузить страницу Rutube"
+                }
+            }
+        }
+        navigationDelegateBox = nav
+        web.navigationDelegate = nav
         webView = web
         embeddedView = web
 
@@ -113,30 +135,19 @@ public final class RutubePlaybackController: PlaybackControlling {
         let embedURL = URL(string: "https://rutube.ru/play/embed/\(id)/")!
         web.load(URLRequest(url: embedURL))
 
-        // 8s prepare timeout. If Rutube doesn't load, throw.
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { [weak self] in
-                // Guard let self to bind to strong local const,
-                // avoiding "Reference to captured var 'self'" Swift 6 error.
-                guard let self else { return }
-                while true {
-                    let notReady = await MainActor.run {
-                        self.isReady == false
-                    }
-                    if !notReady { return }
-                    try await Task.sleep(for: .milliseconds(100))
-                }
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(8))
-                throw ProviderError.loadingFailed("Rutube player timed out")
-            }
-            _ = try await group.next()
-            group.cancelAll()
+        // Мягкое ожидание загрузки embed-страницы (~8с): сигнал — didFinish
+        // навигации (pageDidFinishLoad). По таймауту НЕ бросаем — поверхность
+        // остаётся видимой, как у YouTube-контроллера. Недоступность JS-API
+        // Rutube ловит фолбэк «Открыть в Rutube» (requiresExternalFallback),
+        // а не исключение, гасящее весь экран комнаты.
+        var waited = 0
+        while !pageDidFinishLoad, lastError == nil, waited < 80 {
+            try? await Task.sleep(for: .milliseconds(100))
+            waited += 1
         }
 
-        // Probe JS API availability. Rutube's embed may or may not expose
-        // play/pause/seek via postMessage. We probe once after ready.
+        // Страница загрузилась (или вышел мягкий таймаут) — пробуем JS-API
+        // Rutube. probeJsApi выставляет jsApiConfirmed и isReady.
         await probeJsApi()
         startPolling()
     }
@@ -172,14 +183,17 @@ public final class RutubePlaybackController: PlaybackControlling {
         pollTask?.cancel()
         pollTask = nil
         webView?.stopLoading()
+        webView?.navigationDelegate = nil
         webView?.removeFromSuperview()
         webView = nil
+        navigationDelegateBox = nil
         embeddedView = nil
         videoId = nil
         isReady = false
         isPlaying = false
         isBuffering = false
         jsApiConfirmed = false
+        pageDidFinishLoad = false
         position = 0
         duration = 0
     }
@@ -267,5 +281,24 @@ public final class RutubePlaybackController: PlaybackControlling {
     private static func isValidVideoId(_ id: String) -> Bool {
         guard id.count == 32 else { return false }
         return id.allSatisfy { $0.isHexDigit }
+    }
+
+    // MARK: - Navigation delegate
+
+    /// Сообщает о завершении загрузки embed-страницы, чтобы prepare() перестал
+    /// ждать. WKWebView держит navigationDelegate слабо — сильную ссылку
+    /// хранит navigationDelegateBox. Модель — YTWebNavigationDelegate.
+    private final class RutubeNavigationDelegate: NSObject, WKNavigationDelegate {
+        private let onFinish: (Bool, String?) -> Void
+        init(onFinish: @escaping (Bool, String?) -> Void) { self.onFinish = onFinish }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            onFinish(true, nil)
+        }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onFinish(false, error.localizedDescription)
+        }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            onFinish(false, error.localizedDescription)
+        }
     }
 }

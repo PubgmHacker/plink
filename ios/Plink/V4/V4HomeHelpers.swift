@@ -3,22 +3,446 @@
 
 import SwiftUI
 
-enum HomeTitleFilter {
+/// Чипы Главной и YouTube-хвост их полок.
+///
+/// Почему так (22.08.2026). Люди приходят в Plink смотреть фильмы и сериалы,
+/// а /api/media/trending отдаёт общий YouTube-чарт региона — музыкальные
+/// клипы и влоги. Роут менять нельзя без деплоя бэкенда, поэтому каталог
+/// собирается клиентом. Первым полку наполняет каталог кинотеатра
+/// (V4CinemaCatalog — «кинотеатры в приоритете»); запросы отсюда — ХВОСТ:
+/// V4SearchStore.loadShelf добирает ими полку через /api/media/search,
+/// когда кинотеатр дал мало или не ответил.
+///
+/// Прошлая версия (HomeTitleFilter) фильтровала общий чарт ПОДСТРОКОЙ в
+/// названии: чип «Фантастика» искал слово «фантастика» в заголовках трендов
+/// и почти всегда находил ноль. Чип — это полка каталога, а не grep.
+enum HomeCinemaCatalog {
     static let allChip = "Для вас"
-    static let chips = ["Для вас", "Новое", "Фантастика", "Аниме", "Хоррор", "Комедии"]
 
-    static func apply(chip: String, items: [V4SearchResult]) -> [V4SearchResult] {
-        guard chip != allChip else { return items }
-        let needle = chip.lowercased()
-        return items.filter {
-            $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle)
+    /// «Новинки» (22.08.2026): премьеры этого года + тренды Netflix.
+    /// Полка собирается из трёх источников сразу — тренд-карточки
+    /// V4TrendsCatalog, свежие годы каталога Иви и YouTube-трейлеры года.
+    static let freshChip = "Новинки"
+
+    /// Служебная полка «Топ недели» — не чип, в ряду фильтров не показывается.
+    /// У неё собственные запросы: раньше секция резала те же первые карточки,
+    /// что герой и «Популярно», и Главная трижды показывала одно и то же.
+    static let topWeekShelf = "™topweek"
+
+    /// Порядок чипов = порядок на экране: сперва свежесть, затем форматы
+    /// (фильмы, сериалы, мультфильмы), затем жанры.
+    static let chips = [
+        "Для вас", "Новинки", "Фильмы", "Сериалы", "Мультфильмы",
+        "Фантастика", "Комедии", "Ужасы", "Аниме",
+    ]
+
+    /// Запросы полки. Несколько запросов — несколько источников: результаты
+    /// перемешиваются интерливом, а не клеятся списками встык.
+    ///
+    /// Формулировки подобраны под то, что реально лежит на YouTube легально:
+    /// «фильм полностью» находит официальные каналы студий (Мосфильм,
+    /// Star Media, Центральное телевидение…), «трейлер <год>» — свежие
+    /// трейлеры прокатчиков. Длительность в ответе поиска не приходит
+    /// (duration: null), так что отфильтровать шорты по времени нельзя —
+    /// отбор делает сама формулировка запроса.
+    static func queries(for chip: String) -> [String] {
+        switch chip {
+        case Self.freshChip:
+            // Театральные хиты года («Человек-паук: Новый путь» и т.п.) в
+            // открытых каталогах кинотеатров не живут — их свежие трейлеры
+            // поднимает сам YouTube-запрос с годом. Год считается, не вписан.
+            let year = Calendar.current.component(.year, from: Date())
+            return [
+                "новинки кино \(year) официальный трейлер на русском",
+                "премьера \(year) фильм полностью на русском",
+            ]
+        case "Фильмы":      return ["художественный фильм полностью в хорошем качестве"]
+        case "Сериалы":     return ["сериал все серии подряд на русском"]
+        case "Мультфильмы": return ["мультфильм полностью на русском"]
+        case "Фантастика":  return ["фантастика фильм полностью на русском"]
+        case "Комедии":     return ["комедия фильм полностью на русском"]
+        case "Ужасы":       return ["фильм ужасов полностью на русском"]
+        case "Аниме":       return ["аниме сериал на русском все серии"]
+        case Self.topWeekShelf:
+            // «Топ недели» — популярное к просмотру целиком, а не витрина
+            // трейлеров, как «Для вас». Слова «топ» в запросах нет нарочно:
+            // по нему YouTube отдаёт нарезки-списки «ТОП 10…» вместо кино.
+            let year = Calendar.current.component(.year, from: Date())
+            return [
+                "самый популярный фильм \(year) полностью на русском",
+                "популярный сериал все серии подряд на русском",
+            ]
+        default:
+            // «Для вас» — витрина: свежие трейлеры вперемешку с полными
+            // фильмами. Год считается, а не вписан: вписанный устаревает.
+            let year = Calendar.current.component(.year, from: Date())
+            return [
+                "новинки кино \(year) трейлер на русском",
+                "лучшие фильмы полностью в хорошем качестве",
+            ]
+        }
+    }
+}
+
+// MARK: - Кино-сцена и пустое состояние (общий язык V4)
+
+/// Конус света проектора: узкая «линза» сверху расходится к основанию.
+private struct V4ProjectorBeamShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let apexHalf: CGFloat = rect.width * 0.03
+        p.move(to: CGPoint(x: rect.midX - apexHalf, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.midX + apexHalf, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// Сигнатура пустых состояний: луч кинопроектора освещает веер из трёх
+/// мини-постеров. «Иконка в кружке» читалась как заглушка девелопера —
+/// сцена из мира продукта (вечер кино) собрана из тех же токенов V4:
+/// акцент темы, стеклянные штрихи, глубокие тени.
+struct V4ProjectorScene: View {
+    let icon: String
+    var accent: Color = V4.accent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var lit = false
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // Пятно света на «полу» — луч упирается в веер и растекается.
+            Ellipse()
+                .fill(accent.opacity(0.30))
+                .frame(width: 170, height: 38)
+                .blur(radius: 13)
+                .offset(y: 122)
+                .opacity(lit ? 1 : 0)
+
+            // Широкий мягкий конус — атмосфера.
+            V4ProjectorBeamShape()
+                .fill(
+                    LinearGradient(
+                        colors: [accent.opacity(0.80), accent.opacity(0.32), accent.opacity(0.06)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .frame(width: 176, height: 152)
+                .blur(radius: 9)
+                .opacity(lit ? 1 : 0)
+
+            // Ядро луча — яркий белёсый свет у самой линзы.
+            V4ProjectorBeamShape()
+                .fill(
+                    LinearGradient(
+                        colors: [.white.opacity(0.75), accent.opacity(0.30), accent.opacity(0.04)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .frame(width: 78, height: 144)
+                .blur(radius: 7)
+                .opacity(lit ? 1 : 0)
+
+            // Линза проектора — точка, из которой бьёт свет.
+            Circle()
+                .fill(.white)
+                .frame(width: 6, height: 6)
+                .shadow(color: .white.opacity(0.9), radius: 4)
+                .shadow(color: accent.opacity(0.95), radius: 9)
+                .shadow(color: accent.opacity(0.55), radius: 20)
+                .offset(y: -2)
+
+            // Пылинки в луче — медленный дрейф; статичны при reduce motion.
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(.white.opacity(0.5))
+                    .frame(width: i == 1 ? 3 : 2, height: i == 1 ? 3 : 2)
+                    .offset(x: [-22, 14, 30][i], y: [46, 30, 66][i])
+                    .opacity(lit ? 0.7 : 0)
+                    .animation(
+                        reduceMotion ? nil :
+                            .easeInOut(duration: [2.8, 3.6, 3.1][i])
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(i) * 0.5),
+                        value: lit
+                    )
+            }
+
+            posterFan
+                .padding(.top, 56)
+        }
+        .frame(width: 200, height: 152)
+        .onAppear {
+            guard !lit else { return }
+            if reduceMotion { lit = true } else {
+                withAnimation(.easeOut(duration: 0.7)) { lit = true }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// Веер из трёх постеров: боковые — «афиши» с плашками названий,
+    /// центральный несёт знак контекста (иконку экрана).
+    private var posterFan: some View {
+        ZStack {
+            posterCard(rotation: -11, offset: CGSize(width: -34, height: 10), dim: true)
+            posterCard(rotation: 11, offset: CGSize(width: 34, height: 10), dim: true)
+            posterCard(rotation: 0, offset: .zero, dim: false)
         }
     }
 
-    static func caption(chip: String) -> String {
-        chip == allChip
-            ? "Чипы ищут слово в названии, это не каталог жанров"
-            : "Ищем «\(chip)» в названии — не жанр каталога"
+    private func posterCard(rotation: Double, offset: CGSize, dim: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        return VStack(spacing: 0) {
+            if dim {
+                Spacer()
+                // Плашки-строки афиши — намёк на название и мету.
+                VStack(alignment: .leading, spacing: 3) {
+                    Capsule().fill(.white.opacity(0.30)).frame(width: 24, height: 3)
+                    Capsule().fill(.white.opacity(0.16)).frame(width: 15, height: 3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white.opacity(0.95))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: 46, height: 64)
+        .background(
+            LinearGradient(
+                colors: dim
+                    ? [Color.white.opacity(0.10), accent.opacity(0.10)]
+                    : [accent.opacity(0.85), accent.opacity(0.45)],
+                startPoint: .top, endPoint: .bottom
+            ),
+            in: shape
+        )
+        .overlay(shape.strokeBorder(.white.opacity(dim ? 0.14 : 0.32), lineWidth: 1))
+        .shadow(color: .black.opacity(dim ? 0.30 : 0.45), radius: dim ? 8 : 14, y: 7)
+        .rotationEffect(.degrees(rotation))
+        .offset(offset)
+        .opacity(dim ? 0.82 : 1)
+    }
+}
+
+/// Сигнатура пустых состояний мира людей: facepile — ряд перекрывающихся
+/// кругов-аватаров, как в шапках групповых чатов. Два тихих силуэта по
+/// бокам («здесь будут люди»), стеклянный медальон в центре и акцентный
+/// «+» на его краю. Кино-экранам остаётся луч проектора. Прежняя орбита
+/// с пунктиром, кометой и радаром снята: перегруз читался ИИ-рисовкой.
+struct V4OrbitScene: View {
+    let icon: String
+    var accent: Color = V4.accent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var lit = false
+
+    var body: some View {
+        HStack(spacing: -14) {
+            sideSlot
+                .zIndex(0)
+
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: icon)
+                    .font(.system(size: 25, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white.opacity(0.95))
+                    .frame(width: 78, height: 78)
+                    .plinkGlass(.control, in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.35), radius: 14, y: 7)
+
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(accent, in: Circle())
+                    // Обводка цветом фона отделяет бейдж от медальона —
+                    // тот же приём, что у точки онлайна на аватарах.
+                    .overlay(Circle().strokeBorder(V4.surface.opacity(0.95), lineWidth: 2))
+                    .offset(x: 2, y: 2)
+            }
+            .zIndex(1)
+
+            sideSlot
+                .zIndex(0)
+        }
+        .frame(height: 96)
+        .opacity(lit ? 1 : 0)
+        .offset(y: lit ? 0 : 8)
+        .onAppear {
+            guard !lit else { return }
+            if reduceMotion {
+                lit = true
+            } else {
+                withAnimation(.easeOut(duration: 0.55)) { lit = true }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// Боковой круг facepile: приглушённый силуэт будущего друга.
+    private var sideSlot: some View {
+        Image(systemName: "person.fill")
+            .font(.system(size: 19, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.38))
+            .frame(width: 54, height: 54)
+            .background(Color.white.opacity(0.06), in: Circle())
+            .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+    }
+}
+
+/// Стеклянная «монета» с мягким свечением — знак хиро пейволла и мелких
+/// плейсхолдеров, где сцена с лучом не помещается. Пустые состояния экранов
+/// используют V4ProjectorScene.
+struct V4GlassMedallion: View {
+    let icon: String
+    var accent: Color = V4.accent
+    var size: CGFloat = 76
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(accent.opacity(0.32))
+                .frame(width: size * 1.5, height: size * 1.5)
+                .blur(radius: size * 0.4)
+            Circle()
+                .stroke(accent.opacity(0.22), lineWidth: 1)
+                .frame(width: size * 1.32, height: size * 1.32)
+            Circle()
+                .fill(accent.opacity(0.5))
+                .frame(width: size * 0.066, height: size * 0.066)
+                .offset(x: size * 0.6, y: -size * 0.52)
+            Circle()
+                .fill(accent.opacity(0.32))
+                .frame(width: size * 0.04, height: size * 0.04)
+                .offset(x: -size * 0.68, y: size * 0.36)
+            Image(systemName: icon)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(
+                    LinearGradient(colors: [accent, accent.opacity(0.62)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: size, height: size)
+                .plinkGlass(.control, in: Circle())
+        }
+        .frame(height: size * 1.32)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Пустое состояние V4: сцена с лучом проектора → короткий заголовок →
+/// пояснение в одну мысль → одно явное действие (+ необязательный второй
+/// канал через `extra`). Формула одна на всё приложение — Главная, Друзья,
+/// история, пейволл.
+///
+/// `style: .plain` — для ошибок: луч проектора зарезервирован за «в мире
+/// пока пусто», сбою он не полагается — там компактный кружок-медальон.
+enum V4EmptyStyle {
+    /// Сцена с лучом проектора и веером постеров — пустые кино-миры.
+    case scene
+    /// Орбита круга друзей с пустыми местами — пустые миры людей
+    /// (друзья, чаты): у социального ждуна своя сцена, не клон проектора.
+    case orbit
+    /// Кружок-медальон без сцены — ошибки и служебные состояния.
+    case plain
+}
+
+struct V4EmptyState<Extra: View>: View {
+    struct Action {
+        let title: String
+        let icon: String
+        var a11yID: String? = nil
+        let run: () -> Void
+    }
+
+    let icon: String
+    let title: String
+    let subtitle: String
+    var accent: Color = V4.accent
+    var accentInk: Color = .white
+    var style: V4EmptyStyle = .scene
+    var primary: Action? = nil
+    @ViewBuilder var extra: () -> Extra
+
+    var body: some View {
+        VStack(spacing: 0) {
+            switch style {
+            case .scene:
+                V4ProjectorScene(icon: icon, accent: accent)
+                    .padding(.bottom, 14)
+            case .orbit:
+                V4OrbitScene(icon: icon, accent: accent)
+                    .padding(.bottom, 14)
+            case .plain:
+                ZStack {
+                    Circle()
+                        .fill(accent.opacity(0.14))
+                        .frame(width: 64, height: 64)
+                    Circle()
+                        .stroke(accent.opacity(0.28), lineWidth: 1)
+                        .frame(width: 64, height: 64)
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
+                .padding(.bottom, 14)
+                .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.system(size: 21, weight: .heavy))
+                .tracking(-0.5)
+                .foregroundStyle(V4.ink)
+                .multilineTextAlignment(.center)
+            Text(subtitle)
+                .font(.system(size: 13.5))
+                .foregroundStyle(V4.muted)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3.5)
+                .frame(maxWidth: 300)
+                .padding(.top, 7)
+            if let primary {
+                Button {
+                    HapticManager.impact(.medium)
+                    primary.run()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: primary.icon)
+                            .font(.system(size: 14, weight: .bold))
+                        Text(primary.title)
+                    }
+                }
+                // Канон CTA приложения: главная кнопка — белая с чёрным
+                // текстом; акцент темы остаётся сцене, а не кнопке.
+                // Ширина — единая полоса до 300 pt, как у кнопок онбординга
+                // ИИ: по-контентная ширина делала вторичную кнопку в слоте
+                // extra шире главной, и иерархия читалась перевёрнутой.
+                .buttonStyle(PlinkProminentButtonStyle(
+                    tint: .white, textColor: .black,
+                    height: 48, cornerRadius: 16, fillsWidth: true
+                ))
+                .frame(maxWidth: 300)
+                .accessibilityIdentifier(primary.a11yID ?? "empty.primary")
+                .padding(.top, 18)
+            }
+            extra()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+extension V4EmptyState where Extra == EmptyView {
+    init(icon: String, title: String, subtitle: String,
+         accent: Color = V4.accent, accentInk: Color = .white,
+         style: V4EmptyStyle = .scene, primary: Action? = nil) {
+        self.init(icon: icon, title: title, subtitle: subtitle,
+                  accent: accent, accentInk: accentInk, style: style,
+                  primary: primary) { EmptyView() }
     }
 }
 
@@ -28,36 +452,19 @@ struct HomeFallbackPlaceholder: View {
     var openRoom: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "film.stack")
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(V4.accent)
-            Text("Пока тихо")
-                .font(.system(size: 18, weight: .heavy))
-                .foregroundStyle(V4.ink)
-            Text("Подборка обновляется. Найди видео вручную —\nи собери первый вечер кино.")
-                .font(.system(size: 12.5))
-                .foregroundStyle(V4.muted)
-                .multilineTextAlignment(.center)
-            Button {
-                HapticManager.impact(.medium)
-                openRoom()
-            } label: {
-                Text("Найти видео")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(V4.accentInk)
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 40)
-                    .background(V4.accent, in: Capsule())
-            }
-            .buttonStyle(.plain)
+        V4EmptyState(
+            icon: "film.stack",
+            title: "Пока тихо",
+            subtitle: "Подборка обновляется. Найди видео вручную — и собери первый вечер кино.",
+            accent: theme.accentColor,
+            accentInk: theme.buttonTextColor,
             // Вход в комнату, когда trending пуст (нет сети / пустая подборка).
-            .accessibilityIdentifier("home.emptyFindVideo")
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 34)
-        .background(V4.cardBG.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(V4.line))
+            primary: .init(title: "Найти видео", icon: "magnifyingglass",
+                           a11yID: "home.emptyFindVideo", run: openRoom)
+        )
+        .padding(.vertical, 30)
+        .padding(.horizontal, 16)
+        .plinkGlass(.control, cornerRadius: 24)
         .padding(.horizontal, 19)
     }
 }
@@ -206,104 +613,248 @@ struct NewThisWeekSection: View {
 }
 
 // MARK: - Превью перед созданием комнаты
+//
+// 22.08.2026, «кинотеатры в приоритете»: бейдж «YouTube» перестал быть
+// вшитым — карточка каталога показывает свой кинотеатр фирменным цветом,
+// год, тип и рейтинг, честную подпись про вход в аккаунт и ряд
+// «Где ещё смотреть» — мостик в Кинопоиск/Okko/Wink/PREMIER одним тапом.
 struct TrendingPreviewSheet: View {
     let item: V4SearchResult
     let theme: V4Theme
-    var onWatch: () -> Void
+    var onWatch: (V4WatchTarget) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    /// Сервис карточки: бейдж и цвет. У роликов — YouTube.
+    private var service: VideoService {
+        if case .cinema(let s) = item.origin { return s }
+        return .youtube
+    }
+
+    /// Мета без имени сервиса — оно уже на бейдже.
+    private var metaLine: String {
+        switch item.origin {
+        case .youtube:
+            var parts = [item.subtitle]
+            if let duration = item.duration { parts.append(duration) }
+            return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        case .cinema:
+            var parts: [String] = []
+            if let year = item.year { parts.append(String(year)) }
+            if let kind = item.kindLabel { parts.append(kind) }
+            if let rating = item.ratingText { parts.append("★ \(rating)") }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    /// Кинотеатры для мостика — без сервиса самой карточки.
+    private var bridgeServices: [VideoService] {
+        guard case .cinema = item.origin else { return [] }
+        return V4CinemaCatalog.bridgeServices.filter { $0 != service }
+    }
 
     var body: some View {
         ZStack {
-            Cinema2026.background.ignoresSafeArea()
+            V4.canvas.ignoresSafeArea()
+            // Тема — только фон: тихий радиал акцента, как на остальных
+            // экранах V4. Кнопки ниже от палитры не зависят.
+            RadialGradient(
+                colors: [theme.accentColor.opacity(0.10), .clear],
+                center: .top, startRadius: 0, endRadius: 420
+            )
+            .ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     ZStack(alignment: .topTrailing) {
-                        Group {
-                            if let url = item.artworkURL {
-                                AsyncImage(url: url) { image in
-                                    image.resizable().aspectRatio(contentMode: .fill)
-                                } placeholder: {
+                        // Кадр — оверлеем над Color.clear: scaledToFill-имидж
+                        // сам по себе отчитывается layout-шириной 16:9 от
+                        // высоты (шире шита), распирал VStack и сдвигал весь
+                        // контент влево за края. Тот же приём, что в V4Hero.
+                        Color.clear
+                            .frame(height: 280)
+                            .overlay {
+                                if let url = item.artworkURL {
+                                    AsyncImage(url: url) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Rectangle().fill(V4.cardBG)
+                                    }
+                                } else {
                                     Rectangle().fill(V4.cardBG)
                                 }
-                            } else {
-                                Rectangle().fill(V4.cardBG)
                             }
-                        }
-                        .frame(height: 260)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
+                            .clipped()
+                            // Кадр растворяется в холсте, а не обрывается
+                            // жёсткой кромкой — приём афиш Apple TV: контент
+                            // и текст под ним живут на одном полотне.
+                            .overlay(alignment: .bottom) {
+                                LinearGradient(
+                                    colors: [.clear, V4.canvas.opacity(0.62), V4.canvas],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                                .frame(height: 110)
+                            }
 
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 32, height: 32)
-                                .background(.black.opacity(0.55), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(14)
-                        .accessibilityLabel("Закрыть превью")
+                        V4SheetCloseButton { dismiss() }
+                            .padding(14)
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("YouTube")
-                            .font(.system(size: 10, weight: .heavy))
-                            .foregroundStyle(V4.accentInk)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(V4.accent, in: Capsule())
+                        HStack(spacing: 8) {
+                            Text(service.title)
+                                .font(.system(size: 10, weight: .heavy))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(service.accentColor, in: Capsule())
+                            if item.isFreeOnService {
+                                // Тот же изумруд, что на бейджах карточек
+                                // витрины: серая капсула читалась как
+                                // неактивный чип, а не как «смотри даром».
+                                Text("Бесплатно")
+                                    .font(.system(size: 10, weight: .heavy))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(V4.free, in: Capsule())
+                            }
+                        }
 
                         Text(item.title)
                             .font(.system(size: 22, weight: .heavy))
                             .foregroundStyle(V4.ink)
 
-                        Text(item.subtitle)
-                            .font(.system(size: 13))
-                            .foregroundStyle(V4.muted)
+                        if !metaLine.isEmpty {
+                            Text(metaLine)
+                                .font(.system(size: 13))
+                                .foregroundStyle(V4.muted)
+                        }
 
                         Button {
                             HapticManager.impact(.medium)
-                            onWatch()
+                            onWatch(.native)
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "play.fill")
+                                    .font(.system(size: 14, weight: .heavy))
                                 Text("Смотреть вместе")
                             }
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(V4.accentInk)
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 52)
-                            .background(V4.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        // Белая, как Play у Apple TV и Netflix: главная CTA
+                        // статична и не зависит от темы — тема остаётся фону.
+                        // Акцентная заливка меняла характер кнопки с каждой
+                        // палитрой и красила весь шит «в синий».
+                        .buttonStyle(
+                            PlinkProminentButtonStyle(
+                                tint: .white,
+                                textColor: .black,
+                                height: 52,
+                                cornerRadius: 16
+                            )
+                        )
                         // Единственная кнопка, которая реально создаёт
                         // комнату из Главной. Без идентификатора UI-смоук
                         // воронки искал «Создать комнату» на самой Главной,
                         // не находил её (такой кнопки в продукте нет) и падал.
                         .accessibilityIdentifier("preview.watchTogether")
                         .padding(.top, 10)
+                        // Третьей кнопки закрытия здесь нет намеренно: шит
+                        // закрывают крестик и свайп вниз, «Может позже» была
+                        // ещё одним способом сделать то же самое.
 
-                        Button {
-                            dismiss()
-                        } label: {
-                            Text("Может позже")
-                                .font(.system(size: 13, weight: .semibold))
+                        if case .cinema = item.origin {
+                            Text("Комната откроет страницу «\(service.title)». Вы входите в свой аккаунт — Plink не предоставляет контент и не обходит защиту.")
+                                .font(.system(size: 11.5))
                                 .foregroundStyle(V4.muted)
-                                .frame(maxWidth: .infinity)
-                                .frame(minHeight: 44)
-                                .background(V4.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .lineSpacing(2.5)
+
+                            // Запасной путь без комнаты: открыть тайтл в самом
+                            // кинотеатре (universal link поднимет его
+                            // приложение, если стоит). Совместный просмотр —
+                            // выше, это осознанно второстепенная ссылка.
+                            Button {
+                                HapticManager.impact(.light)
+                                AnalyticsService.shared.track(
+                                    "home_preview_open_external",
+                                    parameters: ["service": service.rawValue]
+                                )
+                                if let url = URL(string: item.watchURL) {
+                                    openURL(url)
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text("Открыть на «\(service.title)»")
+                                        .font(.system(size: 12.5, weight: .bold))
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 10.5, weight: .bold))
+                                }
+                                // Стекло вместо голого синего текста: висячая
+                                // акцентная строка читалась как веб-ссылка
+                                // 2010-х и зависела от темы. Тот же контрол,
+                                // что капсулы «Где ещё смотреть» ниже.
+                                .foregroundStyle(V4.ink)
+                                .padding(.horizontal, 13)
+                                .frame(minHeight: 38)
+                                .plinkGlass(.control, interactive: true)
+                                .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("preview.openExternal")
                         }
-                        .buttonStyle(.plain)
+
+                        if !bridgeServices.isEmpty {
+                            Text("ГДЕ ЕЩЁ СМОТРЕТЬ")
+                                .font(.system(size: 11, weight: .heavy))
+                                .tracking(1.1)
+                                .foregroundStyle(V4.muted)
+                                .padding(.top, 14)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(bridgeServices) { bridge in
+                                        bridgeChip(bridge)
+                                    }
+                                }
+                            }
+                        }
                     }
                     .padding(18)
                 }
             }
         }
         .onAppear {
-            AnalyticsService.shared.track("home_preview_opened")
+            AnalyticsService.shared.track(
+                "home_preview_opened",
+                parameters: ["service": service.rawValue]
+            )
+        }
+    }
+
+    /// Капсула кинотеатра: открывает тайтл поиском на его официальной
+    /// странице — прямых ссылок на карточки без их API не существует.
+    @ViewBuilder
+    private func bridgeChip(_ bridge: VideoService) -> some View {
+        if let url = V4CinemaCatalog.searchURL(for: bridge, title: item.title) {
+            Button {
+                HapticManager.impact(.light)
+                onWatch(.cinema(bridge, url))
+            } label: {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(bridge.accentColor)
+                        .frame(width: 7, height: 7)
+                    Text(bridge.title)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(V4.ink)
+                }
+                .padding(.horizontal, 13)
+                .frame(minHeight: 38)
+                .plinkGlass(.control, interactive: true)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Смотреть «\(item.title)» на \(bridge.title)")
         }
     }
 }

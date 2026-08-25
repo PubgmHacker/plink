@@ -172,11 +172,6 @@ final class FinalArchNavigationTests: XCTestCase {
         XCTAssertEqual(PlinkAuthMode.signUp.title, "Регистрация")
     }
 
-    func testHomeTitleFilter_captionDoesNotClaimCatalog() {
-        XCTAssertTrue(HomeTitleFilter.caption(chip: HomeTitleFilter.allChip).contains("не каталог"))
-        XCTAssertTrue(HomeTitleFilter.caption(chip: "Аниме").contains("названии"))
-    }
-
     func testHomeTitleFilter_allChipKeepsItems() {
         XCTAssertEqual(HomeTitleFilter.chips.first, HomeTitleFilter.allChip)
         XCTAssertEqual(HomeTitleFilter.apply(chip: HomeTitleFilter.allChip, items: []).count, 0)

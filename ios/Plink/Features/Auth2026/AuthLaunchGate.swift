@@ -116,6 +116,40 @@ struct AuthLaunchGate: View {
         }
         #endif
 
+        #if DEBUG && targetEnvironment(simulator)
+        // Симуляторный автологин НАСТОЯЩИМ аккаунтом:
+        //   SIMCTL_CHILD_PLINK_SIM_LOGIN="email:пароль[:username]" xcrun simctl launch …
+        // Вход (или регистрация, если аккаунта ещё нет) на реальном бэкенде,
+        // онбординг пропускается. В отличие от -plink.designpreview данные
+        // живые: витрина, комнаты, друзья и чаты работают по-настоящему.
+        // Ветка существует только в Debug-сборке под симулятор.
+        if let raw = ProcessInfo.processInfo.environment["PLINK_SIM_LOGIN"] {
+            let parts = raw.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            if parts.count >= 2 {
+                let email = parts[0]
+                let password = parts[1]
+                let username = parts.count > 2 && !parts[2].isEmpty
+                    ? parts[2]
+                    : String(email.prefix(while: { $0 != "@" }))
+                do {
+                    _ = try await AuthService.shared.signIn(email: email, password: password)
+                } catch {
+                    do {
+                        _ = try await AuthService.shared.signUp(email: email, password: password, username: username)
+                    } catch {
+                        Logger.app.error("[AuthGate] sim autologin failed: \(error.localizedDescription)")
+                    }
+                }
+                if AuthService.shared.authToken != nil {
+                    onboardingStore.markCompleted(version: OnboardingVersion.current)
+                    handleAuthenticated()
+                    return
+                }
+                // Не вышло (нет сети, занят username) — обычный путь на экран входа.
+            }
+        }
+        #endif
+
         async let minimumSplash: Void = Task.sleep(for: .milliseconds(650))
         // 10 с, а не 6: окно cold start бэкенда + bcrypt-скан refresh-токенов
         // на сервере укладывается в него, поэтому обычный старт не уходит

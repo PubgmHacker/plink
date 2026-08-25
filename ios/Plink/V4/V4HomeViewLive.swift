@@ -19,6 +19,18 @@
 // 7) 07.08.2026: экран сам грузит свои тренды в .task. Раньше это делал
 //    bootstrap() корневого экрана шестым последовательным запросом, и до
 //    появления баннеров проходило около десяти секунд.
+// 8) 21.08.2026: главная расчищена от объяснялок и дублей. Снята подпись
+//    под чипами («чипы ищут по жанрам» — и так очевидно), кружки play и
+//    градиенты с карточек «Популярно» и «Рекомендаций» (вся карточка — кнопка,
+//    значок поверх постера только глушил артворк), контейнер-коробка
+//    «Рекомендаций», строка «Смотреть с друзьями» внизу (дубль вкладки
+//    «Комнаты») и невызываемый ReleaseNotesSheet. Герой получил кадр контента.
+// 9) 22.08.2026: контент переориентирован с YouTube-чарта на кино. Чипы
+//    стали полками кинокаталога (HomeCinemaCatalog + V4SearchStore.loadShelf):
+//    «Фильмы», «Сериалы», «Мультфильмы», жанры — у каждой полки свои запросы
+//    к /api/media/search вместо фильтра подстрокой по общему чарту с музыкой.
+//    Поиск и чипы переведены с плоского V4.surface на настоящий Liquid Glass
+//    (.plinkGlass) — до этого стеклом они только назывались.
 
 import SwiftUI
 import PhotosUI
@@ -100,6 +112,23 @@ struct AutoScrollCarousel<T: Identifiable, Content: View>: View {
     }
 }
 
+// MARK: - Нажатие контентных карточек
+
+/// Микроанимация нажатия карточек витрины: лёгкое сжатие с приглушением,
+/// как у постеров Apple TV. Прежний .plain оставлял карточки немыми — палец
+/// не получал ответа до самого хаптика. Уважает «Уменьшение движения».
+struct V4PressableCardStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.965 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.72),
+                       value: configuration.isPressed)
+    }
+}
+
 // MARK: - Главная
 
 struct V4HomeViewLive: View {
@@ -108,40 +137,36 @@ struct V4HomeViewLive: View {
     var roomsStore: V4RoomsStore?
     let openRoom: () -> Void
     var liveThemeIndex: Int = 0
-    /// Переключить на вкладку «Комнаты».
-    var openRoomsTab: (() -> Void)? = nil
-    /// Открыть мастер комнаты сразу с готовой ссылкой из буфера обмена,
-    /// минуя шаги «сервис» и «контент».
-    var createRoomWithLink: ((String, VideoService) -> Void)? = nil
-
     @ObservedObject private var historyMgr = WatchHistoryManager.shared
     @ObservedObject private var watchlist = WatchlistService.shared
     @ObservedObject private var dmInbox = DMChatService.shared
     @ObservedObject private var groupInbox = GroupChatService.shared
 
-    /// Ссылку обычно копируют в другом приложении и возвращаются в Plink —
-    /// к этому моменту «Главная» уже на экране и `onAppear` не сработает.
-    @Environment(\.scenePhase) private var scenePhase
-
     @State private var showUnifiedSearch = false
-    /// В буфере обмена есть веб-ссылка. Само содержимое не читаем до тапа —
-    /// иначе iOS покажет системный баннер на каждом открытии экрана.
-    @State private var hasClipboardLink = false
-    /// `changeCount` буфера на момент, когда ссылкой уже воспользовались.
-    /// Пока значение не изменилось, карточку не показываем повторно.
-    @State private var usedClipboardChangeCount: Int = -1
-    @State private var showReleaseNotes = false
     @State private var showInbox = false
     @State private var isRefreshing = false
-    /// Первая загрузка трендов завершена — успехом или ошибкой, неважно.
-    /// Пока false, пустая лента означает «ещё грузим», а не «ничего нет»,
-    /// и показывать нужно скелетон, а не заглушку.
-    @State private var didAttemptTrending = false
     @State private var previewItem: V4SearchResult?
-    @State private var selectedGenre: String = V4HomeViewLive.genres[0]
+    // Дизайн-превью: `-plink.designchip <чип>` открывает Главную сразу на
+    // нужной полке — скриншоты чипов без ручных тапов. Только DEBUG,
+    // тот же приём, что -plink.designtab в PlinkApprovedV4Root.
+    @State private var selectedGenre: String = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-plink.designchip"), args.indices.contains(i + 1),
+           V4HomeViewLive.genres.contains(args[i + 1]) {
+            return args[i + 1]
+        }
+        #endif
+        return V4HomeViewLive.genres[0]
+    }()
+    @Environment(\.scenePhase) private var scenePhase
 
-    /// Ряд чипов из макета (.chiprow).
-    static let genres = HomeTitleFilter.chips
+    /// Автообновление витрины (22.08.2026): раз в 15 минут полки старше TTL
+    /// перезапрашиваются — подборки следят за трендами сами, пока экран жив.
+    private let autoRefreshTick = Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()
+
+    /// Ряд чипов из макета (.chiprow) — полки кинокаталога.
+    static let genres = HomeCinemaCatalog.chips
 
     // MARK: Цвета темы
 
@@ -181,14 +206,46 @@ struct V4HomeViewLive: View {
         return String(clean.prefix(1)).uppercased()
     }
 
-    /// Отбор по выбранному чипу. Это поиск слова в названии, не каталог жанров.
+    /// Полка выбранного чипа. Каждый чип — собственная кино-подборка
+    /// (см. HomeCinemaCatalog), а не фильтр подстрокой по общему чарту.
     private var visibleTrending: [V4SearchResult] {
-        HomeTitleFilter.apply(chip: selectedGenre, items: searchStore.trending)
+        searchStore.shelf(for: selectedGenre)
+    }
+
+    // Непересекающиеся срезы (22.08.2026): раньше герой, «Популярно», «Топ
+    // недели» и «Рекомендации» резали prefix/suffix ОДНОГО массива, и одни
+    // и те же карточки шли по экрану до трёх раз подряд. Теперь полка чипа
+    // делится по диапазонам без наложений, а «Топ недели» кормит собственная
+    // полка каталога — с отсевом уже показанного.
+
+    /// Герой-карусель: первые пять карточек полки.
+    private var heroItems: [V4SearchResult] { Array(visibleTrending.prefix(5)) }
+    /// «Популярно» — следующие десять, после героя.
+    private var popularItems: [V4SearchResult] { Array(visibleTrending.dropFirst(5).prefix(10)) }
+    /// «Рекомендации» — хвост полки за «Популярно».
+    private var recommendationItems: [V4SearchResult] { Array(visibleTrending.dropFirst(15).prefix(8)) }
+    /// «Топ недели» — отдельная полка; что уже стоит выше, сюда не попадает.
+    private var topWeekItems: [V4SearchResult] {
+        let shown = Set((heroItems + popularItems + recommendationItems).map(\.id))
+        return Array(
+            searchStore.shelf(for: HomeCinemaCatalog.topWeekShelf)
+                .filter { !shown.contains($0.id) }
+                .prefix(6)
+        )
     }
 
     // MARK: Тело
 
     var body: some View {
+        // ScrollViewReader — только ради DEBUG-аргумента -plink.designsection:
+        // он подматывает Главную к нужной секции для скриншотов нижних полок
+        // (см. .task). Прод-скролл прокси не использует.
+        ScrollViewReader { proxy in
+            homeScroll(proxy)
+        }
+    }
+
+    private func homeScroll(_ scrollProxy: ScrollViewProxy) -> some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
                 topBar
@@ -205,44 +262,24 @@ struct V4HomeViewLive: View {
                     .padding(.horizontal, 19)
                     .padding(.bottom, 12)
 
-                // Ссылка в буфере — самый короткий путь к совместному
-                // просмотру. Подсказка уже была внутри мастера, но только на
-                // его первом шаге: чтобы её увидеть, надо было сделать два
-                // тапа. Здесь она встречает сразу и сокращает путь до
-                // просмотра с шести тапов до трёх.
-                if hasClipboardLink {
-                    clipboardLinkCard
-                        .padding(.horizontal, 19)
-                        .padding(.bottom, 14)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
                 genreChips
-                    .padding(.bottom, 8)
-
-                Text(HomeTitleFilter.caption(chip: selectedGenre))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(V4.muted)
-                    .padding(.horizontal, 19)
-                    .padding(.bottom, 14)
+                    .padding(.bottom, 18)
 
                 if visibleTrending.isEmpty {
-                    // isRefreshing поднимается только в .refreshable, поэтому
-                    // при первом открытии экрана он false — и без проверки
-                    // didAttemptTrending здесь всегда рисовалась заглушка
-                    // «пусто», пока шла загрузка.
-                    if isRefreshing || !didAttemptTrending {
+                    // Пустая полка при незавершённой загрузке — «ещё грузим»,
+                    // скелетон. Заглушка «пусто» — только после попытки.
+                    if isRefreshing || !searchStore.hasAttemptedShelf(selectedGenre) {
                         HomeSkeletonView().transition(.opacity)
-                    } else if selectedGenre != HomeTitleFilter.allChip {
+                    } else if selectedGenre != HomeCinemaCatalog.allChip {
                         VStack(spacing: 12) {
-                            Text("В подборке нет названий со словом «\(selectedGenre)»")
+                            Text("Полка пока пустая")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(V4.ink)
                                 .multilineTextAlignment(.center)
                             Button {
-                                selectedGenre = HomeTitleFilter.allChip
+                                selectedGenre = HomeCinemaCatalog.allChip
                             } label: {
-                                Text("Сбросить фильтр")
+                                Text("Показать «Для вас»")
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundStyle(V4.accentInk)
                                     .padding(.horizontal, 16)
@@ -271,23 +308,28 @@ struct V4HomeViewLive: View {
                         .padding(.bottom, 22)
                 }
 
-                if !visibleTrending.isEmpty {
+                if !popularItems.isEmpty {
+                    // id секций — якоря для -plink.designsection (см. .task).
                     sectionTitle(L.string(.homePopular))
+                        .id("sec.popular")
                     posterRail
                         .padding(.bottom, 24)
                 }
 
-                if visibleTrending.count >= 3 {
+                if topWeekItems.count >= 3 {
                     sectionTitle("Топ недели")
-                    topThree
-                        .padding(.horizontal, 19)
+                        .id("sec.top")
+                    topWeekRail
                         .padding(.bottom, 24)
                 }
 
                 if !watchlist.entries.isEmpty {
                     sectionTitle(L.string(.homeWatchLaterLabel))
+                        .id("sec.watchlist")
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        // .top — как у «Популярно»: центрирование по умолчанию
+                        // роняло карточки с короткой подписью ниже соседних.
+                        HStack(alignment: .top, spacing: 12) {
                             ForEach(watchlist.entries) { entry in
                                 watchlistCard(entry)
                             }
@@ -297,38 +339,42 @@ struct V4HomeViewLive: View {
                     .padding(.bottom, 24)
                 }
 
-                if visibleTrending.count > 5 {
+                if !recommendationItems.isEmpty {
                     sectionTitle(L.string(.homeRecommendations))
+                        .id("sec.recs")
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(visibleTrending.suffix(8)) { item in
-                                recommendationCard(item)
+                        HStack(alignment: .top, spacing: 12) {
+                            // Тот же posterCard, что в «Популярно»: своя
+                            // 16:9-карточка 192×108 была вдвое ниже соседних
+                            // постеров — ряд выглядел довеском, а не секцией,
+                            // и ломал единый постерный язык витрины.
+                            ForEach(recommendationItems) { item in
+                                posterCard(item)
                             }
                         }
                         .padding(.horizontal, 19)
                     }
                     .padding(.bottom, 20)
                 }
-
-                // Комнаты живут на своей вкладке. Здесь — одна строка-переход,
-                // а не вторая копия того же экрана.
-                roomsHandoff
-                    .padding(.horizontal, 19)
             }
             .padding(.bottom, 96)
         }
         .foregroundStyle(V4.ink)
         .refreshable {
             isRefreshing = true
-            await searchStore.loadTrending()
+            async let shelf: Void = searchStore.loadShelf(selectedGenre, force: true)
+            async let week: Void = searchStore.loadShelf(HomeCinemaCatalog.topWeekShelf, force: true)
+            _ = await (shelf, week)
             isRefreshing = false
         }
         .sheet(item: $previewItem) { item in
-            TrendingPreviewSheet(item: item, theme: theme) {
+            TrendingPreviewSheet(item: item, theme: theme) { target in
                 previewItem = nil
-                Task { await createRoomFromTrending(item) }
+                Task { await createRoomFromTrending(item, target: target) }
             }
+            .preferredColorScheme(.dark)
             .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showInbox) {
             PlinkInboxView()
@@ -342,22 +388,57 @@ struct V4HomeViewLive: View {
                 openRoom()
             })
             .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
-        .onAppear { refreshClipboardLink() }
-        // 07.08.2026: «Главная» грузит свои тренды сама и сразу. Эндпоинт
-        // /api/media/trending публичный, ждать гидрации сессии незачем.
+        // 07.08.2026: «Главная» грузит витрину сама и сразу — эндпоинт
+        // публичный, ждать гидрации сессии незачем. 22.08.2026: грузится
+        // полка активного чипа; повторный вход в .task безвреден — loadShelf
+        // не перезапрашивает уже наполненную полку.
         .task {
-            guard !didAttemptTrending else { return }
-            await searchStore.loadTrending()
-            didAttemptTrending = true
+            // Полка чипа и «Топ недели» — параллельно: секции независимы.
+            async let shelf: Void = searchStore.loadShelf(selectedGenre)
+            async let week: Void = searchStore.loadShelf(HomeCinemaCatalog.topWeekShelf)
+            _ = await (shelf, week)
+            #if DEBUG
+            // Дизайн-превью шита: `-plink.designpreview` открывает превью
+            // первой карточки загруженной полки — скриншот шита без ручных
+            // тапов по симулятору. Тот же приём, что -plink.designchip выше.
+            if ProcessInfo.processInfo.arguments.contains("-plink.designpreview"),
+               previewItem == nil {
+                previewItem = visibleTrending.first
+            }
+            // Дизайн-скролл: «-plink.designsection popular|top|watchlist|recs»
+            // подматывает Главную к секции — скриншоты нижних полок без
+            // ручных свайпов. Пауза даёт полкам встать после загрузки.
+            let dbgArgs = ProcessInfo.processInfo.arguments
+            if let flag = dbgArgs.firstIndex(of: "-plink.designsection"),
+               dbgArgs.indices.contains(flag + 1) {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                scrollProxy.scrollTo("sec.\(dbgArgs[flag + 1])", anchor: .top)
+            }
+            #endif
+        }
+        .onChange(of: selectedGenre) { _, chip in
+            Task { await searchStore.loadShelf(chip) }
+        }
+        // Автообновление: тик таймера и возврат приложения из фона будят
+        // только протухшие полки (refreshIfStale сам решает по TTL), а
+        // loadShelf не перерисовывает полку, чей состав не изменился —
+        // карусели под пальцем не прыгают.
+        .onReceive(autoRefreshTick) { _ in
+            Task { await refreshStaleShelves() }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refreshClipboardLink() }
+            guard phase == .active else { return }
+            Task { await refreshStaleShelves() }
         }
-        .sheet(isPresented: $showReleaseNotes) {
-            ReleaseNotesSheet()
-                .preferredColorScheme(.dark)
-        }
+    }
+
+    private func refreshStaleShelves() async {
+        async let shelf: Void = searchStore.refreshIfStale(selectedGenre)
+        async let week: Void = searchStore.refreshIfStale(HomeCinemaCatalog.topWeekShelf)
+        _ = await (shelf, week)
     }
 
     // MARK: Шапка — аватар, приветствие, единственный колокольчик
@@ -387,7 +468,9 @@ struct V4HomeViewLive: View {
         }
         .accessibilityIdentifier("screen.home")
         .padding(.horizontal, 18)
-        .padding(.top, 10)
+        // 18, не 10: шапки всех вкладок отодвинуты от статус-бара на общий
+        // «вдох» — контент не липнет ко времени и батарее (правка 22.08.2026).
+        .padding(.top, 18)
         .padding(.bottom, 14)
     }
 
@@ -411,11 +494,7 @@ struct V4HomeViewLive: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(V4.line, lineWidth: 1)
-            )
+            .plinkGlass(.control, cornerRadius: 20, interactive: true)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Найти фильм, вставить ссылку или спросить ИИ")
@@ -438,22 +517,22 @@ struct V4HomeViewLive: View {
                             parameters: ["genre": genre]
                         )
                     } label: {
-                        Text(genre)
+                        let title = Text(genre)
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(active ? activeBtnText : V4.ink)
                             .padding(.horizontal, 14)
                             .frame(minHeight: 36)
-                            .background {
-                                if active {
-                                    Capsule().fill(activeAccent)
-                                } else {
-                                    Capsule().fill(V4.surface)
-                                }
-                            }
-                            .overlay {
-                                if !active { Capsule().stroke(V4.line) }
-                            }
-                            .contentShape(Capsule())
+                        // Активный чип — плотная акцентная капсула, остальные —
+                        // то же стекло, что и строка поиска над ними.
+                        if active {
+                            title
+                                .background(activeAccent, in: Capsule())
+                                .contentShape(Capsule())
+                        } else {
+                            title
+                                .plinkGlass(.control, interactive: true)
+                                .contentShape(Capsule())
+                        }
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(active ? [.isSelected] : [])
@@ -467,10 +546,23 @@ struct V4HomeViewLive: View {
 
     private var heroCarousel: some View {
         TabView {
-            ForEach(visibleTrending.prefix(5)) { item in
+            ForEach(heroItems) { item in
+                // У кино subtitle уже собран каталогом («Иви · 2023 ·
+                // Фильм · ★ 7,3»), у трендов Netflix источник тоже назван
+                // («Netflix · В трендах недели · №1») — приставка YouTube
+                // остаётся только у обычных роликов, где subtitle = канал.
+                let raw = item.origin == .youtube && !item.subtitle.hasPrefix("Netflix")
+                    ? "YouTube · \(item.subtitle)" : item.subtitle
+                // Первый сегмент меты — сервис: уходит из мелкой строки в
+                // крупный бейдж героя. Год или рейтинг первым сегментом
+                // (кино без источника) бейджем не притворяются.
+                let parts = raw.components(separatedBy: " · ")
+                let first = parts.first?.trimmingCharacters(in: .whitespaces) ?? ""
+                let hasProvider = parts.count > 1 && !first.isEmpty
+                    && first.first?.isNumber != true && !first.contains("★")
                 V4Hero(
                     title: item.title,
-                    meta: "YouTube · \(item.subtitle)",
+                    meta: hasProvider ? parts.dropFirst().joined(separator: " · ") : raw,
                     button: "Смотреть вместе",
                     height: 260,
                     theme: theme,
@@ -478,7 +570,9 @@ struct V4HomeViewLive: View {
                         HapticManager.impact(.medium)
                         previewItem = item
                     },
-                    liveThemeIndex: liveThemeIndex
+                    liveThemeIndex: liveThemeIndex,
+                    provider: hasProvider ? first : nil,
+                    artworkURL: item.artworkURL
                 )
                 .padding(.horizontal, 13)
             }
@@ -492,8 +586,11 @@ struct V4HomeViewLive: View {
 
     private var posterRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(visibleTrending.prefix(10)) { item in
+            // .top — обязательно: HStack по умолчанию центрует, и карточки с
+            // подписью в одну строку «всплывали» относительно двухстрочных —
+            // постеры сидели на разных высотах и ряд скакал.
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(popularItems) { item in
                     posterCard(item)
                 }
             }
@@ -507,131 +604,146 @@ struct V4HomeViewLive: View {
             previewItem = item
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .bottomLeading) {
-                    artwork(item)
-                        .frame(width: 124, height: 168)
-                        .clipped()
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.62)],
-                        startPoint: .center,
-                        endPoint: .bottom
+                // Кадр без затемнения и без кружка play: вся карточка — кнопка,
+                // дубль-значок поверх каждого постера съедал яркость артворка.
+                // Рейтинг и «Бесплатно» — прямо на постере (см. ratingBadge).
+                // 128×192 — настоящий 2:3, единый для всех постерных рядов
+                // Главной: прежние 124×168 (≈3:4) срезали у постеров Иви
+                // верх и низ, а карточки выглядели мельче артворка героя.
+                artwork(item, poster: true)
+                    .frame(width: Self.railPosterW, height: Self.railPosterH)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(alignment: .topTrailing) { ratingBadge(item) }
+                    .overlay(alignment: .bottomLeading) { freeBadge(item) }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(V4.line, lineWidth: 1)
                     )
-                    V4GlyphIcon(glyph: .play, size: 10, filled: true, weight: .regular)
-                        .foregroundStyle(.black)
-                        .frame(width: 26, height: 26)
-                        .background(.white, in: Circle())
-                        .padding(8)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                Text(item.title)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(V4.ink)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .frame(width: 124, alignment: .leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let meta = cardMeta(item) {
+                        Text(meta)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                    }
+                }
+                // Высота фиксированная (2 строки + мета): без неё карточка
+                // с коротким названием ниже соседней, ряд «дышит» при
+                // прокрутке и секции под ним прыгают по вертикали.
+                .frame(width: Self.railPosterW, height: 45, alignment: .topLeading)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(V4PressableCardStyle())
         // Первый шаг пути «выбрал контент → создал комнату». Идентификатор
         // нужен UI-смоуку: прямой кнопки «Создать комнату» в продукте нет.
         .accessibilityIdentifier("home.poster")
+        .accessibilityLabel(cardA11yLabel(item))
     }
 
-    // MARK: Топ-3
+    // MARK: Топ недели — паттерн «Netflix Top 10»
 
-    private var topThree: some View {
-        VStack(spacing: 10) {
-            ForEach(Array(visibleTrending.prefix(3).enumerated()), id: \.element.id) { index, item in
-                Button {
-                    HapticManager.impact(.light)
-                    previewItem = item
-                } label: {
-                    HStack(spacing: 12) {
-                        Text("\(index + 1)")
-                            .font(.system(size: 26, weight: .black))
-                            .foregroundStyle(activeAccent.opacity(0.55))
-                            .frame(width: 26)
+    // Референс: ряд Top 10 Netflix (2020) — цифра ранга высотой с постер,
+    // частично перекрытая артворком; тот же приём у Кинопоиска и Apple TV.
+    // Прежняя версия была вертикальным списком «номер + мелкая картинка +
+    // капсула Смотреть» — единственная секция экрана со своей, ни на что не
+    // похожей вёрсткой. Теперь это горизонтальная лента, как «Популярно»
+    // и «Рекомендации», а ранг несёт сама графика, а не подпись.
 
-                        artwork(item)
-                            .frame(width: 62, height: 62)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    // Один размер постера на все постерные ряды Главной («Популярно»,
+    // «Топ недели», «Рекомендации») — 2:3, как у физического постера и в
+    // рядах Netflix/Кинопоиска. Секции различаются графикой (ранг-цифра),
+    // а не масштабом карточек: разноразмерные ряды читались как разнобой.
+    private static let railPosterW: CGFloat = 128
+    private static let railPosterH: CGFloat = 192
+    private static let topRankPosterW: CGFloat = railPosterW
+    private static let topRankPosterH: CGFloat = railPosterH
+    /// Кегль ранг-цифры — по высоте постера (та же пропорция, что была
+    /// у 122 pt при постере 166 pt).
+    private static let topRankDigitSize: CGFloat = 140
+    /// Насколько опустить line box цифры, чтобы её базовая линия легла на низ
+    /// постера. Ниже baseline у цифр пусто — этот зазор (~0.2 кегля в SF,
+    /// сверено по скриншоту симулятора) заставлял прижатую «по рамке» цифру
+    /// висеть в воздухе.
+    private static let topRankBaselineDrop: CGFloat = 28
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title)
-                                .font(.system(size: 13.5, weight: .heavy))
-                                .foregroundStyle(V4.ink)
-                                .lineLimit(1)
-                            Text(item.subtitle)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(V4.muted)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text("Смотреть")
-                            .font(.system(size: 11.5, weight: .bold))
-                            .foregroundStyle(activeBtnText)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 34)
-                            .background(activeAccent, in: Capsule())
-                    }
-                    .padding(10)
-                    .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(V4.line, lineWidth: 1)
-                    )
+    private var topWeekRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 18) {
+                ForEach(Array(topWeekItems.enumerated()), id: \.element.id) { index, item in
+                    topWeekCard(item, rank: index + 1)
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 19)
+            // Тень постера мягкая и широкая — без запаса сверху и снизу
+            // ScrollView срезал бы её по границе контента.
+            .padding(.vertical, 6)
         }
     }
 
-    // MARK: Переход в комнаты
-
-    private var roomsHandoff: some View {
+    private func topWeekCard(_ item: V4SearchResult, rank: Int) -> some View {
         Button {
-            HapticManager.selection()
-            openRoomsTab?()
+            HapticManager.impact(.light)
+            previewItem = item
         } label: {
-            HStack(spacing: 12) {
-                V4GlyphIcon(glyph: .people, size: 15, filled: true, weight: .regular)
-                    .foregroundStyle(activeAccent)
-                    .frame(width: 40, height: 40)
-                    .background(activeAccent.opacity(0.12), in: Circle())
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(alignment: .bottom, spacing: -18) {
+                    Text("\(rank)")
+                        .font(.system(size: Self.topRankDigitSize, weight: .black))
+                        .kerning(-6)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [V4.ink.opacity(0.50), V4.ink.opacity(0.09)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(height: Self.topRankPosterH, alignment: .bottom)
+                        .offset(y: Self.topRankBaselineDrop)
+                        .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Смотреть с друзьями")
-                        .font(.system(size: 14.5, weight: .heavy))
-                        .foregroundStyle(V4.ink)
-                    Text(roomsHandoffSubtitle)
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(V4.muted)
-                        .lineLimit(1)
+                    artwork(item, poster: true)
+                        .frame(width: Self.topRankPosterW, height: Self.topRankPosterH)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        // Только рейтинг: ранг-цифра — герой карточки, второй
+                        // бейдж снизу превращал флагманскую секцию в ёлку.
+                        .overlay(alignment: .topTrailing) { ratingBadge(item) }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(V4.line, lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.32), radius: 12, y: 6)
                 }
 
-                Spacer(minLength: 6)
-
-                V4GlyphIcon(glyph: .chevronRight, size: 13, weight: .regular)
-                    .foregroundStyle(V4.muted)
+                // Подпись — строго под постером (VStack выровнен по trailing),
+                // а не под цифрой: колонка текста начинается там же, где артворк.
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let meta = cardMeta(item) {
+                        Text(meta)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                    }
+                }
+                // Та же фикс-высота, что у карточек «Популярно»: одинаковые
+                // подписи держат постеры топа на одной линии.
+                .frame(width: Self.topRankPosterW, height: 45, alignment: .topLeading)
             }
-            .padding(13)
-            .background(V4.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(V4.line, lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Открыть вкладку Комнаты")
-    }
-
-    private var roomsHandoffSubtitle: String {
-        let count = roomsStore?.rooms.count ?? 0
-        if count == 0 { return "Создать комнату или войти по коду" }
-        return "Сейчас открыто комнат: \(count)"
+        .buttonStyle(V4PressableCardStyle())
+        .accessibilityLabel("Место \(rank): \(cardA11yLabel(item))")
     }
 
     // MARK: Общие элементы
@@ -649,8 +761,10 @@ struct V4HomeViewLive: View {
     }
 
     @ViewBuilder
-    private func artwork(_ item: V4SearchResult) -> some View {
-        if let url = item.artworkURL {
+    private func artwork(_ item: V4SearchResult, poster: Bool = false) -> some View {
+        // Вертикальные карточки просят настоящий постер (есть у кино из
+        // каталога); широкий кадр — запасной путь и для YouTube, и для героя.
+        if let url = (poster ? item.posterURL : nil) ?? item.artworkURL {
             AsyncImage(url: url) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
             } placeholder: {
@@ -662,90 +776,67 @@ struct V4HomeViewLive: View {
         }
     }
 
-    private struct ReleaseNotesSheet: View {
-        var body: some View {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Новое в Plink")
-                            .font(.system(size: 28, weight: .black))
-                        VStack(alignment: .leading, spacing: 12) {
-                            note(icon: "sparkles", title: "ИИ-ассистент везде", subtitle: "Чат с ассистентом открывается прямо с Главной, а вкладка «ИИ» — это рилсы и голос.")
-                            note(icon: "qrcode.viewfinder", title: "Вход по коду", subtitle: "Шестизначный код — быстрый способ войти в комнату.")
-                            note(icon: "clock.arrow.circlepath", title: "История просмотров", subtitle: "Что вы смотрели вместе теперь видно в профиле и истории.")
-                        }
-                        .padding(.top, 4)
-                    }
-                    .padding(20)
-                }
-                .navigationTitle("Новое в Plink")
-                .navigationBarTitleDisplayMode(.inline)
-            }
-        }
+    // Бейджи на артворке (22.08.2026). Референс — мобильные кинотеки 2026:
+    // рейтинг и ценовой признак живут прямо на постере, а не только в превью.
+    // Раньше карточка была «постер + название», и чтобы узнать, стоит ли
+    // фильм внимания, приходилось открывать превью каждого.
 
-        @ViewBuilder
-        private func note(icon: String, title: String, subtitle: String) -> some View {
-            HStack(alignment: .top, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.14))
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
-                }
-                .frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 16, weight: .bold))
-                    Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
+    /// Рейтинг в верхнем углу постера: янтарная звезда на тёмном скриме.
+    @ViewBuilder
+    private func ratingBadge(_ item: V4SearchResult) -> some View {
+        if let rating = item.ratingText {
+            HStack(spacing: 3) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 8, weight: .bold))
+                Text(rating)
+                    .font(.system(size: 11, weight: .heavy))
+                    .monospacedDigit()
             }
-            .padding(14)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .foregroundStyle(V4.amber)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.55), in: Capsule())
+            .padding(6)
+            .accessibilityHidden(true)
         }
     }
 
-    private func recommendationCard(_ item: V4SearchResult) -> some View {
-        Button {
-            HapticManager.impact(.light)
-            previewItem = item
-        } label: {
-            VStack(alignment: .leading, spacing: 9) {
-                ZStack(alignment: .bottomTrailing) {
-                    artwork(item)
-                        .frame(width: 180, height: 108)
-                        .clipped()
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.55)],
-                        startPoint: .center,
-                        endPoint: .bottom
-                    )
-                    V4GlyphIcon(glyph: .play, size: 11, filled: true, weight: .regular)
-                        .foregroundStyle(.black)
-                        .frame(width: 32, height: 32)
-                        .background(.white, in: Circle())
-                        .padding(9)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                Text(item.title)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(V4.ink)
-                    .lineLimit(2)
-                    .frame(width: 180, alignment: .leading)
-
-                Text(item.subtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(V4.muted)
-                    .lineLimit(1)
-                    .frame(width: 180, alignment: .leading)
-            }
-            .frame(width: 196, alignment: .leading)
-            .padding(8)
-            .background(V4.cardBG.opacity(0.52), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(V4.line))
+    /// «Бесплатно» в нижнем углу — главный аргумент выбрать тайтл сейчас.
+    @ViewBuilder
+    private func freeBadge(_ item: V4SearchResult) -> some View {
+        if item.isFreeOnService {
+            Text("Бесплатно")
+                .font(.system(size: 9.5, weight: .heavy))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(V4.free, in: Capsule())
+                .padding(6)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
+    }
+
+    /// Мета под названием карточки: «2023 · Фильм» у кино, канал — у ролика.
+    /// Название без контекста заставляло гадать, фильм это или трейлер.
+    private func cardMeta(_ item: V4SearchResult) -> String? {
+        if item.origin == .youtube {
+            let channel = item.subtitle.trimmingCharacters(in: .whitespaces)
+            return channel.isEmpty ? nil : channel
+        }
+        var parts: [String] = []
+        if let year = item.year { parts.append(String(year)) }
+        if let kind = item.kindLabel { parts.append(kind) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// VoiceOver-описание карточки целиком: бейджи скрыты от чтения
+    /// по одному, всё существенное собрано в одну фразу.
+    private func cardA11yLabel(_ item: V4SearchResult) -> String {
+        var parts = [item.title]
+        if let meta = cardMeta(item) { parts.append(meta) }
+        if let rating = item.ratingText { parts.append("рейтинг \(rating)") }
+        if item.isFreeOnService { parts.append("бесплатно") }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: Продолжить смотреть / список
@@ -762,98 +853,6 @@ struct V4HomeViewLive: View {
         let left = max(0, total - item.watchedDuration)
         let mins = Int(left / 60)
         return mins > 0 ? "\(mins) мин" : "меньше минуты"
-    }
-
-    /// Карточка «в буфере есть ссылка».
-    ///
-    /// Не показывает саму ссылку и логотип сервиса: до тапа содержимое буфера
-    /// не прочитано (см. `refreshClipboardLink`). Поэтому текст обобщённый —
-    /// зато без системного баннера при каждом открытии экрана.
-    private var clipboardLinkCard: some View {
-        Button(action: useClipboardLink) {
-            HStack(spacing: 12) {
-                V4GlyphIcon(glyph: .play, size: 17, filled: true, weight: .regular)
-                    .foregroundStyle(activeBtnText)
-                    .frame(width: 42, height: 42)
-                    .background(activeAccent, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Ссылка в буфере обмена")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(V4.ink)
-                    Text("Открыть комнату с этим видео")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(V4.muted)
-                }
-
-                Spacer(minLength: 8)
-
-                V4GlyphIcon(glyph: .chevronRight, size: 13, weight: .regular)
-                    .foregroundStyle(V4.muted)
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 68)
-            // Без тинта: с ним стекло заливалось акцентом целиком и карточка
-            // спорила с главной кнопкой экрана. Акцент остаётся на иконке.
-            .plinkGlass(.control, cornerRadius: 20)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Ссылка в буфере обмена")
-        .accessibilityHint("Открывает создание комнаты с видео по ссылке")
-    }
-
-    /// Проверяет, лежит ли в буфере обмена ссылка — НЕ читая содержимое.
-    ///
-    /// `UIPasteboard.general.string` в iOS 16+ показывает системный баннер
-    /// «Приложение собирается вставить контент из…» на каждом обращении, и
-    /// `hasStrings` от него не спасает. Ловить этот баннер при каждом открытии
-    /// «Главной» — хуже, чем сэкономленные два тапа.
-    ///
-    /// `detectPatterns` разрешения не требует: он отвечает только «там есть
-    /// URL», без самого текста. Содержимое читаем позже, по явному тапу
-    /// пользователя — там баннер уместен и ожидаем.
-    private func refreshClipboardLink() {
-        #if canImport(UIKit)
-        // API отдаёт результат только колбэком, async-варианта нет.
-        UIPasteboard.general.detectPatterns(for: [.probableWebURL]) { result in
-            let found: Bool
-            switch result {
-            case .success(let patterns): found = patterns.contains(.probableWebURL)
-            case .failure:               found = false
-            }
-            Task { @MainActor in
-                // changeCount меняется при любой новой копии. Если он тот же,
-                // что и на момент прошлого использования, — это та же ссылка,
-                // по которой комнату уже создали. Предлагать её снова незачем.
-                let isSameAsUsed = UIPasteboard.general.changeCount == usedClipboardChangeCount
-                withAnimation(.easeOut(duration: 0.25)) {
-                    hasClipboardLink = found && !isSameAsUsed
-                }
-            }
-        }
-        #endif
-    }
-
-    /// Пользователь тапнул карточку — теперь читаем буфер. Системный баннер
-    /// здесь появится один раз и в ответ на явное действие.
-    private func useClipboardLink() {
-        #if canImport(UIKit)
-        guard let raw = UIPasteboard.general.string?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              raw.hasPrefix("http"),
-              let svc = VideoService.detect(fromURL: raw) else {
-            // В буфере оказалась не та ссылка — прячем карточку, чтобы не
-            // предлагать заведомо нерабочее действие. Запоминаем состояние
-            // буфера, иначе карточка вернётся на следующем же обновлении.
-            usedClipboardChangeCount = UIPasteboard.general.changeCount
-            withAnimation(.easeOut(duration: 0.2)) { hasClipboardLink = false }
-            return
-        }
-        usedClipboardChangeCount = UIPasteboard.general.changeCount
-        withAnimation(.easeOut(duration: 0.2)) { hasClipboardLink = false }
-        HapticManager.impact(.medium)
-        createRoomWithLink?(raw, svc)
-        #endif
     }
 
     @ViewBuilder
@@ -906,7 +905,7 @@ struct V4HomeViewLive: View {
                     .stroke(V4.line, lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(V4PressableCardStyle())
         .contextMenu {
             Button(role: .destructive) {
                 historyMgr.remove(item)
@@ -922,7 +921,7 @@ struct V4HomeViewLive: View {
             HapticManager.impact(.medium)
             Task { await createRoom(from: entry.mediaItem, title: entry.mediaItem.title) }
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Group {
                     if let thumb = entry.mediaItem.thumbnailURL, let url = URL(string: thumb) {
                         AsyncImage(url: url) { img in
@@ -935,16 +934,27 @@ struct V4HomeViewLive: View {
                             .overlay(Image(systemName: "bookmark.fill").foregroundStyle(V4.muted))
                     }
                 }
-                .frame(width: 150, height: 84)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                // 172×97 — 16:9 (у закладок YouTube-миниатюры, вертикального
+                // постера нет). Прежние 150×84 на фоне укрупнённых постеров
+                // 128×192 превращали ряд в самый мелкий на экране.
+                .frame(width: 172, height: 97)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(V4.line, lineWidth: 1)
+                )
                 Text(entry.mediaItem.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    // Тот же вес заголовка, что у постерных карточек: полуряд
+                    // semibold рядом с bold-подписями читался как «бледнее».
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(V4.ink)
                     .lineLimit(2)
-                    .frame(width: 150, alignment: .leading)
+                    // Две строки зарезервированы: карточки одной высоты,
+                    // ряд не проседает на коротких названиях.
+                    .frame(width: 172, height: 30, alignment: .topLeading)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(V4PressableCardStyle())
         .contextMenu {
             Button(role: .destructive) {
                 watchlist.remove(entry.id)
@@ -997,8 +1007,9 @@ struct V4HomeViewLive: View {
         }
     }
 
-    private func createRoomFromTrending(_ item: V4SearchResult) async {
-        AnalyticsService.shared.track("room_create_from_trending")
+    private func createRoomFromTrending(
+        _ item: V4SearchResult, target: V4WatchTarget = .native
+    ) async {
         if APIClient.shared.authToken == nil {
             APIClient.shared.authToken = AuthTokenStore.shared.token
         }
@@ -1007,18 +1018,58 @@ struct V4HomeViewLive: View {
             return
         }
 
-        let videoId = item.id
-        let streamURL = "https://www.youtube.com/watch?v=\(videoId)"
-        let mediaItem = MediaItem(
-            id: videoId,
-            title: item.title,
-            artist: nil,
-            thumbnailURL: item.artworkURL?.absoluteString,
-            streamURL: streamURL,
-            duration: nil,
-            mediaType: .video,
-            source: .youtube,
-            videoId: videoId
+        // Кинотеатры в приоритете (22.08.2026): у карточки три пути в комнату.
+        // Ролик YouTube — прежний прямой синх; тайтл из каталога — страница
+        // просмотра кинотеатра; чип «Где ещё смотреть» — страница поиска
+        // выбранного кинотеатра по названию. Кино открывается в WebView,
+        // хост входит в свой аккаунт — Plink не обходит защиту.
+        let mediaItem: MediaItem
+        let analyticsSource: String
+        switch (target, item.origin) {
+        case (.native, .youtube):
+            let videoId = item.id
+            mediaItem = MediaItem(
+                id: videoId,
+                title: item.title,
+                artist: nil,
+                thumbnailURL: item.artworkURL?.absoluteString,
+                streamURL: item.watchURL,
+                duration: nil,
+                mediaType: .video,
+                source: .youtube,
+                videoId: videoId
+            )
+            analyticsSource = "youtube"
+        case (.native, .cinema(let service)):
+            mediaItem = MediaItem(
+                id: item.id,
+                title: item.title,
+                artist: nil,
+                thumbnailURL: (item.artworkURL ?? item.posterURL)?.absoluteString,
+                streamURL: item.watchURL,
+                duration: nil,
+                mediaType: item.isSeries ? .series : .movie,
+                source: .url,
+                videoId: nil
+            )
+            analyticsSource = service.rawValue
+        case (.cinema(let service, let url), _):
+            mediaItem = MediaItem(
+                id: "\(service.rawValue)-\(item.id)",
+                title: item.title,
+                artist: nil,
+                thumbnailURL: (item.artworkURL ?? item.posterURL)?.absoluteString,
+                streamURL: url,
+                duration: nil,
+                mediaType: item.isSeries ? .series : .movie,
+                source: .url,
+                videoId: nil
+            )
+            analyticsSource = "bridge_\(service.rawValue)"
+        }
+        AnalyticsService.shared.track(
+            "room_create_from_trending",
+            parameters: ["source": analyticsSource]
         )
         let request = CreateRoomRequest(
             name: String(item.title.prefix(80)),

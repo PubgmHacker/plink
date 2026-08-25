@@ -94,6 +94,7 @@ enum L10n {
         case tabAI = "tab.ai"
         case tabFriends = "tab.friends"
         case tabProfile = "tab.profile"
+        case tabSettings = "tab.settings"
 
         // Friends hub (M26)
         case frWatchingNow = "fr.watchingNow"
@@ -608,6 +609,17 @@ enum L10n {
         case plusPlansLoading = "plus.plans.loading"
         case plusPlansUnavailable = "plus.plans.unavailable"
         case commonRetry = "common.retry"
+        // Пейволл: пустое состояние тарифов и человеческие ошибки стора.
+        // Сырые NSURLErrorDomain-строки наружу не выходят никогда.
+        case plusPlansUnavailableTitle = "plus.plans.unavailableTitle"
+        case plusPlansUnavailableSub = "plus.plans.unavailableSub"
+        case plusErrorOffline = "plus.error.offline"
+        case plusErrorLoad = "plus.error.load"
+        case plusErrorPurchase = "plus.error.purchase"
+        case plusErrorServerReject = "plus.error.serverReject"
+        case plusErrorPending = "plus.error.pending"
+        case plusErrorNoRestore = "plus.error.noRestore"
+        case plusErrorRestore = "plus.error.restore"
 
     }
 
@@ -619,6 +631,7 @@ enum L10n {
         .tabAI: [.russian: "ИИ", .english: "AI", .chinese: "AI"],
         .tabFriends: [.russian: "Друзья", .english: "Friends", .chinese: "好友"],
         .tabProfile: [.russian: "Профиль", .english: "Profile", .chinese: "我的"],
+        .tabSettings: [.russian: "Настройки", .english: "Settings", .chinese: "设置"],
         // Friends hub (M26)
         .frWatchingNow: [.russian: "Сейчас смотрят", .english: "Watching now", .chinese: "正在观看"],
         .frOnline: [.russian: "В сети", .english: "Online", .chinese: "在线"],
@@ -2224,6 +2237,51 @@ enum L10n {
             .russian: "Повторить",
             .english: "Retry",
             .chinese: "重试"
+        ],
+        .plusPlansUnavailableTitle: [
+            .russian: "Тарифы не загрузились",
+            .english: "Plans didn't load",
+            .chinese: "套餐未加载"
+        ],
+        .plusPlansUnavailableSub: [
+            .russian: "Похоже, нет соединения. Проверь интернет — и попробуй ещё раз.",
+            .english: "Looks like you're offline. Check your connection and try again.",
+            .chinese: "似乎没有网络。请检查连接后重试。"
+        ],
+        .plusErrorOffline: [
+            .russian: "Нет соединения с интернетом",
+            .english: "No internet connection",
+            .chinese: "没有网络连接"
+        ],
+        .plusErrorLoad: [
+            .russian: "Не удалось загрузить тарифы. Попробуй ещё раз.",
+            .english: "Couldn't load plans. Try again.",
+            .chinese: "无法加载套餐,请重试。"
+        ],
+        .plusErrorPurchase: [
+            .russian: "Покупка не прошла. Деньги не списаны — попробуй ещё раз.",
+            .english: "The purchase didn't go through. You weren't charged — try again.",
+            .chinese: "购买未完成,未扣款,请重试。"
+        ],
+        .plusErrorServerReject: [
+            .russian: "Сервер не подтвердил покупку. Если списание прошло — напиши в поддержку.",
+            .english: "The server couldn't confirm the purchase. If you were charged, contact support.",
+            .chinese: "服务器未确认购买。如已扣款请联系客服。"
+        ],
+        .plusErrorPending: [
+            .russian: "Платёж ждёт подтверждения — доступ откроется автоматически",
+            .english: "Payment is pending — access unlocks automatically",
+            .chinese: "付款待确认,通过后自动开通"
+        ],
+        .plusErrorNoRestore: [
+            .russian: "Активных подписок не нашлось",
+            .english: "No active subscriptions found",
+            .chinese: "未找到有效订阅"
+        ],
+        .plusErrorRestore: [
+            .russian: "Не удалось восстановить покупки. Попробуй ещё раз.",
+            .english: "Couldn't restore purchases. Try again.",
+            .chinese: "恢复购买失败,请重试。"
         ]
     ]
 }

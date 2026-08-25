@@ -16,11 +16,10 @@ struct RoomInviteSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Capsule().fill(.white.opacity(0.22)).frame(width: 36, height: 4).padding(.top, 10)
-
             Text("Пригласить в комнату")
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(Cinema2026.text)
+                .padding(.top, 24)
 
             if let qr = Self.qrImage(for: model.roomFallbackURL.absoluteString) {
                 Image(uiImage: qr)
@@ -50,7 +49,7 @@ struct RoomInviteSheet: View {
                         Text("Поделиться ссылкой")
                     }
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(PlinkRoomAccent.ink)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
@@ -86,9 +85,25 @@ struct RoomInviteSheet: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Cinema2026.background.ignoresSafeArea())
+        .background {
+            ZStack {
+                V4.canvas
+                RadialGradient(
+                    colors: [accent.opacity(0.10), .clear],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: 420
+                )
+            }
+            .ignoresSafeArea()
+        }
+        .overlay(alignment: .topTrailing) {
+            V4SheetCloseButton { dismiss() }
+                .padding(.top, 14)
+                .padding(.trailing, 16)
+        }
         .presentationDetents([.large, .medium])
-        .presentationDragIndicator(.hidden)
+        .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
     }
 
@@ -156,7 +171,7 @@ struct RoomEmptyStateView: View {
                     Text("Позвать друга")
                 }
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.black)
+                .foregroundStyle(PlinkRoomAccent.ink)
                 .frame(maxWidth: .infinity)
                 .frame(height: CompactPhoneMetrics.primaryButtonHeight)
                 .background(accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))

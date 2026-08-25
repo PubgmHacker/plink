@@ -27,22 +27,16 @@ struct WatchRoomContainer: View {
             if let model {
                 WatchRoomScreen(model: model)
             } else if resolveFailed {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(Cinema2026.danger)
-                    Text("Необходим вход")
-                        .font(.headline)
-                        .foregroundStyle(Cinema2026.text)
-                    Text("Сессия не найдена. Закройте и войдите снова.")
-                        .font(.subheadline)
-                        .foregroundStyle(Cinema2026.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                    Button("Закрыть") { dismiss() }
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Cinema2026.accent)
-                }
+                // Формула пустых состояний V4 (медальон → заголовок →
+                // пояснение → действие) вместо голой текстовой кнопки.
+                V4EmptyState(
+                    icon: "person.crop.circle.badge.exclamationmark",
+                    title: "Нужно войти",
+                    subtitle: "Сессия не найдена. Закрой комнату и войди в аккаунт ещё раз.",
+                    accent: Cinema2026.accent,
+                    primary: .init(title: "Закрыть", icon: "xmark") { dismiss() }
+                )
+                .padding(.horizontal, 32)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Cinema2026.background.ignoresSafeArea())
             } else {

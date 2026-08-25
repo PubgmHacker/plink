@@ -59,6 +59,9 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     // RoomQueueWire — internal-тип (RoomQueue.swift), public здесь невозможен.
     private(set) var roomQueue: [RoomQueueWire.Item] = []
 
+    /// Гард от наложения переключений источника при «включить сейчас».
+    private var isSwitchingSource = false
+
     // Управление очередью — REST; broadcast обновит roomQueue у всех участников.
     func removeFromQueue(_ item: RoomQueueWire.Item) {
         let rid = _roomId
@@ -106,6 +109,57 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 // тихо — очередь синхронизируется бродкастом
             }
         }
+    }
+
+    /// «Включить сейчас»: сервер промоутит элемент очереди и рассылает событие
+    /// с `nowPlaying` всем участникам. Раньше клиент обновлял только список —
+    /// видео не переключалось (#2). Здесь пере-prepare координатора на новый
+    /// источник, пере-attach прокси и переигрываем авторитетное состояние —
+    /// синхронно у всех клиентов. Путь срабатывает ТОЛЬКО на явном «включить
+    /// сейчас», поэтому обычное одиночное воспроизведение он не затрагивает.
+    private func switchToQueuedItem(_ item: RoomQueueWire.Item) async {
+        guard let newSource = WatchRoomCompositionRoot.mediaSource(fromStreamURL: item.streamURL) else {
+            Logger.api.error("[WatchRoom] play-now: не удалось разобрать источник очереди")
+            return
+        }
+        // Уже играет ровно этот источник — не трогаем плеер.
+        if let current = mediaSource, current == newSource { return }
+        guard !isSwitchingSource else { return }
+        isSwitchingSource = true
+        defer { isSwitchingSource = false }
+
+        // Снимаем target, чтобы синхронизация не дёргала контроллер, пока он
+        // сносится и пересобирается.
+        playbackProxy.clearTarget()
+        do {
+            try await coordinator.prepare(newSource)
+        } catch {
+            let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            lastError = "Не удалось включить видео из очереди: \(detail)"
+            mediaError = lastError
+            return
+        }
+        playbackProxy.attachTarget(coordinator.currentController)
+        // Как в позднем входе (#3): поднять воспроизведение на свежем target —
+        // авторитетное состояние нового ролика обычно уже пришло в окне prepare.
+        await syncController.reapplyLastState()
+
+        // Пере-подписки под новый контроллер (порядок как в connect: attach →
+        // reapply → onUserPlaybackChange, чтобы программный play не породил
+        // ложную публикацию host-состояния).
+        if let embedded = coordinator.currentController as? EmbeddedPlaybackController {
+            embedded.onUserPlaybackChange = { [weak self] playing, position in
+                self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
+            }
+        }
+        if let player = coordinator.nativePlayer {
+            await ambientSampler.attach(player: player)
+            await ambientSampler.startSampling()
+            startAmbientPalettePolling()
+        }
+
+        mediaSource = newSource
+        if case .youtube(let ytId) = newSource { mediaId = ytId } else { mediaId = nil }
     }
 
     // Синхронный отсчёт 3-2-1 перед стартом
@@ -429,6 +483,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             do {
                 try await coordinator.prepare(source)
                 playbackProxy.attachTarget(coordinator.currentController)
+                // Поздний вход: авторитетные состояния, пришедшие пока плеер
+                // готовился (proxy без target), проиграли seek, но пропустили
+                // play() (.unavailable → ранний выход). Переигрываем последнее
+                // состояние на уже прикреплённый target — иначе участник
+                // домотан до нужной точки, но стоит на паузе.
+                await syncController.reapplyLastState()
 
                 if let embedded = coordinator.currentController as? EmbeddedPlaybackController {
                     embedded.onUserPlaybackChange = { [weak self] playing, position in
@@ -457,6 +517,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                     await YouTubeNativeStreamCache.shared.invalidate(videoId: ytId)
                     if (try? await coordinator.prepare(.youtube(ytId))) != nil {
                         playbackProxy.attachTarget(coordinator.currentController)
+                        // То же, что в основном пути: переиграть авторитетное
+                        // состояние на свежий target после аварийного
+                        // переключения на встроенный плеер.
+                        await syncController.reapplyLastState()
                         if let embedded = coordinator.currentController as? EmbeddedPlaybackController {
                             embedded.onUserPlaybackChange = { [weak self] playing, position in
                                 self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
@@ -1694,7 +1758,9 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         case .roleChanged(let event):
             applyRoleChange(event)
         case .error(let err):
-            lastError = "\(err.code): \(err.message)"
+            // Сырые "CODE: message" сервера — не для глаз пользователя.
+            print("[room] server error \(err.code): \(err.message)")
+            lastError = Self.humanErrorText(code: err.code, fallback: err.message)
             // Rollback on rejection errors.
             // Откатывать есть смысл ТОЛЬКО когда в полёте висит команда
             // плеера. Раньше условие смотрело лишь на код: любой RATE_LIMITED
@@ -1721,6 +1787,21 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     // MARK: - Private handlers
+
+    /// Человеческий текст для тоста вместо технического кода сервера.
+    private static func humanErrorText(code: String, fallback: String) -> String {
+        switch code {
+        case "RATE_LIMITED": return "Слишком часто — подождите секунду"
+        case "INVALID_REACTION": return "Эта реакция недоступна"
+        case "PREMIUM_REQUIRED": return "Доступно с Plink+"
+        case "NOT_HOST": return "Управлять плеером может только хост"
+        case "NOT_MEMBER": return "Вы не в этой комнате"
+        case "MUTED": return "Вы временно в муте"
+        case "STALE_EPOCH": return "Синхронизируюсь с комнатой…"
+        case "INVALID_MESSAGE": return "Сообщение не отправилось"
+        default: return fallback
+        }
+    }
 
     private func handleChatBroadcast(_ chat: RealtimeServerMessage.ChatBroadcast) {
         // Countdown events ride on chat — intercept before bubbles.
@@ -1765,6 +1846,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // Очередь видео комнаты едет по чату — обновляем список, не рендерим как сообщение.
         if let queueEvent = RoomQueueWire.decode(chat.text) {
             roomQueue = queueEvent.queue
+            // «Включить сейчас»: сервер отметил промоутнутый элемент — переключаем
+            // видео у всех участников. В Task, чтобы prepare (секунды) не держал
+            // обработку чата.
+            if let now = queueEvent.nowPlaying {
+                Task { [weak self] in await self?.switchToQueuedItem(now) }
+            }
             return
         }
 
@@ -2294,7 +2381,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     // premium requires Plink+ entitlement.
     func sendReaction(emoji: String, hasPremium: Bool) {
         guard ReactionPalette.canSend(emoji, hasPremium: hasPremium) else {
-            lastError = "Cannot send emoji: \(emoji) requires Plink+"
+            lastError = "Реакция \(emoji) доступна с Plink+"
             return
         }
         let msg = RealtimeClientMessage.reactionSend(

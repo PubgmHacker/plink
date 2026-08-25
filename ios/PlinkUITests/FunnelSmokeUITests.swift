@@ -113,6 +113,42 @@ final class FunnelSmokeUITests: XCTestCase {
         usleep(400_000)
     }
 
+    /// Смоук лица профиля без бэкенда: дизайн-превью обязано показать
+    /// VK-модель — маркер `screen.profile` (его же проверяет воронка ниже),
+    /// счётчики статистики и «Редактировать». Настройки — не вкладка
+    /// (22.08.2026): вход строкой «Общие настройки» внизу лица профиля,
+    /// открывается шитом — см. testDesignPreviewSettingsSheet.
+    func testDesignPreviewProfileFace() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-plink.designpreview", "-plink.designtab", "4"]
+        app.launch()
+
+        let hero = app.descendants(matching: .any)["screen.profile"]
+        XCTAssertTrue(hero.waitForExistence(timeout: 15), "Лицо профиля (screen.profile) не появилось в дизайн-превью")
+        XCTAssertTrue(app.buttons["Редактировать"].firstMatch.exists, "На лице профиля нет кнопки «Редактировать»")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["Статистика профиля"].firstMatch.exists,
+            "На лице профиля нет счётчиков статистики"
+        )
+        XCTAssertTrue(app.buttons["Общие настройки"].firstMatch.exists, "На лице профиля нет строки «Общие настройки»")
+        saveShot(app, "ui_design_profile")
+    }
+
+    /// Смоук шита «Общие настройки» без бэкенда: `-plink.designsheet settings`
+    /// открывает его поверх профиля — маркер `screen.settings` и группы
+    /// разделов обязаны быть на месте.
+    func testDesignPreviewSettingsSheet() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-plink.designpreview", "-plink.designtab", "4", "-plink.designsheet", "settings"]
+        app.launch()
+
+        let screen = app.descendants(matching: .any)["screen.settings"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 15), "Шит настроек (screen.settings) не появился в дизайн-превью")
+        XCTAssertTrue(app.buttons["Личные данные"].firstMatch.exists, "В настройках нет строки «Личные данные»")
+        XCTAssertTrue(app.buttons["Оформление"].firstMatch.exists, "В настройках нет строки «Оформление»")
+        saveShot(app, "ui_design_settings")
+    }
+
     func testRegistrationToRoomFunnel() throws {
         guard let backend = backendURL else {
             throw XCTSkip("PLINK_FUNNEL_BACKEND не задан — воронка требует живого локального бэкенда")
@@ -280,7 +316,9 @@ final class FunnelSmokeUITests: XCTestCase {
         sleep(1)
         saveShot(app, "ui_03_home")
 
-        // ── Шаг 5: полный visual walk по пяти вкладкам ────────────────
+        // ── Шаг 5: полный visual walk по пяти вкладкам ─────────────────
+        // Настройки — не вкладка (22.08.2026): шит со строки «Общие
+        // настройки» на лице профиля, его кроет testDesignPreviewSettingsSheet.
         let tabChecks: [(id: String, marker: XCUIElement, shot: String)] = [
             ("tab.0", app.descendants(matching: .any)["screen.home"], "ui_tab_home"),
             ("tab.1", app.descendants(matching: .any)["screen.rooms"], "ui_tab_rooms"),

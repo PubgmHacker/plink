@@ -65,6 +65,9 @@ enum V4 {
     static let accent = Color.oklch(0.64, 0.23, 255)
     static let accentInk = Color.white
     static let amber = Color.oklch(0.79, 0.14, 78)
+    /// «Бесплатно» на постерах и в превью: спокойный изумруд, читается на
+    /// любом артворке и не спорит с электрик-синим акцентом.
+    static let free = Color.oklch(0.60, 0.15, 155)
     static let danger = Color.oklch(0.65, 0.18, 25)
     static let roundBG = Color.oklch(0.15, 0.016, 190, alpha: 0.86)
     static let searchBG = Color.oklch(0.14, 0.016, 190, alpha: 0.82)
@@ -101,6 +104,30 @@ enum V4Theme: String, CaseIterable, Identifiable {
         case .ember: return .black
         default: return .white
         }
+    }
+
+    /// Текущая тема из хранилища — для экранов, куда тему не пробрасывают
+    /// параметром (внутренние экраны настроек в NavigationStack). Живая тема
+    /// Плинк+ имеет приоритет и сводится к ближайшей стандартной — так же,
+    /// как это делает корень приложения.
+    static var saved: V4Theme {
+        if let live = PlinkPlusLiveTheme.resolve(UserDefaults.standard.integer(forKey: "plink.liveTheme")) {
+            return live.closestStandardTheme
+        }
+        // "plink.v4ThemeName" — ключ, который корень (PlinkApprovedV4Root)
+        // пишет при каждой смене темы и при серверной гидрации. Прежний
+        // "v4_theme" писал только PlinkV4BackendBridge.selectTheme, который
+        // никто не вызывает, — резолвер возвращал .electric любому, кто
+        // выбрал стандартную тему. Легаси-ключ оставлен фолбэком.
+        if let raw = UserDefaults.standard.string(forKey: "plink.v4ThemeName"),
+           let theme = V4Theme(rawValue: raw) {
+            return theme
+        }
+        if let raw = UserDefaults.standard.string(forKey: "v4_theme"),
+           let theme = V4Theme(rawValue: raw) {
+            return theme
+        }
+        return .electric
     }
 }
 

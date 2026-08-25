@@ -94,12 +94,14 @@ extension V4FriendsViewLive {
             }
 
             VStack(alignment: .leading, spacing: 12) {
+                // Без текстового «Добавить»: вход один — «+» в шапке хаба,
+                // дубль в заголовке секции путал и выглядел старомодно.
                 sectionHeader(
                     title: LocalizationManager.shared.string(.frAllFriends),
                     icon: "person.2.fill",
                     count: store?.friends.count,
-                    actionTitle: LocalizationManager.shared.string(.frAdd),
-                    action: { showAddFriend = true }
+                    actionTitle: nil,
+                    action: nil
                 )
 
                 if let s = store {
@@ -111,39 +113,80 @@ extension V4FriendsViewLive {
                                 .padding(.vertical, 36)
                                 .accessibilityLabel("Загрузка друзей")
                         }
-                    case .failed(let err):
+                    case .failed:
+                        // Сырой текст ошибки (NSURLErrorDomain и т.п.) наружу
+                        // не выходит — офлайн-состояние говорит человеческим
+                        // языком и даёт одно действие.
                         sectionCard {
                             emptyInside(
                                 icon: "wifi.exclamationmark",
-                                title: "Не удалось загрузить друзей",
-                                subtitle: err,
-                                cta: "Повторить"
+                                title: "Друзья не загрузились",
+                                subtitle: "Похоже, нет соединения. Проверь интернет — и попробуй ещё раз.",
+                                ctaIcon: "arrow.clockwise",
+                                cta: "Повторить",
+                                style: .plain
                             ) { Task { await store?.load() } }
                         }
                     case .idle:
                         Color.clear.frame(height: 1)
                     case .loaded, .empty:
                         if s.friends.isEmpty {
+                            // Формула из референсов инвайт-экранов: медальон →
+                            // заголовок → выгода → «Найти друга» + второй канал
+                            // «Пригласить по ссылке» тем же парным рядом кнопок,
+                            // что и на лице профиля.
                             sectionCard {
-                                VStack(spacing: 4) {
-                                    emptyInside(
-                                        icon: "person.badge.plus",
-                                        title: LocalizationManager.shared.string(.frEmptyTitle),
-                                        subtitle: LocalizationManager.shared.string(.frEmptySub),
-                                        cta: LocalizationManager.shared.string(.frFind)
+                                V4EmptyState(
+                                    icon: "person.2.fill",
+                                    title: LocalizationManager.shared.string(.frEmptyTitle),
+                                    subtitle: LocalizationManager.shared.string(.frEmptySub),
+                                    accent: theme.accentColor,
+                                    accentInk: theme.buttonTextColor,
+                                    // Мир людей — своя сцена-орбита, луч
+                                    // проектора остаётся кино-экранам.
+                                    style: .orbit,
+                                    primary: .init(
+                                        title: LocalizationManager.shared.string(.frFind),
+                                        icon: "magnifyingglass",
+                                        a11yID: "friends.emptyFind"
                                     ) { showAddFriend = true }
-                                    // M26 UX: invite link straight from the empty state
-                                    if let myId = AuthService.shared.currentUserValue?.id,
-                                       let inviteURL = PlinkURLs.profileLink(myId) {
+                                ) {
+                                    // Инвайт-ссылка — по нику (так же, как
+                                    // «Поделиться» на профиле); id в /u/ не вёл
+                                    // на публичную страницу.
+                                    if let me = AuthService.shared.currentUserValue,
+                                       let inviteURL = PlinkURLs.profileLink(
+                                        me.username.isEmpty ? me.id : me.username
+                                       ) {
                                         ShareLink(item: inviteURL) {
-                                            Label(LocalizationManager.shared.string(.frInviteLink), systemImage: "square.and.arrow.up")
-                                                .font(.system(size: 13.5, weight: .semibold))
-                                                .foregroundStyle(theme.accentColor)
-                                                .padding(.vertical, 8)
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "square.and.arrow.up")
+                                                    .font(.system(size: 13, weight: .bold))
+                                                Text(LocalizationManager.shared.string(.frInviteLink))
+                                                    .font(.system(size: 14, weight: .semibold))
+                                            }
+                                            .padding(.horizontal, 18)
                                         }
+                                        // Без tint: на нативном стекле tint
+                                        // красит кнопку почти в заливку, и
+                                        // вторичный канал спорил с primary.
+                                        // Геометрия — один в один с primary
+                                        // (высота 48, радиус 16): разнокали-
+                                        // берные кнопки читались криво.
+                                        // Полоса до 300 pt — та же, что у
+                                        // primary в V4EmptyState: по-контентная
+                                        // ширина делала вторичную кнопку шире
+                                        // главной, иерархия переворачивалась.
+                                        .buttonStyle(PlinkGlassButtonStyle(
+                                            tint: nil,
+                                            height: 48, cornerRadius: 16, fillsWidth: true
+                                        ))
+                                        .frame(maxWidth: 300)
+                                        .padding(.top, 10)
                                     }
                                 }
-                                .padding(.bottom, 10)
+                                .padding(.vertical, 30)
+                                .padding(.horizontal, 12)
                             }
                         } else {
                             // 2-column grid of friend cards

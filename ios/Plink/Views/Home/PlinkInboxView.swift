@@ -102,9 +102,7 @@ struct PlinkInboxView: View {
             .navigationTitle("Уведомления")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
             .task {
                 await groups.loadGroups()
@@ -138,7 +136,7 @@ struct PlinkInboxView: View {
     private func badge(_ count: Int) -> some View {
         Text(count > 99 ? "99+" : "\(count)")
             .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(.black)
+            .foregroundStyle(V4.accentInk)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(Capsule().fill(V4.accent))

@@ -9,9 +9,9 @@ extension View {
     func groupStyle() -> some View {
         self
             .padding(.horizontal, 13)
-            .background(V4.searchBG)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(V4.line))
+            // Секции «Оформления» — на стекле, как карточки настроек: плоская
+            // V4.searchBG на живом фоне читалась вырезанным прямоугольником.
+            .plinkGlass(.control, cornerRadius: 20)
             .padding(.horizontal, 19)
             .padding(.bottom, 18)
     }
@@ -283,6 +283,9 @@ struct V4AppearanceView: View {
         }
         .sheet(isPresented: $showPlusPaywall) {
             PlinkPlusPaywall(trigger: plusPaywallTrigger)
+                .preferredColorScheme(.dark)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -434,7 +437,7 @@ struct V4AppearanceView: View {
                         if locked { Image(systemName: "lock.fill").font(.system(size: 7)) }
                         Text("Plink+").font(.system(size: 8, weight: .heavy))
                     }
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(V4.amber)
                 }
             }
             .padding(10)
@@ -526,7 +529,7 @@ struct V4AppearanceView: View {
                         Image(systemName: "lock.fill").font(.system(size: 8, weight: .bold))
                         Text("Plink+").font(.system(size: 8, weight: .heavy))
                     }
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(V4.amber)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
                     .background(.black.opacity(0.5), in: Capsule())
@@ -634,7 +637,7 @@ private struct RoomThemesSheet: View {
                                 Spacer()
                                 if locked {
                                     Image(systemName: "lock.fill")
-                                        .foregroundStyle(.yellow)
+                                        .foregroundStyle(V4.amber)
                                 } else if selected == theme {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundStyle(V4.accent)
@@ -655,9 +658,7 @@ private struct RoomThemesSheet: View {
             .navigationTitle("Темы комнат")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Закрыть") { dismiss() }
-                }
+                V4SheetCloseToolbarItem { dismiss() }
             }
         }
     }

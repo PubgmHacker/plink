@@ -66,38 +66,26 @@ extension V4FriendsViewLive {
                 action: { showAddFriend = true }
             )
 
-            // Быстрое создание групповой беседы
-            Button {
-                HapticManager.impact(.light)
-                showCreateGroupSheet = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.3.fill")
-                    Text("Создать беседу")
-                    Spacer()
-                    Image(systemName: "plus")
-                }
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(theme.accentColor)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
-                .background(theme.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(theme.accentColor.opacity(0.35)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Создать групповую беседу")
-
-            if unifiedInbox.isEmpty {
-                sectionCard {
+            // «Создать беседу» — первая строка внутри общей карточки чатов
+            // (как «Новая группа» в Telegram). Раньше это была отдельная
+            // бордюрная кнопка БЕЗ внешнего горизонтального отступа: при
+            // отступах 16–18 pt у всех соседей она тянулась от кромки до
+            // кромки экрана и выглядела чужеродно.
+            sectionCard {
+                createGroupRow
+                if unifiedInbox.isEmpty {
                     emptyInside(
-                        icon: "bubble.left.and.bubble.right",
+                        icon: "bubble.left.and.bubble.right.fill",
                         title: "Пока нет чатов",
                         subtitle: "Добавь друга или создай беседу — всё появится здесь",
-                        cta: "Найти друга"
+                        // Лупа, как у той же кнопки на сегменте «Друзья»:
+                        // одно действие — одна иконка.
+                        ctaIcon: "magnifyingglass",
+                        cta: "Найти друга",
+                        // Чаты — мир людей: сцена-орбита, как у друзей.
+                        style: .orbit
                     ) { showAddFriend = true }
-                }
-            } else {
-                sectionCard {
+                } else {
                     ForEach(unifiedInbox) { item in
                         switch item {
                         case .dm(let friend):   friendChatRow(friend)
@@ -112,14 +100,44 @@ extension V4FriendsViewLive {
             NavigationStack {
                 GroupChatView(group: group, meId: dmService.currentUserId)
                     .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Закрыть") { openGroup = nil }
-                        }
+                        V4SheetCloseToolbarItem { openGroup = nil }
                     }
             }
             .preferredColorScheme(.dark)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// «Создать беседу» как строка списка (Telegram: «Новая группа» —
+    /// такая же строка, как чаты, а не отдельная кнопка с рамкой).
+    private var createGroupRow: some View {
+        Button {
+            HapticManager.impact(.light)
+            showCreateGroupSheet = true
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(theme.accentColor.opacity(0.16))
+                        .frame(width: 48, height: 48)
+                    V4GlyphIcon(glyph: .people3, size: 15, filled: true, weight: .regular)
+                        .foregroundStyle(theme.accentColor)
+                }
+                Text("Создать беседу")
+                    .font(.system(size: 15.5, weight: .semibold))
+                    .foregroundStyle(theme.accentColor)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Создать групповую беседу")
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 74)
         }
     }
 

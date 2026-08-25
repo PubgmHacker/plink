@@ -205,6 +205,14 @@ struct V4ReelsPanel: View {
     let theme: V4Theme
     var items: [V4ReelItem] = V4ReelItem.placeholders
 
+    /// Каталог ещё не подключён: карточки — витрина будущей ленты.
+    /// Раньше поверх ленты лежал полноэкранный дизмер с плашкой «Будет
+    /// доступно скоро», а под ним оставались все кнопки — текст плашки
+    /// наезжал на «Смотреть вместе», и экран выглядел сломанным. Теперь
+    /// в превью просто нет ни одного мёртвого контрола: ни play, ни пилюли,
+    /// ни колонки действий — только кадр, название и тихий бейдж «Скоро».
+    var isPreview: Bool = false
+
     /// Место сверху под плавающую шапку экрана.
     var topInset: CGFloat = 84
     /// Место снизу под док и таб-бар.
@@ -221,10 +229,16 @@ struct V4ReelsPanel: View {
 
     @State private var visibleID: String?
     @State private var playingID: String?
+    @State private var hintBob = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var currentArt: V4ReelArt {
         items.first(where: { $0.id == visibleID })?.art ?? items.first?.art ?? .indigo
     }
+
+    /// Текущая карточка для индикатора позиции: до первого свайпа
+    /// scrollPosition ещё nil — считаем первой.
+    private var currentID: String? { visibleID ?? items.first?.id }
 
     var body: some View {
         if items.isEmpty {
@@ -242,6 +256,17 @@ struct V4ReelsPanel: View {
                 .blur(radius: 60)
                 .opacity(0.55)
                 .overlay(Color.black.opacity(0.45))
+                // Верхний скрим — часть фона ленты, а не шапки. Когда полоса
+                // затемнения принадлежала шапке, она обрывалась на своей
+                // высоте и читалась отдельным слоем «другого экрана».
+                .overlay(alignment: .top) {
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.55), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 150)
+                }
                 .animation(.easeInOut(duration: 0.45), value: visibleID)
                 .ignoresSafeArea()
 
@@ -269,6 +294,27 @@ struct V4ReelsPanel: View {
             }
         }
         .background(Color.black)
+        // Вертикальные точки позиции у правого края: единственный намёк,
+        // что лента листается и сколько в ней трейлеров. Скролл-индикатор
+        // скрыт намеренно — системная полоса на пейджере читается как
+        // недокрученный список, а не как лента.
+        .overlay(alignment: .trailing) {
+            if items.count > 1 {
+                VStack(spacing: 7) {
+                    ForEach(items) { it in
+                        Capsule()
+                            .fill(it.id == currentID
+                                  ? theme.accentColor
+                                  : Color.white.opacity(0.22))
+                            .frame(width: 3.5, height: it.id == currentID ? 22 : 8)
+                    }
+                }
+                .padding(.trailing, 8)
+                .animation(reduceMotion ? nil : .bouncy(duration: 0.4), value: visibleID)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
         .accessibilityIdentifier("reels.feed")
     }
 
@@ -284,12 +330,40 @@ struct V4ReelsPanel: View {
             HStack(alignment: .top, spacing: 14) {
                 info(reel)
                 Spacer(minLength: 4)
-                actions(reel)
+                if !isPreview { actions(reel) }
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
 
             Spacer(minLength: 0)
+
+            // Хинт свайпа — только на первой карточке: без него нижняя
+            // половина экрана в превью читалась мёртвой пустотой, а сам
+            // факт вертикальной ленты оставался невидимым.
+            if reel.id == items.first?.id && items.count > 1 {
+                VStack(spacing: 5) {
+                    Image(systemName: "chevron.compact.up")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .offset(y: hintBob ? -3 : 2)
+                        .animation(
+                            reduceMotion
+                                ? nil
+                                : .easeInOut(duration: 1.5).repeatForever(autoreverses: true),
+                            value: hintBob
+                        )
+                        .onAppear { hintBob = true }
+                    Text("Свайп вверх — следующий трейлер")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .tracking(0.2)
+                        .foregroundStyle(Color.white.opacity(0.45))
+                }
+                // 64, не 16: док «Спроси про фильмы» на вкладке ИИ выступает
+                // над bottomInset примерно на 40 pt — хинт должен жить выше.
+                .padding(.bottom, 64)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
 
             Color.clear.frame(height: bottomInset)
         }
@@ -304,34 +378,39 @@ struct V4ReelsPanel: View {
         ZStack(alignment: .topLeading) {
             V4ReelArtView(art: reel.art)
 
-            Text("ОФИЦИАЛЬНЫЙ ПЛЕЕР")
-                .font(.system(size: 9.5, weight: .heavy))
-                .tracking(0.6)
-                .foregroundStyle(V4.ink)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(
-                    Color.black.opacity(0.6),
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.white.opacity(0.2))
-                )
-                .padding(12)
+            // Мелкий бейдж «СКОРО» в превью снят: про состояние раздела
+            // теперь говорит крупный онбординг-слой вкладки ИИ, а подпись
+            // в углу кадра дублировала его и читалась дешёвой. В живом
+            // режиме бейджа нет тем более — раньше тут висел «ОФИЦИАЛЬНЫЙ
+            // ПЛЕЕР», внутренний жаргон без пользы для пользователя.
 
-            V4GlyphButton(
-                glyph: playingID == reel.id ? .pause : .play,
-                theme: theme,
-                kind: .onMedia,
-                diameter: 62,
-                iconSize: 20,
-                accessibility: playingID == reel.id ? "Пауза" : "Смотреть трейлер"
-            ) {
-                HapticManager.impact(.medium)
-                playingID = (playingID == reel.id) ? nil : reel.id
+            // В превью кадр пуст (одни градиенты) — тихий водяной знак
+            // хлопушки даёт кадру предмет, не изображая кнопку: у него нет
+            // ни подложки, ни рамки, ничего кликабельного.
+            if isPreview {
+                Image(systemName: "movieclapper")
+                    .font(.system(size: 58, weight: .light))
+                    .foregroundStyle(Color.white.opacity(0.16))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Play-глиф без ролика — фейковый переключатель; в превью его нет.
+            if !isPreview {
+                V4GlyphButton(
+                    glyph: playingID == reel.id ? .pause : .play,
+                    theme: theme,
+                    kind: .onMedia,
+                    diameter: 62,
+                    iconSize: 20,
+                    accessibility: playingID == reel.id ? "Пауза" : "Смотреть трейлер"
+                ) {
+                    HapticManager.impact(.medium)
+                    playingID = (playingID == reel.id) ? nil : reel.id
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .aspectRatio(16.0 / 9.0, contentMode: .fit)
         .frame(maxWidth: .infinity)
@@ -358,10 +437,12 @@ struct V4ReelsPanel: View {
                 .foregroundStyle(Color.white.opacity(0.7))
                 .lineLimit(2)
 
-            V4ReelPill(title: "Смотреть вместе", accent: true, theme: theme) {
-                onWatchTogether(reel)
+            if !isPreview {
+                V4ReelPill(title: "Смотреть вместе", accent: true, theme: theme) {
+                    onWatchTogether(reel)
+                }
+                .padding(.top, 8)
             }
-            .padding(.top, 8)
         }
         .shadow(color: .black.opacity(0.5), radius: 8)
     }

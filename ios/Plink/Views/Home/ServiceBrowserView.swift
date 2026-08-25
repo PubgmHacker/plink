@@ -165,7 +165,7 @@ struct ServiceBrowserView: View {
                      : "Создать комнату с этой вкладки")
                     .font(.system(size: 15, weight: .bold))
             }
-            .foregroundStyle(.black)
+            .foregroundStyle(V4.accentInk)
             .frame(maxWidth: .infinity)
             .frame(height: 50)
             .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))

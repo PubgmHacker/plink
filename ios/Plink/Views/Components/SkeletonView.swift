@@ -109,41 +109,53 @@ struct SkeletonGroupRow: View {
 // Скролл здесь не нужен: заглушку не листают, её показывают.
 struct HomeSkeletonView: View {
     var body: some View {
+        // Формы повторяют реальную сетку витрины (герой 260/29, постеры
+        // 128×192 + двухстрочная подпись): заглушка из чужих пропорций
+        // (кадр 200/16, полоса 160×100, список комнат) заставляла экран
+        // «перепрыгивать» в другую вёрстку в момент загрузки.
         VStack(alignment: .leading, spacing: 0) {
-            // Hero placeholder
-            SkeletonRect(height: 200, cornerRadius: 16)
+            SkeletonRect(height: 260, cornerRadius: 29)
                 .padding(.horizontal, 13)
-                .padding(.bottom, 28)
+                .padding(.bottom, 30)
 
-            // Section header
             HStack {
                 SkeletonRect(width: 130, height: 18)
                 Spacer()
-                SkeletonRect(width: 30, height: 13)
             }
             .padding(.horizontal, 19)
             .padding(.bottom, 12)
 
-            // Horizontal card strip
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 11) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        SkeletonRect(width: 160, height: 100, cornerRadius: 12)
-                    }
-                }
-                .padding(.horizontal, 19)
-            }
-            .padding(.bottom, 28)
+            posterStrip
+                .padding(.bottom, 26)
 
-            // Room list
-            ForEach(0..<4, id: \.self) { _ in
-                SkeletonRoomCard()
+            HStack {
+                SkeletonRect(width: 110, height: 18)
+                Spacer()
             }
+            .padding(.horizontal, 19)
+            .padding(.bottom, 12)
+
+            posterStrip
         }
         .padding(.top, 16)
         // Страховка: что бы ни выросло внутри, ширина остаётся экранной.
         .frame(maxWidth: .infinity, alignment: .leading)
         .allowsHitTesting(false)
+    }
+
+    private var posterStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 8) {
+                        SkeletonRect(width: 128, height: 192, cornerRadius: 16)
+                        SkeletonRect(width: 104, height: 11, cornerRadius: 4)
+                        SkeletonRect(width: 66, height: 9, cornerRadius: 4)
+                    }
+                }
+            }
+            .padding(.horizontal, 19)
+        }
     }
 }
 
