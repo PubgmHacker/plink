@@ -61,6 +61,9 @@ struct V4ProfileViewLive: View {
                     .padding(.top, 14)
             }
             .padding(.bottom, 110)
+            // Амбиент: обложка продолжается вниз размытым свечением — лицо
+            // и карты живут в её свете, а не на постороннем живом фоне.
+            .background(alignment: .top) { coverAmbient }
         }
         // Обложка — от физического верха экрана, статус-бар лежит на ней
         // (модель ВК). Без этого сверху остаётся полоса живого фона.
@@ -158,20 +161,47 @@ struct V4ProfileViewLive: View {
 
     // MARK: Обложка
 
+    /// Полотно обложки без скримов — используется дважды: самой обложкой
+    /// и амбиент-свечением под ней.
+    @ViewBuilder private var coverCanvas: some View {
+        if let custom = store?.customCoverImage, store?.usesCustomCover == true {
+            // Color.clear.overlay — scaledToFill заполняет полотно, не
+            // распирая ширину ZStack под размер исходного фото.
+            Color.clear
+                .overlay(Image(uiImage: custom).resizable().scaledToFill())
+                .clipped()
+        } else {
+            (store?.coverStyle ?? .hall).artwork()
+        }
+    }
+
+    /// Зеркальная размытая копия обложки под её нижней кромкой: цвета на
+    /// стыке совпадают, свечение тает к живому фону — обложка и страница
+    /// перестают быть «двумя разными экранами».
+    private var coverAmbient: some View {
+        coverCanvas
+            .scaleEffect(x: 1, y: -1)
+            .frame(height: 320)
+            .frame(maxWidth: .infinity)
+            .blur(radius: 70)
+            .saturation(1.35)
+            .mask(LinearGradient(stops: [
+                .init(color: .black.opacity(0.55), location: 0),
+                .init(color: .black.opacity(0.22), location: 0.55),
+                .init(color: .clear, location: 1),
+            ], startPoint: .top, endPoint: .bottom))
+            // Первые 40 pt прячутся под непрозрачной обложкой — шов без линии.
+            .offset(y: coverHeight - 40)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
     /// Обложка как в ВК: полное полотно от края до края под статус-баром.
     /// Фото выбирает пользователь — пресет V4CoverStyle или своё из галереи
     /// (кнопка-кисть в углу), выбор синхронизируется через coverURL.
     private var cover: some View {
         ZStack {
-            if let custom = store?.customCoverImage, store?.usesCustomCover == true {
-                // Color.clear.overlay — scaledToFill заполняет полотно, не
-                // распирая ширину ZStack под размер исходного фото.
-                Color.clear
-                    .overlay(Image(uiImage: custom).resizable().scaledToFill())
-                    .clipped()
-            } else {
-                (store?.coverStyle ?? .hall).artwork()
-            }
+            coverCanvas
             // Скримы сверху и снизу — контраст статус-бара и кольца аватара.
             LinearGradient(colors: [.black.opacity(0.20), .clear, .black.opacity(0.30)],
                            startPoint: .top, endPoint: .bottom)

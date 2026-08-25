@@ -296,10 +296,12 @@ struct DMChatView: View {
                     V4SheetCloseToolbarItem { showPeerProfile = false }
                 }
             }
-            .presentationDetents([.medium, .large])
+            // Новое лицо профиля (обложка + амбиент) требует полного полотна
+            // и тёмного канваса — материал и medium-детент остались в прошлом.
+            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
-            .presentationBackground(.ultraThinMaterial)
         }
         .sheet(item: $photoDraft) { draft in
             PhotoSendPreviewSheet(

@@ -270,6 +270,16 @@ struct V4FriendsViewLive: View {
             if let target = DeepLinkRouter.shared.pendingChat {
                 consumePendingChat(target)
             }
+            // Дизайн-превью: `-plink.designfriend <userId>` открывает публичный
+            // профиль без ручных тапов — скриншоты нового лица. Только DEBUG.
+            #if DEBUG
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-plink.designfriend"), args.indices.contains(i + 1) {
+                profileFriend = Friend(id: args[i + 1], username: "",
+                                       avatarURL: nil, isOnline: false,
+                                       friendsSince: Date())
+            }
+            #endif
         }
         .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
             guard let target else { return }
