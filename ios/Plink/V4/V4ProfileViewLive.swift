@@ -37,6 +37,9 @@ struct V4ProfileViewLive: View {
 
     /// Счётчики шапки — тот же /users/me/profile, что и экран статистики.
     @State private var social: UserSocialProfile?
+    /// Тап по другу в рельсе — его профиль шитом (модель ВК). Без
+    /// onWatchTogether/onMessage: действия живут на вкладке «Друзья».
+    @State private var profileFriend: ProfileFriendPreview?
 
     private var isAdmin: Bool { store?.isAdmin == true }
     private var avatarURL: URL? { currentAvatarURL ?? store?.avatarURL }
@@ -53,6 +56,7 @@ struct V4ProfileViewLive: View {
                 avatarActionRow
                 identityBlock
                 countersCard
+                watchRailCard
                 friendsCard
                     .padding(.top, 12)
                 settingsLinkGroup
@@ -144,6 +148,17 @@ struct V4ProfileViewLive: View {
         }
         .sheet(isPresented: $showHistory) {
             V4WatchHistorySheet(theme: theme)
+        }
+        .sheet(item: $profileFriend) { friend in
+            NavigationStack {
+                FriendProfileView(userId: friend.id, usernameHint: friend.username)
+                    .toolbar {
+                        V4SheetCloseToolbarItem { profileFriend = nil }
+                    }
+            }
+            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showSettings) {
             V4SettingsView(theme: theme, store: store, openAppearance: {
@@ -511,12 +526,63 @@ struct V4ProfileViewLive: View {
         .accessibilityHint("Открывает подробную статистику и достижения")
     }
 
+    // MARK: Недавно смотрел
+
+    /// Рельса баннеров (модель ВК/Кинопоиска): постеры с названиями вместо
+    /// текстовых строк. Заголовок — дверь в полную историю. Пустая история —
+    /// карты нет: строка «История просмотров» остаётся в разделах ниже.
+    @ViewBuilder private var watchRailCard: some View {
+        if let history = social?.watchHistory, !history.isEmpty {
+            ProfileWatchRailCard(history: history, accent: theme.accentColor) {
+                showHistory = true
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+        }
+    }
+
     // MARK: Карточка «Друзья»
 
-    /// Дверь на вкладку «Друзья» (модель ВК: блок друзей со стеком живых
-    /// аватарок прямо в профиле). Аватарки — из общего FriendManager, те же,
-    /// что на вкладке; счётчик — серверный friendsCount из /users/me/profile.
-    private var friendsCard: some View {
+    /// Друзья для рельсы: серверное превью из /users/me/profile (порядок —
+    /// закреплённые первыми), пока оно не пришло — живой список FriendManager,
+    /// чтобы рельса не ждала второй сети.
+    private var railFriends: [ProfileFriendPreview] {
+        if let server = social?.friends, !server.isEmpty { return server }
+        return friendManager.friends.filter { !$0.deleted }.map {
+            ProfileFriendPreview(
+                id: $0.id,
+                username: $0.username,
+                displayName: $0.displayName,
+                avatarURL: $0.avatarURL,
+                isOnline: $0.isOnline,
+                lastSeenAt: $0.lastSeenAt
+            )
+        }
+    }
+
+    /// Блок друзей (модель ВК): рельса круглых аватарок с никами — тап по
+    /// другу открывает его профиль, заголовок ведёт на вкладку «Друзья».
+    /// Пока друзей нет — прежняя карточка-дверь «Найдите первых друзей».
+    @ViewBuilder private var friendsCard: some View {
+        let rail = railFriends
+        if rail.isEmpty {
+            friendsDoorCard
+        } else {
+            ProfileFriendsRailCard(
+                friends: rail,
+                friendsCount: social?.friendsCount ?? rail.count,
+                onFriend: { profileFriend = $0 },
+                onHeader: {
+                    NotificationCenter.default.post(name: Notification.Name("plinkOpenFriendsTab"), object: nil)
+                }
+            )
+            .padding(.horizontal, 18)
+        }
+    }
+
+    /// Дверь на вкладку «Друзья» — пустое состояние блока (стек аватарок
+    /// заменён рельсой выше, карточка осталась приглашением к первым друзьям).
+    private var friendsDoorCard: some View {
         let alive = friendManager.friends.filter { !$0.deleted }
         let count = social?.friendsCount ?? alive.count
         let online = alive.filter(\.isOnline).count

@@ -21,6 +21,15 @@ struct FriendProfileView: View {
     @State private var customCover: UIImage?
     /// Просмотр аватара на весь экран (модель ТГ): тап по кругу.
     @State private var showAvatarViewer = false
+    /// Рекурсия ВК: тап по другу в рельсе/списке открывает ЕГО профиль
+    /// поверх текущего. У дриллнутого профиля нет onWatchTogether/onMessage —
+    /// действия доступны только с людьми из собственного списка друзей.
+    @State private var drillFriend: ProfileFriendPreview?
+    /// Полный список друзей владельца профиля (дверь из заголовка рельсы).
+    @State private var showAllFriends = false
+    /// CTA «Добавить в друзья» для не-друга: idle → отправка → отправлена.
+    @State private var isSendingRequest = false
+    @State private var friendRequestSent = false
 
     /// Акцент — сохранённая тема приложения: профиль открывается шитом,
     /// у него нет прямого доступа к теме корня.
@@ -45,8 +54,18 @@ struct FriendProfileView: View {
                 if isDeleted {
                     deletedCard
                 } else {
-                    countersCard
-                    historyCard
+                    addFriendCTA
+                    if profile?.closed == true {
+                        // Закрытый профиль (модель ВК): идентичность и
+                        // присутствие видны, статистика/просмотры/друзья — нет.
+                        ProfileClosedCard(accent: theme.accentColor)
+                            .padding(.horizontal, 18)
+                            .padding(.top, 16)
+                    } else {
+                        countersCard
+                        historyCard
+                        friendsCard
+                    }
                 }
             }
             .padding(.bottom, 40)
@@ -70,6 +89,42 @@ struct FriendProfileView: View {
                 storedURL: profile?.avatarURL,
                 letter: String((profile?.displayTitle ?? usernameHint).prefix(1)).uppercased()
             )
+        }
+        // Рекурсивный просмотр (модель ВК): профиль друга друга — таким же
+        // шитом поверх. Каждый уровень несёт свой drillFriend, цепочка
+        // произвольной глубины закрывается по одному экрану.
+        .sheet(item: $drillFriend) { friend in
+            NavigationStack {
+                FriendProfileView(userId: friend.id, usernameHint: friend.username)
+                    .toolbar {
+                        V4SheetCloseToolbarItem { drillFriend = nil }
+                    }
+            }
+            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showAllFriends) {
+            NavigationStack {
+                ProfileFriendListSheet(
+                    userId: userId,
+                    title: "Друзья",
+                    accent: theme.accentColor,
+                    onFriend: { friend in
+                        // Синхронный своп шитов — тот же приём, что у
+                        // «Написать» в V4FriendsView: список закрывается,
+                        // профиль выбранного друга открывается.
+                        showAllFriends = false
+                        drillFriend = friend
+                    }
+                )
+                .toolbar {
+                    V4SheetCloseToolbarItem { showAllFriends = false }
+                }
+            }
+            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -396,41 +451,56 @@ struct FriendProfileView: View {
         .accessibilityLabel("\(label): \(value)")
     }
 
+    // MARK: Добавить в друзья
+
+    /// CTA не-другу (модель ВК): на открытом профиле — над статистикой,
+    /// на закрытом — над замком (заявка и есть ключ к закрытому профилю).
+    /// isFriend == false строго: nil — старый бэкенд, кнопку не рисуем.
+    @ViewBuilder private var addFriendCTA: some View {
+        if let p = profile, p.isSelf != true, p.isFriend == false {
+            Button {
+                guard !isSendingRequest, !friendRequestSent else { return }
+                HapticManager.selection()
+                isSendingRequest = true
+                Task {
+                    let ok = await FriendManager.shared.sendRequest(to: p.id, username: p.username)
+                    isSendingRequest = false
+                    if ok {
+                        friendRequestSent = true
+                        HapticManager.notification(.success)
+                    } else {
+                        HapticManager.errorOccurred()
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if isSendingRequest {
+                        ProgressView()
+                            .tint(V4.ink)
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: friendRequestSent ? "checkmark" : "person.badge.plus")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    Text(friendRequestSent ? "Заявка отправлена" : "Добавить в друзья")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 46, cornerRadius: 16))
+            .disabled(isSendingRequest || friendRequestSent)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .accessibilityLabel(friendRequestSent ? "Заявка отправлена" : "Добавить в друзья")
+        }
+    }
+
     // MARK: История
 
     @ViewBuilder private var historyCard: some View {
         if let history = profile?.watchHistory, !history.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(LocalizationManager.shared.string(.fpRecentlyWatched))
-                    .font(.system(size: 16, weight: .heavy))
-                    .tracking(-0.3)
-                    .foregroundStyle(V4.ink)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 4)
-                ForEach(Array(history.prefix(8).enumerated()), id: \.element.id) { index, item in
-                    if index > 0 {
-                        Rectangle().fill(V4.line).frame(height: 1).padding(.leading, 50)
-                    }
-                    HStack(spacing: 10) {
-                        Image(systemName: "film.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(theme.accentColor)
-                            .frame(width: 24)
-                        Text(item.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(V4.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 11)
-                }
-                Color.clear.frame(height: 6)
-            }
-            .plinkGlass(.control, cornerRadius: 20)
-            .padding(.horizontal, 18)
-            .padding(.top, 12)
+            ProfileWatchRailCard(history: history, accent: theme.accentColor)
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
         } else if isLoading, profile == nil {
             HStack {
                 Spacer()
@@ -439,11 +509,52 @@ struct FriendProfileView: View {
             }
             .padding(.top, 28)
         } else if let error {
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(V4.muted)
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
+            // Сеть подвела — тупика нет: «Повторить» перезапрашивает профиль,
+            // не заставляя закрывать и заново открывать шит.
+            VStack(spacing: 12) {
+                Text(error)
+                    .font(.system(size: 13))
+                    .foregroundStyle(V4.muted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    HapticManager.selection()
+                    self.error = nil
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Повторить")
+                    }
+                }
+                .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 40, cornerRadius: 14))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+            .padding(.horizontal, 20)
+            .plinkGlass(.control, cornerRadius: 20)
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Не удалось загрузить профиль. Повторить")
+        }
+    }
+
+    // MARK: Друзья
+
+    /// Рельса друзей (модель ВК): круглые аватарки с никами, тап — профиль
+    /// друга поверх (рекурсия), заголовок — полный список.
+    @ViewBuilder private var friendsCard: some View {
+        if let friends = profile?.friends, !friends.isEmpty {
+            ProfileFriendsRailCard(
+                friends: friends,
+                friendsCount: profile?.friendsCount ?? friends.count,
+                onFriend: { drillFriend = $0 },
+                onHeader: { showAllFriends = true }
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
         }
     }
 

@@ -505,8 +505,47 @@ internal struct PrivacySecurityView: View {
     @AppStorage("privacy_online_status") private var showOnlineStatus = true
     @AppStorage("privacy_dm_from") private var dmFromFriendsOnly = true
 
+    /// Серверный флаг «Закрытый профиль» (модель ВК): не @AppStorage —
+    /// правда живёт на сервере и действует для всех, кто открывает профиль.
+    @State private var profileClosed = false
+    /// Пока флаг не приехал с сервера, тумблер выключен: иначе первое же
+    /// движение отправило бы на сервер значение, которого юзер не выбирал.
+    @State private var closedLoaded = false
+    @State private var closedSaveTask: Task<Void, Never>?
+
     private var inviteBinding: Binding<String> {
         Binding(get: { inviteRaw }, set: { inviteRaw = $0 })
+    }
+
+    private var closedBinding: Binding<Bool> {
+        Binding(
+            get: { profileClosed },
+            set: { newValue in
+                guard newValue != profileClosed else { return }
+                profileClosed = newValue
+                saveClosed(newValue)
+            }
+        )
+    }
+
+    /// PATCH /users/me { profileClosed } — при отказе сервера тумблер
+    /// возвращается на место: рисовать невыполненную приватность нельзя.
+    private func saveClosed(_ value: Bool) {
+        closedSaveTask?.cancel()
+        closedSaveTask = Task {
+            struct Body: Encodable { let profileClosed: Bool }
+            struct Resp: Decodable { let profileClosed: Bool? }
+            do {
+                let _: Resp = try await APIClient.shared.request(
+                    "users/me", method: .patch, body: Body(profileClosed: value)
+                )
+                HapticManager.selection()
+            } catch {
+                guard !Task.isCancelled else { return }
+                profileClosed = !value
+                HapticManager.errorOccurred()
+            }
+        }
     }
 
     var body: some View {
@@ -518,6 +557,17 @@ internal struct PrivacySecurityView: View {
             // Без секционного лейбла: карта одна, а «ПРИВАТНОСТЬ» под
             // заголовком «Приватность» читалась дублем.
             VStack(alignment: .leading, spacing: 8) {
+                // Закрытый профиль — первой картой: единственная настройка
+                // здесь, которая меняет то, что видят другие люди прямо сейчас.
+                SettingsCard {
+                    SettingsToggleRow(
+                        icon: "lock.fill",
+                        title: "Закрытый профиль",
+                        subtitle: "Друзей, статистику и просмотры видят только друзья",
+                        isOn: closedBinding,
+                        enabled: closedLoaded
+                    )
+                }
                 SettingsCard {
                     SettingsChoiceRow(
                         title: "Кто может приглашать в комнату",
@@ -554,6 +604,14 @@ internal struct PrivacySecurityView: View {
                 icon: "shield.checkered",
                 text: "Plink не продаёт личные данные. Жалобы и блокировки работают в чате комнаты."
             )
+        }
+        .task {
+            // Текущее значение — только с сервера: до ответа тумблер спит,
+            // повторный заход на экран пробует снова.
+            if let me = try? await SocialProfileService.fetchMe() {
+                profileClosed = me.isClosed == true
+                closedLoaded = true
+            }
         }
     }
 }
