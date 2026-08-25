@@ -71,6 +71,10 @@ type RateBucket = { count: number; resetAt: number };
 // Invalidated on host migration / participant role change.
 // ─────────────────────────────────────────────────────────────────────────────
 const HOST_CACHE_TTL_MS = 2000;
+// Потолок записей: TTL записи 2с, но сами записи никто не удалял — за месяцы
+// аптайма Map коллекционировала все когда-либо жившие комнаты. При переливе
+// выметаем протухшие: с TTL 2с это почти всё, остаток = комнаты последних 2с.
+const HOST_CACHE_MAX = 10_000;
 const hostCache = new Map<string, { hostId: string; expiresAt: number }>();
 
 async function isHost(prisma: PrismaClient, roomId: string, userId: string): Promise<boolean> {
@@ -84,6 +88,11 @@ async function isHost(prisma: PrismaClient, roomId: string, userId: string): Pro
     select: { hostID: true },
   });
   if (!room) return false;
+  if (hostCache.size >= HOST_CACHE_MAX) {
+    for (const [key, value] of hostCache) {
+      if (value.expiresAt <= now) hostCache.delete(key);
+    }
+  }
   hostCache.set(roomId, { hostId: room.hostID, expiresAt: now + HOST_CACHE_TTL_MS });
   return room.hostID === userId;
 }
@@ -94,26 +103,22 @@ export function invalidateHostCache(roomId: string): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Membership check: confirms user is in RoomParticipant for this room.
-// DB-checked — never trust the socket's claim alone.
+// Membership check. The socket is the authority, not the DB: activeRoomId is
+// set only after gateway.onConnection verified membership against RoomParticipant
+// (isMemberOrHost) for exactly this room, and revocation force-closes the socket
+// cross-replica — kicks via participant.kicked, REST leave via the same event
+// published from the leave route. An open socket bound to this room IS a member.
+//
+// This used to be a prisma.roomParticipant.findUnique on EVERY inbound WS
+// message (with a second findFirst in its catch — including on P2024 pool
+// timeouts, doubling DB load exactly during a brownout). At 10k users that made
+// Postgres a per-message dependency of the realtime path. It is also stricter
+// now: the old check let a member of rooms A and B send commands targeting B
+// through their room-A socket; the socket check pins messages to the room the
+// ticket was issued for.
 // ─────────────────────────────────────────────────────────────────────────────
-async function isRoomMember(prisma: PrismaClient, roomId: string, userId: string): Promise<boolean> {
-  // RoomParticipant rows are deleted when a user leaves (no leftAt field).
-  // Existence == current membership.
-  try {
-    const participant = await prisma.roomParticipant.findUnique({
-      where: { roomID_userID: { roomID: roomId, userID: userId } },
-      select: { id: true },
-    });
-    return participant !== null;
-  } catch {
-    // Composite key name may differ — fall back to findFirst
-    const participant = await prisma.roomParticipant.findFirst({
-      where: { roomID: roomId, userID: userId },
-      select: { id: true },
-    });
-    return participant !== null;
-  }
+function isRoomMember(socket: PlinkSocket, roomId: string): boolean {
+  return socket.activeRoomId === roomId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,7 +230,7 @@ export function createMessageRouter(deps: RouterDeps) {
         }
         const m = StateRequestSchema.parse(parsed);
         // Membership check
-        if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
+        if (!isRoomMember(socket, m.roomId)) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
         }
@@ -248,7 +253,7 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
         const m = SyncCommandSchema.parse(parsed);
-        if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
+        if (!isRoomMember(socket, m.roomId)) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
         }
@@ -296,12 +301,12 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
         const m = ChatSendSchema.parse(parsed);
-        if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
+        if (!isRoomMember(socket, m.roomId)) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
         }
         // Активный мут от ИИ-модератора — сообщения не принимаются
-        const mutedSec = muteRemainingSec(m.roomId, socket.userId!);
+        const mutedSec = await muteRemainingSec(m.roomId, socket.userId!);
         if (mutedSec > 0) {
           sendError(socket, 'MUTED', `Вы замучены модератором ещё на ${mutedSec} сек`);
           return;
@@ -314,7 +319,7 @@ export function createMessageRouter(deps: RouterDeps) {
         // Маты → временный мут; сообщение НЕ сохраняется и НЕ рассылается,
         // в чат уходит системное уведомление ИИ-модератора
         if (containsProfanity(m.text)) {
-          const seconds = muteUser(m.roomId, socket.userId!, 'profanity');
+          const seconds = await muteUser(m.roomId, socket.userId!, 'profanity');
           const sysId = crypto.randomUUID();
           await auditModeration({
             roomId: m.roomId,
@@ -376,19 +381,24 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
         const m = ReactionSendSchema.parse(parsed);
-        if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
+        if (!isRoomMember(socket, m.roomId)) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
         }
 
         // Validate emoji is in allowlist (prevent arbitrary
         // text/bidi abuse). Allow common emoji + a premium set.
+        // ДОЛЖЕН быть супермножеством ReactionPalette из iOS (free и premium),
+        // иначе клиент предлагает эмодзи, которые сервер отбивает INVALID_REACTION
+        // (ровно так 😡 и 💜 из бесплатного ряда выдавали ошибку каждому).
         const ALLOWED_FREE_EMOJIS = new Set([
           '❤️', '😂', '😍', '👍', '🔥', '😮', '😢', '👏', '🎉', '💯',
           '🤣', '🥰', '😱', '🤩', '🤔', '😴', '🤯', '🥳', '😭', '🤗',
+          '😡', '💜',
         ]);
         const ALLOWED_PREMIUM_EMOJIS = new Set([
           '💎', '👑', '🚀', '⚡', '🌟', '🎨', '🎭', '🏆', '🌈', '✨',
+          '😎', '🥺', '💫',
         ]);
         const allAllowed = new Set([...ALLOWED_FREE_EMOJIS, ...ALLOWED_PREMIUM_EMOJIS]);
 
@@ -443,7 +453,7 @@ export function createMessageRouter(deps: RouterDeps) {
           return;
         }
         const m = PauseRequestSchema.parse(parsed);
-        if (!(await isRoomMember(prisma, m.roomId, socket.userId!))) {
+        if (!isRoomMember(socket, m.roomId)) {
           sendError(socket, 'NOT_MEMBER', 'User is not a member of this room');
           return;
         }

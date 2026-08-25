@@ -38,6 +38,13 @@ export class ConnectionRegistry {
   // userId → set of sockets (one user can have multiple devices)
   private readonly userSockets = new Map<string, Set<PlinkSocket>>();
 
+  // Fired on the 0→1 / 1→0 transitions of a user's local socket count.
+  // The gateway uses them to maintain the per-user cross-replica subscription
+  // (user:<id> pub/sub channel) — subscribed only while this replica actually
+  // holds a socket for the user. Optional so tests can build a bare registry.
+  onFirstUserSocket?: (userId: string) => void;
+  onLastUserSocket?: (userId: string) => void;
+
   join(socket: PlinkSocket, roomId: string): void {
     // Leave any previous room first
     if (socket.activeRoomId && socket.activeRoomId !== roomId) {
@@ -51,13 +58,25 @@ export class ConnectionRegistry {
     }
     set.add(socket);
 
-    if (socket.userId) {
-      let userSet = this.userSockets.get(socket.userId);
-      if (!userSet) {
-        userSet = new Set();
-        this.userSockets.set(socket.userId, userSet);
+    this.addUserSocket(socket);
+  }
+
+  private addUserSocket(socket: PlinkSocket): void {
+    if (!socket.userId) return;
+    let userSet = this.userSockets.get(socket.userId);
+    if (!userSet) {
+      userSet = new Set();
+      this.userSockets.set(socket.userId, userSet);
+    }
+    const before = userSet.size;
+    userSet.add(socket);
+    if (before === 0 && userSet.size === 1) {
+      try {
+        this.onFirstUserSocket?.(socket.userId);
+      } catch (err) {
+        // A hook failure must never break socket registration.
+        console.error('[ConnectionRegistry] onFirstUserSocket threw:', err);
       }
-      userSet.add(socket);
     }
   }
 
@@ -78,9 +97,13 @@ export class ConnectionRegistry {
     }
     if (socket.userId) {
       const userSet = this.userSockets.get(socket.userId);
-      if (userSet) {
-        userSet.delete(socket);
-        if (userSet.size === 0) this.userSockets.delete(socket.userId);
+      if (userSet && userSet.delete(socket) && userSet.size === 0) {
+        this.userSockets.delete(socket.userId);
+        try {
+          this.onLastUserSocket?.(socket.userId);
+        } catch (err) {
+          console.error('[ConnectionRegistry] onLastUserSocket threw:', err);
+        }
       }
     }
   }
@@ -115,13 +138,7 @@ export class ConnectionRegistry {
    * Cleanup happens via disconnect(), which already removes userSockets.
    */
   registerUser(socket: PlinkSocket): void {
-    if (!socket.userId) return;
-    let userSet = this.userSockets.get(socket.userId);
-    if (!userSet) {
-      userSet = new Set();
-      this.userSockets.set(socket.userId, userSet);
-    }
-    userSet.add(socket);
+    this.addUserSocket(socket);
   }
 
   /**

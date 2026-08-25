@@ -180,12 +180,43 @@ function parseQueue(raw: string | null): QueuedMedia[] {
   }
 }
 
+// Обе Map жили без эвикции: ключ на каждую когда-либо жившую комнату, до
+// 50 элементов с URL в каждом — за месяцы аптайма это утечка. Пустая очередь
+// теперь удаляет ключ (обычный финал комнаты), а на потолке вытесняется
+// самая давняя по записи комната (delete→set держит Map в порядке свежести).
+const FALLBACK_MAX_ROOMS = 500;
+
+function setFallback(roomId: string, queue: QueuedMedia[]): void {
+  fallbackQueues.delete(roomId);
+  if (queue.length === 0) return;
+  if (fallbackQueues.size >= FALLBACK_MAX_ROOMS) {
+    const oldest = fallbackQueues.keys().next().value;
+    if (oldest !== undefined) fallbackQueues.delete(oldest);
+  }
+  setFallback(roomId, queue);
+}
+
+function setPending(roomId: string, items: QueuedMedia[]): void {
+  pendingEnqueues.delete(roomId);
+  if (items.length === 0) return;
+  if (pendingEnqueues.size >= FALLBACK_MAX_ROOMS) {
+    const oldest = pendingEnqueues.keys().next().value;
+    if (oldest !== undefined) {
+      // Здесь теряются подтверждённые клиенту элементы — это плата за потолок
+      // памяти при многочасовом отказе Redis. Громко, чтобы было видно в логах.
+      console.warn('[roomQueue] pending overflow, dropping room', oldest);
+      pendingEnqueues.delete(oldest);
+    }
+  }
+  pendingEnqueues.set(roomId, items);
+}
+
 /** Запомнить элемент, не доехавший до Redis, для последующей досылки. */
 function rememberPending(roomId: string, entry: QueuedMedia): void {
   const pending = pendingEnqueues.get(roomId) ?? [];
   pending.push(entry);
   while (pending.length > MAX_QUEUE) pending.shift();
-  pendingEnqueues.set(roomId, pending);
+  setPending(roomId, pending);
 }
 
 /** Досылка в Redis элементов, записанных во время сбоя. Никогда не бросает. */
@@ -204,7 +235,7 @@ async function flushPendingEnqueues(roomId: string): Promise<void> {
       );
     } catch (e: any) {
       // Redis всё ещё недоступен — неотправленный хвост ждёт следующего раза.
-      pendingEnqueues.set(roomId, pending.slice(i));
+      setPending(roomId, pending.slice(i));
       console.warn('[roomQueue] pending flush failed:', e?.message || e);
       return;
     }
@@ -221,7 +252,7 @@ export async function getRoomQueue(roomId: string): Promise<QueuedMedia[]> {
       const pending = pendingEnqueues.get(roomId);
       const merged = pending && pending.length > 0 ? [...queue, ...pending] : queue;
       // Держим аварийный кэш тёплым, но читаем всегда из Redis.
-      fallbackQueues.set(roomId, merged);
+      setFallback(roomId, merged);
       return merged;
     } catch {
       /* fail-open: Redis недоступен — отвечаем из памяти процесса */
@@ -247,7 +278,7 @@ export async function enqueueRoomMedia(
         String(QUEUE_TTL_SECONDS),
       )) as string;
       const queue = parseQueue(encoded);
-      fallbackQueues.set(roomId, queue);
+      setFallback(roomId, queue);
       return queue;
     } catch (e: any) {
       console.warn('[roomQueue] enqueue via Redis failed, using memory:', e?.message || e);
@@ -291,7 +322,7 @@ export async function reorderRoomQueue(
         String(QUEUE_TTL_SECONDS),
       )) as string;
       const queue = parseQueue(encoded);
-      fallbackQueues.set(roomId, queue);
+      setFallback(roomId, queue);
       return queue;
     } catch (e: any) {
       console.warn('[roomQueue] reorder via Redis failed, using memory:', e?.message || e);
@@ -312,7 +343,7 @@ export async function reorderRoomQueue(
   for (const item of current) {
     if (!taken.has(item.id)) result.push(item);
   }
-  fallbackQueues.set(roomId, result);
+  setFallback(roomId, result);
   return result;
 }
 
@@ -326,9 +357,7 @@ async function mutateRoomQueue(
   if (op === 'remove') {
     const pending = pendingEnqueues.get(roomId);
     if (pending?.some((p) => p.id === itemId)) {
-      const left = pending.filter((p) => p.id !== itemId);
-      if (left.length > 0) pendingEnqueues.set(roomId, left);
-      else pendingEnqueues.delete(roomId);
+      setPending(roomId, pending.filter((p) => p.id !== itemId));
     }
   }
   if (redis) {
@@ -343,7 +372,7 @@ async function mutateRoomQueue(
         String(QUEUE_TTL_SECONDS),
       )) as string;
       const queue = parseQueue(encoded);
-      fallbackQueues.set(roomId, queue);
+      setFallback(roomId, queue);
       return queue;
     } catch (e: any) {
       console.warn(`[roomQueue] ${op} via Redis failed, using memory:`, e?.message || e);
@@ -360,7 +389,7 @@ async function mutateRoomQueue(
       queue.unshift(item);
     }
   }
-  fallbackQueues.set(roomId, queue);
+  setFallback(roomId, queue);
   return queue;
 }
 
@@ -381,7 +410,7 @@ function enqueueInMemory(roomId: string, entry: QueuedMedia): QueuedMedia[] {
   } else {
     queue.push(entry);
   }
-  fallbackQueues.set(roomId, queue);
+  setFallback(roomId, queue);
   return queue;
 }
 

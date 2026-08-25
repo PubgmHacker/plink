@@ -1,4 +1,5 @@
 import { prisma } from '../config/db.js';
+import { redis } from '../config/redis.js';
 import { pushToUser } from '../services/pushService.js';
 import { validateBody } from '../middleware/validate.js';
 import { dmSendBody } from '../schemas/requests.js';
@@ -76,14 +77,35 @@ function aggregateReactions(
 }
 
 export default async function messageRoutes(fastify) {
-  // Telegram-style typing indicator: in-memory, self-expiring, no DB writes.
-  // Key `${typistId}:${peerId}` -> last ping (ms since epoch).
+  // Telegram-style typing indicator: self-expiring, no DB writes.
+  // Первичное хранилище — Redis (SET PX): пинг, записанный репликой A, должен
+  // быть виден GET-опросу на реплике B. In-memory Map — fallback без Redis
+  // (юнит-тесты, локальная разработка); ключ `${typistId}:${peerId}` -> last ping (ms).
   const TYPING_TTL_MS = 6000;
   const typingMap = new Map<string, number>();
   const pruneTyping = () => {
     if (typingMap.size < 1000) return;
     const cutoff = Date.now() - TYPING_TTL_MS;
     for (const [k, t] of typingMap) { if (t < cutoff) typingMap.delete(k); }
+  };
+  const markTyping = async (typistId: string, peerId: string): Promise<void> => {
+    if (redis) {
+      try {
+        await redis.set(`dm:typing:${typistId}:${peerId}`, '1', 'PX', TYPING_TTL_MS);
+        return;
+      } catch { /* Redis мигнул — держим индикатор хотя бы в пределах реплики */ }
+    }
+    pruneTyping();
+    typingMap.set(`${typistId}:${peerId}`, Date.now());
+  };
+  const isTyping = async (typistId: string, peerId: string): Promise<boolean> => {
+    if (redis) {
+      try {
+        return (await redis.exists(`dm:typing:${typistId}:${peerId}`)) === 1;
+      } catch { /* fallback ниже */ }
+    }
+    const last = typingMap.get(`${typistId}:${peerId}`) ?? 0;
+    return Date.now() - last < TYPING_TTL_MS;
   };
 
   // «печатает…» рассылалось любому по id — в обход блокировок.
@@ -136,12 +158,16 @@ export default async function messageRoutes(fastify) {
 
   // GET /messages/unread — inbox summary for chat list (Telegram-style sort)
   // Returns last message + unread count per friend (including read threads).
-  fastify.get('/messages/unread', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+  fastify.get('/messages/unread', {
+    preHandler: [fastify.authenticate],
+    // Клиент дёргает инбокс с многих экранов (запуск, сайдбар, friends view,
+    // выход из чата) — лимит как у соседних read-ручек, всплески переживает.
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const me = request.user.id;
 
     // Инбокс собирался по последним 800 DM (take: 800) —
     // один болтливый тред вытеснял остальные чаты вместе с их unread-счётчиками.
-    // Теперь один запрос: DISTINCT ON по собеседнику + COUNT непрочитанных, без лимита.
     type UnreadRow = {
       friendId: string;
       unreadCount: number;
@@ -160,44 +186,64 @@ export default async function messageRoutes(fastify) {
           : rawPreview.slice(0, 80);
     };
 
+    // Ревью 21.08.2026: прежний CTE читал ВСЮ историю DM пользователя на каждый
+    // опрос инбокса (WHERE senderID = me OR receiverID = me → DISTINCT ON) —
+    // стоимость росла с историей без потолка. Теперь стоимость привязана к
+    // числу ДРУЗЕЙ, не сообщений:
+    //   • unread — один range-scan по (receiverID, isRead, senderID), размер =
+    //     числу непрочитанных (мало по определению);
+    //   • последнее сообщение — LATERAL по списку друзей, 2 индексные пробы
+    //     (senderID, receiverID, createdAt) LIMIT 1 на друга.
+    // Семантика сузилась сознательно: треды с НЕ-друзьями больше не отдаются.
+    // Клиент (DMChatService.unreadByFriend → V4FriendsView) рендерит инбокс
+    // только по друзьям — строки для экс-друзей и так были мёртвым грузом.
+    // Серверного кэша тут нет намеренно: клиент зовёт refreshUnread() сразу
+    // после закрытия чата (mark-read), кэш возвращал бы только что снятый
+    // бейдж. Индексы — миграция 20260821130000_dm_inbox_lateral.
     let rows: UnreadRow[] | null = null;
     try {
       rows = await prisma.$queryRaw<UnreadRow[]>`
-        WITH mine AS (
-          SELECT
-            CASE WHEN m."senderID" = ${me} THEN m."receiverID" ELSE m."senderID" END AS peer,
-            m."receiverID" AS receiver_id,
-            m."isRead"     AS is_read,
-            m."content"    AS content,
-            m."mediaType"  AS media_type,
-            m."createdAt"  AS created_at
-          FROM "DirectMessage" m
-          WHERE (m."senderID" = ${me} OR m."receiverID" = ${me})
-            AND COALESCE(NOT (m."deletedForIDs" @> ARRAY[${me}::text]), TRUE)
-        ),
-        peers AS (
-          SELECT * FROM mine WHERE peer IS NOT NULL AND peer <> ${me}
-        ),
-        last_msg AS (
-          SELECT DISTINCT ON (peer) peer, content, media_type, created_at
-          FROM peers
-          ORDER BY peer, created_at DESC
+        WITH friends AS (
+          SELECT f."friendID" AS peer FROM "Friendship" f WHERE f."userID" = ${me}
+          UNION
+          SELECT f."userID"   AS peer FROM "Friendship" f WHERE f."friendID" = ${me}
         ),
         unread AS (
-          SELECT peer, COUNT(*)::int AS unread_count
-          FROM peers
-          WHERE receiver_id = ${me} AND is_read = FALSE
-          GROUP BY peer
+          SELECT m."senderID" AS peer, COUNT(*)::int AS unread_count
+          FROM "DirectMessage" m
+          WHERE m."receiverID" = ${me}
+            AND m."isRead" = FALSE
+            AND COALESCE(NOT (m."deletedForIDs" @> ARRAY[${me}::text]), TRUE)
+          GROUP BY m."senderID"
+        ),
+        last_msg AS (
+          SELECT fr.peer, l.content, l.media_type, l.created_at
+          FROM friends fr
+          JOIN LATERAL (
+            SELECT d.content, d.media_type, d.created_at FROM (
+              (SELECT m."content" AS content, m."mediaType" AS media_type, m."createdAt" AS created_at
+                 FROM "DirectMessage" m
+                WHERE m."senderID" = ${me} AND m."receiverID" = fr.peer
+                  AND COALESCE(NOT (m."deletedForIDs" @> ARRAY[${me}::text]), TRUE)
+                ORDER BY m."createdAt" DESC LIMIT 1)
+              UNION ALL
+              (SELECT m."content" AS content, m."mediaType" AS media_type, m."createdAt" AS created_at
+                 FROM "DirectMessage" m
+                WHERE m."senderID" = fr.peer AND m."receiverID" = ${me}
+                  AND COALESCE(NOT (m."deletedForIDs" @> ARRAY[${me}::text]), TRUE)
+                ORDER BY m."createdAt" DESC LIMIT 1)
+            ) d ORDER BY d.created_at DESC LIMIT 1
+          ) l ON TRUE
         )
         SELECT
-          l.peer                      AS "friendId",
+          lm.peer                     AS "friendId",
           COALESCE(u.unread_count, 0) AS "unreadCount",
-          l.content                   AS "content",
-          l.media_type                AS "mediaType",
-          l.created_at                AS "lastAt"
-        FROM last_msg l
-        LEFT JOIN unread u ON u.peer = l.peer
-        ORDER BY l.created_at DESC
+          lm.content                  AS "content",
+          lm.media_type               AS "mediaType",
+          lm.created_at               AS "lastAt"
+        FROM last_msg lm
+        LEFT JOIN unread u ON u.peer = lm.peer
+        ORDER BY lm.created_at DESC
       `;
     } catch (e: any) {
       // Ревью 26.07.2026: на фолбэк уходим ТОЛЬКО при drift схемы. Таймаут/обрыв
@@ -513,7 +559,7 @@ export default async function messageRoutes(fastify) {
 
     // ИИ-модератор в личке — активный мут и фильтр матов
     {
-      const dmMutedSec = muteRemainingSec('dm', request.user.id);
+      const dmMutedSec = await muteRemainingSec('dm', request.user.id);
       if (dmMutedSec > 0) {
         return reply.status(403).send({
           error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
@@ -522,7 +568,7 @@ export default async function messageRoutes(fastify) {
         });
       }
       if (containsProfanity(content)) {
-        const seconds = muteUser('dm', request.user.id, 'profanity');
+        const seconds = await muteUser('dm', request.user.id, 'profanity');
         void auditModeration({
           roomId: `dm:${receiverId}`,
           messageId: `dm-${Date.now()}`,
@@ -709,7 +755,7 @@ export default async function messageRoutes(fastify) {
 
       // Мут и фильтр матов действуют и на голосовые (капшен)
       {
-        const dmMutedSec = muteRemainingSec('dm', me);
+        const dmMutedSec = await muteRemainingSec('dm', me);
         if (dmMutedSec > 0) {
           return reply.status(403).send({
             error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
@@ -718,7 +764,7 @@ export default async function messageRoutes(fastify) {
           });
         }
         if (typeof body.content === 'string' && containsProfanity(body.content)) {
-          const seconds = muteUser('dm', me, 'profanity');
+          const seconds = await muteUser('dm', me, 'profanity');
           void auditModeration({
             roomId: `dm:${receiverId}`,
             messageId: `dmv-${Date.now()}`,
@@ -933,7 +979,7 @@ export default async function messageRoutes(fastify) {
       }
 
       // ИИ-модератор — мут и NSFW-проверка фото в личке
-      const dmMutedSec = muteRemainingSec('dm', me);
+      const dmMutedSec = await muteRemainingSec('dm', me);
       if (dmMutedSec > 0) {
         return reply.status(403).send({
           error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
@@ -943,7 +989,7 @@ export default async function messageRoutes(fastify) {
       }
       const imageCheck = await moderateImage(parsed.dataUrl);
       if (imageCheck.nsfw) {
-        const seconds = muteUser('dm', me, 'nsfw_image', 600);
+        const seconds = await muteUser('dm', me, 'nsfw_image', 600);
         void auditModeration({
           roomId: `dm:${receiverId}`,
           messageId: `dmp-${Date.now()}`,
@@ -958,7 +1004,7 @@ export default async function messageRoutes(fastify) {
         });
       }
       if (typeof body.content === 'string' && containsProfanity(body.content)) {
-        const seconds = muteUser('dm', me, 'profanity');
+        const seconds = await muteUser('dm', me, 'profanity');
         return reply.status(403).send({
           error: `Мут на ${seconds} сек за нецензурную лексику`,
           code: 'MODERATION_MUTED',
@@ -1346,7 +1392,7 @@ export default async function messageRoutes(fastify) {
       }
       // Редактирование проходит ту же модерацию, что и отправка
       {
-        const dmMutedSec = muteRemainingSec('dm', me);
+        const dmMutedSec = await muteRemainingSec('dm', me);
         if (dmMutedSec > 0) {
           return reply.status(403).send({
             error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
@@ -1355,7 +1401,7 @@ export default async function messageRoutes(fastify) {
           });
         }
         if (containsProfanity(content)) {
-          const seconds = muteUser('dm', me, 'profanity');
+          const seconds = await muteUser('dm', me, 'profanity');
           void auditModeration({
             roomId: `dm:edit`,
             messageId: `dme-${Date.now()}`,
@@ -1455,14 +1501,13 @@ export default async function messageRoutes(fastify) {
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request: any, reply: any) => {
-      pruneTyping();
       const me = request.user.id;
       const friendId = typeof request.params?.friendId === 'string' ? request.params.friendId : '';
       // При блокировке/невалидном id отвечаем успехом, но ничего не рассылаем
       if (!(await canNotifyTyping(me, friendId))) {
         return reply.send({ success: true });
       }
-      typingMap.set(`${me}:${friendId}`, Date.now());
+      await markTyping(me, friendId);
       try {
         (fastify as any).gateway?.notifyUser(friendId, {
           type: 'dm.event',
@@ -1476,10 +1521,15 @@ export default async function messageRoutes(fastify) {
 
   fastify.get(
     '/messages/dm/:friendId/typing',
-    { preHandler: [fastify.authenticate] },
+    {
+      preHandler: [fastify.authenticate],
+      // Опрос идёт раз в ~2с на открытом чате — лимит с запасом, но не даёт
+      // одному клиенту крутить EXISTS в цикле (глобальный лимитер выключен).
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+    },
     async (request: any, reply: any) => {
-      const last = typingMap.get(`${request.params.friendId}:${request.user.id}`) ?? 0;
-      reply.send({ typing: Date.now() - last < TYPING_TTL_MS });
+      const friendId = typeof request.params?.friendId === 'string' ? request.params.friendId : '';
+      reply.send({ typing: await isTyping(friendId, request.user.id) });
     }
   );
 }

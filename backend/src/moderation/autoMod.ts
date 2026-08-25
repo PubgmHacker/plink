@@ -5,6 +5,7 @@
 // Аудит пишется в AIModerationAudit (уже есть в схеме).
 
 import { prisma } from '../config/db.js';
+import { redis } from '../config/redis.js';
 
 export const MOD_POLICY_VERSION = 'm16-automod-1';
 
@@ -42,7 +43,12 @@ export function violatesContentPolicy(raw: string): boolean {
   return FORBIDDEN_CONTENT_PATTERNS.some((re) => re.test(text));
 }
 
-// ── Муты (in-memory; Railway — один инстанс; при рестарте муты сгорают — приемлемо для МВП)
+// ── Муты. Первичное хранилище — Redis (муты и страйки должны быть видимы со
+// ВСЕХ реплик: мут, выданный REST-роутом на реплике A, обязан останавливать
+// WS-сообщения на реплике B, а эскалация — считать страйки суммарно).
+// In-memory карты остаются как fallback: без REDIS_URL (юнит-тесты, локальная
+// разработка) и при ошибке Redis модерация продолжает работать в пределах
+// процесса, а не отключается.
 
 type MuteEntry = { until: number; reason: string; strikes: number };
 const mutes = new Map<string, MuteEntry>();
@@ -72,8 +78,22 @@ function pruneExpired(now: number): void {
   }
 }
 
-/** Замутить. Эскалация: 1-й страйк 60с, 2-й — 3 мин, 3+ — 10 мин (в окне 10 мин). */
-export function muteUser(scope: string, userId: string, reason: string, baseSeconds = 60): number {
+/** Эскалация: 1-й страйк — baseSeconds, 2-й — 3 мин, 3+ — 10 мин. */
+function escalationSeconds(count: number, baseSeconds: number): number {
+  return count >= 3 ? 600 : count === 2 ? 180 : baseSeconds;
+}
+
+// INCR страйков + окно 10 мин ставится атомарно и только если TTL ещё нет
+// (фиксированное окно от первого страйка, как у in-memory версии). Ветка
+// PTTL < 0 страхует от осиротевшего ключа без TTL после сбоя между командами.
+const STRIKE_LUA = `
+local c = redis.call('INCR', KEYS[1])
+if c == 1 or redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return c`;
+
+function muteUserLocal(scope: string, userId: string, reason: string, baseSeconds: number): number {
   const key = muteKey(scope, userId);
   const now = Date.now();
   pruneExpired(now);
@@ -81,13 +101,12 @@ export function muteUser(scope: string, userId: string, reason: string, baseSeco
   let count = 1;
   if (s && now - s.windowStart < STRIKE_WINDOW_MS) count = s.count + 1;
   strikes.set(key, { count, windowStart: s && now - s.windowStart < STRIKE_WINDOW_MS ? s.windowStart : now });
-  const seconds = count >= 3 ? 600 : count === 2 ? 180 : baseSeconds;
+  const seconds = escalationSeconds(count, baseSeconds);
   mutes.set(key, { until: now + seconds * 1000, reason, strikes: count });
   return seconds;
 }
 
-/** Остаток мута в секундах (0 — не замучен). */
-export function muteRemainingSec(scope: string, userId: string): number {
+function muteRemainingSecLocal(scope: string, userId: string): number {
   const key = muteKey(scope, userId);
   const now = Date.now();
   pruneExpired(now);
@@ -101,6 +120,50 @@ export function muteRemainingSec(scope: string, userId: string): number {
     return 0;
   }
   return remaining;
+}
+
+/** Замутить. Эскалация: 1-й страйк 60с (baseSeconds), 2-й — 3 мин, 3+ — 10 мин (в окне 10 мин). */
+export async function muteUser(
+  scope: string,
+  userId: string,
+  reason: string,
+  baseSeconds = 60,
+): Promise<number> {
+  if (redis) {
+    try {
+      const key = muteKey(scope, userId);
+      const count = Number(
+        await redis.eval(STRIKE_LUA, 1, `automod:strikes:${key}`, String(STRIKE_WINDOW_MS)),
+      );
+      const seconds = escalationSeconds(count, baseSeconds);
+      await redis.set(
+        `automod:mute:${key}`,
+        JSON.stringify({ reason, strikes: count }),
+        'PX',
+        seconds * 1000,
+      );
+      return seconds;
+    } catch (e) {
+      console.warn('[autoMod] redis mute failed, falling back to in-memory:', (e as Error).message);
+    }
+  }
+  return muteUserLocal(scope, userId, reason, baseSeconds);
+}
+
+/** Остаток мута в секундах (0 — не замучен). */
+export async function muteRemainingSec(scope: string, userId: string): Promise<number> {
+  if (redis) {
+    try {
+      const pttl = await redis.pttl(`automod:mute:${muteKey(scope, userId)}`);
+      // -2 нет ключа, -1 ключ без TTL (не бывает — SET всегда с PX). Redis
+      // доступен и говорит «мута нет» — локальную карту НЕ читаем: она может
+      // хранить устаревший мут, снятый на другой реплике.
+      return pttl > 0 ? Math.ceil(pttl / 1000) : 0;
+    } catch (e) {
+      console.warn('[autoMod] redis mute check failed, using in-memory:', (e as Error).message);
+    }
+  }
+  return muteRemainingSecLocal(scope, userId);
 }
 
 /** Только для тестов/диагностики: размер in-memory карт автомодерации. */

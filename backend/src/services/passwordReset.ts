@@ -88,7 +88,56 @@ export async function deleteResetCode(email: string): Promise<void> {
   memory.delete(k);
 }
 
+// Атомарный consume: проверка хэша, инкремент попыток и решение о локе — один
+// Lua-скрипт. Прежний GET→SETEX был неатомарен (параллельные неверные попытки
+// читали одно значение attempts и теряли инкременты — брутфорсу доставалось
+// больше пяти попыток) и, главное, каждый неверный ввод перезаписывал ключ с
+// ПОЛНЫМ TTL — окно жизни кода продлевалось каждым же неверным вводом.
+// KEEPTTL сохраняет исходные 15 минут; атомарность скрипта гарантирует, что
+// ключ не истечёт между GET и SET (часы Redis заморожены на время скрипта).
+// Сравнение хэшей тут строковое, не timing-safe: значение — SHA-256 от
+// (pepper, email, code), без прообраза префикс не подобрать, а сетевой джиттер
+// на порядки больше разницы сравнения строк внутри Redis.
+const CONSUME_LUA = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 'expired' end
+local ok, slot = pcall(cjson.decode, raw)
+if not ok or type(slot) ~= 'table' or type(slot.hash) ~= 'string' then
+  redis.call('DEL', KEYS[1])
+  return 'expired'
+end
+local max = tonumber(ARGV[2])
+local attempts = tonumber(slot.attempts) or 0
+if attempts >= max then
+  redis.call('DEL', KEYS[1])
+  return 'locked'
+end
+if slot.hash == ARGV[1] then
+  redis.call('DEL', KEYS[1])
+  return 'ok'
+end
+attempts = attempts + 1
+if attempts >= max then
+  redis.call('DEL', KEYS[1])
+  return 'locked'
+end
+slot.attempts = attempts
+redis.call('SET', KEYS[1], cjson.encode(slot), 'KEEPTTL')
+return 'invalid'
+`;
+
 export async function consumeResetCode(email: string, code: string): Promise<ConsumeResult> {
+  const expectedHash = hashResetCode(email, code, pepper());
+
+  if (redis) {
+    const res = await redis.eval(CONSUME_LUA, 1, keyFor(email), expectedHash, String(MAX_ATTEMPTS));
+    if (res === 'ok' || res === 'invalid' || res === 'expired' || res === 'locked') return res;
+    console.warn('[passwordReset] unexpected consume result:', res);
+    return 'expired';
+  }
+
+  // Память (dev / один инстанс): процесс один, гонка ограничена microtask-
+  // окном, а memory-writeSlot и так сохраняет исходный expiresAt.
   const slot = await readSlot(email);
   if (!slot) return 'expired';
   if (slot.attempts >= MAX_ATTEMPTS) {
@@ -96,7 +145,7 @@ export async function consumeResetCode(email: string, code: string): Promise<Con
     return 'locked';
   }
   const expected = Buffer.from(slot.hash);
-  const got = Buffer.from(hashResetCode(email, code, pepper()));
+  const got = Buffer.from(expectedHash);
   const match = expected.length === got.length && crypto.timingSafeEqual(expected, got);
   if (!match) {
     slot.attempts += 1;
@@ -121,6 +170,7 @@ export async function sendPasswordResetEmail(to: string, code: string): Promise<
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         from,
         to: [to],

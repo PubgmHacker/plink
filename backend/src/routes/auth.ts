@@ -405,7 +405,9 @@ export default async function authRoutes(fastify) {
 
       const verified = await verifyRefreshToken(fastify, refreshToken);
       if (!verified) {
-        await alertWarning('Invalid refresh token attempt');
+        // Fire-and-forget: неаутентифицированный путь не должен ждать Slack —
+        // иначе задержка вебхука превращается в задержку 401 для всех.
+        void alertWarning('Invalid refresh token attempt');
         return reply.status(401).send({ error: 'Invalid or expired refresh token' });
       }
 

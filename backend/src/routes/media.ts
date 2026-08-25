@@ -43,7 +43,7 @@ export default async function mediaRoutes(fastify, _options) {
     url.searchParams.set('key', YOUTUBE_API_KEY);
 
     try {
-      const resp = await fetch(url.toString());
+      const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
       if (!resp.ok) {
         const errText = await resp.text();
         console.error('YouTube API error', resp.status, errText);
@@ -106,7 +106,7 @@ export default async function mediaRoutes(fastify, _options) {
     url.searchParams.set('key', YOUTUBE_API_KEY);
 
     try {
-      const resp = await fetch(url.toString());
+      const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
       if (!resp.ok) {
         const errText = await resp.text();
         console.error('YouTube trending API error', resp.status, errText);
@@ -204,7 +204,7 @@ export default async function mediaRoutes(fastify, _options) {
       // Fallback: oEmbed (только метаданные, без streamURL)
       try {
         const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
-        const resp = await fetch(oembedUrl);
+        const resp = await fetch(oembedUrl, { signal: AbortSignal.timeout(8_000) });
         if (resp.ok) {
           const data: any = await resp.json();
           return reply.send({
@@ -370,11 +370,27 @@ export default async function mediaRoutes(fastify, _options) {
       upstreamHeaders['Range'] = rangeHeader;
     }
 
+    // Клиент ушёл (пауза, seek, выход из комнаты) → рвём upstream-запрос.
+    // Без этого pump продолжает выкачивать ВСЁ видео с googlevideo в никуда:
+    // осиротевшие закачки жгут трафик Railway и держат соединения. Слушатель
+    // ставим ДО fetch — дисконнект в фазе заголовков тоже должен абортить.
+    // Общего таймаута тут нет намеренно: это стриминг, легитимная закачка
+    // длится сколько угодно; зависший upstream добьёт клиентский таймаут
+    // AVPlayer → close → abort.
+    const upstreamAbort = new AbortController();
+    reply.raw.once('close', () => upstreamAbort.abort());
+
     try {
-      const upstreamRes = await fetch(upstreamUrl, { headers: upstreamHeaders, redirect: 'follow' });
+      const upstreamRes = await fetch(upstreamUrl, {
+        headers: upstreamHeaders,
+        redirect: 'follow',
+        signal: upstreamAbort.signal,
+      });
 
       if (!upstreamRes.ok && upstreamRes.status !== 206) {
         console.error('[youtube-stream] upstream error', upstreamRes.status);
+        // Тело не читаем — отменяем явно, чтобы не держать соединение до GC.
+        upstreamRes.body?.cancel().catch(() => {});
         return reply.status(502).send({ error: `Upstream returned ${upstreamRes.status}` });
       }
 
@@ -397,17 +413,42 @@ export default async function mediaRoutes(fastify, _options) {
         if (cr) respHeaders['Content-Range'] = cr;
         raw.writeHead(upstreamRes.status, respHeaders);
 
+        // Ждём, пока сокет клиента разгрузит буфер (drain) либо закроется.
+        // Возврат false у raw.write() без этого ожидания = бесконтрольный
+        // рост памяти: googlevideo отдаёт быстрее, чем iPhone на сотовой
+        // сети читает, и вся разница копится в буфере процесса.
+        const waitDrainOrClose = () =>
+          new Promise<void>((resolve) => {
+            const done = () => {
+              raw.off('drain', done);
+              raw.off('close', done);
+              resolve();
+            };
+            raw.once('drain', done);
+            raw.once('close', done);
+          });
+
         const pump = async () => {
           try {
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              if (!raw.destroyed) raw.write(Buffer.from(value));
+              if (raw.destroyed) break; // клиент ушёл — качать дальше незачем
+              if (!raw.write(Buffer.from(value))) {
+                await waitDrainOrClose();
+                if (raw.destroyed) break;
+              }
             }
-            raw.end();
-          } catch (err: any) {
-            console.error('[youtube-stream] pump error', err.message);
             if (!raw.destroyed) raw.end();
+          } catch (err: any) {
+            // AbortError — штатный путь: клиент отключился, мы сами оборвали
+            // upstream. Логируем только настоящие ошибки.
+            if (err?.name !== 'AbortError') {
+              console.error('[youtube-stream] pump error', err.message);
+            }
+            if (!raw.destroyed) raw.end();
+          } finally {
+            reader.cancel().catch(() => {});
           }
         };
         pump();
@@ -416,6 +457,8 @@ export default async function mediaRoutes(fastify, _options) {
         return reply.send(Buffer.alloc(0));
       }
     } catch (e: any) {
+      // Клиент отключился в фазе заголовков → наш же abort. Не ошибка.
+      if (e?.name === 'AbortError' && reply.raw.destroyed) return reply;
       console.error('[youtube-stream] proxy error', e.message);
       return reply.status(500).send({ error: 'Stream proxy failed: ' + e.message });
     }

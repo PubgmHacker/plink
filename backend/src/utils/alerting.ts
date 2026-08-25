@@ -17,6 +17,9 @@ export async function alertSlack(
       body: JSON.stringify({
         text: `${emoji} [${severity.toUpperCase()}] [${config.NODE_ENV}] ${message}`,
       }),
+      // Алерты зовутся и из обработчиков uncaughtException/critical-путей —
+      // зависший вебхук не должен held весь процесс. 5с достаточно Slack'у.
+      signal: AbortSignal.timeout(5000),
     });
   } catch (e: any) {
     console.error('[Alerting] Slack failed:', e.message);

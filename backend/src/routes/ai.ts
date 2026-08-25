@@ -189,6 +189,9 @@ export default async function aiRoutes(fastify) {
           'HTTP-Referer': 'https://plink.app',
           'X-Title': 'Plink AI Assistant',
         },
+        // LLM может думать долго, но не бесконечно: зависший OpenRouter не
+        // должен держать HTTP-хендлер (и слот rate-limit клиента) вечно.
+        signal: AbortSignal.timeout(30_000),
         body: JSON.stringify({
           model: AI_MODEL,
           messages: [
@@ -438,6 +441,7 @@ export default async function aiRoutes(fastify) {
           'HTTP-Referer': 'https://plink.app',
           'X-Title': 'Plink AI Recap',
         },
+        signal: AbortSignal.timeout(30_000),
         body: JSON.stringify({
           model: AI_MODEL,
           messages: [
@@ -490,6 +494,7 @@ export default async function aiRoutes(fastify) {
           'HTTP-Referer': 'https://plink.app',
           'X-Title': 'Plink AI',
         },
+        signal: AbortSignal.timeout(30_000),
         body: JSON.stringify({
           model: AI_MODEL,
           messages: [

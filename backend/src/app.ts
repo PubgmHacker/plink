@@ -13,7 +13,7 @@ import * as Sentry from '@sentry/node';
 import { config, assertProductionInvariants, resolveCorsOrigin } from './config/index.js';
 import { JoseConfig } from './utils/jose-config.js';
 import { prisma } from './config/db.js';
-import { redis } from './config/redis.js';
+import { redis, rateLimitRedis } from './config/redis.js';
 import { authenticate } from './middleware/auth.js';
 import { securityHeaders } from './middleware/security.js';
 import { register } from './services/metrics.js';
@@ -82,6 +82,10 @@ export async function buildApp(): Promise<{
     trustProxy: true,
     // Voice notes (base64 m4a ~up to 60s) + avatars need >1MB default
     bodyLimit: 2 * 1024 * 1024,
+    // На close рвём ИДЛОВЫЕ keep-alive сокеты (iOS держит их подолгу — без
+    // этого graceful shutdown ждал их таймаута и упирался в watchdog).
+    // Не `true`: активным запросам даём дожить, страховка — watchdog 15с.
+    forceCloseConnections: 'idle',
     logger: {
       level: config.isProduction ? 'info' : 'debug',
       transport: config.isProduction ? undefined : { target: 'pino-pretty' },
@@ -149,12 +153,69 @@ export async function buildApp(): Promise<{
       allowedIss: config.JWT_ISSUER,
     } as any,
   } as any);
+  // Rate limits are counted in Redis, not in this process's memory.
+  //
+  // Without a store the plugin uses a per-process LRU, so every limit silently
+  // multiplies by the number of instances: `max: 100` across four Railway replicas
+  // is 400 requests a minute per IP, and which bucket a request lands in depends on
+  // which replica the proxy picked. At one instance that is invisible. It is the
+  // first thing that breaks on scaling out, and it breaks quietly — the limit still
+  // *works*, it is just wrong by a factor nobody wrote down. Measured, two instances
+  // against one Redis: 8 alternating requests against `max: 5` yields 5 × 200 and
+  // 3 × 429, one key, TTL 59990ms. Per-process it was 8 × 200.
+  //
+  // `skipOnError: true` is a deliberate trade, and it is worth being precise about
+  // what it does: on a store error the plugin leaves the counter at 0 and **allows
+  // the request**. It does not fall back to the local LRU — there is no degraded
+  // counting, only no counting. That is still the right default here, because the
+  // alternative (the plugin's own) is to propagate the error, and an unreachable
+  // Redis would then 500 every rate-limited route: an outage caused by the component
+  // meant to prevent one. Losing limits during a Redis outage is recoverable; losing
+  // the API is not.
+  //
+  // The cost of that trade is a window at boot. `rateLimitRedis` is created with
+  // `enableOfflineQueue: false`, so commands issued before the socket reaches `ready`
+  // reject immediately, and with skipOnError those requests are unlimited. A ping()
+  // here cannot close that window: with the offline queue disabled the ping itself
+  // rejects instantly while the socket is still connecting — the slow-connect case
+  // is exactly the case it fails in. Measured with a real buildApp() boot under
+  // load: the ping variant warned and let every pre-connect request through
+  // unlimited. So wait for the client's own `ready` event, bounded at 3s: a live
+  // Redis is ready in milliseconds and the wait costs nothing; a down Redis delays
+  // boot by 3s instead of blocking it, and the limiter then stays out of the way
+  // (skipOnError) until the client reconnects.
+  if (rateLimitRedis && rateLimitRedis.status !== 'ready') {
+    const client = rateLimitRedis;
+    const ready = await new Promise<boolean>((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const onReady = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      timer = setTimeout(() => {
+        client.off('ready', onReady);
+        resolve(false);
+      }, 3_000);
+      client.once('ready', onReady);
+    });
+    if (!ready) {
+      // Not fatal: skipOnError means the limiter stays out of the way rather than
+      // failing requests. Loud, because until it connects, limits are not enforced.
+      fastify.log.warn(
+        '[rate-limit] Redis not ready 3s into boot — limits are NOT enforced until it connects',
+      );
+    }
+  }
+
   await fastify.register(rateLimit, {
     global: false,
     max: 100,
     timeWindow: '1 minute',
     cache: 10000,
     ban: 5,
+    ...(rateLimitRedis ? { redis: rateLimitRedis } : {}),
+    skipOnError: true,
+    nameSpace: 'plink-rl:',
   });
   await fastify.register(websocket, { options: { maxPayload: 64 * 1024 } });
 
@@ -322,7 +383,7 @@ export async function buildApp(): Promise<{
       status: ok ? 'ok' : 'degraded',
       timestamp: Date.now(),
       uptime: process.uptime(),
-      version: '2.0.0-stabilize',
+      version: '2.1.0-sync',
       environment: config.NODE_ENV,
       services: {
         database: db ? 'up' : 'down',

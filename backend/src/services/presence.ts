@@ -1,6 +1,7 @@
 // src/services/presence.ts — realtime presence + DB lastSeen for friends list
 import type { WebSocket } from 'ws';
 import { prisma } from '../config/db.js';
+import { redis } from '../config/redis.js';
 
 interface UserPresence {
   userId: string;
@@ -13,6 +14,17 @@ interface UserPresence {
 /** Consider online if activity within this window (REST heartbeat / WS).
  *  ~10 min matches Telegram-ish “still around” feel; heartbeat is 30–60s. */
 export const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
+
+// DB writes are debounced: same-state refreshes (online → online) hit Postgres
+// at most once per window. Every profile poll used to run an UPDATE — at 10k
+// clients polling /users/me that alone is a constant write stream, and each
+// deploy's reconnect storm doubled it. State CHANGES still write immediately.
+const TOUCH_DEBOUNCE_MS = 60_000;
+// Cross-replica online marker. Refreshed by connects/heartbeats/pongs,
+// checked before writing isOnline=false: a disconnect on replica A must not
+// mark a user offline while replica B still holds their live socket.
+const MARKER_TTL_MS = 90_000;
+const MARKER_DEBOUNCE_MS = 30_000;
 
 async function touchUserDb(userId: string, online: boolean) {
   try {
@@ -39,6 +51,39 @@ async function touchUserDb(userId: string, online: boolean) {
 class PresenceService {
   private users = new Map<string, UserPresence>();
   private sockets = new Map<WebSocket, string>();
+  // userId → last DB touch (what + when); userId → last Redis marker refresh.
+  private lastTouch = new Map<string, { at: number; online: boolean }>();
+  private lastMarker = new Map<string, number>();
+
+  private async touchDebounced(userId: string, online: boolean): Promise<void> {
+    const now = Date.now();
+    const prev = this.lastTouch.get(userId);
+    if (prev && prev.online === online && now - prev.at < TOUCH_DEBOUNCE_MS) return;
+    this.lastTouch.set(userId, { at: now, online });
+    await touchUserDb(userId, online);
+  }
+
+  /** Fire-and-forget refresh of the cross-replica online marker. */
+  private markOnline(userId: string): void {
+    if (!redis) return;
+    const now = Date.now();
+    if (now - (this.lastMarker.get(userId) ?? 0) < MARKER_DEBOUNCE_MS) return;
+    this.lastMarker.set(userId, now);
+    void redis
+      .set(`presence:online:${userId}`, String(now), 'PX', MARKER_TTL_MS)
+      .catch(() => this.lastMarker.delete(userId));
+  }
+
+  /** A fresh marker written by ANOTHER replica's heartbeat means "still online". */
+  private async isOnlineElsewhere(userId: string): Promise<boolean> {
+    if (!redis) return false;
+    try {
+      return (await redis.exists(`presence:online:${userId}`)) === 1;
+    } catch {
+      // Redis down — can't tell; assume offline (same as pre-marker behavior).
+      return false;
+    }
+  }
 
   connect(socket: WebSocket, userId: string, username: string) {
     let p = this.users.get(userId);
@@ -55,7 +100,8 @@ class PresenceService {
     p.lastSeen = Date.now();
     p.username = username || p.username;
     this.sockets.set(socket, userId);
-    void touchUserDb(userId, true);
+    this.markOnline(userId);
+    void this.touchDebounced(userId, true);
   }
 
   joinRoom(socket: WebSocket, roomId: string) {
@@ -136,7 +182,8 @@ class PresenceService {
     }
     p.lastSeen = Date.now();
     if (username) p.username = username;
-    await touchUserDb(userId, true);
+    this.markOnline(userId);
+    await this.touchDebounced(userId, true);
   }
 
   disconnect(socket: WebSocket) {
@@ -148,10 +195,14 @@ class PresenceService {
 
     setTimeout(() => {
       const still = Array.from(this.sockets.values()).some((id) => id === userId);
-      if (!still) {
-        this.users.delete(userId);
-        void touchUserDb(userId, false);
-      }
+      if (still) return;
+      this.users.delete(userId);
+      this.lastMarker.delete(userId);
+      // Offline write only when no OTHER replica has refreshed the user's
+      // marker — otherwise a rebalanced client flaps isOnline in the DB.
+      void this.isOnlineElsewhere(userId).then((elsewhere) => {
+        if (!elsewhere) void this.touchDebounced(userId, false);
+      });
     }, 30_000);
   }
 
@@ -160,6 +211,9 @@ class PresenceService {
     if (!userId) return;
     const p = this.users.get(userId);
     if (p) p.lastSeen = Date.now();
+    // Long-lived WS (a 2h movie) sends no REST heartbeats — pongs are the only
+    // thing keeping the cross-replica marker alive for these clients.
+    this.markOnline(userId);
   }
 
   /** Deliver a JSON/string payload to all live sockets of a user (friend events). */
@@ -187,8 +241,18 @@ class PresenceService {
       const still = Array.from(this.sockets.values()).some((id) => id === userId);
       if (!still && now - p.lastSeen > TIMEOUT) {
         this.users.delete(userId);
-        void touchUserDb(userId, false);
+        this.lastMarker.delete(userId);
+        void this.isOnlineElsewhere(userId).then((elsewhere) => {
+          if (!elsewhere) void this.touchDebounced(userId, false);
+        });
       }
+    }
+    // Debounce bookkeeping must not outlive the users it tracks.
+    for (const [userId, t] of this.lastTouch) {
+      if (now - t.at > ONLINE_THRESHOLD_MS) this.lastTouch.delete(userId);
+    }
+    for (const [userId, at] of this.lastMarker) {
+      if (now - at > ONLINE_THRESHOLD_MS) this.lastMarker.delete(userId);
     }
   }
 }

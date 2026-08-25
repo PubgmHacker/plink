@@ -78,6 +78,10 @@ function makePrisma(opts: {
         return { userID: first.userID, user: { username: first.username } };
       },
       count: async () => state.participants.length,
+      groupBy: async () =>
+        state.participants.length > 0
+          ? [{ roomID: ROOM_ID, _count: { roomID: state.participants.length } }]
+          : [],
       deleteMany: async () => {
         state.participants = [];
         return {};

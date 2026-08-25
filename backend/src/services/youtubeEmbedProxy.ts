@@ -45,6 +45,7 @@ export async function proxyYouTubeEmbed(videoId: string): Promise<string> {
       'Accept': 'text/html,application/xhtml+xml',
       'Accept-Language': 'en-US,en;q=0.9',
     },
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!response.ok) {

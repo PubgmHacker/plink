@@ -2,6 +2,7 @@
 // Полноценный мессенджер внутри приложения синхронного просмотра.
 // Встроенный ИИ-модератор: муты за маты, NSFW-фото, запрещённые названия.
 import { prisma } from '../config/db.js';
+import { redis } from '../config/redis.js';
 import {
   containsProfanity,
   violatesContentPolicy,
@@ -81,7 +82,7 @@ export default async function groupRoutes(fastify) {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
   }, async (request, reply) => {
-    const { title, memberIds } = request.body ?? {};
+    const { title, memberIds, clientRequestId } = request.body ?? {};
     const cleanTitle = typeof title === 'string' ? title.trim().slice(0, MAX_TITLE) : '';
     if (!cleanTitle) {
       return reply.status(400).send({ error: 'Название беседы обязательно' });
@@ -97,6 +98,34 @@ export default async function groupRoutes(fastify) {
       ? memberIds.filter((x: unknown) => typeof x === 'string').slice(0, MAX_MEMBERS - 1)
       : [];
     const me = request.user.id;
+    // Идемпотентность: на флаки-сети POST успевает создать беседу, а ответ
+    // теряется таймаутом — повторный тап приносил второй POST и дубль беседы.
+    const idemKey =
+      typeof clientRequestId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(clientRequestId)
+        ? `group:create:${me}:${clientRequestId}`
+        : null;
+    if (idemKey && redis) {
+      try {
+        const existingId = await redis.get(idemKey);
+        if (existingId) {
+          const existing = await prisma.groupChat.findUnique({
+            where: { id: existingId },
+            include: { members: true },
+          });
+          if (existing) {
+            return reply.status(201).send({
+              id: existing.id,
+              title: existing.title,
+              ownerID: existing.ownerID,
+              createdAt: existing.createdAt,
+              memberCount: existing.members.length,
+            });
+          }
+        }
+      } catch {
+        // Redis недоступен — создаём без идемпотентности, это не повод падать
+      }
+    }
     // Фильтруем несуществующих/удалённых и блокировки
     const ids = await filterAddableMemberIds(me, rawIds);
     const group = await prisma.groupChat.create({
@@ -112,6 +141,23 @@ export default async function groupRoutes(fastify) {
       },
       include: { members: true },
     });
+    if (idemKey && redis) {
+      try {
+        await redis.set(idemKey, group.id, 'EX', 900);
+      } catch {
+        // ключ не записался — хуже обычного create не станет
+      }
+    }
+    // Живое уведомление добавленным: беседа появляется в их списке сразу,
+    // а не после ручного обновления (создатель перечитывает список сам).
+    for (const uid of ids) {
+      if (uid === me) continue;
+      (fastify as any).gateway?.notifyUser(uid, {
+        type: 'group:created',
+        groupId: group.id,
+        title: group.title,
+      });
+    }
     return reply.status(201).send({
       id: group.id,
       title: group.title,
@@ -334,7 +380,7 @@ export default async function groupRoutes(fastify) {
 
     // Активный мут в этой беседе
     const scope = `group:${groupId}`;
-    const mutedSec = muteRemainingSec(scope, me);
+    const mutedSec = await muteRemainingSec(scope, me);
     if (mutedSec > 0) {
       return reply.status(403).send({
         error: `Вы замучены модератором ещё на ${mutedSec} сек`,
@@ -360,7 +406,7 @@ export default async function groupRoutes(fastify) {
     if (image) {
       const check = await moderateImage(image.dataUrl);
       if (check.nsfw) {
-        const seconds = muteUser(scope, me, 'nsfw_image', 600);
+        const seconds = await muteUser(scope, me, 'nsfw_image', 600);
         void auditModeration({
           roomId: scope,
           messageId: `grp-${Date.now()}`,
@@ -378,7 +424,7 @@ export default async function groupRoutes(fastify) {
 
     // Маты → мут с эскалацией
     if (content && containsProfanity(content)) {
-      const seconds = muteUser(scope, me, 'profanity');
+      const seconds = await muteUser(scope, me, 'profanity');
       void auditModeration({
         roomId: scope,
         messageId: `grp-${Date.now()}`,

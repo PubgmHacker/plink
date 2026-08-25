@@ -14,6 +14,8 @@ export type PrismaLike = {
     findFirst: (args: any) => Promise<any>;
     count: (args: any) => Promise<number>;
     deleteMany: (args: any) => Promise<any>;
+    // Свип считает участников всех активных комнат одним запросом.
+    groupBy: (args: any) => Promise<any[]>;
   };
   watchHistory: {
     createMany: (args: any) => Promise<any>;
@@ -182,10 +184,36 @@ export async function sweepOrphanRooms(
   prisma: PrismaLike,
   redis: any | null | undefined
 ): Promise<number> {
+  // Лидер-лок на цикл: без него каждая реплика гоняет свип каждые 60с —
+  // одинаковые запросы × N и гонки двух endRoom по одной комнате. TTL 55с
+  // (< интервала), владельца не помним: следующий цикл возьмёт замок заново.
+  // Redis нет/мигнул — свипим без замка: дубль безопасен (endRoom проверяет
+  // isActive, deleteMany идемпотентен), а потерять свип целиком хуже.
+  if (redis) {
+    try {
+      const got = await redis.set('plink:sweep:rooms:lock', '1', 'PX', 55_000, 'NX');
+      if (got !== 'OK') return 0;
+    } catch {
+      /* замок не взялся из-за сбоя Redis — продолжаем без него */
+    }
+  }
+
   const activeRooms = await prisma.room.findMany({
     where: { isActive: true },
     select: { id: true, hostID: true, name: true, mediaItem: true, createdAt: true },
   });
+  if (activeRooms.length === 0) return 0;
+
+  // Один groupBy вместо COUNT-запроса на каждую комнату (N+1: при сотнях
+  // активных комнат свип сам становился нагрузкой, ради снятия которой писался).
+  const counts = await prisma.roomParticipant.groupBy({
+    by: ['roomID'],
+    where: { roomID: { in: activeRooms.map((r) => r.id) } },
+    _count: { roomID: true },
+  });
+  const participantsByRoom = new Map<string, number>(
+    counts.map((c: any) => [c.roomID, Number(c._count?.roomID ?? 0)])
+  );
 
   const now = Date.now();
   // Ghost rows after force-quit: no WS leases for a while, but DB participants remain.
@@ -194,7 +222,7 @@ export async function sweepOrphanRooms(
   const orphanIds: string[] = [];
 
   for (const room of activeRooms) {
-    const pCount = await prisma.roomParticipant.count({ where: { roomID: room.id } });
+    const pCount = participantsByRoom.get(room.id) ?? 0;
     if (pCount === 0) {
       orphanIds.push(room.id);
       continue;

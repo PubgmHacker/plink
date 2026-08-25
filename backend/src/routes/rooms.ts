@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { hashRoomPassword, verifyRoomPassword, requireHost } from '../middleware/security.js';
 import { validateBody } from '../middleware/validate.js';
 import { roomCreateBody, roomJoinBody, roomQueueReorderBody } from '../schemas/requests.js';
-import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
+import { cacheGet, cacheSet, cacheDel, redis } from '../config/redis.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
 import {
     endRoom,
@@ -788,6 +788,23 @@ export default async function roomRoutes(fastify, _options) {
             where: { roomID: id, userID: request.user.id }
         });
 
+        // Detach any live sockets this user still has in the room — cross-replica,
+        // via the same participant.kicked event kicks use (the gateway closes the
+        // sockets and does NOT broadcast it to the room). Without this, a client
+        // that leaves via REST but keeps its WS open would still pass the
+        // socket-local membership check in messageRouter. Best-effort: a Redis
+        // blip must not fail the leave that already happened in the DB.
+        {
+            const gw = (fastify as any).gateway;
+            if (gw) {
+                try {
+                    await gw.kickUser(id, request.user.id, request.user.id);
+                } catch (err) {
+                    request.log?.warn?.({ err, roomId: id }, 'leave: socket detach publish failed');
+                }
+            }
+        }
+
         const { roomEnded, newHostId, newHostName } = await maybeEndAfterLeave(prisma, id, request.user.id);
 
         // Хост ушёл, но комната жива — надо сказать об этом
@@ -1055,7 +1072,6 @@ export default async function roomRoutes(fastify, _options) {
         // ZSET: plink:room:{roomId}:activeUsers with userId → latestLeaseExpiresAtMs.
         // This Lua script prunes expired entries from both the index and
         // individual user keys, then returns active userIds.
-        const redis = fastify.redis;
         let activeUserIds: string[] = [];
         if (redis) {
             const now = Date.now();
@@ -1135,7 +1151,7 @@ export default async function roomRoutes(fastify, _options) {
         }
 
         // ИИ-модератор — активный мут и NSFW-проверка фото перед публикацией
-        const modMutedSec = muteRemainingSec(roomId, request.user.id);
+        const modMutedSec = await muteRemainingSec(roomId, request.user.id);
         if (modMutedSec > 0) {
             return reply.status(403).send({
                 error: `Вы замучены модератором ещё на ${modMutedSec} сек`,
@@ -1145,7 +1161,7 @@ export default async function roomRoutes(fastify, _options) {
         }
         const imageCheck = await moderateImage(parsed.dataUrl);
         if (imageCheck.nsfw) {
-            const seconds = muteUser(roomId, request.user.id, 'nsfw_image', 600);
+            const seconds = await muteUser(roomId, request.user.id, 'nsfw_image', 600);
             const sysId = crypto.randomUUID();
             void auditModeration({
                 roomId,
@@ -1179,7 +1195,7 @@ export default async function roomRoutes(fastify, _options) {
             });
         }
         if (typeof body.content === 'string' && containsProfanity(body.content)) {
-            const seconds = muteUser(roomId, request.user.id, 'profanity');
+            const seconds = await muteUser(roomId, request.user.id, 'profanity');
             return reply.status(403).send({
                 error: `Мут на ${seconds} сек за нецензурную лексику`,
                 code: 'MODERATION_MUTED',
@@ -1391,7 +1407,7 @@ export default async function roomRoutes(fastify, _options) {
     // Every 60s so ghost rooms don't linger on Home/Friends.
     setInterval(async () => {
         try {
-            const n = await sweepOrphanRooms(prisma, (fastify as any).redis);
+            const n = await sweepOrphanRooms(prisma, redis);
             if (n > 0) {
                 await cacheDel(ROOMS_CACHE_KEY);
                 console.log(`[cleanup] Soft-ended ${n} empty/abandoned room(s)`);
@@ -1404,7 +1420,7 @@ export default async function roomRoutes(fastify, _options) {
     // One-shot sweep shortly after boot (clear stale from previous deploys)
     setTimeout(async () => {
         try {
-            const n = await sweepOrphanRooms(prisma, (fastify as any).redis);
+            const n = await sweepOrphanRooms(prisma, redis);
             if (n > 0) {
                 await cacheDel(ROOMS_CACHE_KEY);
                 console.log(`[cleanup] Boot sweep: soft-ended ${n} room(s)`);

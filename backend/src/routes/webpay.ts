@@ -56,6 +56,9 @@ async function ykFetch(path: string, init: { method?: string; body?: unknown; id
       ...(init.idempotenceKey ? { 'Idempotence-Key': init.idempotenceKey } : {}),
     },
     body: init.body ? JSON.stringify(init.body) : undefined,
+    // ЮKassa обычно отвечает за секунды; зависший платёжный API не должен
+    // держать HTTP-хендлер бесконечно. Idempotence-Key делает ретрай безопасным.
+    signal: AbortSignal.timeout(15_000),
   });
   const json: any = await res.json().catch(() => null);
   return { status: res.status, json };

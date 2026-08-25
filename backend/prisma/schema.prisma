@@ -188,7 +188,8 @@ model DirectMessage {
   deletedForIDs String[]  @default([])
   pins        DirectMessagePin[]
 
-  @@index([senderID, receiverID])
+  @@index([senderID, receiverID, createdAt])
+  @@index([receiverID, isRead, senderID])
   @@index([receiverID, createdAt])
   @@index([senderID, createdAt])
 }
@@ -236,6 +237,7 @@ model FriendRequest {
   createdAt  DateTime @default(now())
 
   @@unique([fromUserID, toUserID])
+  @@index([toUserID, status])
 }
 
 model Friendship {
@@ -252,6 +254,7 @@ model Friendship {
 
   @@unique([userID, friendID])
   @@index([userID, isPinned, pinOrder])
+  @@index([friendID])
 }
 
 model WatchHistory {
@@ -262,6 +265,9 @@ model WatchHistory {
   room      Room?    @relation(fields: [roomID], references: [id], onDelete: SetNull)
   mediaTitle String?
   watchedAt DateTime @default(now())
+
+  @@index([userID, watchedAt])
+  @@index([userID, roomID, watchedAt])
 }
 
 model PlaybackState {

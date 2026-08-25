@@ -27,6 +27,7 @@ import { config, NATIVE_CLIENT_ORIGINS } from '../config/index.js';
 import { RoomStateStore } from './roomStateStore.js';
 import { RoomPubSub, type RoomStateListener } from './roomPubSub.js';
 import { RoomEventBus, type RoomEvent, type RoomEventListener } from './roomEventBus.js';
+import { UserEventBus } from './userEventBus.js';
 import { ConnectionRegistry, type PlinkSocket } from './connectionRegistry.js';
 import { createMessageRouter, makeSessionReady, makeParticipantEvent } from './messageRouter.js';
 import { Heartbeat } from './heartbeat.js';
@@ -46,6 +47,7 @@ export class RealtimeGateway {
   private readonly store: RoomStateStore;
   private readonly pubsub: RoomPubSub;
   private readonly eventBus: RoomEventBus;
+  private readonly userBus: UserEventBus;
   private readonly router: ReturnType<typeof createMessageRouter>;
   private readonly heartbeat: Heartbeat;
 
@@ -57,6 +59,23 @@ export class RealtimeGateway {
     this.store = new RoomStateStore(deps.redis);
     this.pubsub = new RoomPubSub(config.REDIS_URL);
     this.eventBus = new RoomEventBus(config.REDIS_URL);
+    // User-level fanout (DM pushes, friend events, typing). Subscribed
+    // per-user while this replica holds at least one socket for the user —
+    // the registry hooks below track exactly that transition. Delivery from
+    // another replica lands on the same local path notifyUser uses.
+    this.userBus = new UserEventBus(config.REDIS_URL, (userId, payload) => {
+      this.registry.sendToUser(userId, payload);
+    });
+    this.registry.onFirstUserSocket = (userId) => {
+      void this.userBus.subscribe(userId).catch((err) => {
+        console.warn('[Gateway] user channel subscribe failed:', (err as Error).message);
+      });
+    };
+    this.registry.onLastUserSocket = (userId) => {
+      void this.userBus.unsubscribe(userId).catch((err) => {
+        console.warn('[Gateway] user channel unsubscribe failed:', (err as Error).message);
+      });
+    };
 
     this.router = createMessageRouter({
       prisma: deps.prisma,
@@ -74,6 +93,11 @@ export class RealtimeGateway {
     // handles cleanup via 'close' event).
     this.heartbeat = new Heartbeat(deps.wss, {
       onPong: (socket) => {
+        // Refreshes local lastSeen + the cross-replica online marker.
+        // Without this, a client that only holds a WS (2h movie, no REST
+        // polls) loses its marker and a disconnect elsewhere can write
+        // isOnline=false for a live user.
+        presence.heartbeat(socket);
         // Coalesced refresh — onPong fires every 20s, lease TTL is 60s,
         // so refreshing on every pong keeps lease alive with 3x margin.
         if (socket.activeRoomId && socket.userId && socket.connectionId) {
@@ -385,13 +409,23 @@ export class RealtimeGateway {
     // decrement and participant.left publish. No late handler replacement.
   }
 
-  /** DM fanout: deliver an event to all of a user's sockets on this replica. */
+  /**
+   * DM fanout: deliver an event to all of a user's sockets — local ones
+   * synchronously, other replicas' via the user:<id> pub/sub channel.
+   * Returns the LOCAL delivery count; cross-replica delivery is
+   * fire-and-forget (the peer replica's subscriber does its own sendToUser).
+   */
   notifyUser(userId: string, payload: unknown): number {
+    let sent = 0;
     try {
-      return this.registry.sendToUser(userId, payload);
+      sent = this.registry.sendToUser(userId, payload);
     } catch {
-      return 0;
+      /* local fanout must not throw into route handlers */
     }
+    void this.userBus.publish(userId, payload).catch((err) => {
+      console.warn('[Gateway] user event publish failed:', (err as Error).message);
+    });
+    return sent;
   }
 
   // ── Redis ZSET connection leases with heartbeat refresh ────────
@@ -787,7 +821,7 @@ return count
         s.close(1001, 'Server shutting down');
       } catch {}
     }
-    await Promise.allSettled([this.pubsub.close(), this.eventBus.close()]);
+    await Promise.allSettled([this.pubsub.close(), this.eventBus.close(), this.userBus.close()]);
   }
 }
 

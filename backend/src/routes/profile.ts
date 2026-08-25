@@ -92,15 +92,20 @@ export default async function profileRoutes(fastify) {
         if (f.userID === me) friendIds.add(f.friendID);
         else friendIds.add(f.userID);
       }
-      const payload = JSON.stringify({
+      const payload = {
         type: 'friend.avatar_updated',
         userId: me,
         avatarURL,
         avatarVersion: now.getTime(),
         at: now.toISOString(),
-      });
+      };
+      // gateway.notifyUser доставляет и на другие реплики (user:<id> pub/sub);
+      // presence.sendToUser — локальный fallback, если gateway не поднялся.
+      const gw = (fastify as any).gateway;
+      const encoded = JSON.stringify(payload);
       for (const fid of friendIds) {
-        presence.sendToUser(fid, payload);
+        if (gw) gw.notifyUser(fid, payload);
+        else presence.sendToUser(fid, encoded);
       }
     } catch (e: any) {
       console.warn('[avatar] friend notify failed:', e?.message || e);
