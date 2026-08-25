@@ -170,6 +170,7 @@ export default async function profileRoutes(fastify) {
         avatarData: true,
         displayName: true,
         coverURL: true,
+        statusText: true,
         isPremium: true,
         premiumUntil: true,
         role: true,
@@ -189,6 +190,7 @@ export default async function profileRoutes(fastify) {
       avatarData: string | null;
       displayName: string | null;
       coverURL: string | null;
+      statusText: string | null;
       isPremium: boolean;
       premiumUntil: Date | null;
       role: string;
@@ -234,7 +236,7 @@ export default async function profileRoutes(fastify) {
   // Pack v3: PATCH /users/me — обновление username + avatarURL + displayName + coverURL
   // Added displayName + coverURL (Telegram-style naming split).
   fastify.patch('/users/me', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { username, avatarURL, displayName, coverURL } = request.body;
+    const { username, avatarURL, displayName, coverURL, statusText } = request.body;
     const data: any = {};
     if (username && username.trim().length >= 2) data.username = username.trim();
     if (avatarURL !== undefined) data.avatarURL = avatarURL;
@@ -249,6 +251,16 @@ export default async function profileRoutes(fastify) {
       }
     }
     if (coverURL !== undefined) data.coverURL = coverURL;
+    // statusText — Discord-style custom status (≤100 chars). Empty clears it;
+    // oversize is ignored the same way an oversize displayName is.
+    if (statusText !== undefined) {
+      const trimmed = String(statusText).trim();
+      if (trimmed.length === 0) {
+        data.statusText = null;
+      } else if (trimmed.length <= 100) {
+        data.statusText = trimmed;
+      }
+    }
 
     if (Object.keys(data).length === 0) {
       return reply.status(400).send({ error: 'No fields to update' });
@@ -278,7 +290,7 @@ export default async function profileRoutes(fastify) {
       where: { id: request.user.id },
       data,
       select: { id: true, username: true, email: true, avatarURL: true, avatarData: true,
-                displayName: true, coverURL: true,
+                displayName: true, coverURL: true, statusText: true,
                 isPremium: true, premiumUntil: true, role: true, createdAt: true }
     });
     reply.send(updated);
@@ -447,6 +459,7 @@ export default async function profileRoutes(fastify) {
           displayName: true,
           avatarURL: true,
           coverURL: true,
+          statusText: true,
           isOnline: true,
           lastSeenAt: true,
           isPremium: true,
@@ -484,6 +497,7 @@ export default async function profileRoutes(fastify) {
         displayName: 'Удалённый аккаунт',
         avatarURL: null,
         coverURL: null,
+        statusText: null,
         isOnline: false,
         lastSeenAt: null,
         isPremium: false,
@@ -504,6 +518,7 @@ export default async function profileRoutes(fastify) {
       displayName: (raw.displayName as string | null) ?? null,
       avatarURL: (raw.avatarURL as string | null) ?? null,
       coverURL: (raw.coverURL as string | null) ?? null,
+      statusText: (raw.statusText as string | null | undefined) ?? null,
       isOnline: Boolean(raw.isOnline),
       lastSeenAt: (raw.lastSeenAt as Date | null | undefined) ?? null,
       isPremium: Boolean(raw.isPremium),
@@ -563,6 +578,7 @@ export default async function profileRoutes(fastify) {
       displayName: profileUser.displayName ?? profileUser.username,
       avatarURL: profileUser.avatarURL,
       coverURL: profileUser.coverURL,
+      statusText: profileUser.statusText,
       isOnline,
       lastSeenAt,
       isPremium: profileUser.isPremium,
@@ -594,6 +610,7 @@ export default async function profileRoutes(fastify) {
         displayName: true,
         avatarURL: true,
         coverURL: true,
+        statusText: true,
         isOnline: true,
         isPremium: true,
         createdAt: true,
@@ -627,6 +644,7 @@ export default async function profileRoutes(fastify) {
       displayName: user.displayName ?? user.username,
       avatarURL: user.avatarURL,
       coverURL: user.coverURL,
+      statusText: user.statusText,
       isOnline: user.isOnline,
       isPremium: user.isPremium,
       friendsCount,
