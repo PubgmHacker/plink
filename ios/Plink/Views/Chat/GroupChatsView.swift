@@ -160,6 +160,9 @@ struct CreateGroupSheet: View {
     @State private var title = ""
     @State private var selected: Set<String> = []
     @State private var creating = false
+    // Один ключ на жизнь шита: ретрай после сетевого таймаута идёт с тем же
+    // clientRequestId, и сервер не плодит дубль беседы.
+    @State private var clientRequestId = UUID().uuidString
 
     private let theme = V4Theme.saved
 
@@ -233,7 +236,8 @@ struct CreateGroupSheet: View {
                     Task {
                         let ok = await service.createGroup(
                             title: trimmedTitle,
-                            memberIds: Array(selected)
+                            memberIds: Array(selected),
+                            clientRequestId: clientRequestId
                         )
                         creating = false
                         if ok { dismiss() }

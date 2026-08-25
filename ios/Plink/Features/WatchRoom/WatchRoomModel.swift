@@ -566,7 +566,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         let nativeWithinGrace = await withTaskGroup(of: PlaybackSource?.self) { group in
             group.addTask { await nativeTask.value }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 450_000_000)
+                // 450 мс хватало только уже прогретому кэшу: на реальной сети
+                // stream-token + extract + Range-проба идут секунды, embedded
+                // выигрывал всегда — а он тянет googlevideo с телефона напрямую
+                // и на российском IP не играет. Ждём нативный путь через прокси.
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 return nil
             }
             let first = await group.next() ?? nil
@@ -1879,6 +1883,12 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 )
             }
             // Update cursor for confirmed own messages too
+            chatCatchupCursor = chat.messageId
+            return
+        }
+        // Катчап после реконнекта может переслать уже показанные сообщения:
+        // два элемента с одним id в LazyVStack рисуются друг на друге.
+        if chatMessages.contains(where: { $0.messageId == chat.messageId }) {
             chatCatchupCursor = chat.messageId
             return
         }

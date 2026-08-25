@@ -97,13 +97,19 @@ final class GroupChatService: ObservableObject {
     }
 
     @discardableResult
-    func createGroup(title: String, memberIds: [String]) async -> Bool {
-        struct Body: Encodable { let title: String; let memberIds: [String] }
+    func createGroup(title: String, memberIds: [String], clientRequestId: String) async -> Bool {
+        struct Body: Encodable {
+            let title: String
+            let memberIds: [String]
+            // Идемпотентность: таймаут → повторный тап «Создать» несёт тот же
+            // ключ, сервер возвращает уже созданную беседу вместо дубля.
+            let clientRequestId: String
+        }
         do {
             let _: CreatedGroupResp = try await api.request(
                 "groups",
                 method: .post,
-                body: Body(title: title, memberIds: memberIds)
+                body: Body(title: title, memberIds: memberIds, clientRequestId: clientRequestId)
             )
             await loadGroups()
             return true

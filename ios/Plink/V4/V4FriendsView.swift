@@ -260,6 +260,7 @@ struct V4FriendsViewLive: View {
                 await store?.load()
                 await loadRecentRooms()
                 await dmService.refreshUnread()
+                await groupService.loadGroups()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -418,6 +419,7 @@ struct V4FriendsViewLive: View {
                 await store?.refreshQuietly()
                 await loadRecentRooms()
                 await dmService.refreshUnread()
+                await groupService.loadGroups()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
@@ -438,6 +440,9 @@ struct V4FriendsViewLive: View {
                 let foreground = await MainActor.run { UIApplication.shared.applicationState == .active }
                 guard foreground else { continue }
                 await store?.refreshQuietly()
+                // Бесед нет в realtime-доставке: добавленный в беседу узнаёт
+                // о ней только перечитыванием списка — обновляем тем же тактом.
+                await groupService.loadGroups()
             }
         }
         // Unread DMs: realtime + редкий fallback-опрос внутри сервиса

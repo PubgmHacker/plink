@@ -48,6 +48,10 @@ public final class VKPlaybackController: PlaybackControlling {
         config.mediaTypesRequiringUserActionForPlayback = [.audio]
 
         let web = WKWebView(frame: .zero, configuration: config)
+        // Голый UA WKWebView (без суффикса Safari) ВК встречает «проверкой
+        // на робота»; строка мобильного Safari проходит как обычный браузер.
+        web.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
         web.isOpaque = false
         web.backgroundColor = .black
         web.scrollView.isScrollEnabled = false
