@@ -338,7 +338,8 @@ final class ProfileViewModel {
                 username: newName,
                 avatarURL: current.avatarURL,
                 displayName: current.displayName,
-                coverURL: current.coverURL
+                coverURL: current.coverURL,
+                statusText: nil
             )
             user = updated
             authService.updateCachedUser(updated)
@@ -363,7 +364,8 @@ final class ProfileViewModel {
                 username: nil,
                 avatarURL: nil,
                 displayName: trimmed.isEmpty ? "" : trimmed,
-                coverURL: nil
+                coverURL: nil,
+                statusText: nil
             )
             user = updated
             authService.updateCachedUser(updated)
@@ -388,7 +390,8 @@ final class ProfileViewModel {
                 username: username,
                 avatarURL: current.avatarURL,
                 displayName: trimmedDisplay.isEmpty ? "" : trimmedDisplay,
-                coverURL: current.coverURL
+                coverURL: current.coverURL,
+                statusText: nil
             )
             user = updated
             authService.updateCachedUser(updated)

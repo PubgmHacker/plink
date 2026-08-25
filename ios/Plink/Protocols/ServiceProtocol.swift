@@ -15,7 +15,7 @@ protocol AuthServiceProtocol: AnyObject {
     func deleteAccount() async throws
     func fetchCurrentUser() async throws -> User
     func updateCachedUser(_ user: User)
-    func updateProfile(username: String?, avatarURL: String?, displayName: String?, coverURL: String?) async throws -> User
+    func updateProfile(username: String?, avatarURL: String?, displayName: String?, coverURL: String?, statusText: String?) async throws -> User
 }
 
 @MainActor

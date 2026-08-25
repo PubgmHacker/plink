@@ -748,6 +748,10 @@ final class V4ProfileStore {
     private(set) var displayName: String = "Загрузка…"
     private(set) var username: String = ""
     private(set) var email: String = ""
+    /// Discord-статус на карточке профиля. Пустая строка = не задан.
+    /// Мгновенно локально + defaults (рисуется до первого /users/me),
+    /// на сервер — PATCH statusText фоном.
+    private(set) var statusText: String = ""
     private(set) var avatarURL: URL?
     /// Instant local preview (survives dismiss before AsyncImage refetch)
     private(set) var localAvatarImage: UIImage?
@@ -789,6 +793,7 @@ final class V4ProfileStore {
             coverStyle = style
         }
         usesCustomCover = defaults.bool(forKey: "plink_user_cover_custom")
+        statusText = defaults.string(forKey: "plink_user_status_text") ?? ""
         loadLocalCoverFile()
         // Флаг без файла (стёрли данные) — не рисовать пустоту.
         if customCoverImage == nil { usesCustomCover = false }
@@ -817,6 +822,8 @@ final class V4ProfileStore {
         displayName = (user.displayName?.isEmpty == false) ? user.displayName! : user.username
         username = user.username
         email = user.email
+        statusText = user.statusText ?? ""
+        defaults.set(statusText, forKey: "plink_user_status_text")
         isPremium = user.isPremium
         isAdmin = user.isAdmin
         // Раньше сюда уходило собственное поле
@@ -867,6 +874,19 @@ final class V4ProfileStore {
     func selectTheme(_ theme: V4Theme) {
         selectedTheme = theme
         defaults.set(theme.rawValue, forKey: "v4_theme")
+    }
+
+    /// Применить Discord-статус: мгновенно локально, на сервер — фоном.
+    /// Пустая строка стирает статус (сервер превращает «» в NULL).
+    func applyStatus(_ text: String) {
+        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
+        statusText = trimmed
+        defaults.set(trimmed, forKey: "plink_user_status_text")
+        Task { [authService] in
+            if let user = try? await authService.updateProfile(statusText: trimmed) {
+                authService.updateCachedUser(user)
+            }
+        }
     }
 
     /// Применить пресет обложки: мгновенно локально, на сервер — фоном.

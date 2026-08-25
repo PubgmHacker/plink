@@ -7,6 +7,8 @@ struct UserSocialProfile: Codable, Identifiable, Sendable, Equatable {
     let displayName: String?
     let avatarURL: String?
     let coverURL: String?
+    /// Discord-style custom status (nil — не задан или старый бэкенд).
+    let statusText: String?
     let isOnline: Bool?
     let lastSeenAt: Date?
     let isPremium: Bool?

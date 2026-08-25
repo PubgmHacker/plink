@@ -501,19 +501,22 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
         username: String? = nil,
         avatarURL: String? = nil,
         displayName: String? = nil,
-        coverURL: String? = nil
+        coverURL: String? = nil,
+        statusText: String? = nil
     ) async throws -> User {
         struct UpdateBody: Encodable {
             let username: String?
             let avatarURL: String?
             let displayName: String?
             let coverURL: String?
+            let statusText: String?
         }
         let body = UpdateBody(
             username: username,
             avatarURL: avatarURL,
             displayName: displayName,
-            coverURL: coverURL
+            coverURL: coverURL,
+            statusText: statusText
         )
         let user: User = try await api.request("users/me", method: .patch, body: body)
         cacheUser(user)

@@ -71,7 +71,10 @@ struct PlinkApprovedV4Root: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack(alignment:.bottom){
+        // let-разрез: ~25 модификаторов одной цепью тип-чекер уже не осиливал
+        // (приёмник plinkOpenFriendsTab 25.08.2026 стал каплей — «unable to
+        // type-check in reasonable time»). Две половины он проверяет отдельно.
+        let core = ZStack(alignment:.bottom){
             // Plink+ video bg OR standard Canvas — mutually exclusive
             // .id() forces SwiftUI to recreate the view when theme changes
             if let live = PlinkPlusLiveTheme.resolve(liveThemeIndex) {
@@ -223,6 +226,11 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenJoinByCode"))) { _ in
             showJoinByCode = true
         }
+        // 25.08.2026: карточка «Друзья» на лице профиля ведёт на вкладку
+        // «Друзья» (VK-модель: счётчик друзей — это дверь, не цифра).
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenFriendsTab"))) { _ in
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 2 }
+        }
         // 02.08.2026: чат с ИИ — отдельная поверхность над вкладками.
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIChat)) { _ in
             aiChatAutoVoice = false
@@ -234,6 +242,8 @@ struct PlinkApprovedV4Root: View {
             aiChatAutoVoice = true
             showAIChat = true
         }
+
+        core
         .fullScreenCover(isPresented: $showAIChat, onDismiss: { aiChatAutoVoice = false }) {
             V4AIChatView(theme: theme, store: aiStore, autoStartVoice: aiChatAutoVoice)
         }

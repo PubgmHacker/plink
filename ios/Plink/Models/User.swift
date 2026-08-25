@@ -26,6 +26,9 @@ struct User: Codable, Identifiable, Sendable {
     let displayName: String?
     /// Profile cover photo URL (background banner on profile screen).
     let coverURL: String?
+    /// Discord-style custom status shown on the profile card (≤100 chars).
+    /// nil on old backends and when the user has no status set.
+    let statusText: String?
     let isOnline: Bool
     let isPremium: Bool
     /// Авторитетная дата окончания Plink+ с сервера (`GET /users/me`,
@@ -81,6 +84,7 @@ struct User: Codable, Identifiable, Sendable {
             avatarURL: nil,
             displayName: "Alex Films",
             coverURL: nil,
+            statusText: nil,
             isOnline: true,
             isPremium: false,
             role: nil,
@@ -93,6 +97,7 @@ struct User: Codable, Identifiable, Sendable {
         case avatarData
         case displayName
         case coverURL
+        case statusText
         case isOnline, isPremium
         case premiumUntil
         case role, createdAt
@@ -101,6 +106,7 @@ struct User: Codable, Identifiable, Sendable {
     init(id: String, username: String, email: String, avatarURL: String?,
          avatarData: String? = nil,
          displayName: String? = nil, coverURL: String? = nil,
+         statusText: String? = nil,
          isOnline: Bool, isPremium: Bool, premiumUntil: Date? = nil,
          role: String? = nil, createdAt: Date) {
         self.id = id
@@ -110,6 +116,7 @@ struct User: Codable, Identifiable, Sendable {
         self.avatarData = avatarData
         self.displayName = displayName
         self.coverURL = coverURL
+        self.statusText = statusText
         self.isOnline = isOnline
         self.isPremium = isPremium
         self.premiumUntil = premiumUntil
@@ -127,6 +134,7 @@ struct User: Codable, Identifiable, Sendable {
         // Optional fields, fall back gracefully on old backends
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         coverURL = try container.decodeIfPresent(String.self, forKey: .coverURL)
+        statusText = try container.decodeIfPresent(String.self, forKey: .statusText)
         isOnline = try container.decodeIfPresent(Bool.self, forKey: .isOnline) ?? true
         isPremium = try container.decodeIfPresent(Bool.self, forKey: .isPremium) ?? false
         premiumUntil = Self.decodeLenientDate(container, forKey: .premiumUntil)
@@ -208,6 +216,7 @@ struct User: Codable, Identifiable, Sendable {
         try container.encodeIfPresent(avatarData, forKey: .avatarData)
         try container.encodeIfPresent(displayName, forKey: .displayName)
         try container.encodeIfPresent(coverURL, forKey: .coverURL)
+        try container.encodeIfPresent(statusText, forKey: .statusText)
         try container.encode(isOnline, forKey: .isOnline)
         try container.encode(isPremium, forKey: .isPremium)
         try container.encodeIfPresent(premiumUntil, forKey: .premiumUntil)

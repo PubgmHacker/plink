@@ -28,8 +28,12 @@ struct V4ProfileViewLive: View {
     @State private var showSettings = false
     @State private var showAccountCenter = false
     @State private var showCoverPicker = false
+    @State private var showStatusEditor = false
     /// Счётчик у строки «История просмотров» обновляется вживую.
     @ObservedObject private var historyManager = WatchHistoryManager.shared
+    /// Карточка «Друзья» — живой стек аватарок из общего менеджера
+    /// (тот же список, что и вкладка «Друзья»; загрузка — фоном в .task).
+    @ObservedObject private var friendManager = FriendManager.shared
 
     /// Счётчики шапки — тот же /users/me/profile, что и экран статистики.
     @State private var social: UserSocialProfile?
@@ -49,6 +53,8 @@ struct V4ProfileViewLive: View {
                 avatarActionRow
                 identityBlock
                 countersCard
+                friendsCard
+                    .padding(.top, 12)
                 settingsLinkGroup
                     .padding(.top, 14)
                 sectionsGroup
@@ -74,12 +80,20 @@ struct V4ProfileViewLive: View {
                 case "personal": showPersonalData = true
                 case "account": showAccountCenter = true
                 case "cover": showCoverPicker = true
+                case "status": showStatusEditor = true
                 default: break
                 }
             }
             #endif
         }
         .task { await reloadSocial() }
+        .task {
+            // Стек аватарок в карточке «Друзья»: если вкладку «Друзья» ещё
+            // не открывали, список пуст — подтягиваем сами.
+            if friendManager.friends.isEmpty {
+                await friendManager.loadFriends()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .plinkProfileDidUpdate)) { note in
             if let user = note.object as? User {
                 store?.applyUser(user)
@@ -106,6 +120,9 @@ struct V4ProfileViewLive: View {
         }
         .sheet(isPresented: $showCoverPicker) {
             V4CoverPickerSheet(theme: theme, store: store)
+        }
+        .sheet(isPresented: $showStatusEditor) {
+            V4StatusEditorSheet(theme: theme, store: store)
         }
         .sheet(isPresented: $showAvatarPicker) {
             AvatarPickerSheet(store: store, theme: theme, onAvatarChanged: { url in
@@ -188,40 +205,88 @@ struct V4ProfileViewLive: View {
     /// Ряд под обложкой: аватар наполовину лежит на ней (как в ВК), справа —
     /// «Редактировать» и «Поделиться» по нижней линии аватара.
     private var avatarActionRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 10) {
             avatarBlock
-            Spacer(minLength: 8)
 
-            Button {
-                HapticManager.selection()
-                showPersonalData = true
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("Редактировать")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+            // Колонка справа от аватара: статус-пузырь наверху ложится на
+            // обложку рядом с верхней половиной аватара (модель Discord),
+            // кнопки остаются по нижней линии аватара. Высота = аватару,
+            // чтобы пузырь и кнопки не двигали друг друга.
+            VStack(alignment: .leading, spacing: 0) {
+                statusBubble
+                Spacer(minLength: 8)
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+
+                    Button {
+                        HapticManager.selection()
+                        showPersonalData = true
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Редактировать")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 42, cornerRadius: 14))
+                    .accessibilityHint("Имя, почта и личные данные")
+
+                    if let username = store?.username, !username.isEmpty,
+                       let shareURL = PlinkURLs.profileLink(username) {
+                        ShareLink(item: shareURL) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .buttonStyle(PlinkGlassIconButtonStyle(diameter: 42))
+                        .accessibilityLabel("Поделиться профилем")
+                    }
                 }
             }
-            .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 42, cornerRadius: 14))
-            .accessibilityHint("Имя, почта и личные данные")
-
-            if let username = store?.username, !username.isEmpty,
-               let shareURL = PlinkURLs.profileLink(username) {
-                ShareLink(item: shareURL) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14, weight: .bold))
-                }
-                .buttonStyle(PlinkGlassIconButtonStyle(diameter: 42))
-                .accessibilityLabel("Поделиться профилем")
-            }
+            .frame(height: 96)
         }
         .padding(.horizontal, 18)
         // Нахлёст: ряд поднят на обложку, отрицательный нижний отступ
         // возвращает вертикальный ритм (offset место в layout не освобождает).
         .offset(y: -avatarOverlap)
         .padding(.bottom, -avatarOverlap)
+    }
+
+    /// Статус-пузырь (модель Discord): реплика владельца профиля рядом с
+    /// аватаром, поверх обложки. Пустой — приглашение задать; тап открывает
+    /// редактор. На лице — одна строка, полный текст живёт в редакторе.
+    private var statusBubble: some View {
+        Button {
+            HapticManager.selection()
+            showStatusEditor = true
+        } label: {
+            HStack(spacing: 6) {
+                if store?.statusText.isEmpty != false {
+                    Image(systemName: "plus.bubble.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(V4.muted)
+                    Text("Добавить статус")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                } else {
+                    Text(store?.statusText ?? "")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                }
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            // Речевой пузырь: острее прижатый к аватару нижний угол — хвост
+            // реплики, как у статуса в Discord.
+            .plinkGlass(.control, in: UnevenRoundedRectangle(
+                topLeadingRadius: 16, bottomLeadingRadius: 5,
+                bottomTrailingRadius: 16, topTrailingRadius: 16
+            ), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(store?.statusText.isEmpty != false ? "Добавить статус" : "Статус: \(store?.statusText ?? ""). Изменить")
     }
 
     // MARK: Идентичность
@@ -250,11 +315,42 @@ struct V4ProfileViewLive: View {
                 }
             }
             .padding(.top, 5)
+
+            badgesRow
         }
         .padding(.horizontal, 18)
         .padding(.top, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("screen.profile")
+    }
+
+    /// Капсулы достижений (модель Discord: бейджи под именем). Приходят
+    /// строками с сервера в /users/me/profile, известные коды маппятся в
+    /// ProfileBadge; неизвестные (со старых/новых версий) не рисуем.
+    @ViewBuilder private var badgesRow: some View {
+        let badges = (social?.badges ?? []).compactMap(ProfileBadge.from)
+        if !badges.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(badges, id: \.rawValue) { badge in
+                        HStack(spacing: 5) {
+                            Image(systemName: badge.symbol)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(theme.accentColor)
+                            Text(badge.title)
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(V4.ink)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .plinkGlass(.control, in: Capsule())
+                    }
+                }
+            }
+            .padding(.top, 10)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Достижения: \(badges.map(\.title).joined(separator: ", "))")
+        }
     }
 
     /// Аватар 96 pt с бейджем камеры — редактирование очевидно без слов.
@@ -287,18 +383,20 @@ struct V4ProfileViewLive: View {
                 .overlay(Circle().stroke(V4.canvas, lineWidth: 3))
                 .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
 
-                ZStack {
-                    Circle().fill(theme.accentColor)
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(theme.buttonTextColor)
-                }
-                .frame(width: 30, height: 30)
-                .overlay(Circle().stroke(V4.canvas, lineWidth: 2.5))
+                // Точка присутствия (модель Discord) вместо бейджа камеры:
+                // свой профиль всегда «в сети» — ты на него смотришь.
+                // Редактируемость аватара не потерялась: тап по кругу
+                // по-прежнему открывает пикер (как в ВК, без бейджа).
+                Circle()
+                    .fill(Color(hex: "#23A55A"))
+                    .frame(width: 22, height: 22)
+                    .overlay(Circle().stroke(V4.canvas, lineWidth: 3))
+                    .offset(x: -2, y: -2)
             }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Сменить аватар")
+        .accessibilityValue("В сети")
     }
 
     private func roleChip(_ text: String, _ color: Color) -> some View {
@@ -326,12 +424,12 @@ struct V4ProfileViewLive: View {
             HapticManager.selection()
             showStats = true
         } label: {
+            // «Друзей» здесь больше нет: у друзей своя карточка-дверь ниже
+            // (VK-модель), дублировать цифру в счётчиках — шум.
             HStack(spacing: 0) {
                 counter(social?.watchHoursText ?? "—", "время")
                 counterDivider
                 counter(social.map { "\($0.filmsWatched)" } ?? "—", "фильмов")
-                counterDivider
-                counter(social.map { "\($0.friendsCount)" } ?? "—", "друзей")
                 counterDivider
                 counter(social.map { "\($0.roomsCreated)" } ?? "—", "комнат")
             }
@@ -339,6 +437,88 @@ struct V4ProfileViewLive: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Статистика профиля")
         .accessibilityHint("Открывает подробную статистику и достижения")
+    }
+
+    // MARK: Карточка «Друзья»
+
+    /// Дверь на вкладку «Друзья» (модель ВК: блок друзей со стеком живых
+    /// аватарок прямо в профиле). Аватарки — из общего FriendManager, те же,
+    /// что на вкладке; счётчик — серверный friendsCount из /users/me/profile.
+    private var friendsCard: some View {
+        let alive = friendManager.friends.filter { !$0.deleted }
+        let count = social?.friendsCount ?? alive.count
+        let online = alive.filter(\.isOnline).count
+        return Button {
+            HapticManager.selection()
+            NotificationCenter.default.post(name: Notification.Name("plinkOpenFriendsTab"), object: nil)
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text("Друзья")
+                            .font(.system(size: 16, weight: .heavy))
+                            .tracking(-0.3)
+                            .foregroundStyle(V4.ink)
+                        if count > 0 {
+                            Text("\(count)")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(V4.muted)
+                        }
+                    }
+                    Text(count == 0
+                         ? "Найдите первых друзей"
+                         : (online > 0 ? "\(online) в сети" : "Сейчас никого в сети"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(online > 0 ? Color(hex: "#23A55A") : V4.muted)
+                }
+
+                Spacer(minLength: 8)
+
+                if alive.isEmpty {
+                    Image(systemName: "person.2.badge.plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(theme.accentColor)
+                } else {
+                    // Стек внахлёст: до пяти живых аватарок, кольцо цвета
+                    // канваса отделяет круги друг от друга.
+                    HStack(spacing: -10) {
+                        ForEach(alive.prefix(5)) { friend in
+                            PlinkStableAvatar(
+                                url: PlinkAvatarURL.stable(userId: friend.id, stored: friend.avatarURL),
+                                letter: friend.initials,
+                                size: 34,
+                                userId: friend.id
+                            )
+                            .overlay(Circle().stroke(V4.canvas, lineWidth: 2))
+                        }
+                        if count > 5 {
+                            ZStack {
+                                Circle().fill(V4.canvas)
+                                Text("+\(min(count - 5, 99))")
+                                    .font(.system(size: 11, weight: .heavy))
+                                    .foregroundStyle(V4.muted)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                                    .padding(.horizontal, 3)
+                            }
+                            .frame(width: 34, height: 34)
+                            .overlay(Circle().stroke(V4.line, lineWidth: 1))
+                        }
+                    }
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(V4.muted)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+        .plinkGlass(.control, cornerRadius: 20)
+        .padding(.horizontal, 18)
+        .accessibilityLabel(count == 0 ? "Друзья. Найдите первых друзей" : "Друзья: \(count). \(online) в сети")
+        .accessibilityHint("Открывает вкладку «Друзья»")
     }
 
     private var counterDivider: some View {
@@ -429,6 +609,99 @@ struct V4ProfileViewLive: View {
 
     private func reloadSocial() async {
         social = try? await SocialProfileService.fetchMe()
+    }
+}
+
+// MARK: - Редактор статуса
+
+/// Шит «Свой статус» (модель Discord): одно поле, лимит 100 символов —
+/// как на сервере (PATCH /profile обрезает и превращает «» в NULL).
+/// Сохранение мгновенно локально через store.applyStatus, PATCH — фоном.
+struct V4StatusEditorSheet: View {
+    let theme: V4Theme
+    var store: V4ProfileStore?
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+    private let limit = 100
+
+    private var hadStatus: Bool { store?.statusText.isEmpty == false }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Свой статус")
+                .font(.system(size: 22, weight: .heavy))
+                .tracking(-0.5)
+                .foregroundStyle(V4.ink)
+            Text("Реплика в пузыре рядом с аватаром. Видна всем, кто откроет ваш профиль.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(V4.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+
+            TextField("Чем занимаетесь?", text: $text, axis: .vertical)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(V4.ink)
+                .tint(theme.accentColor)
+                .lineLimit(2...3)
+                .focused($focused)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .plinkGlass(.control, cornerRadius: 16)
+                .padding(.top, 18)
+                .onChange(of: text) { _, newValue in
+                    // Клиентский кламп зеркалит серверный: лишнее не даём
+                    // даже набрать, чтобы сохранённое совпадало с видимым.
+                    if newValue.count > limit { text = String(newValue.prefix(limit)) }
+                }
+
+            Text("\(text.count)/\(limit)")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(V4.muted)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 6)
+
+            Button {
+                HapticManager.selection()
+                store?.applyStatus(text)
+                dismiss()
+            } label: {
+                Text("Сохранить")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 48, cornerRadius: 16))
+            .padding(.top, 14)
+
+            if hadStatus {
+                Button {
+                    HapticManager.selection()
+                    store?.applyStatus("")
+                    dismiss()
+                } label: {
+                    Text("Убрать статус")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(red: 1, green: 0.36, blue: 0.38))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(V4.canvas.ignoresSafeArea())
+        .presentationDetents([.height(hadStatus ? 330 : 300)])
+        .presentationDragIndicator(.visible)
+        .preferredColorScheme(.dark)
+        .onAppear {
+            text = store?.statusText ?? ""
+            // Фокус после выката шита: клавиатура не дёргает анимацию.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { focused = true }
+        }
     }
 }
 
