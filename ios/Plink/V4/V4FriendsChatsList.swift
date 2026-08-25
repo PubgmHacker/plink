@@ -45,7 +45,18 @@ extension V4FriendsViewLive {
     private var unifiedInbox: [InboxItem] {
         let _ = dmService.inboxEpoch
         let _ = pinStore.orderedPinnedIds
-        let dms = orderedFriends.map { InboxItem.dm($0) }
+        // Инбокс — только реальные разговоры. Раньше сюда попадали ВСЕ
+        // друзья (и список чатов превращался в дубль списка друзей со
+        // строками «был(а) N минут назад»); новый разговор начинается
+        // через ✎ в шапке, а не через мёртвую строку в инбоксе.
+        let dms = orderedFriends
+            .filter { friend in
+                dmService.lastActivityAt(for: friend.id) != nil
+                    || dmService.unreadCount(for: friend.id) > 0
+                    || (dmService.lastPreviewByFriend[friend.id]?.isEmpty == false)
+                    || pinStore.isPinned(friend.id)
+            }
+            .map { InboxItem.dm($0) }
         let groups = groupService.groups
             .sorted { ($0.lastMessageDate ?? .distantPast) > ($1.lastMessageDate ?? .distantPast) }
             .map { InboxItem.group($0) }
@@ -56,37 +67,45 @@ extension V4FriendsViewLive {
     }
 
     var chatsBlock: some View {
-        let totalCount = (store?.friends.count ?? 0) + groupService.groups.count
+        let inbox = unifiedInbox
         return VStack(alignment: .leading, spacing: 12) {
+            // Без текстового «Добавить» в заголовке: входы — ✎ и «+» в шапке
+            // хаба, дубль здесь путал.
             sectionHeader(
                 title: "Чаты",
                 icon: "bubble.left.and.bubble.right.fill",
-                count: totalCount > 0 ? totalCount : nil,
-                actionTitle: LocalizationManager.shared.string(.frAdd),
-                action: { showAddFriend = true }
+                count: inbox.isEmpty ? nil : inbox.count,
+                actionTitle: nil,
+                action: nil
             )
 
-            // «Создать беседу» — первая строка внутри общей карточки чатов
-            // (как «Новая группа» в Telegram). Раньше это была отдельная
-            // бордюрная кнопка БЕЗ внешнего горизонтального отступа: при
-            // отступах 16–18 pt у всех соседей она тянулась от кромки до
-            // кромки экрана и выглядела чужеродно.
             sectionCard {
-                createGroupRow
-                if unifiedInbox.isEmpty {
-                    emptyInside(
-                        icon: "bubble.left.and.bubble.right.fill",
-                        title: "Пока нет чатов",
-                        subtitle: "Добавь друга или создай беседу — всё появится здесь",
-                        // Лупа, как у той же кнопки на сегменте «Друзья»:
-                        // одно действие — одна иконка.
-                        ctaIcon: "magnifyingglass",
-                        cta: "Найти друга",
-                        // Чаты — мир людей: сцена-орбита, как у друзей.
-                        style: .orbit
-                    ) { showAddFriend = true }
+                if inbox.isEmpty {
+                    if (store?.friends.isEmpty ?? true) {
+                        emptyInside(
+                            icon: "bubble.left.and.bubble.right.fill",
+                            title: "Пока нет чатов",
+                            subtitle: "Добавь друга — переписки появятся здесь",
+                            // Лупа, как у той же кнопки на сегменте «Друзья»:
+                            // одно действие — одна иконка.
+                            ctaIcon: "magnifyingglass",
+                            cta: "Найти друга",
+                            // Чаты — мир людей: сцена-орбита, как у друзей.
+                            style: .orbit
+                        ) { showAddFriend = true }
+                    } else {
+                        // Друзья есть, переписок нет — зовём написать первым.
+                        emptyInside(
+                            icon: "square.and.pencil",
+                            title: "Пока нет переписок",
+                            subtitle: "Друзья уже здесь — напиши первым, с этого всё и начинается",
+                            ctaIcon: "square.and.pencil",
+                            cta: "Написать",
+                            style: .orbit
+                        ) { showCompose = true }
+                    }
                 } else {
-                    ForEach(unifiedInbox) { item in
+                    ForEach(inbox) { item in
                         switch item {
                         case .dm(let friend):   friendChatRow(friend)
                         case .group(let group): groupChatRow(group)
@@ -109,37 +128,8 @@ extension V4FriendsViewLive {
         }
     }
 
-    /// «Создать беседу» как строка списка (Telegram: «Новая группа» —
-    /// такая же строка, как чаты, а не отдельная кнопка с рамкой).
-    private var createGroupRow: some View {
-        Button {
-            HapticManager.impact(.light)
-            showCreateGroupSheet = true
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(theme.accentColor.opacity(0.16))
-                        .frame(width: 48, height: 48)
-                    V4GlyphIcon(glyph: .people3, size: 15, filled: true, weight: .regular)
-                        .foregroundStyle(theme.accentColor)
-                }
-                Text("Создать беседу")
-                    .font(.system(size: 15.5, weight: .semibold))
-                    .foregroundStyle(theme.accentColor)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Создать групповую беседу")
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 74)
-        }
-    }
+    // «Создать беседу»-строки в инбоксе больше нет: создание переехало в
+    // компоуз (✎ в шапке → «Новая беседа») — список только про разговоры.
 
     /// Telegram-style group chat row (unified inbox)
     @ViewBuilder

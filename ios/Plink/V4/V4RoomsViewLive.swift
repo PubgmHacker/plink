@@ -3,6 +3,10 @@
 // два крупных действия сверху, лента «Друзья в эфире», карточка текущей сессии,
 // один блок «Все комнаты» с сегментами «Открытые / Мои / По коду» и списком
 // широких карточек вместо сетки 2×2.
+//
+// 25.08.2026. Вкладка переименована в «Вечера» и забрала историю
+// «с кем и что смотрели» из хаба «Вместе»: прошлые вечера — это про кино,
+// а не про людей, и им место рядом с живыми комнатами.
 
 import SwiftUI
 import UIKit
@@ -27,6 +31,9 @@ enum V4RoomsSegment: String, CaseIterable, Identifiable {
 struct V4RoomsViewLive: View {
     let theme: V4Theme
     var roomsStore: V4RoomsStore?
+    // Друзья нужны истории: «с кем смотрели» собирается сопоставлением
+    // участников прошлых комнат со списком друзей.
+    var friendsStore: V4FriendsStore? = nil
     let openRoom: (Room) -> Void
     let createRoom: () -> Void
     let joinByCode: () -> Void
@@ -35,6 +42,10 @@ struct V4RoomsViewLive: View {
     @State private var searchExpanded = false
     @State private var segment: V4RoomsSegment = .open
     @Namespace private var segmentNamespace
+
+    // История «с кем и что смотрели» — только завершённые вечера:
+    // живые комнаты уже стоят в основном списке вкладки.
+    @State private var recentRooms: [Room] = []
 
     private var currentUserID: String? {
         AuthService.shared.currentUserValue?.id
@@ -54,18 +65,30 @@ struct V4RoomsViewLive: View {
                     .padding(.bottom, 22)
 
                 content
+
+                recentBlock
             }
             .padding(.bottom, 96)
         }
         .foregroundStyle(V4.ink)
-        .refreshable { await roomsStore?.load() }
+        .refreshable {
+            await roomsStore?.load()
+            await loadRecentRooms()
+        }
+        // Вкладка смонтирована всегда (ZStack с opacity в корне),
+        // так что .task срабатывает один раз на старте; свежесть дальше
+        // держат refreshable и уведомление об изменении комнат.
+        .task { await loadRecentRooms() }
+        .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
+            Task { await loadRecentRooms() }
+        }
     }
 
     // MARK: - Шапка
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            V4Heading(eyebrow: "ВМЕСТЕ СЕЙЧАС", title: "Комнаты")
+            V4Heading(eyebrow: "КИНО ВМЕСТЕ", title: "Вечера")
                 .accessibilityIdentifier("screen.rooms")
             Spacer()
             Button {
@@ -265,7 +288,10 @@ struct V4RoomsViewLive: View {
                     Task { await roomsStore?.load() }
                 }
             case .idle:
-                Color.clear.frame(height: 100)
+                // idle — миг до старта загрузки (bootstrap запускает её сразу
+                // после создания стора); прозрачная дыра на этом кадре
+                // выглядела как сломанный экран — показываем тот же скелет.
+                roomsSkeleton
             }
         } else {
             roomsSkeleton
@@ -811,6 +837,162 @@ struct V4RoomsViewLive: View {
             .shadow(color: .black.opacity(0.42), radius: 28, y: 16)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Прошлые вечера (история из хаба «Вместе», 25.08.2026)
+
+    // Пустая история молчит: у вкладки уже есть плитка «Создать комнату»
+    // и пустое состояние списка — третий призыв к действию был бы шумом.
+    // Секция появляется вместе с первым завершённым вечером.
+    @ViewBuilder
+    private var recentBlock: some View {
+        if !recentRooms.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                sectionTitle("Прошлые вечера")
+                    .padding(.top, 26)
+
+                Text(LocalizationManager.shared.string(.frHistorySub))
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineSpacing(2)
+                    .foregroundStyle(V4.muted)
+                    .padding(.horizontal, 18)
+                    .padding(.top, -6)
+                    .padding(.bottom, 12)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(recentRooms.enumerated()), id: \.element.id) { index, room in
+                        recentRoomRow(room)
+                        if index < recentRooms.count - 1 {
+                            Rectangle()
+                                .fill(V4.line.opacity(0.45))
+                                .frame(height: 0.5)
+                                .padding(.leading, 86)
+                        }
+                    }
+                }
+                .background(V4.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(V4.line, lineWidth: 1)
+                )
+                .padding(.horizontal, 18)
+            }
+        }
+    }
+
+    private func recentRoomRow(_ room: Room) -> some View {
+        let mediaTitle = room.mediaItem?.title ?? room.name
+        let withFriends = coWatchFriends(in: room)
+        let othersCount = max(0, room.participantCount - 1)
+
+        return Button {
+            HapticManager.impact(.light)
+            openRoom(room)
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    roomArtwork(room)
+                        .frame(width: 60, height: 60)
+                        .clipped()
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(V4.line.opacity(0.6), lineWidth: 0.8)
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mediaTitle)
+                        .font(.system(size: 14, weight: .heavy))
+                        .tracking(-0.2)
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(1)
+
+                    if !withFriends.isEmpty {
+                        HStack(spacing: 6) {
+                            overlappingFriendAvatars(withFriends)
+                            Text(withFriendsLine(withFriends, others: othersCount))
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(V4.muted)
+                                .lineLimit(1)
+                        }
+                    } else if othersCount > 0 {
+                        Text("\(othersCount) участник(ов) · код \(room.code)")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                    } else {
+                        Text("Вечер наедине · код \(room.code)")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(V4.muted)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Прошлый вечер: \(mediaTitle)")
+    }
+
+    /// Друзья, бывшие в комнате, — сверка участников со списком друзей.
+    private func coWatchFriends(in room: Room) -> [Friend] {
+        let friends = friendsStore?.friends ?? []
+        guard !friends.isEmpty else { return [] }
+        let me = currentUserID ?? UserDefaults.standard.string(forKey: "plink_current_user_id") ?? ""
+        var result: [Friend] = []
+        for p in room.participants where p.id != me {
+            if let f = friends.first(where: { $0.id == p.id }) {
+                result.append(f)
+            }
+        }
+        if room.hostID != me,
+           !result.contains(where: { $0.id == room.hostID }),
+           let f = friends.first(where: { $0.id == room.hostID }) {
+            result.insert(f, at: 0)
+        }
+        return result
+    }
+
+    private func withFriendsLine(_ friends: [Friend], others: Int) -> String {
+        let names = friends.prefix(2).map(\.displayTitle)
+        var s = "с " + names.joined(separator: ", ")
+        let extra = friends.count - names.count
+        if extra > 0 {
+            s += " +\(extra)"
+        } else if others > friends.count {
+            s += " · ещё \(others - friends.count)"
+        }
+        return s
+    }
+
+    private func overlappingFriendAvatars(_ friends: [Friend]) -> some View {
+        HStack(spacing: -8) {
+            ForEach(Array(friends.prefix(3).enumerated()), id: \.element.id) { idx, f in
+                avatarCircle(f.asUserPreview, size: 22)
+                    .overlay(Circle().stroke(V4.surface.opacity(0.9), lineWidth: 1.5))
+                    .zIndex(Double(3 - idx))
+            }
+        }
+    }
+
+    private func loadRecentRooms() async {
+        let svc = RoomService(api: APIClient.shared)
+        guard let history = try? await svc.fetchMyRoomHistory() else { return }
+        var seen = Set<String>()
+        var merged: [Room] = []
+        for r in history where !r.isActive && !seen.contains(r.id) {
+            seen.insert(r.id)
+            merged.append(r)
+        }
+        recentRooms = Array(merged.prefix(12))
     }
 
     // MARK: - Обложки

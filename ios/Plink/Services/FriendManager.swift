@@ -133,10 +133,17 @@ final class FriendManager: ObservableObject {
 
     func loadAll() async {
         ensureToken()
-        // Sequential on MainActor — avoid racing @Published arrays
-        await loadFriends()
-        await loadIncomingRequests()
-        await loadOutgoingRequests()
+        // 25.08.2026: три запроса шли ПОСЛЕДОВАТЕЛЬНО «чтобы не гонять
+        // @Published-массивы» — но гонки тут нет и не было: класс @MainActor,
+        // каждый метод пишет только СВОЙ массив, и все записи сериализованы
+        // актором. Последовательность лишь складывала сетевые ожидания:
+        // три вылета по таймауту — до минуты пустой вкладки «Друзья».
+        // async let гоняет сетевую часть параллельно, записи остаются
+        // на MainActor.
+        async let f: Void = loadFriends()
+        async let inc: Void = loadIncomingRequests()
+        async let out: Void = loadOutgoingRequests()
+        _ = await (f, inc, out)
         // Drop outgoing that are now friends (accepted on the other device)
         let friendIds = Set(friends.map(\.id))
         outgoingRequests.removeAll { friendIds.contains($0.toUser.id) }

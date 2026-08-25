@@ -18,6 +18,22 @@ final class APIClient: ObservableObject, @unchecked Sendable {
     /// Public so media helpers (voice notes, avatars) can build authenticated URLs.
     let baseURL: URL
 
+    /// 25.08.2026: своя сессия вместо URLSession.shared. У shared таймаут
+    /// запроса — 60 секунд БЕЗ данных, ресурса — 7 дней: на плохой сети
+    /// (VPN, лифт, метро) повисший запрос выглядел как вечный спиннер на
+    /// «Вечерах»/«Друзьях», и юзер видел «приложение сломалось» вместо
+    /// честного оффлайн-состояния с «Повторить». 20с на тишину / 40с на
+    /// весь ответ — JSON-и здесь маленькие, живой сервер отвечает за
+    /// доли секунды; всё, что дольше, — мёртвая сеть, и лучше отдать
+    /// ошибку экрану. Медиа (аватарки, войсы) ходят своими сессиями и
+    /// под этот лимит не попадают.
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 40
+        return URLSession(configuration: config)
+    }()
+
     // Apple documents JSONEncoder/JSONDecoder as unsafe for concurrent use.
     private let encoderLock = NSLock()
     private let _encoder = JSONEncoder()
@@ -185,7 +201,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             request.httpBody = try encoder.encode(body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
@@ -319,7 +335,7 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             request.httpBody = try encoder.encode(body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse

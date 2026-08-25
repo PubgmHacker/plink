@@ -627,7 +627,9 @@ enum L10n {
     static let table: [Key: [AppLanguage: String]] = [
         // Tab bar (M25)
         .tabHome: [.russian: "Главная", .english: "Home", .chinese: "首页"],
-        .tabRooms: [.russian: "Комнаты", .english: "Rooms", .chinese: "房间"],
+        // 25.08.2026 (T4): вкладка вобрала историю просмотров — «Вечера»,
+        // не «Комнаты»: имя события, а не контейнера.
+        .tabRooms: [.russian: "Вечера", .english: "Nights", .chinese: "观影夜"],
         .tabAI: [.russian: "ИИ", .english: "AI", .chinese: "AI"],
         .tabFriends: [.russian: "Друзья", .english: "Friends", .chinese: "好友"],
         .tabProfile: [.russian: "Профиль", .english: "Profile", .chinese: "我的"],

@@ -14,7 +14,9 @@ import Foundation
 private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
     case friends = 0
     case chats = 1
-    case rooms = 2
+    // 25.08.2026 (T4): сегмента «Вечера» здесь больше нет — история
+    // совместных просмотров переехала во вкладку «Вечера» таб-бара,
+    // хаб остался про людей и разговоры.
 
     var id: Int { rawValue }
 
@@ -22,10 +24,6 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
         switch self {
         case .friends: return "Друзья"
         case .chats: return "Чаты"
-        // «Вечера», не «Комнаты»: сегмент показывает историю совместных
-        // просмотров, а «Комнаты» уже есть в таб-баре — два одинаковых
-        // слова вели в разные места.
-        case .rooms: return "Вечера"
         }
     }
 
@@ -33,7 +31,6 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
         switch self {
         case .friends: return "person.2.fill"
         case .chats: return "bubble.left.and.bubble.right.fill"
-        case .rooms: return "play.rectangle.fill"
         }
     }
 
@@ -42,12 +39,11 @@ private enum FriendsHubSegment: Int, CaseIterable, Identifiable {
         switch self {
         case .friends: return .people
         case .chats:   return .chat
-        case .rooms:   return .room
         }
     }
 
-    /// Дизайн-превью: `-plink.designsegment <0|1|2>` открывает хаб сразу на
-    /// нужном сегменте — скриншоты «Чатов»/«Комнат» без тапов по симулятору.
+    /// Дизайн-превью: `-plink.designsegment <0|1>` открывает хаб сразу на
+    /// нужном сегменте — скриншоты «Чатов» без тапов по симулятору.
     /// Тот же приём, что -plink.designchip на Главной.
     static var launchDefault: FriendsHubSegment {
         #if DEBUG
@@ -92,11 +88,18 @@ struct V4FriendsViewLive: View {
     @State var showCreateRoom = false
     @State var watchWithFriend: Friend?
     @State var showAddFriend = false
-    @State var showCreateGroupSheet = false  // CTA «Создать беседу»
-    @State private var showRequests = false
+    @State var showCreateGroupSheet = false  // «Новая беседа» из компоуза
+    // Не private: «Заявки»-чип в V4FriendsPeopleList (extension в другом
+    // файле) открывает тот же шит.
+    @State var showRequests = false
+    // Фильтр и поиск списка друзей (чипы «Все / В сети» + строка поиска).
+    @State var friendsFilter: FriendsPeopleFilter = .all
+    @State var friendsQuery = ""
+    /// «Новое сообщение» (✎ в шапке «Чатов»): выбор друга или новой беседы.
+    // Не private: пустое состояние «Чатов» (extension в другом файле)
+    // открывает тот же компоуз.
+    @State var showCompose = false
     @State var toast: String?
-    @State private var recentRooms: [Room] = []
-    @State private var recentLoading = false
     @State private var roomToOpen: Room?
     @Environment(\.scenePhase) private var scenePhase
     /// Shared so unread badges survive sheet open/close.
@@ -241,8 +244,6 @@ struct V4FriendsViewLive: View {
                                     friendRequestsCard
                                 }
                                 chatsBlock
-                            case .rooms:
-                                recentBlock
                             }
                         }
                         .id(segment)
@@ -258,7 +259,6 @@ struct V4FriendsViewLive: View {
             .scrollContentBackground(.hidden)
             .refreshable {
                 await store?.load()
-                await loadRecentRooms()
                 await dmService.refreshUnread()
                 await groupService.loadGroups()
             }
@@ -365,6 +365,25 @@ struct V4FriendsViewLive: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showCompose) {
+            // ✎ из шапки «Чатов»: выбор адресата. Тот же синхронный своп
+            // шитов, что у профиля («Написать» → DM).
+            ComposeMessageSheet(
+                theme: theme,
+                friends: peopleFriends,
+                onPickFriend: { friend in
+                    showCompose = false
+                    dmFriend = friend
+                },
+                onNewGroup: {
+                    showCompose = false
+                    showCreateGroupSheet = true
+                }
+            )
+            .preferredColorScheme(.dark)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showAddFriend) {
             if let store {
                 AddFriendSheet(store: store, theme: theme) { message in
@@ -419,7 +438,6 @@ struct V4FriendsViewLive: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: toast)
         .task {
             await store?.load()
-            await loadRecentRooms()
             await dmService.refreshUnread()
             await inviteService.refreshFromServer()
             await UserBlockManager.shared.refreshBlocksFromServer()
@@ -429,7 +447,6 @@ struct V4FriendsViewLive: View {
             guard active else { return }
             Task {
                 await store?.refreshQuietly()
-                await loadRecentRooms()
                 await dmService.refreshUnread()
             }
         }
@@ -437,13 +454,9 @@ struct V4FriendsViewLive: View {
             guard phase == .active, isActive else { return }
             Task {
                 await store?.refreshQuietly()
-                await loadRecentRooms()
                 await dmService.refreshUnread()
                 await groupService.loadGroups()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
-            Task { await loadRecentRooms() }
         }
         // Friends list (presence + avatars) while tab visible.
         // Было 1 с — три параллельных цикла давали ~3 запроса
@@ -619,11 +632,6 @@ struct V4FriendsViewLive: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(segment == seg ? Color.black.opacity(0.45) : V4.muted)
                         }
-                        if seg == .rooms, !recentRooms.isEmpty {
-                            Text("\(recentRooms.count)")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(segment == seg ? Color.black.opacity(0.45) : V4.muted)
-                        }
                     }
                     // Активный сегмент — белая пилюля с чёрным текстом, как
                     // главные CTA приложения; цвет темы из пилюль убран —
@@ -706,9 +714,7 @@ struct V4FriendsViewLive: View {
         HStack(alignment: .top, spacing: 10) {
             V4Heading(
                 eyebrow: "ВМЕСТЕ",
-                title: segment == .friends ? "Друзья"
-                    : segment == .chats ? "Общение"
-                    : "Вечера"
+                title: segment == .friends ? "Друзья" : "Общение"
             )
             // Заголовок меняется вместе с сегментом — мягким кроссфейдом,
             // а не мгновенной подменой строки.
@@ -716,31 +722,49 @@ struct V4FriendsViewLive: View {
             .transition(.opacity)
             Spacer(minLength: 8)
 
-            // Заявки — icon only, badge if incoming
-            Button {
-                HapticManager.impact(.light)
-                showRequests = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: requestBadge > 0 ? "person.badge.clock.fill" : "tray.full")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(requestBadge > 0 ? theme.accentColor : V4.ink)
-                        .frame(width: 40, height: 40)
-                        .plinkGlass(.control, in: Circle())
+            // Инструмент шапки зависит от сегмента: у «Друзей» — заявки,
+            // у «Чатов» — ✎ «новое сообщение» (создание беседы переехало
+            // сюда из фейковой строки списка — строки только про разговоры).
+            if segment == .friends {
+                // Заявки — icon only, badge if incoming
+                Button {
+                    HapticManager.impact(.light)
+                    showRequests = true
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: requestBadge > 0 ? "person.badge.clock.fill" : "tray.full")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(requestBadge > 0 ? theme.accentColor : V4.ink)
+                            .frame(width: 40, height: 40)
+                            .plinkGlass(.control, in: Circle())
 
-                    if requestBadge > 0 {
-                        Text(requestBadge > 9 ? "9+" : "\(requestBadge)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(theme.buttonTextColor)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(theme.accentColor, in: Capsule())
-                            .offset(x: 4, y: -2)
+                        if requestBadge > 0 {
+                            Text(requestBadge > 9 ? "9+" : "\(requestBadge)")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(theme.buttonTextColor)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(theme.accentColor, in: Capsule())
+                                .offset(x: 4, y: -2)
+                        }
                     }
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(requestBadge > 0 ? "Заявки, \(requestBadge)" : "Заявки")
+            } else {
+                Button {
+                    HapticManager.impact(.light)
+                    showCompose = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(theme.accentColor)
+                        .frame(width: 40, height: 40)
+                        .plinkGlass(.control, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Новое сообщение")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(requestBadge > 0 ? "Заявки, \(requestBadge)" : "Заявки")
 
             // Добавить друга
             Button {
@@ -820,46 +844,8 @@ struct V4FriendsViewLive: View {
         .padding(.horizontal, 12)
     }
 
-    // MARK: - Недавние комнаты (с кем / что смотрели)
-
-    @ViewBuilder
-    private var recentBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(
-                title: "С друзьями",
-                icon: "clock.arrow.circlepath",
-                count: recentRooms.isEmpty ? nil : recentRooms.count,
-                actionTitle: "Создать",
-                action: { showCreateRoom = true }
-            )
-
-            Text(LocalizationManager.shared.string(.frHistorySub))
-                .font(.system(size: 13))
-                .foregroundStyle(V4.muted)
-                .padding(.horizontal, 18)
-                .padding(.top, -4)
-
-            sectionCard {
-                if recentLoading && recentRooms.isEmpty {
-                    ProgressView().tint(theme.accentColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 36)
-                } else if recentRooms.isEmpty {
-                    emptyInside(
-                        icon: "play.rectangle.on.rectangle.fill",
-                        title: "Здесь будут ваши вечера",
-                        subtitle: "Создай комнату с другом — история «с кем и что смотрели» соберётся сама.",
-                        ctaIcon: "plus",
-                        cta: "Создать комнату"
-                    ) { showCreateRoom = true }
-                } else {
-                    ForEach(recentRooms) { room in
-                        recentRoomRow(room)
-                    }
-                }
-            }
-        }
-    }
+    // История «с кем и что смотрели» переехала на вкладку «Вечера»
+    // (V4RoomsViewLive) — хаб «Вместе» остался про людей и разговоры.
 
     // MARK: - Rows
 
@@ -912,13 +898,13 @@ struct V4FriendsViewLive: View {
                                     .foregroundStyle(unread > 0 ? V4.ink.opacity(0.85) : V4.muted)
                                     .lineLimit(1)
                             } else {
-                                Text(friend.presenceText)
+                                // Вторая строка — про переписку, а не про присутствие:
+                                // «был(а) N минут назад» здесь читалось как слежка и
+                                // не отвечало на вопрос «о чём мы говорили». Онлайн
+                                // и так виден точкой на аватаре.
+                                Text("Нет сообщений")
                                     .font(.system(size: 13))
-                                    .foregroundStyle(
-                                        friend.isOnline
-                                        ? Color(red: 0.3, green: 0.9, blue: 0.55)
-                                        : V4.muted
-                                    )
+                                    .foregroundStyle(V4.muted.opacity(0.7))
                                     .lineLimit(1)
                             }
                             Spacer(minLength: 0)
@@ -937,21 +923,9 @@ struct V4FriendsViewLive: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            // Compact watch-together control (icon only)
-            Button {
-                HapticManager.impact(.light)
-                watchWithFriend = friend
-                showCreateRoom = true
-            } label: {
-                V4GlyphIcon(glyph: .film, size: 13, filled: true, weight: .regular)
-                    .foregroundStyle(theme.accentColor)
-                    .frame(width: 34, height: 34)
-                    .background(theme.accentColor.opacity(0.14), in: Circle())
-                    .overlay(Circle().stroke(theme.accentColor.opacity(0.28), lineWidth: 0.8))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Смотреть вместе с \(friend.displayTitle)")
+            // Кино-кнопки в каждой строке больше нет: в списке чатов она
+            // отвечала не на тот вопрос и съедала ширину превью.
+            // «Смотреть вместе» осталось в contextMenu и в профиле друга.
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1067,168 +1041,200 @@ struct V4FriendsViewLive: View {
         }
         return f.string(from: date)
     }
+}
 
-    private func recentRoomRow(_ room: Room) -> some View {
-        let mediaTitle = room.mediaItem?.title ?? room.name
-        let withFriends = coWatchFriends(in: room)
-        let othersCount = max(0, room.participantCount - 1)
+// MARK: - Компоуз «Новое сообщение» (✎ в шапке «Чатов»)
 
-        return Button {
-            HapticManager.impact(.light)
-            roomToOpen = room
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                // Thumbnail / media poster
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [theme.accentColor.opacity(0.4), Color.purple.opacity(0.35), V4.raised],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    if let thumb = room.mediaItem?.thumbnailURL,
-                       let url = URL(string: thumb) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let img):
-                                img.resizable().scaledToFill()
-                            default:
-                                Image(systemName: "play.rectangle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(theme.accentColor)
+/// Выбор адресата нового разговора: строка «Новая беседа» + друзья с поиском.
+/// Появился вместо фейковой строки «Создать беседу» внутри списка чатов —
+/// сам список теперь только про реальные разговоры.
+private struct ComposeMessageSheet: View {
+    let theme: V4Theme
+    let friends: [Friend]
+    var onPickFriend: (Friend) -> Void
+    var onNewGroup: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filtered: [Friend] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return friends }
+        return friends.filter {
+            $0.displayTitle.lowercased().contains(q) || $0.username.lowercased().contains(q)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                V4.canvas.ignoresSafeArea()
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(0.10), .clear],
+                    center: UnitPoint(x: 0.5, y: 0),
+                    startRadius: 0,
+                    endRadius: 420
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        searchField
+
+                        VStack(spacing: 0) {
+                            newGroupRow
+                            if !filtered.isEmpty {
+                                Rectangle()
+                                    .fill(V4.line.opacity(0.45))
+                                    .frame(height: 0.5)
+                                    .padding(.leading, 74)
+                            }
+                            ForEach(filtered) { friend in
+                                friendRow(friend)
                             }
                         }
-                    } else {
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(theme.accentColor)
-                    }
-                }
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(V4.line.opacity(0.5), lineWidth: 0.8)
-                )
+                        .background(V4.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(V4.line.opacity(0.6), lineWidth: 0.8)
+                        )
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        if room.isActive {
-                            Text("LIVE")
-                                .font(.system(size: 10, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.red.opacity(0.85), in: Capsule())
-                        }
-                        Text(mediaTitle)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(V4.ink)
-                            .lineLimit(2)
-                    }
-
-                    // Who you watched with
-                    if !withFriends.isEmpty {
-                        HStack(spacing: 6) {
-                            overlappingFriendAvatars(withFriends)
-                            Text(withFriendsLine(withFriends, others: othersCount))
-                                .font(.system(size: 12, weight: .medium))
+                        if filtered.isEmpty && !query.isEmpty {
+                            Text("Никого не нашли по запросу «\(query)»")
+                                .font(.system(size: 13))
                                 .foregroundStyle(V4.muted)
-                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 18)
                         }
-                    } else if othersCount > 0 {
-                        Text("\(othersCount) участник(ов) · код \(room.code)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(V4.muted)
-                    } else {
-                        Text(room.isActive ? "Ты один · код \(room.code)" : "История · \(room.code)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(V4.muted)
                     }
-
-                    if !room.hostName.isEmpty, room.hostName != "Unknown" {
-                        Text("Владелец: \(room.hostName)")
-                            .font(.system(size: 11))
-                            .foregroundStyle(V4.muted.opacity(0.85))
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
                 }
-                Spacer(minLength: 4)
+            }
+            .navigationTitle("Новое сообщение")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                V4SheetCloseToolbarItem { dismiss() }
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(V4.muted)
+            TextField("Кому написать?", text: $query)
+                .font(.system(size: 15))
+                .foregroundStyle(V4.ink)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(V4.muted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .plinkGlass(.control, in: Capsule())
+    }
+
+    private var newGroupRow: some View {
+        Button {
+            HapticManager.impact(.light)
+            onNewGroup()
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(theme.accentColor.opacity(0.16))
+                    Circle().stroke(theme.accentColor.opacity(0.25), lineWidth: 0.8)
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.accentColor)
+                }
+                .frame(width: 48, height: 48)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Новая беседа")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.accentColor)
+                    Text("Групповой чат с несколькими друзьями")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
                 V4GlyphIcon(glyph: .chevronRight, size: 12, weight: .regular)
                     .foregroundStyle(V4.muted)
-                    .padding(.top, 8)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func friendRow(_ friend: Friend) -> some View {
+        Button {
+            HapticManager.selection()
+            onPickFriend(friend)
+        } label: {
+            HStack(spacing: 12) {
+                ZStack(alignment: .bottomTrailing) {
+                    if friend.deleted {
+                        PlinkDeletedAvatar(size: 48)
+                    } else {
+                        PlinkStableAvatar(
+                            url: PlinkAvatarURL.stable(userId: friend.id, stored: friend.avatarURL),
+                            letter: friend.initials,
+                            size: 48,
+                            userId: friend.id
+                        )
+                    }
+                    if friend.isOnline && !friend.deleted {
+                        Circle()
+                            .fill(Color(red: 0.3, green: 0.9, blue: 0.55))
+                            .frame(width: 11, height: 11)
+                            .overlay(Circle().stroke(V4.surface.opacity(0.95), lineWidth: 2))
+                            .offset(x: 1, y: 1)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(friend.displayTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(1)
+                    Text(friend.isOnline && !friend.deleted ? "в сети" : "@\(friend.username)")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(
+                            friend.isOnline && !friend.deleted
+                            ? Color(red: 0.3, green: 0.9, blue: 0.55)
+                            : V4.muted
+                        )
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(V4.line.opacity(0.45)).frame(height: 0.5).padding(.leading, 90)
-        }
-    }
-
-    /// Friends who were in this room (match against local friends list).
-    private func coWatchFriends(in room: Room) -> [Friend] {
-        let friendIds = Set((store?.friends ?? []).map(\.id))
-        let me = UserDefaults.standard.string(forKey: "plink_current_user_id") ?? ""
-        // Map participants that are friends
-        var result: [Friend] = []
-        for p in room.participants where p.id != me && friendIds.contains(p.id) {
-            if let f = store?.friends.first(where: { $0.id == p.id }) {
-                result.append(f)
+            if friend.id != filtered.last?.id {
+                Rectangle()
+                    .fill(V4.line.opacity(0.45))
+                    .frame(height: 0.5)
+                    .padding(.leading, 74)
             }
-        }
-        // Host if friend and not already listed
-        if room.hostID != me, friendIds.contains(room.hostID),
-           !result.contains(where: { $0.id == room.hostID }),
-           let f = store?.friends.first(where: { $0.id == room.hostID }) {
-            result.insert(f, at: 0)
-        }
-        return result
-    }
-
-    private func withFriendsLine(_ friends: [Friend], others: Int) -> String {
-        let names = friends.prefix(2).map(\.displayTitle)
-        var s = "с " + names.joined(separator: ", ")
-        let extra = friends.count - names.count
-        if extra > 0 {
-            s += " +\(extra)"
-        } else if others > friends.count {
-            s += " · ещё \(others - friends.count)"
-        }
-        return s
-    }
-
-    private func overlappingFriendAvatars(_ friends: [Friend]) -> some View {
-        HStack(spacing: -8) {
-            ForEach(Array(friends.prefix(3).enumerated()), id: \.element.id) { idx, f in
-                friendAvatar(f, size: 22)
-                    .overlay(Circle().stroke(V4.surface.opacity(0.9), lineWidth: 1.5))
-                    .zIndex(Double(3 - idx))
-            }
-        }
-    }
-
-    private func loadRecentRooms() async {
-        recentLoading = true
-        defer { recentLoading = false }
-        do {
-            let svc = RoomService(api: APIClient.shared)
-            // Active first (can rejoin), then closed history for "recent"
-            let active = try await svc.fetchMyActiveRooms()
-            let history = (try? await svc.fetchMyRoomHistory()) ?? []
-            // Dedup: show live rooms first, then history (no double entries)
-            var seen = Set(active.map(\.id))
-            var merged = active
-            for r in history where !seen.contains(r.id) {
-                seen.insert(r.id)
-                merged.append(r)
-            }
-            recentRooms = Array(merged.prefix(20))
-        } catch {
-            // keep previous
         }
     }
 }

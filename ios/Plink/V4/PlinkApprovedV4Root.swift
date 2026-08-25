@@ -19,7 +19,7 @@ struct PlinkApprovedV4Root: View {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-plink.designtab"), args.indices.contains(i + 1),
-           let t = Int(args[i + 1]), (0...4).contains(t) {
+           let t = Int(args[i + 1]), (0...3).contains(t) {
             return t
         }
         #endif
@@ -124,19 +124,19 @@ struct PlinkApprovedV4Root: View {
                         liveThemeIndex: liveThemeIndex
                     )
                         .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
-                    V4RoomsViewLive(theme:theme, roomsStore:roomsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
+                    V4RoomsViewLive(theme:theme, roomsStore:roomsStore, friendsStore:friendsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
                         .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
                     V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
                         .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
-                    // isActive: вкладки не уничтожаются при переключении, поэтому
-                    // экран «ИИ» узнаёт об уходе только отсюда — и обрывает запись.
-                    V4AIViewLive(theme:theme, store:aiStore, isActive: tab == 3)
-                        .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
+                    // 25.08.2026: вкладки «ИИ» больше нет — ассистент открывается
+                    // искрой в шапке «Главной» и из поиска (тот же .plinkOpenAIChat,
+                    // fullScreenCover ниже). Лента-превью V4AIViewLive не монтируется:
+                    // она показывала «Скоро» и дублировала входы в чат.
                     // Настройки — не вкладка: шесть кнопок теснили таббар, а
                     // маршрут не ежедневный. Вход — строка «Общие настройки»
                     // на лице профиля, шитом (правка 22.08.2026).
                     V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
-                        .opacity(tab == 4 ? 1 : 0).allowsHitTesting(tab == 4)
+                        .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 // Маска вместо .clipped(): гард всё так же срезает
@@ -152,11 +152,24 @@ struct PlinkApprovedV4Root: View {
                 }
                 .animation(.easeInOut(duration: 0.15), value: tab)
             }
-            PlinkLiquidTabBar(
-                selection: $tab,
-                theme: theme,
-                friendsUnread: DMChatService.shared.totalUnread
-            )
+            VStack(spacing: 8) {
+                // 25.08.2026 (T5): пока идёт вечер, над баром живёт капсула
+                // «Сейчас смотрят» — вернуться в комнату одним тапом с любой
+                // вкладки (модель мини-плеера Spotify/iOS 26 bottom accessory).
+                // Прячется, когда комната уже открыта на весь экран.
+                if let ongoing = ongoingRoom, roomToPresent == nil {
+                    PlinkOngoingRoomCapsule(room: ongoing, theme: theme) {
+                        openRoom(ongoing)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                PlinkLiquidTabBar(
+                    selection: $tab,
+                    theme: theme,
+                    friendsUnread: DMChatService.shared.totalUnread
+                )
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: ongoingRoom?.id)
             // Единый контракт нижней навигации: контент всех вкладок имеет
             // одинаковый резерв под floating tab bar + home indicator.
             // Раньше экраны вручную гадали 90/92/100 pt и расходились.
@@ -405,6 +418,13 @@ struct PlinkApprovedV4Root: View {
         openRoom(room)
     }
 
+    /// Мой идущий вечер — источник капсулы над таббаром. Именно myRooms
+    /// (fetchMyActiveRooms), а не heroRoom: героем может быть чужая комната,
+    /// а капсула зовёт вернуться только в свою сессию.
+    private var ongoingRoom: Room? {
+        roomsStore?.myRooms.first(where: { $0.isActive && $0.participantCount > 0 })
+    }
+
     /// Комната создана — общий финал для обоих входов в мастер.
     private func handleRoomCreated(_ newRoom: Room) {
         showCreateRoom = false
@@ -447,6 +467,17 @@ struct PlinkApprovedV4Root: View {
         friendsStore = V4FriendsStore(friendManager: fm)
         profileStore = V4ProfileStore(authService: as_)
 
+        // 25.08.2026: загрузка сторов стартует СРАЗУ после их создания —
+        // параллельно прелюдии ниже (профиль/тема/presence/бейджи), а не
+        // после неё. Раньше «Вечера» и «Друзья» ждали всю серийную цепочку:
+        // повисший fetchCurrentUser или presence-пинг держал вкладки в .idle
+        // без единого пикселя контента, а на здоровой сети — тормозил их
+        // на секунды. Токен уже восстановлен выше, так что этим запросам
+        // прелюдия не нужна.
+        let roomsTask = Task { await roomsStore?.load() }
+        let friendsTask = Task { await friendsStore?.load() }
+        let profileTask = Task { await profileStore?.load() }
+
         // Server is authority for isPremium + ADMIN role (e.g. koslakandrej@gmail.com)
         if api.authToken != nil {
             do {
@@ -477,10 +508,8 @@ struct PlinkApprovedV4Root: View {
         // баннеры на «Главной» ждали профиль, тему, presence, бейджи и
         // комнаты, около десяти секунд на живом устройстве.
         // Тренды переехали в .task самой «Главной» (грузятся сразу при
-        // появлении экрана), а оставшиеся три запроса идут параллельно.
-        let roomsTask = Task { await roomsStore?.load() }
-        let friendsTask = Task { await friendsStore?.load() }
-        let profileTask = Task { await profileStore?.load() }
+        // появлении экрана); загрузки сторов запущены выше, здесь только
+        // дожидаемся их перед сбросом кэша аватарок.
         _ = await roomsTask.value
         _ = await friendsTask.value
         _ = await profileTask.value
@@ -494,6 +523,90 @@ private struct V4FriendInvite: Identifiable {
     let id = UUID()
     let userId: String
     let username: String
+}
+
+// MARK: - Ongoing Room Capsule (T5)
+
+/// Мини-плеер над таббаром: «вечер идёт — вернись одним тапом».
+/// Слой, а не вкладка: виден с любого экрана, пока комната живая.
+struct PlinkOngoingRoomCapsule: View {
+    let room: Room
+    var theme: V4Theme = .electric
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            HapticManager.impact(.medium)
+            action()
+        } label: {
+            HStack(spacing: 11) {
+                thumb
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text(room.mediaItem?.title ?? room.name)
+                        .font(.system(size: 12.5, weight: .heavy))
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(theme.buttonTextColor)
+                    .frame(width: 30, height: 30)
+                    .background(theme.accentColor, in: Circle())
+            }
+            .padding(.horizontal, 9)
+            .frame(minHeight: 48)
+            .plinkGlass(.navigation, in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 26)
+        .accessibilityLabel("Вернуться в комнату \(room.name)")
+        .accessibilityHint(subtitle)
+    }
+
+    private var subtitle: String {
+        let n = room.participantCount
+        let word: String
+        switch n % 100 {
+        case 11...14: word = "человек"
+        default:
+            switch n % 10 {
+            case 1: word = "человек"
+            case 2...4: word = "человека"
+            default: word = "человек"
+            }
+        }
+        return "\(room.name) · \(n) \(word)"
+    }
+
+    private var thumb: some View {
+        ZStack {
+            let hue = Double(abs(room.id.hashValue) % 70) + 225
+            LinearGradient(
+                colors: [Color.oklch(0.58, 0.22, hue), Color.oklch(0.26, 0.14, hue + 35)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            if let raw = room.mediaItem?.thumbnailURL, let url = URL(string: raw) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    }
+                }
+            }
+            // Живой маркер поверх обложки — капсула сигналит «идёт сейчас».
+            Image(systemName: "waveform")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white.opacity(0.92))
+                .shadow(color: .black.opacity(0.5), radius: 3)
+        }
+        .frame(width: 34, height: 34)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
 }
 
 // MARK: - Liquid Glass Tab Bar
@@ -513,17 +626,16 @@ struct PlinkLiquidTabBar: View {
     @State private var dragX: CGFloat? = nil
     private var activeSecondary: Color { let (_, c1, _, _) = theme.colors; return c1 }
 
-    // M25 UX: Друзья — в центре (чаще всего используется), ИИ — 4-я позиция.
     // M25 i18n: подписи через LocalizationManager (RU/EN/ZH).
-    // 22.08.2026: вкладок пять — настройки живут строкой «Общие настройки»
-    // на лице профиля: шестая кнопка теснила капсулу, а маршрут редкий.
+    // 25.08.2026: вкладок четыре (T4 «Слияние»). «Вечера» = комнаты + история,
+    // ИИ переехал искрой в шапку «Главной» — вкладка-превью дублировала входы.
+    // Друзья остаются на индексе 2: plinkOpenFriendsTab/pendingChat шлют tab=2.
     private var items: [(String, String)] {
         let l = LocalizationManager.shared
         return [
             ("house.fill", l.string(.tabHome)),
-            ("circle.grid.2x2.fill", l.string(.tabRooms)),
+            ("play.rectangle.fill", l.string(.tabRooms)),
             ("person.2.fill", l.string(.tabFriends)),
-            ("sparkles", l.string(.tabAI)),
             ("person.crop.circle.fill", l.string(.tabProfile))
         ]
     }
@@ -619,7 +731,7 @@ struct PlinkLiquidTabBar: View {
         )
     }
 
-    // MARK: слот-геометрия (5 равных слотов, spacing 2)
+    // MARK: слот-геометрия (равные слоты по числу вкладок, spacing 2)
 
     private var slotSpacing: CGFloat { 2 }
 
