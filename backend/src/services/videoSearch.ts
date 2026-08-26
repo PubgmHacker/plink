@@ -94,7 +94,10 @@ export async function searchRutube(q: string, limit: number): Promise<VideoSearc
     throw new Error(`rutube ${resp.status}`);
   }
   const data: any = await resp.json();
-  return (data.results || [])
+  // RuTube отвечает 200 и пустым results, когда режет запрос по региону,
+  // — без этой строки «нет роликов» и «нас не пустили» выглядят одинаково.
+  const rawCount = Array.isArray(data.results) ? data.results.length : -1;
+  const items: VideoSearchItem[] = (data.results || [])
     // Взрослое — мимо витрины: комнату видят все участники.
     .filter((r: any) => r?.id && !r.is_adult)
     .map((r: any): VideoSearchItem => ({
@@ -108,6 +111,10 @@ export async function searchRutube(q: string, limit: number): Promise<VideoSearc
       embedURL: r.embed_url || `https://rutube.ru/play/embed/${r.id}`,
       embeddable: r.is_hidden === true ? false : null,
     }));
+  if (items.length !== rawCount) {
+    console.warn(`rutube: raw=${rawCount} kept=${items.length} q="${q}"`);
+  }
+  return items;
 }
 
 // ──────────────────────────────────────────────────────────── VK Видео
@@ -186,6 +193,8 @@ export interface MultiSearchResult {
   providers: string[];
   /** Провайдеры, которые упали или не настроены — с причиной. */
   failed: { provider: string; reason: string }[];
+  /** Сколько роликов дал каждый ответивший провайдер — до склейки. */
+  counts: Record<string, number>;
 }
 
 /**
@@ -212,11 +221,13 @@ export async function searchAllProviders(
   const groups: VideoSearchItem[][] = [];
   const providers: string[] = [];
   const failed: { provider: string; reason: string }[] = [];
+  const counts: Record<string, number> = {};
 
   settled.forEach((res, i) => {
     const name = tasks[i].provider;
     if (res.status === 'fulfilled') {
       providers.push(name);
+      counts[name] = res.value.length;
       groups.push(res.value);
     } else {
       failed.push({ provider: name, reason: String(res.reason?.message || res.reason) });
@@ -226,5 +237,5 @@ export async function searchAllProviders(
   if (!env.youtubeKey) failed.push({ provider: 'youtube', reason: 'YOUTUBE_API_KEY not configured' });
   if (!env.vkToken) failed.push({ provider: 'vk', reason: 'VK_SERVICE_TOKEN not configured' });
 
-  return { results: interleave(groups, limit), providers, failed };
+  return { results: interleave(groups, limit), providers, failed, counts };
 }

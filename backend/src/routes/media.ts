@@ -44,10 +44,15 @@ export default async function mediaRoutes(fastify, _options) {
     if (cached) return reply.send({ results: cached });
 
     try {
-      const { results, providers, failed } = await searchAllProviders(q, parsedLimit, {
+      const { results, providers, failed, counts } = await searchAllProviders(q, parsedLimit, {
         youtubeKey,
         vkToken,
       });
+
+      // Одна строка на поиск: видно, кто из хостингов реально наполняет
+      // выдачу. Без неё «RuTube не настроен» и «RuTube нас не пустил»
+      // выглядят в проде одинаково — пустая лента.
+      console.log('search', JSON.stringify({ q, limit: parsedLimit, counts, failed }));
 
       if (!providers.length) {
         console.error('Search: no provider answered', failed);

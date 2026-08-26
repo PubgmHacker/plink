@@ -172,4 +172,21 @@ describe('searchAllProviders', () => {
     expect(res.results).toHaveLength(1);
     expect(res.failed.find((f) => f.provider === 'youtube')?.reason).toContain('403');
   });
+
+  // Провайдер, ответивший пустотой, и провайдер, которого не спросили, —
+  // разные вещи. В counts первый виден нулём, второго там нет вовсе.
+  it('counts различает пустой ответ и неопрошенного провайдера', async () => {
+    globalThis.fetch = vi.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes('rutube.ru')) return jsonResponse({ results: [] });
+      return jsonResponse({
+        items: [{ id: { videoId: 'y1' }, snippet: { title: 'YT', channelTitle: 'ch' } }],
+      });
+    }) as unknown as typeof fetch;
+
+    const res = await searchAllProviders('коты', 12, { youtubeKey: 'key' });
+    expect(res.counts).toEqual({ youtube: 1, rutube: 0 });
+    expect(res.counts.vk).toBeUndefined();
+    expect(res.providers.sort()).toEqual(['rutube', 'youtube']);
+  });
 });
