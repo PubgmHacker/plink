@@ -104,15 +104,14 @@ struct GroupsListView: View {
     @ViewBuilder
     private func groupRow(_ group: GroupChatDTO) -> some View {
         HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    // Акцентная палитра V4 вместо purple/blue
-                    .fill(LinearGradient(colors: [V4.accent.opacity(0.9), V4.accent.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 44, height: 44)
-                Image(systemName: "person.3.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(V4.accentInk)
-            }
+            // Цвет беседы принадлежит беседе, а не теме: PlinkGroupAvatar
+            // покажет фото группы, а без фото — букву на палитре её id.
+            PlinkGroupAvatar(
+                groupId: group.id,
+                title: group.title,
+                avatarVersion: group.avatarVersion,
+                size: 44
+            )
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(group.title)
@@ -333,6 +332,9 @@ struct GroupChatView: View {
     @State private var draft = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var sending = false
+    /// Настройки беседы открываются тапом по шапке — как в Telegram.
+    @State private var showInfo = false
+    @Environment(\.dismiss) private var dismiss
 
     private let theme = V4Theme.saved
 
@@ -341,6 +343,12 @@ struct GroupChatView: View {
 
     private var messages: [GroupMessageDTO] {
         service.messagesByGroup[group.id] ?? []
+    }
+
+    /// Строка беседы из сервиса: после переименования и смены фото в настройках
+    /// шапка должна показывать новое, а не то, с чем экран открыли.
+    private var live: GroupChatDTO {
+        service.groups.first(where: { $0.id == group.id }) ?? group
     }
 
     var body: some View {
@@ -407,8 +415,19 @@ struct GroupChatView: View {
             }
             .ignoresSafeArea()
         }
-        .navigationTitle(group.title)
+        .navigationTitle(live.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { headerButton }
+        }
+        .sheet(isPresented: $showInfo) {
+            GroupInfoView(
+                groupId: group.id,
+                titleHint: live.title,
+                onLeft: { dismiss() }
+            )
+            .preferredColorScheme(.dark)
+        }
         .task {
             await service.loadMessages(groupId: group.id)
             await service.markRead(groupId: group.id)
@@ -425,6 +444,38 @@ struct GroupChatView: View {
             guard let item else { return }
             Task { await sendPhoto(item) }
         }
+    }
+
+    /// Аватар + название + «N участников». Тап — настройки беседы.
+    private var headerButton: some View {
+        Button {
+            HapticManager.selection()
+            showInfo = true
+        } label: {
+            HStack(spacing: 8) {
+                PlinkGroupAvatar(
+                    groupId: group.id,
+                    title: live.title,
+                    avatarVersion: live.avatarVersion,
+                    size: 30
+                )
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(live.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(1)
+                    Text(GroupCopy.members(live.memberCount))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(V4.muted)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(V4.muted.opacity(0.7))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

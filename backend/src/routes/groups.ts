@@ -3,6 +3,7 @@
 // Встроенный ИИ-модератор: муты за маты, NSFW-фото, запрещённые названия.
 import { prisma } from '../config/db.js';
 import { redis } from '../config/redis.js';
+import { config } from '../config/index.js';
 import {
   containsProfanity,
   violatesContentPolicy,
@@ -11,10 +12,31 @@ import {
   muteRemainingSec,
   auditModeration,
 } from '../moderation/autoMod.js';
+import { resolvePresence } from '../services/presence.js';
 
 const MAX_MEMBERS = 64;
 const MAX_TITLE = 60;
 const MAX_MESSAGE = 2000;
+const MAX_DESCRIPTION = 240;
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+
+/** Версия аватара беседы — миллисекунды avatarUpdatedAt, для ?v= и ETag. */
+function avatarVersionOf(group: { avatarData?: string | null; avatarUpdatedAt?: Date | string | null }): number | null {
+  if (!group?.avatarData) return null;
+  if (!group.avatarUpdatedAt) return null;
+  const ms = new Date(group.avatarUpdatedAt).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Магические байты — data URL с картинкой, а не переименованный файл. */
+function isRealImage(base64: string): boolean {
+  const b = Buffer.from(base64, 'base64');
+  if (b.length < 12) return false;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return true; // JPEG
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return true; // PNG
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) return true; // WebP (RIFF)
+  return false;
+}
 
 /** Парсинг data:image/...;base64 — как в rooms.ts photo. */
 function parseImage(dataUrl: unknown): { dataUrl: string; bytes: number } | null {
@@ -180,6 +202,7 @@ export default async function groupRoutes(fastify) {
       where: { id: { in: groupIds } },
       include: {
         members: { select: { userID: true } },
+        // description/avatar — чтобы строка чата рисовала фото беседы
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -218,6 +241,8 @@ export default async function groupRoutes(fastify) {
           unreadCount: unreadById.get(g.id) ?? 0,
           memberCount: g.members.length,
           memberIds: g.members.map((m) => m.userID),
+          description: g.description ?? null,
+          avatarVersion: avatarVersionOf(g),
           lastMessageText: last ? (last.mediaType === 'photo' ? '\u{1F4F7} Фото' : last.content) : null,
           lastMessageSender: last?.senderName ?? null,
           lastMessageAt: last?.createdAt ?? g.createdAt,
@@ -402,6 +427,21 @@ export default async function groupRoutes(fastify) {
       return reply.status(413).send({ error: 'Image too large (max 2.25MB)' });
     }
 
+    // Право «участники могут отправлять медиа» (как в Telegram).
+    // Владелец и админы не ограничены никогда.
+    if (image && member.role !== 'owner' && member.role !== 'admin') {
+      const perms = await prisma.groupChat.findUnique({
+        where: { id: groupId },
+        select: { membersCanSendMedia: true },
+      });
+      if (perms && perms.membersCanSendMedia === false) {
+        return reply.status(403).send({
+          error: 'В этой беседе отправлять медиа могут только администраторы',
+          code: 'GROUP_MEDIA_RESTRICTED',
+        });
+      }
+    }
+
     // NSFW-проверка фото
     if (image) {
       const check = await moderateImage(image.dataUrl);
@@ -483,8 +523,20 @@ export default async function groupRoutes(fastify) {
   }, async (request, reply) => {
     const groupId = request.params.id;
     const member = await requireMember(groupId, request.user.id);
-    if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
-      return reply.status(403).send({ error: 'Только владелец может добавлять участников' });
+    if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
+    const isBoss = member.role === 'owner' || member.role === 'admin';
+    if (!isBoss) {
+      // Право «участники могут добавлять участников»
+      const perms = await prisma.groupChat.findUnique({
+        where: { id: groupId },
+        select: { membersCanInvite: true },
+      });
+      if (!perms || perms.membersCanInvite === false) {
+        return reply.status(403).send({
+          error: 'В этой беседе добавлять участников могут только администраторы',
+          code: 'GROUP_INVITE_RESTRICTED',
+        });
+      }
     }
     const rawIds: string[] = Array.isArray(request.body?.userIds)
       ? request.body.userIds.filter((x: unknown) => typeof x === 'string')
@@ -503,6 +555,14 @@ export default async function groupRoutes(fastify) {
       data: ids.map((id) => ({ groupID: groupId, userID: id, role: 'member' })),
       skipDuplicates: true,
     });
+    const group = await prisma.groupChat.findUnique({ where: { id: groupId }, select: { title: true } });
+    for (const uid of ids) {
+      (fastify as any).gateway?.notifyUser(uid, {
+        type: 'group:created',
+        groupId,
+        title: group?.title ?? '',
+      });
+    }
     return reply.send({ ok: true, added: ids.length });
   });
 
@@ -547,23 +607,371 @@ export default async function groupRoutes(fastify) {
     return reply.send({ ok: true });
   });
 
-  // PATCH /api/groups/:id — переименовать (owner/admin, с модерацией)
-  // Rate limit на все write-роуты групп
+  // GET /api/groups/:id — карточка беседы: участники, роли, права, аватар.
+  // Экран «Настройки беседы» как в Telegram живёт на этой ручке.
+  fastify.get('/groups/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const groupId = request.params.id;
+    const me = request.user.id;
+    const myMembership = await requireMember(groupId, me);
+    if (!myMembership) return reply.status(403).send({ error: 'Вы не участник беседы' });
+
+    const group = await prisma.groupChat.findUnique({
+      where: { id: groupId },
+      include: {
+        members: { select: { userID: true, role: true, joinedAt: true } },
+        _count: { select: { messages: true } },
+      },
+    });
+    if (!group) return reply.status(404).send({ error: 'Беседа не найдена' });
+
+    const ids = group.members.map((m) => m.userID);
+    type MemberUserRow = {
+      id: string;
+      username: string;
+      displayName?: string | null;
+      avatarURL?: string | null;
+      avatarUpdatedAt?: Date | string | null;
+      isOnline?: boolean | null;
+      lastSeenAt?: Date | string | null;
+      deletedAt?: Date | string | null;
+    };
+    let users: MemberUserRow[];
+    try {
+      users = await prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true, username: true, displayName: true, avatarURL: true,
+          avatarUpdatedAt: true, isOnline: true, lastSeenAt: true, deletedAt: true,
+        },
+      });
+    } catch {
+      // deletedAt/lastSeenAt могут отсутствовать до миграции
+      users = await prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, username: true, displayName: true, avatarURL: true },
+      });
+    }
+    const publicBase = config.PUBLIC_BASE_URL;
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    const members = group.members.map((m) => {
+      const u = userById.get(m.userID);
+      const deleted = !!u?.deletedAt || String(u?.username ?? '').startsWith('deleted_');
+      if (!u || deleted) {
+        return {
+          id: m.userID,
+          username: u?.username ?? `deleted_${String(m.userID).slice(0, 8)}`,
+          displayName: 'Удалённый аккаунт',
+          avatarURL: null,
+          avatarVersion: null,
+          isOnline: false,
+          lastSeenAt: null,
+          role: m.role,
+          joinedAt: m.joinedAt,
+          isDeleted: true,
+        };
+      }
+      const versionMs = u.avatarUpdatedAt ? new Date(u.avatarUpdatedAt).getTime() : 0;
+      const avatarURL = Number.isFinite(versionMs) && versionMs > 0
+        ? `${publicBase}/api/users/${u.id}/avatar?v=${versionMs}`
+        : `${publicBase}/api/users/${u.id}/avatar`;
+      const pres = resolvePresence(u);
+      return {
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName ?? null,
+        avatarURL,
+        avatarVersion: versionMs > 0 ? versionMs : null,
+        isOnline: pres.isOnline,
+        lastSeenAt: pres.lastSeenAt,
+        role: m.role,
+        joinedAt: m.joinedAt,
+        isDeleted: false,
+      };
+    });
+
+    // Порядок как в Telegram: владелец → админы → участники (в сети выше)
+    const rank = (r: string) => (r === 'owner' ? 0 : r === 'admin' ? 1 : 2);
+    members.sort((a, b) => {
+      if (rank(a.role) !== rank(b.role)) return rank(a.role) - rank(b.role);
+      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+      return String(a.displayName || a.username).localeCompare(String(b.displayName || b.username), 'ru');
+    });
+
+    const isBoss = myMembership.role === 'owner' || myMembership.role === 'admin';
+    return reply.send({
+      id: group.id,
+      title: group.title,
+      description: group.description ?? null,
+      ownerID: group.ownerID,
+      createdAt: group.createdAt,
+      myRole: myMembership.role,
+      memberCount: group.members.length,
+      messageCount: group._count.messages,
+      avatarVersion: avatarVersionOf(group),
+      maxMembers: MAX_MEMBERS,
+      permissions: {
+        membersCanInvite: group.membersCanInvite,
+        membersCanSendMedia: group.membersCanSendMedia,
+        membersCanChangeInfo: group.membersCanChangeInfo,
+      },
+      myPermissions: {
+        canChangeInfo: isBoss || group.membersCanChangeInfo,
+        canInvite: isBoss || group.membersCanInvite,
+        canSendMedia: isBoss || group.membersCanSendMedia,
+        canManagePermissions: isBoss,
+        canManageAdmins: myMembership.role === 'owner',
+        canRemoveMembers: isBoss,
+        canDeleteGroup: myMembership.role === 'owner',
+      },
+      members,
+    });
+  });
+
+  // GET /api/groups/:id/avatar — байты аватара беседы (только участникам)
+  fastify.get('/groups/:id/avatar', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const groupId = request.params.id;
+    const member = await requireMember(groupId, request.user.id);
+    if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
+    const group = await prisma.groupChat.findUnique({
+      where: { id: groupId },
+      select: { avatarData: true, avatarUpdatedAt: true },
+    });
+    if (!group?.avatarData) return reply.status(404).send({ error: 'Аватар не установлен' });
+    const m = group.avatarData.match(/^data:(image\/[a-z.+-]+);base64,(.+)$/);
+    if (!m) return reply.status(404).send({ error: 'Аватар повреждён' });
+    // Как у пользовательских аватаров: без долгого кэша, клиент бустит ?v=
+    reply.header('Cache-Control', 'private, max-age=0, must-revalidate');
+    const ms = avatarVersionOf(group);
+    if (ms) {
+      reply.header('ETag', `"${groupId}-${ms}"`);
+      reply.header('Last-Modified', new Date(ms).toUTCString());
+    }
+    return reply.type(m[1]).send(Buffer.from(m[2], 'base64'));
+  });
+
+  // PATCH /api/groups/:id — название, описание, аватар, права.
+  // Название/описание/аватар: owner/admin, либо участники при membersCanChangeInfo.
+  // Права: только owner/admin.
   fastify.patch('/groups/:id', {
     preHandler: [fastify.authenticate],
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
   }, async (request, reply) => {
     const groupId = request.params.id;
-    const member = await requireMember(groupId, request.user.id);
-    if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
-      return reply.status(403).send({ error: 'Только владелец может переименовать беседу' });
+    const me = request.user.id;
+    const member = await requireMember(groupId, me);
+    if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
+    const group = await prisma.groupChat.findUnique({
+      where: { id: groupId },
+      select: { membersCanChangeInfo: true },
+    });
+    if (!group) return reply.status(404).send({ error: 'Беседа не найдена' });
+
+    const isBoss = member.role === 'owner' || member.role === 'admin';
+    const canChangeInfo = isBoss || group.membersCanChangeInfo;
+    const body = request.body ?? {};
+    const data: Record<string, unknown> = {};
+
+    if (typeof body.title === 'string') {
+      if (!canChangeInfo) {
+        return reply.status(403).send({ error: 'Менять данные беседы могут только администраторы' });
+      }
+      const title = body.title.trim().slice(0, MAX_TITLE);
+      if (!title) return reply.status(400).send({ error: 'Название обязательно' });
+      if (violatesContentPolicy(title) || containsProfanity(title)) {
+        return reply.status(422).send({ error: 'Название нарушает правила Plink', code: 'CONTENT_BLOCKED' });
+      }
+      data.title = title;
     }
-    const title = typeof request.body?.title === 'string' ? request.body.title.trim().slice(0, MAX_TITLE) : '';
-    if (!title) return reply.status(400).send({ error: 'Название обязательно' });
-    if (violatesContentPolicy(title) || containsProfanity(title)) {
-      return reply.status(422).send({ error: 'Название нарушает правила Plink', code: 'CONTENT_BLOCKED' });
+
+    if ('description' in body) {
+      if (!canChangeInfo) {
+        return reply.status(403).send({ error: 'Менять данные беседы могут только администраторы' });
+      }
+      if (body.description === null) {
+        data.description = null;
+      } else if (typeof body.description === 'string') {
+        const desc = body.description.trim().slice(0, MAX_DESCRIPTION);
+        if (desc && (violatesContentPolicy(desc) || containsProfanity(desc))) {
+          return reply.status(422).send({ error: 'Описание нарушает правила Plink', code: 'CONTENT_BLOCKED' });
+        }
+        data.description = desc || null;
+      } else {
+        return reply.status(400).send({ error: 'Неверное описание' });
+      }
     }
-    const updated = await prisma.groupChat.update({ where: { id: groupId }, data: { title } });
-    return reply.send({ id: updated.id, title: updated.title });
+
+    if ('avatarData' in body) {
+      if (!canChangeInfo) {
+        return reply.status(403).send({ error: 'Менять данные беседы могут только администраторы' });
+      }
+      if (body.avatarData === null) {
+        data.avatarData = null;
+        data.avatarUpdatedAt = null;
+      } else {
+        const parsed = parseImage(body.avatarData);
+        if (!parsed) return reply.status(400).send({ error: 'Неподдерживаемый формат фото' });
+        if (parsed.bytes > MAX_AVATAR_BYTES) {
+          return reply.status(413).send({ error: 'Фото слишком большое (максимум 2 МБ)' });
+        }
+        const base64 = String(body.avatarData).split(',')[1] ?? '';
+        if (!isRealImage(base64)) {
+          return reply.status(400).send({ error: 'Файл не является изображением' });
+        }
+        const check = await moderateImage(parsed.dataUrl);
+        if (check.nsfw) {
+          void auditModeration({
+            roomId: `group:${groupId}`,
+            messageId: `grp-avatar-${groupId}`,
+            subjectUserId: me,
+            action: 'reject_nsfw_group_avatar',
+            reasonCode: 'nsfw_image',
+          });
+          return reply.status(422).send({
+            error: 'Фото отклонено ИИ-модератором',
+            code: 'NSFW_BLOCKED',
+          });
+        }
+        data.avatarData = parsed.dataUrl;
+        data.avatarUpdatedAt = new Date();
+      }
+    }
+
+    for (const key of ['membersCanInvite', 'membersCanSendMedia', 'membersCanChangeInfo'] as const) {
+      if (key in body) {
+        if (!isBoss) {
+          return reply.status(403).send({ error: 'Права участников меняет только администратор' });
+        }
+        if (typeof body[key] !== 'boolean') {
+          return reply.status(400).send({ error: `${key} должен быть boolean` });
+        }
+        data[key] = body[key];
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return reply.status(400).send({ error: 'Нечего менять' });
+    }
+
+    const updated = await prisma.groupChat.update({
+      where: { id: groupId },
+      data: data as any,
+      include: { members: { select: { userID: true } } },
+    });
+    const payload = {
+      type: 'group:updated',
+      groupId,
+      title: updated.title,
+      avatarVersion: avatarVersionOf(updated),
+    };
+    for (const m of updated.members) {
+      if (m.userID === me) continue;
+      (fastify as any).gateway?.notifyUser(m.userID, payload);
+    }
+    return reply.send({
+      id: updated.id,
+      title: updated.title,
+      description: updated.description ?? null,
+      avatarVersion: avatarVersionOf(updated),
+      permissions: {
+        membersCanInvite: updated.membersCanInvite,
+        membersCanSendMedia: updated.membersCanSendMedia,
+        membersCanChangeInfo: updated.membersCanChangeInfo,
+      },
+    });
+  });
+
+  // POST /api/groups/:id/members/:userId/role — назначить/снять админа (только владелец)
+  fastify.post('/groups/:id/members/:userId/role', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { id: groupId, userId } = request.params;
+    const me = request.user.id;
+    const member = await requireMember(groupId, me);
+    if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
+    if (member.role !== 'owner') {
+      return reply.status(403).send({ error: 'Назначать администраторов может только владелец' });
+    }
+    if (userId === me) {
+      return reply.status(422).send({ error: 'Свою роль изменить нельзя' });
+    }
+    const role = request.body?.role;
+    if (role !== 'admin' && role !== 'member') {
+      return reply.status(400).send({ error: 'role: admin | member' });
+    }
+    const target = await requireMember(groupId, userId);
+    if (!target) return reply.status(404).send({ error: 'Участник не найден' });
+    if (target.role === 'owner') {
+      return reply.status(422).send({ error: 'Роль владельца изменить нельзя' });
+    }
+    if (target.role === role) return reply.send({ ok: true, role });
+    await prisma.groupMember.update({
+      where: { groupID_userID: { groupID: groupId, userID: userId } },
+      data: { role },
+    });
+    (fastify as any).gateway?.notifyUser(userId, { type: 'group:role', groupId, role });
+    return reply.send({ ok: true, role });
+  });
+
+  // DELETE /api/groups/:id/members/:userId — исключить участника.
+  // owner/admin; владельца исключить нельзя, админ не может исключить админа.
+  fastify.delete('/groups/:id/members/:userId', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { id: groupId, userId } = request.params;
+    const me = request.user.id;
+    const member = await requireMember(groupId, me);
+    if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
+    if (member.role !== 'owner' && member.role !== 'admin') {
+      return reply.status(403).send({ error: 'Исключать участников могут только администраторы' });
+    }
+    if (userId === me) {
+      return reply.status(422).send({ error: 'Чтобы выйти самому, используйте выход из беседы' });
+    }
+    const target = await requireMember(groupId, userId);
+    if (!target) return reply.status(404).send({ error: 'Участник не найден' });
+    if (target.role === 'owner') {
+      return reply.status(422).send({ error: 'Владельца беседы исключить нельзя' });
+    }
+    if (target.role === 'admin' && member.role !== 'owner') {
+      return reply.status(403).send({ error: 'Администратора может исключить только владелец' });
+    }
+    await prisma.groupMember.delete({
+      where: { groupID_userID: { groupID: groupId, userID: userId } },
+    });
+    (fastify as any).gateway?.notifyUser(userId, { type: 'group:removed', groupId });
+    const rest = await prisma.groupMember.findMany({ where: { groupID: groupId }, select: { userID: true } });
+    for (const m of rest) {
+      if (m.userID === me) continue;
+      (fastify as any).gateway?.notifyUser(m.userID, { type: 'group:updated', groupId });
+    }
+    return reply.send({ ok: true });
+  });
+
+  // DELETE /api/groups/:id — удалить беседу у всех (только владелец)
+  fastify.delete('/groups/:id', {
+    preHandler: [fastify.authenticate],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const groupId = request.params.id;
+    const me = request.user.id;
+    const member = await requireMember(groupId, me);
+    if (!member) return reply.status(403).send({ error: 'Вы не участник беседы' });
+    if (member.role !== 'owner') {
+      return reply.status(403).send({ error: 'Удалить беседу может только владелец' });
+    }
+    // Список участников снимаем ДО удаления — после каскада его уже не будет
+    const members = await prisma.groupMember.findMany({
+      where: { groupID: groupId },
+      select: { userID: true },
+    });
+    await prisma.groupChat.delete({ where: { id: groupId } });
+    for (const m of members) {
+      if (m.userID === me) continue;
+      (fastify as any).gateway?.notifyUser(m.userID, { type: 'group:removed', groupId });
+    }
+    return reply.send({ ok: true });
   });
 }

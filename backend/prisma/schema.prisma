@@ -16,44 +16,44 @@ enum UserRole {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  username     String   @unique
-  email        String   @unique
-  password     String
+  id              String    @id @default(uuid())
+  username        String    @unique
+  email           String    @unique
+  password        String
   /// Sign in with Apple subject (`sub` from identity token). Null for password users.
-  appleSub     String?  @unique
-  avatarURL    String?
+  appleSub        String?   @unique
+  avatarURL       String?
   /// Base64 data URL (data:image/jpeg;base64,...) — persisted in DB for Railway ephemeral FS.
-  avatarData   String?
+  avatarData      String?
   /// Bumped only when avatar bytes change — used for friend-list cache bust (?v=).
   avatarUpdatedAt DateTime?
   /// Display name shown in the UI, separate from @username.
   /// Null = fall back to the username.
-  displayName  String?
+  displayName     String?
   /// Profile cover photo URL — the banner shown on the profile screen.
-  coverURL     String?
+  coverURL        String?
   /// Discord-style custom status shown on the profile card (≤100 chars).
   /// Null = no status set.
-  statusText   String?
+  statusText      String?
   /// VK-style closed profile: stats, watch history and the friend list are
   /// visible to friends only. Identity (name, avatar, cover, status) stays public.
-  profileClosed Boolean @default(false)
-  isOnline     Boolean  @default(false)
+  profileClosed   Boolean   @default(false)
+  isOnline        Boolean   @default(false)
   /// Last time the user was seen online (login / WS / heartbeat). Backs the
   /// "last seen N minutes ago" label.
-  lastSeenAt   DateTime @default(now())
-  isPremium    Boolean  @default(false)
-  premiumUntil DateTime?
-  role         UserRole @default(USER)
-  bannedUntil  DateTime?
+  lastSeenAt      DateTime  @default(now())
+  isPremium       Boolean   @default(false)
+  premiumUntil    DateTime?
+  role            UserRole  @default(USER)
+  bannedUntil     DateTime?
   /// Shadow ban: the user can still post, but nobody else sees their messages.
-  shadowbanned Boolean  @default(false)
-  fcmToken     String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  shadowbanned    Boolean   @default(false)
+  fcmToken        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   twofaSecret      String?
-  twofaEnabled     Boolean  @default(false)
+  twofaEnabled     Boolean @default(false)
   twofaBackupCodes String?
 
   referralCode String?
@@ -61,63 +61,63 @@ model User {
   // ─── Appearance and account lifecycle ───
   /// JSON-stringified { appThemeID, bubbleStyleID, emojiPackID } for
   /// cross-device appearance restore. Null = use client defaults.
-  appearancePrefs         String?
+  appearancePrefs        String?
   /// GDPR: when set, account is scheduled for cascade deletion after the
   /// grace period (14 days). User can cancel by signing in before then.
   /// A cron job (services/gdpr.ts) performs the actual delete.
-  scheduledForDeletionAt  DateTime?
+  scheduledForDeletionAt DateTime?
   /// Soft delete. When set, the profile renders as a deleted account:
   /// PII stripped, login blocked, DMs rejected, tombstone avatar in the UI.
-  deletedAt               DateTime?
+  deletedAt              DateTime?
 
-  hostedRooms      Room[]            @relation("HostRooms")
-  participations   RoomParticipant[]
-  sentMessages     ChatMessage[]
-  sentDMs          DirectMessage[]   @relation("SentDMs")
-  receivedDMs      DirectMessage[]   @relation("ReceivedDMs")
-  dmReactions      DirectMessageReaction[]
-  dmPins           DirectMessagePin[] @relation("DMPins")
-  friendRequestsSent     FriendRequest[]  @relation("RequestsSent")
-  friendRequestsReceived FriendRequest[]  @relation("RequestsReceived")
-  friendshipsInitiated   Friendship[]     @relation("FriendshipsInitiated")
-  friendshipsReceived    Friendship[]     @relation("FriendshipsReceived")
-  watchHistory     WatchHistory[]
-  playbackStates   PlaybackState[]
-  subscriptions    Subscription[]
-  blockedUsers     UserBlock[]       @relation("Blocker")
-  blockedBy        UserBlock[]       @relation("Blocked")
-  reports          Report[]          @relation("Reporter")
-  reportsResolved  Report[]          @relation("Resolver")
-  refreshTokens    RefreshToken[]
-  auditLogs        AuditLog[]
-  referralsMade    Referral[] @relation("Referrer")
-  referralReceived Referral?  @relation("Referred")
+  hostedRooms            Room[]                  @relation("HostRooms")
+  participations         RoomParticipant[]
+  sentMessages           ChatMessage[]
+  sentDMs                DirectMessage[]         @relation("SentDMs")
+  receivedDMs            DirectMessage[]         @relation("ReceivedDMs")
+  dmReactions            DirectMessageReaction[]
+  dmPins                 DirectMessagePin[]      @relation("DMPins")
+  friendRequestsSent     FriendRequest[]         @relation("RequestsSent")
+  friendRequestsReceived FriendRequest[]         @relation("RequestsReceived")
+  friendshipsInitiated   Friendship[]            @relation("FriendshipsInitiated")
+  friendshipsReceived    Friendship[]            @relation("FriendshipsReceived")
+  watchHistory           WatchHistory[]
+  playbackStates         PlaybackState[]
+  subscriptions          Subscription[]
+  blockedUsers           UserBlock[]             @relation("Blocker")
+  blockedBy              UserBlock[]             @relation("Blocked")
+  reports                Report[]                @relation("Reporter")
+  reportsResolved        Report[]                @relation("Resolver")
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]
+  referralsMade          Referral[]              @relation("Referrer")
+  referralReceived       Referral?               @relation("Referred")
   // App Store Server API v2 transaction records
-  transactions     TransactionRecord[]
+  transactions           TransactionRecord[]
 }
 
 model Room {
-  id             String   @id @default(uuid())
-  name           String
-  hostID         String
-  host           User     @relation("HostRooms", fields: [hostID], references: [id], onDelete: Cascade)
-  hostName       String
-  code           String   @unique
-  mediaItem      String?
-  isActive       Boolean  @default(true)
+  id              String   @id @default(uuid())
+  name            String
+  hostID          String
+  host            User     @relation("HostRooms", fields: [hostID], references: [id], onDelete: Cascade)
+  hostName        String
+  code            String   @unique
+  mediaItem       String?
+  isActive        Boolean  @default(true)
   /// Hidden from discovery until a moderator resolves the reports against it.
-  hidden         Boolean  @default(false)
-  maxParticipants Int     @default(10)
-  hostIsPremium  Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  privacy        String   @default("public")
-  password       String?
+  hidden          Boolean  @default(false)
+  maxParticipants Int      @default(10)
+  hostIsPremium   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  privacy         String   @default("public")
+  password        String?
 
   // ─── Room appearance ───
   /// JSON-stringified RoomAppearance { themeId, themeRevision, intensity,
   /// motionEnabled }. Host-authoritative; broadcast to all participants on
   /// change via WebSocket `room.appearance.updated` event.
-  appearance     String?
+  appearance String?
 
   participants   RoomParticipant[]
   messages       ChatMessage[]
@@ -168,31 +168,31 @@ model ChatMessage {
 }
 
 model DirectMessage {
-  id          String   @id @default(uuid())
-  senderID    String
-  sender      User     @relation("SentDMs", fields: [senderID], references: [id], onDelete: Cascade)
-  receiverID  String
-  receiver    User     @relation("ReceivedDMs", fields: [receiverID], references: [id], onDelete: Cascade)
-  content     String
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id                String                  @id @default(uuid())
+  senderID          String
+  sender            User                    @relation("SentDMs", fields: [senderID], references: [id], onDelete: Cascade)
+  receiverID        String
+  receiver          User                    @relation("ReceivedDMs", fields: [receiverID], references: [id], onDelete: Cascade)
+  content           String
+  isRead            Boolean                 @default(false)
+  createdAt         DateTime                @default(now())
   /// Optional attachment: "voice" for friend voice notes (data lives in mediaData).
-  mediaType   String?
+  mediaType         String?
   /// data:audio/mp4;base64,... — stored in DB (Railway ephemeral FS-safe).
-  mediaData   String?  @db.Text
-  mediaDurationSec Float?
-  reactions   DirectMessageReaction[]
+  mediaData         String?                 @db.Text
+  mediaDurationSec  Float?
+  reactions         DirectMessageReaction[]
   /// Telegram-style reply: quoted message id (same thread).
-  replyToID   String?
-  replyTo     DirectMessage?  @relation("DMReply", fields: [replyToID], references: [id], onDelete: SetNull)
-  replies     DirectMessage[] @relation("DMReply")
+  replyToID         String?
+  replyTo           DirectMessage?          @relation("DMReply", fields: [replyToID], references: [id], onDelete: SetNull)
+  replies           DirectMessage[]         @relation("DMReply")
   /// Telegram-style forward attribution (snapshot survives source deletion).
   forwardedFromID   String?
   forwardedFromName String?
   /// Telegram-style edit marker and per-user delete list.
-  editedAt      DateTime?
-  deletedForIDs String[]  @default([])
-  pins        DirectMessagePin[]
+  editedAt          DateTime?
+  deletedForIDs     String[]                @default([])
+  pins              DirectMessagePin[]
 
   @@index([senderID, receiverID, createdAt])
   @@index([receiverID, isRead, senderID])
@@ -203,17 +203,17 @@ model DirectMessage {
 /// Telegram-style DM pin. One row per user view: «pin for me» creates one
 /// row (owner = actor); «pin for both» creates a row for each participant.
 model DirectMessagePin {
-  id         String   @id @default(uuid())
+  id         String        @id @default(uuid())
   /// The user whose chat view shows this pin.
   ownerID    String
-  owner      User     @relation("DMPins", fields: [ownerID], references: [id], onDelete: Cascade)
+  owner      User          @relation("DMPins", fields: [ownerID], references: [id], onDelete: Cascade)
   /// DM thread peer (the chat partner of ownerID).
   peerID     String
   messageID  String
   message    DirectMessage @relation(fields: [messageID], references: [id], onDelete: Cascade)
   /// Who performed the pin action (either participant).
   pinnedByID String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime      @default(now())
 
   @@unique([ownerID, peerID, messageID])
   @@index([ownerID, peerID])
@@ -221,13 +221,13 @@ model DirectMessagePin {
 
 /// Telegram-style reactions on DMs (one emoji per user per message).
 model DirectMessageReaction {
-  id        String   @id @default(uuid())
+  id        String        @id @default(uuid())
   messageID String
   message   DirectMessage @relation(fields: [messageID], references: [id], onDelete: Cascade)
   userID    String
-  user      User     @relation(fields: [userID], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userID], references: [id], onDelete: Cascade)
   emoji     String
-  createdAt DateTime @default(now())
+  createdAt DateTime      @default(now())
 
   @@unique([messageID, userID])
   @@index([messageID])
@@ -264,30 +264,30 @@ model Friendship {
 }
 
 model WatchHistory {
-  id        String   @id @default(uuid())
-  userID    String
-  user      User     @relation(fields: [userID], references: [id], onDelete: Cascade)
-  roomID    String?
-  room      Room?    @relation(fields: [roomID], references: [id], onDelete: SetNull)
+  id         String   @id @default(uuid())
+  userID     String
+  user       User     @relation(fields: [userID], references: [id], onDelete: Cascade)
+  roomID     String?
+  room       Room?    @relation(fields: [roomID], references: [id], onDelete: SetNull)
   mediaTitle String?
   /// Poster URL of the media at watch time (denormalized from room.mediaItem —
   /// survives room deletion, roomID goes SetNull).
   mediaThumb String?
   /// MediaItem.mediaType at watch time: movie | series | music | video | livestream.
   mediaKind  String?
-  watchedAt DateTime @default(now())
+  watchedAt  DateTime @default(now())
 
   @@index([userID, watchedAt])
   @@index([userID, roomID, watchedAt])
 }
 
 model PlaybackState {
-  id         String   @id @default(uuid())
-  roomID     String
-  room       Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
-  userID     String?
-  user       User?    @relation(fields: [userID], references: [id], onDelete: SetNull)
-  currentTime    Float    @default(0)
+  id          String   @id @default(uuid())
+  roomID      String
+  room        Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  userID      String?
+  user        User?    @relation(fields: [userID], references: [id], onDelete: SetNull)
+  currentTime Float    @default(0)
   isPlaying   Boolean  @default(false)
   updatedAt   DateTime @updatedAt
 
@@ -299,39 +299,41 @@ model PlaybackState {
 }
 
 model Subscription {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   userID                String
-  user                  User     @relation(fields: [userID], references: [id], onDelete: Cascade)
-  plan                  String   @default("monthly")
-  isActive              Boolean  @default(true)
+  user                  User      @relation(fields: [userID], references: [id], onDelete: Cascade)
+  plan                  String    @default("monthly")
+  isActive              Boolean   @default(true)
   expiresAt             DateTime
-  createdAt             DateTime @default(now())
+  createdAt             DateTime  @default(now())
   // App Store Server API v2 fields
   /// Idempotency key for the upsert in billing.ts — @unique is load-bearing.
   /// Without it every verify/renew inserts another active row, and a
   /// redelivered YooKassa webhook grants the web subscription twice.
-  originalTransactionId String?  @unique // stable across renewals
-  environment           String?  // "Sandbox" | "Production"
+  originalTransactionId String?   @unique // stable across renewals
+  environment           String? // "Sandbox" | "Production"
   revokedAt             DateTime?
   lastVerifiedAt        DateTime?
+
   @@index([userID, isActive])
 }
 
 /// Signed transaction records (JWS) from App Store Server API v2.
 /// One row per verified transaction, backing the audit trail and revocation.
 model TransactionRecord {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   userId                String
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactionId         String   @unique  // stable per transaction
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionId         String    @unique // stable per transaction
   originalTransactionId String
   productId             String
-  environment           String   // "Sandbox" | "Production"
-  jws                   String   @db.Text  // signed JWS from Apple
+  environment           String // "Sandbox" | "Production"
+  jws                   String    @db.Text // signed JWS from Apple
   expiresAt             DateTime?
   revocationDate        DateTime?
-  verifiedAt            DateTime @default(now())
-  createdAt             DateTime @default(now())
+  verifiedAt            DateTime  @default(now())
+  createdAt             DateTime  @default(now())
+
   @@index([userId, createdAt])
   @@index([originalTransactionId])
   @@index([productId])
@@ -347,16 +349,17 @@ model AppleNotification {
   originalTransactionId String?
   signedDate            DateTime?
   processedAt           DateTime  @default(now())
+
   @@index([originalTransactionId])
 }
 
 model UserBlock {
-  id          String @id @default(uuid())
-  blockerID   String
-  blocker     User   @relation("Blocker", fields: [blockerID], references: [id], onDelete: Cascade)
-  blockedID   String
-  blocked     User   @relation("Blocked", fields: [blockedID], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  blockerID String
+  blocker   User     @relation("Blocker", fields: [blockerID], references: [id], onDelete: Cascade)
+  blockedID String
+  blocked   User     @relation("Blocked", fields: [blockedID], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 
   @@unique([blockerID, blockedID])
 }
@@ -364,28 +367,28 @@ model UserBlock {
 /// A report against a room, a message, or a user. `targetType` + `targetID`
 /// address the subject; App Review requires all three kinds to be reportable.
 model Report {
-  id          String   @id @default(uuid())
-  reporterID  String
-  reporter    User     @relation("Reporter", fields: [reporterID], references: [id], onDelete: Cascade)
+  id           String    @id @default(uuid())
+  reporterID   String
+  reporter     User      @relation("Reporter", fields: [reporterID], references: [id], onDelete: Cascade)
   /// Kept for backward compatibility with rows written before targetType existed.
-  roomID      String?
-  reportedRoom Room?   @relation("ReportedRoom", fields: [roomID], references: [id], onDelete: SetNull)
+  roomID       String?
+  reportedRoom Room?     @relation("ReportedRoom", fields: [roomID], references: [id], onDelete: SetNull)
   /// "user" | "message" | "room"
-  targetType  String   @default("room")
+  targetType   String    @default("room")
   /// Identifier of the reported object, interpreted according to targetType.
-  targetID    String?
-  reason      String
+  targetID     String?
+  reason       String
   /// Free-form note from the reporter (up to 1000 characters).
-  comment     String?
-  status      String   @default("pending")  // pending | resolved | dismissed
+  comment      String?
+  status       String    @default("pending") // pending | resolved | dismissed
   /// Review deadline: 24 hours after submission, as promised in the product.
-  dueAt       DateTime?
-  createdAt   DateTime @default(now())
-  resolvedAt  DateTime?
-  resolvedBy  String?
-  resolver    User?    @relation("Resolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
+  dueAt        DateTime?
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+  resolvedBy   String?
+  resolver     User?     @relation("Resolver", fields: [resolvedBy], references: [id], onDelete: SetNull)
   /// Outcome of the review: dismiss | hide | ban
-  resolution  String?
+  resolution   String?
 
   @@index([status, createdAt])
   @@index([targetType, targetID])
@@ -393,13 +396,13 @@ model Report {
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -422,14 +425,14 @@ model AuditLog {
 // ─── Growth, feature flags, ads, moderation audit, group chats ───
 
 model Referral {
-  id          String   @id @default(uuid())
-  referrerId  String
-  referrer    User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
-  referredId  String   @unique
-  referred    User     @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
-  status      String   @default("completed")
-  rewardDays  Int      @default(7)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  referrerId String
+  referrer   User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId String   @unique
+  referred   User     @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
+  status     String   @default("completed")
+  rewardDays Int      @default(7)
+  createdAt  DateTime @default(now())
 
   @@index([referrerId])
 }
@@ -442,33 +445,33 @@ model FeatureFlag {
 }
 
 model AdBreak {
-  id          String   @id @default(uuid())
-  roomID      String
-  room        Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
-  startTime   Float
-  endTime     Float
-  adType      String   @default("preroll")
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  roomID    String
+  room      Room     @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  startTime Float
+  endTime   Float
+  adType    String   @default("preroll")
+  createdAt DateTime @default(now())
 
   @@index([roomID])
 }
 
 /// Append-only audit trail for automated moderation decisions.
 model AIModerationAudit {
-  id             String   @id @default(cuid())
-  roomId         String
-  messageId      String
-  subjectUserId  String
-  action         String
-  reasonCode     String
-  confidence     Float?
-  policyVersion  String
-  modelVersion   String?
-  evidenceHash   String
-  reversible     Boolean  @default(true)
-  reviewedBy     String?
-  reviewedAt     DateTime?
-  createdAt      DateTime @default(now())
+  id            String    @id @default(cuid())
+  roomId        String
+  messageId     String
+  subjectUserId String
+  action        String
+  reasonCode    String
+  confidence    Float?
+  policyVersion String
+  modelVersion  String?
+  evidenceHash  String
+  reversible    Boolean   @default(true)
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
 
   @@index([roomId, createdAt])
   @@index([subjectUserId, createdAt])
@@ -476,19 +479,28 @@ model AIModerationAudit {
 
 /// Group conversations — multi-participant messaging alongside 1:1 DMs.
 model GroupChat {
-  id        String   @id @default(uuid())
-  title     String
-  ownerID   String
-  createdAt DateTime @default(now())
-  members   GroupMember[]
-  messages  GroupMessage[]
+  id                   String         @id @default(uuid())
+  title                String
+  ownerID              String
+  createdAt            DateTime       @default(now())
+  /// Описание беседы — как в Telegram, показывается в настройках.
+  description          String?
+  /// Аватар беседы: data URL, как у пользователей (avatarData).
+  avatarData           String?        @db.Text
+  avatarUpdatedAt      DateTime?
+  /// Права участников. Владелец и админы не ограничены никогда.
+  membersCanInvite     Boolean        @default(true)
+  membersCanSendMedia  Boolean        @default(true)
+  membersCanChangeInfo Boolean        @default(false)
+  members              GroupMember[]
+  messages             GroupMessage[]
 }
 
 model GroupMember {
-  id       String    @id @default(uuid())
-  groupID  String
-  group    GroupChat @relation(fields: [groupID], references: [id], onDelete: Cascade)
-  userID   String
+  id         String    @id @default(uuid())
+  groupID    String
+  group      GroupChat @relation(fields: [groupID], references: [id], onDelete: Cascade)
+  userID     String
   role       String    @default("member")
   joinedAt   DateTime  @default(now())
   lastReadAt DateTime?

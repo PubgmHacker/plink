@@ -62,6 +62,28 @@ struct Friend: Codable, Identifiable, Sendable, Equatable, Hashable {
     }
 }
 
+// MARK: - Русское склонение
+
+/// Одно правило склонения на всё приложение. Раньше каждый форматтер решал
+/// сам через порог «меньше пяти» — и presence выдавал «был(а) 43 минут
+/// назад», потому что 43 не попадало ни в одну ветку. Правило смотрит на
+/// последнюю цифру, кроме подросткового диапазона 11–14.
+enum RussianPlural {
+    static func word(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
+        let mod100 = abs(count) % 100
+        let mod10 = abs(count) % 10
+        if mod100 >= 11 && mod100 <= 14 { return many }
+        if mod10 == 1 { return one }
+        if mod10 >= 2 && mod10 <= 4 { return few }
+        return many
+    }
+
+    /// Число вместе со словом: «43 минуты».
+    static func counted(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
+        "\(count) \(word(count, one, few, many))"
+    }
+}
+
 // MARK: - Presence copy (RU, Telegram-style)
 
 enum FriendPresence {
@@ -75,22 +97,15 @@ enum FriendPresence {
             // Telegram-style: seconds for very recent
             if sec < 60 {
                 let s = max(1, Int(sec))
-                if s == 1 { return "был(а) 1 секунду назад" }
-                if s < 5 { return "был(а) \(s) секунды назад" }
-                if s < 20 { return "был(а) \(s) секунд назад" }
-                return "был(а) \(s) секунд назад"
+                return "был(а) \(RussianPlural.counted(s, "секунду", "секунды", "секунд")) назад"
             }
             if sec < 3600 {
                 let m = max(1, Int(sec / 60))
-                if m == 1 { return "был(а) 1 минуту назад" }
-                if m < 5 { return "был(а) \(m) минуты назад" }
-                return "был(а) \(m) минут назад"
+                return "был(а) \(RussianPlural.counted(m, "минуту", "минуты", "минут")) назад"
             }
             if sec < 86_400 {
                 let h = max(1, Int(sec / 3600))
-                if h == 1 { return "был(а) 1 час назад" }
-                if h < 5 { return "был(а) \(h) часа назад" }
-                return "был(а) \(h) часов назад"
+                return "был(а) \(RussianPlural.counted(h, "час", "часа", "часов")) назад"
             }
             let cal = Calendar.current
             if cal.isDateInYesterday(last) {
@@ -99,7 +114,7 @@ enum FriendPresence {
             }
             if sec < 86_400 * 7 {
                 let d = max(1, Int(sec / 86_400))
-                return "был(а) \(d) \(dayWord(d)) назад"
+                return "был(а) \(RussianPlural.counted(d, "день", "дня", "дней")) назад"
             }
             let df = DateFormatter()
             df.locale = Locale(identifier: "ru_RU")
@@ -143,14 +158,6 @@ enum FriendPresence {
         return displayText(isOnline: false, lastSeenAt: last)
     }
 
-    private static func dayWord(_ d: Int) -> String {
-        let n = d % 100
-        let n1 = d % 10
-        if n > 10 && n < 20 { return "дней" }
-        if n1 == 1 { return "день" }
-        if n1 >= 2 && n1 <= 4 { return "дня" }
-        return "дней"
-    }
 }
 
 // MARK: - Friend Request

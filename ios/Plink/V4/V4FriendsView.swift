@@ -68,6 +68,9 @@ struct V4FriendsViewLive: View {
     @ObservedObject var groupService = GroupChatService.shared
     @ObservedObject var muteStore = ChatMuteStore.shared
     @State var openGroup: GroupChatDTO? = nil
+    /// QA-рельса: `-plink.designgroupinfo` открывает настройки первой беседы
+    /// без единого тапа (симулятор на чужом Space — тапы недоступны).
+    @State var designGroupInfo: String? = nil
     let theme: V4Theme
     var store: V4FriendsStore?
     /// Активные комнаты — для «Друг сейчас смотрит».
@@ -503,7 +506,12 @@ struct V4FriendsViewLive: View {
         // поллинг оставлен fallback-ом и только для активной вкладки на переднем плане.
         .task(id: isActive) {
             guard isActive else { return }
+            // Беседы читаем сразу на входе. Раньше первый loadGroups() ждал
+            // конца двадцатисекундного сна ниже — и всё это время инбокс
+            // показывал «Пока нет чатов» поверх существующих бесед.
+            async let groupsReady: Void = groupService.loadGroups()
             await store?.refreshQuietly()
+            await groupsReady
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 20_000_000_000) // 20s fallback
                 guard !Task.isCancelled, isActive else { break }

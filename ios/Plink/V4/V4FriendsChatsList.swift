@@ -12,6 +12,12 @@ import PhotosUI
 import UIKit
 import Foundation
 
+/// Обёртка над id беседы: `.sheet(item:)` требует Identifiable, а строка им
+/// не является. Нужна только дизайн-рельсе настроек беседы.
+struct PlinkDesignGroupID: Identifiable, Equatable {
+    let id: String
+}
+
 extension V4FriendsViewLive {
     // MARK: - Чаты / Общение
 
@@ -66,6 +72,41 @@ extension V4FriendsViewLive {
         return pinned + unpinned
     }
 
+    /// Пока сторы молчат, пустое состояние врёт: «Пока нет чатов» успевало
+    /// мигнуть над беседой, которая просто ещё не приехала. Инбокс кормят два
+    /// источника — люди и беседы, поэтому ждём ответа обоих.
+    private var inboxIsLoading: Bool {
+        switch store?.state {
+        case .none, .idle, .loading: return true
+        default: return groupService.isLoading || !groupService.didLoadOnce
+        }
+    }
+
+    /// Геометрия скелета повторяет строку чата (аватар 48, имя, превью,
+    /// время справа), чтобы приезд данных не дёргал экран. Ширины разной
+    /// длины — четыре одинаковые полосы читаются как таблица, а не как имена.
+    var chatsLoadingSkeleton: some View {
+        let widths: [(CGFloat, CGFloat)] = [(132, 176), (104, 138), (156, 192), (118, 160)]
+        return VStack(spacing: 0) {
+            ForEach(Array(widths.enumerated()), id: \.offset) { idx, w in
+                HStack(spacing: 12) {
+                    SkeletonCircle(size: 48)
+                    VStack(alignment: .leading, spacing: 8) {
+                        SkeletonRect(width: w.0, height: 13, cornerRadius: 6)
+                        SkeletonRect(width: w.1, height: 10, cornerRadius: 5)
+                    }
+                    Spacer(minLength: 0)
+                    SkeletonRect(width: 34, height: 10, cornerRadius: 5)
+                }
+                .padding(.vertical, 10)
+                if idx < widths.count - 1 {
+                    Rectangle().fill(V4.line.opacity(0.5)).frame(height: 0.5)
+                        .padding(.leading, 60)
+                }
+            }
+        }
+    }
+
     var chatsBlock: some View {
         let inbox = unifiedInbox
         return VStack(alignment: .leading, spacing: 12) {
@@ -80,7 +121,9 @@ extension V4FriendsViewLive {
             )
 
             sectionCard {
-                if inbox.isEmpty {
+                if inbox.isEmpty && inboxIsLoading {
+                    chatsLoadingSkeleton
+                } else if inbox.isEmpty {
                     if (store?.friends.isEmpty ?? true) {
                         emptyInside(
                             icon: "bubble.left.and.bubble.right.fill",
@@ -126,6 +169,20 @@ extension V4FriendsViewLive {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        // Настройки беседы для QA без тапов: -plink.designgroupinfo
+        .sheet(item: Binding(
+            get: { designGroupInfo.map { PlinkDesignGroupID(id: $0) } },
+            set: { designGroupInfo = $0?.id }
+        )) { target in
+            GroupInfoView(groupId: target.id, titleHint: "Беседа")
+                .preferredColorScheme(.dark)
+        }
+        .task(id: groupService.groups.count) {
+            guard ProcessInfo.processInfo.arguments.contains("-plink.designgroupinfo"),
+                  designGroupInfo == nil,
+                  let first = groupService.groups.first else { return }
+            designGroupInfo = first.id
+        }
     }
 
     // «Создать беседу»-строки в инбоксе больше нет: создание переехало в
@@ -143,23 +200,22 @@ extension V4FriendsViewLive {
         } label: {
             HStack(spacing: 12) {
                 ZStack(alignment: .bottomTrailing) {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient(
-                                colors: [theme.accentColor.opacity(0.85), theme.accentColor.opacity(0.42)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            ))
-                            .frame(width: 48, height: 48)
-                        V4GlyphIcon(glyph: .people3, size: 15, filled: true, weight: .regular)
-                            .foregroundStyle(theme.buttonTextColor)
-                    }
+                    // Лицо беседы: фото группы либо буква на палитре её id.
+                    // Акцент темы тут больше не участвует — беседы должны
+                    // отличаться друг от друга, а не повторять фон.
+                    PlinkGroupAvatar(
+                        groupId: group.id,
+                        title: group.title,
+                        avatarVersion: group.avatarVersion,
+                        size: 48
+                    )
                     // 👥 group marker
                     Circle().fill(V4.surface)
                         .frame(width: 18, height: 18)
                         .overlay {
                             Image(systemName: muted ? "bell.slash.fill" : "person.3.fill")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(muted ? .orange : theme.accentColor)
+                                .foregroundStyle(muted ? V4.amber : V4.muted)
                         }
                         .offset(x: 2, y: 2)
                 }
@@ -183,7 +239,7 @@ extension V4FriendsViewLive {
                                 .foregroundStyle(unread > 0 ? V4.ink.opacity(0.85) : V4.muted)
                                 .lineLimit(1)
                         } else {
-                            Text("\(group.memberCount) участника")
+                            Text(GroupCopy.members(group.memberCount))
                                 .font(.system(size: 13))
                                 .foregroundStyle(V4.muted).lineLimit(1)
                         }
