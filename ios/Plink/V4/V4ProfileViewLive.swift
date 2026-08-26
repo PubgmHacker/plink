@@ -48,11 +48,29 @@ struct V4ProfileViewLive: View {
     /// Акцент лица профиля: обложка владельца, а не тема приложения. Своя
     /// фотография — тон считается с неё (PlinkCoverAccent), пресет отдаёт
     /// свой. Тема остаётся оформлением приложения: настройки, шиты, пикеры.
+    /// Итог проходит через `legible`: этим цветом заливается кнопка с белой
+    /// подписью, и светлая обложка не имеет права её погасить.
     @MainActor private var faceAccent: Color {
+        PlinkCoverAccent.legible(rawFaceAccent)
+    }
+
+    @MainActor private var rawFaceAccent: Color {
+        #if DEBUG
+        if let forced = V4CoverStyle.debugForced { return forced.accent }
+        #endif
         if store?.usesCustomCover == true, let image = store?.customCoverImage {
             return PlinkCoverAccent.of(image)
         }
-        return (store?.coverStyle ?? .dusk).accent
+        return activeCoverStyle.accent
+    }
+
+    /// Пресет, которым сейчас живёт шапка. В Debug подменяется флагом
+    /// `-plink.designcover <id>`.
+    private var activeCoverStyle: V4CoverStyle {
+        #if DEBUG
+        if let forced = V4CoverStyle.debugForced { return forced }
+        #endif
+        return store?.coverStyle ?? .dusk
     }
 
     private let coverHeight: CGFloat = 212
@@ -190,15 +208,25 @@ struct V4ProfileViewLive: View {
     /// Полотно обложки без скримов — используется дважды: самой обложкой
     /// и амбиент-свечением под ней.
     @ViewBuilder private var coverCanvas: some View {
-        if let custom = store?.customCoverImage, store?.usesCustomCover == true {
+        if let custom = store?.customCoverImage, store?.usesCustomCover == true,
+           !isCoverForced {
             // Color.clear.overlay — scaledToFill заполняет полотно, не
             // распирая ширину ZStack под размер исходного фото.
             Color.clear
                 .overlay(Image(uiImage: custom).resizable().scaledToFill())
                 .clipped()
         } else {
-            (store?.coverStyle ?? .dusk).artwork()
+            activeCoverStyle.artwork()
         }
+    }
+
+    /// true — обложка подменена QA-флагом; своё фото тогда не мешает.
+    private var isCoverForced: Bool {
+        #if DEBUG
+        return V4CoverStyle.debugForced != nil
+        #else
+        return false
+        #endif
     }
 
     /// Зеркальная размытая копия обложки под её нижней кромкой: цвета на
@@ -918,15 +946,49 @@ struct V4StatusEditorSheet: View {
 /// Выбор хранится токеном `plink://cover/<id>` в поле coverURL — синк
 /// между устройствами задаром; своя картинка — data-URL там же.
 enum V4CoverStyle: String, CaseIterable, Identifiable {
-    case dusk, neon, ember, midnight, aurora, graphite, shimmer
+    // Бесплатная витрина.
+    case dusk, ember, midnight, graphite
+    // Живые — Плинк+.
+    case shimmer, projector, reel, bulbs, drift
+    // Сняты с витрины, но живут у тех, кто их уже выбрал.
+    case neon, aurora
 
     var id: String { rawValue }
 
     static let urlPrefix = "plink://cover/"
     var remoteToken: String { Self.urlPrefix + rawValue }
 
+    #if DEBUG
+    /// QA-рельса: `-plink.designcover <id>` показывает обложку в шапке, не
+    /// трогая аккаунт, подписку и сервер. Только Debug.
+    static let debugForced: V4CoverStyle? = {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-plink.designcover"), i + 1 < args.count else { return nil }
+        return V4CoverStyle.fromStored(args[i + 1])
+    }()
+    #endif
+
+    /// Витрина бесплатных: четыре разных полотна, а не шесть оттенков
+    /// одного. `neon` и `aurora` из неё сняты — но остаются валидными и
+    /// показываются тому, у кого уже стоят (см. freeShelf(current:)).
+    static let freeCatalog: [V4CoverStyle] = [.dusk, .midnight, .ember, .graphite]
+
+    /// Витрина Плинк+: пять живых полотен, каждое на своём движении —
+    /// перелив, луч, плёнка, лампы, пыль в луче.
+    static let plusCatalog: [V4CoverStyle] = [.shimmer, .projector, .reel, .bulbs, .drift]
+
+    /// Бесплатная полка для конкретного человека: каталог плюс его
+    /// собственная легаси-обложка, если он на ней сидит. Забрать уже
+    /// выбранное — регресс, показывать всем снятое — мусор.
+    static func freeShelf(current: V4CoverStyle?) -> [V4CoverStyle] {
+        guard let current, !freeCatalog.contains(current), !plusCatalog.contains(current) else {
+            return freeCatalog
+        }
+        return freeCatalog + [current]
+    }
+
     /// Живой пресет — анимируется и продаётся только с Плинк+.
-    var isLive: Bool { self == .shimmer }
+    var isLive: Bool { motion != .none }
 
     /// Разбор сохранённого id с маппингом токенов прежних поколений
     /// (фото-пресеты и процедурные) — выбор со старых сборок не теряется.
@@ -956,6 +1018,10 @@ enum V4CoverStyle: String, CaseIterable, Identifiable {
         case .aurora: return "Сияние"
         case .graphite: return "Графит"
         case .shimmer: return "Перелив"
+        case .projector: return "Проектор"
+        case .reel: return "Плёнка"
+        case .bulbs: return "Огни"
+        case .drift: return "Пылинки"
         }
     }
 
@@ -973,6 +1039,10 @@ enum V4CoverStyle: String, CaseIterable, Identifiable {
         case .aurora: return Color(hex: "#2FD9A6")
         case .graphite: return Color(hex: "#93A7C8")
         case .shimmer: return Color(hex: "#B24BE8")
+        case .projector: return Color(hex: "#FFC46B")
+        case .reel: return Color(hex: "#7E93C4")
+        case .bulbs: return Color(hex: "#FF5F8A")
+        case .drift: return Color(hex: "#6FD0FF")
         }
     }
 
@@ -1001,15 +1071,42 @@ enum V4CoverStyle: String, CaseIterable, Identifiable {
         case .shimmer: return .init(
             sky: [Color(hex: "#6C3BFF"), Color(hex: "#B03BD9"), Color(hex: "#22306E")],
             glow: Color(hex: "#4FD9FF"), glowCenter: .init(x: 0.25, y: 0.10), glowStrength: 0.60)
+        case .projector: return .init(
+            sky: [Color(hex: "#1A1712"), Color(hex: "#241C14"), Color(hex: "#0B0908")],
+            glow: Color(hex: "#FFD79A"), glowCenter: .init(x: 0.08, y: 0.06), glowStrength: 0.30)
+        case .reel: return .init(
+            sky: [Color(hex: "#232833"), Color(hex: "#171B23"), Color(hex: "#0A0C10")],
+            glow: Color(hex: "#DCE6F5"), glowCenter: .init(x: 0.50, y: 0.05), glowStrength: 0.22)
+        case .bulbs: return .init(
+            sky: [Color(hex: "#3B0E2C"), Color(hex: "#5A1030"), Color(hex: "#180411")],
+            glow: Color(hex: "#FF7FA6"), glowCenter: .init(x: 0.50, y: 0.02), glowStrength: 0.30)
+        case .drift: return .init(
+            sky: [Color(hex: "#0E2340"), Color(hex: "#123255"), Color(hex: "#050B16")],
+            glow: Color(hex: "#7FD8FF"), glowCenter: .init(x: 0.68, y: 0.06), glowStrength: 0.34)
         }
     }
 
-    /// Полотно пресета: статичный градиент или живой «Перелив».
-    @ViewBuilder func artwork() -> some View {
-        if isLive {
-            PlinkShimmerCover(spec: spec)
-        } else {
+    /// Чем полотно живёт. Один TimelineView на плитку — различается только
+    /// то, что он рисует поверх общего градиента.
+    fileprivate var motion: PlinkCoverMotion {
+        switch self {
+        case .dusk, .neon, .ember, .midnight, .aurora, .graphite: return .none
+        case .shimmer: return .shimmer
+        case .projector: return .projector
+        case .reel: return .reel
+        case .bulbs: return .bulbs
+        case .drift: return .drift
+        }
+    }
+
+    /// Полотно пресета. `preview: true` — миниатюра в пикере: тот же
+    /// рисунок на вдвое более редком тике, чтобы полка из пяти живых
+    /// обложек не жгла кадры.
+    @ViewBuilder func artwork(preview: Bool = false) -> some View {
+        if motion == .none {
             PlinkCoverGradient(spec: spec)
+        } else {
+            PlinkLiveCover(spec: spec, motion: motion, preview: preview)
         }
     }
 }
@@ -1022,13 +1119,23 @@ fileprivate struct PlinkCoverSpec {
     let glowStrength: Double
 }
 
+/// Чем живёт полотно. `.none` — статичный пресет бесплатной полки;
+/// остальные пять рисуются одним и тем же Canvas'ом поверх общего неба и
+/// ПОД «полом», иначе луч и лампы затирали бы стык со страницей.
+fileprivate enum PlinkCoverMotion: Equatable {
+    case none, shimmer, projector, reel, bulbs, drift
+}
+
 /// Базовый градиент обложки: небо по диагонали, мягкое световое пятно
-/// (plusLighter — свет складывается, а не пачкает), тёмный «пол» из
-/// V4.canvas — нижняя кромка совпадает со страницей до канала.
+/// (plusLighter — свет складывается, а не пачкает), живой слой и тёмный
+/// «пол» из V4.canvas — нижняя кромка совпадает со страницей до канала.
 fileprivate struct PlinkCoverGradient: View {
     let spec: PlinkCoverSpec
-    /// Сдвиг пятна по X в долях ширины — «Перелив» водит светом вживую.
+    /// Сдвиг пятна по X в долях ширины — живые пресеты водят светом.
     var glowDrift: CGFloat = 0
+    var motion: PlinkCoverMotion = .none
+    /// Время анимации в секундах; для статичных пресетов не используется.
+    var t: Double = 0
 
     var body: some View {
         LinearGradient(colors: spec.sky, startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -1040,6 +1147,13 @@ fileprivate struct PlinkCoverGradient: View {
                 )
                 .blendMode(.plusLighter)
             )
+            .overlay {
+                if motion != .none && motion != .shimmer {
+                    PlinkCoverMotionCanvas(motion: motion, tint: spec.glow, t: t)
+                        .blendMode(.plusLighter)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0.45),
@@ -1049,17 +1163,188 @@ fileprivate struct PlinkCoverGradient: View {
     }
 }
 
-/// Живая обложка Плинк+: медленный дрейф оттенка (±38° за ~9 с) и света —
-/// перелив, а не мигание. TimelineView с шагом 1/20 с — GPU-дёшево, без
-/// таймеров в модели; в пикере миниатюра переливается той же вьюхой.
-fileprivate struct PlinkShimmerCover: View {
+/// Живая обложка Плинк+. Один TimelineView на полотно; `preview` — тик
+/// вдвое реже для миниатюр пикера, чтобы полка из пяти живых обложек не
+/// жгла кадры. Reduce Motion — тот же кадр, но замороженный.
+fileprivate struct PlinkLiveCover: View {
     let spec: PlinkCoverSpec
+    let motion: PlinkCoverMotion
+    var preview: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
+        if reduceMotion {
+            frame(at: 1.4)
+        } else {
+            TimelineView(.animation(minimumInterval: preview ? 1.0 / 12.0 : 1.0 / 20.0)) { context in
+                frame(at: context.date.timeIntervalSinceReferenceDate)
+            }
+        }
+    }
+
+    @ViewBuilder private func frame(at t: Double) -> some View {
+        switch motion {
+        case .shimmer:
+            // Единственный пресет, который двигает само небо, а не рисует
+            // поверх: дрейф оттенка ±38° за ~9 с плюс ход света.
             PlinkCoverGradient(spec: spec, glowDrift: CGFloat(sin(t * 0.45)) * 0.28)
                 .hueRotation(.degrees(sin(t * 0.7) * 38))
+        case .reel:
+            PlinkCoverGradient(spec: spec, glowDrift: CGFloat(sin(t * 0.22)) * 0.30,
+                               motion: motion, t: t)
+        default:
+            PlinkCoverGradient(spec: spec, motion: motion, t: t)
+        }
+    }
+}
+
+/// Рисунок живого слоя: луч проектора, бегущая плёнка, гирлянда ламп,
+/// пыль в луче. Один Canvas — один проход по GPU на всю обложку.
+fileprivate struct PlinkCoverMotionCanvas: View {
+    let motion: PlinkCoverMotion
+    let tint: Color
+    let t: Double
+
+    var body: some View {
+        Canvas(opaque: false, rendersAsynchronously: false) { ctx, size in
+            switch motion {
+            case .projector: Self.drawProjector(&ctx, size, tint, t)
+            case .reel: Self.drawReel(&ctx, size, tint, t)
+            case .bulbs: Self.drawBulbs(&ctx, size, tint, t)
+            case .drift: Self.drawDrift(&ctx, size, tint, t)
+            case .none, .shimmer: break
+            }
+        }
+    }
+
+    /// Дробная часть — общая основа детерминированного «шума» пылинок.
+    private static func frac(_ v: Double) -> Double { v - floor(v) }
+
+    /// Конус света из лампы в левом верхнем углу: качается и дышит.
+    private static func drawProjector(_ ctx: inout GraphicsContext, _ size: CGSize,
+                                      _ tint: Color, _ t: Double) {
+        let w = size.width, h = size.height
+        let apex = CGPoint(x: w * 0.04, y: h * 0.28)
+        let sway = CGFloat(sin(t * 0.26)) * h * 0.11
+        var cone = Path()
+        cone.move(to: apex)
+        cone.addLine(to: CGPoint(x: w * 1.06, y: h * 0.04 + sway))
+        cone.addLine(to: CGPoint(x: w * 1.06, y: h * 0.98 + sway))
+        cone.closeSubpath()
+        let breathe = 0.26 + 0.12 * (0.5 + 0.5 * sin(t * 0.63))
+        // Гало вокруг луча — чтобы верхняя кромка не была бритвой.
+        var halo = Path()
+        halo.move(to: apex)
+        halo.addLine(to: CGPoint(x: w * 1.06, y: -h * 0.22 + sway))
+        halo.addLine(to: CGPoint(x: w * 1.06, y: h * 1.24 + sway))
+        halo.closeSubpath()
+        ctx.fill(halo, with: .linearGradient(
+            Gradient(colors: [tint.opacity(breathe * 0.45), tint.opacity(breathe * 0.10), .clear]),
+            startPoint: apex, endPoint: CGPoint(x: w * 0.85, y: h * 0.5)))
+        ctx.fill(cone, with: .linearGradient(
+            Gradient(colors: [tint.opacity(breathe), tint.opacity(breathe * 0.28), .clear]),
+            startPoint: apex, endPoint: CGPoint(x: w * 0.95, y: h * 0.5)))
+        // Сама лампа — маленькая, но самая яркая точка кадра.
+        let r = h * 0.10
+        ctx.fill(
+            Path(ellipseIn: CGRect(x: apex.x - r, y: apex.y - r, width: r * 2, height: r * 2)),
+            with: .radialGradient(
+                Gradient(colors: [tint.opacity(0.90), tint.opacity(0.18), .clear]),
+                center: apex, startRadius: 0, endRadius: r))
+    }
+
+    /// 35 мм на просвет: подсвеченная лента, две дорожки перфорации и
+    /// кадровые границы между ними — всё едет влево одним куском.
+    /// 35 мм на просвет: окно кадра светится, перфорация бежит по двум
+    /// рельсам, границы кадров идут поперёк окна. Верхние 28% высоты в шапке
+    /// закрыты статус-баром — лента живёт ниже.
+    private static func drawReel(_ ctx: inout GraphicsContext, _ size: CGSize,
+                                 _ tint: Color, _ t: Double) {
+        let w = size.width, h = size.height
+        let top = h * 0.26, bottom = h * 0.68
+        ctx.fill(Path(CGRect(x: 0, y: top, width: w, height: bottom - top)),
+                 with: .linearGradient(
+                    Gradient(colors: [tint.opacity(0.04), tint.opacity(0.14), tint.opacity(0.04)]),
+                    startPoint: CGPoint(x: 0, y: top), endPoint: CGPoint(x: 0, y: bottom)))
+        // Края ленты: без них светящаяся полоса растворяется в небе.
+        for edge in [top, bottom] {
+            var line = Path()
+            line.move(to: CGPoint(x: 0, y: edge))
+            line.addLine(to: CGPoint(x: w, y: edge))
+            ctx.stroke(line, with: .color(tint.opacity(0.20)), lineWidth: max(0.5, h * 0.005))
+        }
+        // Шаг перфорации мелкий: четыре отверстия на кадр, как на плёнке.
+        let pitch = h * 0.115
+        let shift = CGFloat(frac(t * 0.30)) * pitch
+        let holeW = pitch * 0.46, holeH = h * 0.042
+        let railY: [CGFloat] = [h * 0.298, h * 0.600]
+        let count = Int(w / pitch) + 3
+        for i in 0..<count {
+            let x = CGFloat(i) * pitch - shift - pitch
+            for y in railY {
+                let hole = Path(roundedRect: CGRect(x: x, y: y, width: holeW, height: holeH),
+                                cornerRadius: holeH * 0.34)
+                ctx.fill(hole, with: .color(tint.opacity(0.62)))
+            }
+            guard i % 4 == 0 else { continue }
+            var line = Path()
+            line.move(to: CGPoint(x: x + holeW * 0.5, y: h * 0.348))
+            line.addLine(to: CGPoint(x: x + holeW * 0.5, y: h * 0.596))
+            ctx.stroke(line, with: .color(tint.opacity(0.28)), lineWidth: max(0.6, h * 0.006))
+        }
+    }
+
+    /// Гирлянда над входом: провис по дуге, огонь бежит слева направо.
+    /// Провис начинается ниже статус-бара — в шапке верх обложки не виден.
+    private static func drawBulbs(_ ctx: inout GraphicsContext, _ size: CGSize,
+                                  _ tint: Color, _ t: Double) {
+        let w = size.width, h = size.height
+        let count = 13
+        var wire = Path()
+        for i in 0...count {
+            let u = Double(i) / Double(count)
+            let p = CGPoint(x: w * CGFloat(u), y: h * (0.26 + 0.14 * sin(.pi * u)))
+            if i == 0 { wire.move(to: p) } else { wire.addLine(to: p) }
+        }
+        ctx.stroke(wire, with: .color(tint.opacity(0.16)), lineWidth: max(0.5, h * 0.006))
+        for i in 0...count {
+            let u = Double(i) / Double(count)
+            let c = CGPoint(x: w * CGFloat(u), y: h * (0.26 + 0.14 * sin(.pi * u)))
+            // Бегущий огонь: узкий пик волны, а не общее мигание.
+            let wave = max(0, sin(t * 2.0 - Double(i) * 0.52))
+            let lit = 0.28 + 0.72 * pow(wave, 5)
+            let r = h * 0.030
+            ctx.fill(
+                Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                with: .color(tint.opacity(0.30 + 0.60 * lit)))
+            let halo = r * 3.4
+            ctx.fill(
+                Path(ellipseIn: CGRect(x: c.x - halo, y: c.y - halo,
+                                       width: halo * 2, height: halo * 2)),
+                with: .radialGradient(
+                    Gradient(colors: [tint.opacity(0.34 * lit), .clear]),
+                    center: c, startRadius: 0, endRadius: halo))
+        }
+    }
+
+    /// Пылинки в луче: параллакс — дальние мельче, темнее и медленнее.
+    private static func drawDrift(_ ctx: inout GraphicsContext, _ size: CGSize,
+                                  _ tint: Color, _ t: Double) {
+        let w = size.width, h = size.height
+        for i in 0..<34 {
+            let n = Double(i)
+            let rx = frac(sin(n * 12.9898) * 43758.5453)
+            let ry = frac(sin(n * 78.2330) * 12345.6789)
+            let rd = frac(sin(n * 39.4250) * 8765.4321)
+            let depth = 0.30 + rd * 0.70
+            let speed = 0.010 + rd * 0.028
+            let x = CGFloat(frac(rx + t * speed) * 1.16 - 0.08) * w
+            let y = CGFloat(frac(ry - t * speed * 0.42)) * h * 0.92
+            let r = CGFloat(h * (0.004 + 0.011 * depth))
+            let pulse = 0.60 + 0.40 * sin(t * 0.9 + n * 1.7)
+            ctx.fill(
+                Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                with: .color(tint.opacity(0.12 + 0.52 * depth * pulse)))
         }
     }
 }
@@ -1104,36 +1389,46 @@ struct V4CoverPickerSheet: View {
             )
             .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 12) {
                     V4Heading(eyebrow: "Оформление профиля", title: "Обложка")
                     Spacer(minLength: 0)
                     V4SheetCloseButton { dismiss() }
                 }
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
 
-                LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                    spacing: 14
-                ) {
-                    ForEach(V4CoverStyle.allCases) { style in
-                        coverCell(style)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        customShelf
+                        freeShelf
+                        plusShelf
+
+                        if let loadError {
+                            Text(loadError)
+                                .font(.caption)
+                                .foregroundStyle(V4.danger)
+                        }
                     }
-                    customCell
+                    .padding(.horizontal, 18)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
                 }
-
-                if let loadError {
-                    Text(loadError)
-                        .font(.caption)
-                        .foregroundStyle(V4.danger)
-                }
-
-                Spacer(minLength: 0)
+                .scrollIndicators(.hidden)
 
                 SettingsPrimaryButton(title: "Применить") {
                     if apply() { dismiss() }
                 }
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 18)
+                // Полки уезжают под кнопку, а не обрываются об неё.
+                .background(
+                    LinearGradient(colors: [V4.canvas.opacity(0), V4.canvas], startPoint: .top, endPoint: .bottom)
+                        .padding(.top, -22)
+                        .allowsHitTesting(false)
+                )
             }
-            .padding(18)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -1241,9 +1536,83 @@ struct V4CoverPickerSheet: View {
         }
     }
 
+    private var hasPlus: Bool { store?.isPremium == true }
+
+    /// Пресет, который стоит у человека сейчас — нужен, чтобы снятая с
+    /// витрины обложка («Неон», «Сияние») не исчезла у того, кто её носит.
+    private var currentPreset: V4CoverStyle? {
+        if case .preset(let style) = selected { return style }
+        return store?.coverStyle
+    }
+
+    /// Своя обложка — первой и во всю ширину: она одна такая, и фото
+    /// стоит показывать в тех же пропорциях, в каких оно ляжет в шапку.
+    private var customShelf: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            shelfHeader(title: "Своя", note: "Фото из галереи", isPlusShelf: false)
+            customCell
+        }
+    }
+
+    private var freeShelf: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            shelfHeader(title: "Бесплатные", note: "Доступны всем", isPlusShelf: false)
+            coverGrid(V4CoverStyle.freeShelf(current: currentPreset))
+        }
+    }
+
+    private var plusShelf: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            shelfHeader(title: "Плинк+",
+                        note: hasPlus ? "Открыты" : "Двигаются, а не стоят",
+                        isPlusShelf: true)
+            coverGrid(V4CoverStyle.plusCatalog)
+        }
+    }
+
+    /// Заголовок полки. У платной вместо слова — сам знак Плинк+: он же
+    /// снимает нужду вешать бейдж на каждую из пяти плиток.
+    private func shelfHeader(title: String, note: String, isPlusShelf: Bool) -> some View {
+        HStack(spacing: 8) {
+            if isPlusShelf {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 9, weight: .black))
+                    Text("PLINK+")
+                        .font(.system(size: 9.5, weight: .black))
+                        .tracking(0.6)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(hex: "#A855F7"), in: Capsule())
+                .accessibilityLabel("Плинк+")
+            } else {
+                Text(title)
+                    .font(.system(size: 13.5, weight: .bold))
+                    .foregroundStyle(V4.ink)
+            }
+            Text(note)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(V4.muted)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func coverGrid(_ styles: [V4CoverStyle]) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+            spacing: 14
+        ) {
+            ForEach(styles) { style in
+                coverCell(style)
+            }
+        }
+    }
+
     private func coverCell(_ style: V4CoverStyle) -> some View {
         let isSelected = selected == .preset(style)
-        let locked = style.isLive && store?.isPremium != true
+        let locked = style.isLive && !hasPlus
         return Button {
             HapticManager.selection()
             if locked {
@@ -1253,21 +1622,19 @@ struct V4CoverPickerSheet: View {
             }
         } label: {
             VStack(spacing: 7) {
-                style.artwork()
+                style.artwork(preview: true)
                     .frame(height: 86)
                     .frame(maxWidth: .infinity)
                     .modifier(CoverCellChrome(theme: theme, isSelected: isSelected))
                     .overlay(alignment: .topLeading) {
-                        // Живой пресет подписан всегда: у подписчика — знак
-                        // эксклюзива, у остальных — что тап ведёт в Плинк+.
-                        if style.isLive {
-                            Text("PLINK+")
-                                .font(.system(size: 8.5, weight: .black))
-                                .tracking(0.5)
+                        // Замок — только там, где тап и правда уведёт в
+                        // пейволл. У подписчика полка чистая.
+                        if locked {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 9, weight: .black))
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3.5)
-                                .background(Color(hex: "#A855F7"), in: Capsule())
+                                .frame(width: 18, height: 18)
+                                .background(.black.opacity(0.38), in: Circle())
                                 .padding(6)
                         }
                     }
@@ -1295,51 +1662,56 @@ struct V4CoverPickerSheet: View {
                 withAnimation(.easeInOut(duration: 0.15)) { selected = .custom }
             }
         } label: {
-            VStack(spacing: 7) {
-                Group {
-                    if let shown {
-                        Color.clear
-                            .overlay(Image(uiImage: shown).resizable().scaledToFill())
-                            .clipped()
-                    } else {
-                        ZStack {
-                            V4.surface
-                            VStack(spacing: 5) {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(theme.accentColor)
-                                Text("Из галереи")
-                                    .font(.system(size: 11, weight: .semibold))
+            Group {
+                if let shown {
+                    Color.clear
+                        .overlay(Image(uiImage: shown).resizable().scaledToFill())
+                        .clipped()
+                } else {
+                    ZStack {
+                        V4.surface
+                        HStack(spacing: 9) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(theme.accentColor)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Выбрать фото")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(V4.ink)
+                                Text("Кадр обрежется по ширине шапки")
+                                    .font(.system(size: 11.5, weight: .medium))
                                     .foregroundStyle(V4.muted)
                             }
                         }
                     }
                 }
-                .frame(height: 86)
-                .frame(maxWidth: .infinity)
-                .modifier(CoverCellChrome(theme: theme, isSelected: isSelected))
-                .overlay(alignment: .bottomTrailing) {
-                    if shown != nil {
-                        // Перевыбор фото — отдельная мишень, не сбивающая
-                        // основной тап-выбор плитки.
-                        Button {
-                            HapticManager.selection()
-                            Task { await pickFromGallery() }
-                        } label: {
+            }
+            .frame(height: 96)
+            .frame(maxWidth: .infinity)
+            .modifier(CoverCellChrome(theme: theme, isSelected: isSelected))
+            .overlay(alignment: .bottomTrailing) {
+                if shown != nil {
+                    // Перевыбор фото — отдельная мишень, не сбивающая
+                    // основной тап-выбор плитки.
+                    Button {
+                        HapticManager.selection()
+                        Task { await pickFromGallery() }
+                    } label: {
+                        HStack(spacing: 5) {
                             Image(systemName: "photo.on.rectangle")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(V4.ink)
-                                .frame(width: 22, height: 22)
-                                .background(.black.opacity(0.55), in: Circle())
+                            Text("Другое фото")
+                                .font(.system(size: 11, weight: .semibold))
                         }
-                        .buttonStyle(.plain)
-                        .padding(5)
-                        .accessibilityLabel("Выбрать другое фото")
+                        .foregroundStyle(V4.ink)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.55), in: Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .padding(7)
+                    .accessibilityLabel("Выбрать другое фото")
                 }
-                Text("Своя")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(isSelected ? V4.ink : V4.muted)
             }
             .contentShape(Rectangle())
         }

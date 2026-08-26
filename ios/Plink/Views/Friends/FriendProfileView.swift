@@ -34,7 +34,12 @@ struct FriendProfileView: View {
     /// Акцент лица — обложка ХОЗЯИНА профиля, а не тема смотрящего. Чужой
     /// профиль тем более не имеет права краситься моими настройками: у
     /// надгробия акцента нет вовсе, у фотографии тон считается с неё.
+    /// `legible` держит итог в полосе, читаемой и на кнопке, и на холсте.
     @MainActor private var faceAccent: Color {
+        PlinkCoverAccent.legible(rawFaceAccent)
+    }
+
+    @MainActor private var rawFaceAccent: Color {
         if isDeleted { return Color(hex: "#93A7C8") }
         if let customCover { return PlinkCoverAccent.of(customCover) }
         if let p = profile { return (V4CoverStyle.parse(p.coverURL) ?? .dusk).accent }

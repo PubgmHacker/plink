@@ -117,4 +117,52 @@ enum PlinkCoverAccent {
                              brightness: min(0.94, max(0.66, b * 1.35)),
                              alpha: 1))
     }
+
+    // MARK: - Читаемость
+
+    /// Потолок яркости: этим цветом заливается стеклянная кнопка с БЕЛОЙ
+    /// подписью. Светлее — подпись пропадает. Планка снята замером по живым
+    /// снимкам шапки: стекло отдаёт яркость тона почти без потерь, и белая
+    /// подпись читается от 2.9:1 (0.313 — розовый «Огни») и плывёт на 2.75:1
+    /// (0.332 — янтарный «Проектор»). Граница проходит между ними.
+    private static let luminanceCeiling: Double = 0.31
+    /// Пол яркости: этим же цветом пишутся подписи поверх тёмного холста.
+    /// Темнее — пропадают уже они.
+    private static let luminanceFloor: Double = 0.14
+
+    /// Заводит акцент в полосу, читаемую с обеих сторон. Границы считаются в
+    /// относительной яркости (WCAG), а не в HSB: розовый и голубой с одной
+    /// «яркостью» по HSB светят на глаз совершенно по-разному.
+    ///
+    /// Тон и насыщенность неприкосновенны — обложка узнаётся по ним; двигается
+    /// только яркость. Цвета внутри полосы возвращаются как есть, поэтому на
+    /// уже отгруженных пресетах приведение не срабатывает.
+    static func legible(_ color: Color) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a) else {
+            return color
+        }
+        let lum = luminance(h, s, b)
+        guard lum > luminanceCeiling || lum < luminanceFloor else { return color }
+        let target = min(luminanceCeiling, max(luminanceFloor, lum))
+        // Обратной формулы у относительной яркости нет, но по яркости она
+        // монотонна — двенадцати делений хватает до неразличимости.
+        var lo: CGFloat = 0, hi: CGFloat = 1
+        for _ in 0..<12 {
+            let mid = (lo + hi) / 2
+            if luminance(h, s, mid) < target { lo = mid } else { hi = mid }
+        }
+        return Color(UIColor(hue: h, saturation: s, brightness: (lo + hi) / 2, alpha: a))
+    }
+
+    private static func luminance(_ h: CGFloat, _ s: CGFloat, _ b: CGFloat) -> Double {
+        var r: CGFloat = 0, g: CGFloat = 0, bl: CGFloat = 0, a: CGFloat = 0
+        UIColor(hue: h, saturation: s, brightness: b, alpha: 1)
+            .getRed(&r, green: &g, blue: &bl, alpha: &a)
+        func lin(_ c: CGFloat) -> Double {
+            let v = max(0, min(1, Double(c)))
+            return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(bl)
+    }
 }
