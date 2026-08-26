@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Pin sync result
 /// Итог закрепления чата: сервер подтвердил / локальный лимит / сервер не ответил.
@@ -21,6 +24,12 @@ final class FriendManager: ObservableObject {
     @Published private(set) var incomingRequests: [FriendRequest] = []
     @Published private(set) var outgoingRequests: [FriendRequest] = []
     @Published private(set) var searchResults: [UserPreview] = []
+    /// Фоновой перечит входящих заявок. Живёт всё время сессии, а не пока
+    /// открыта вкладка «Друзья».
+    private var requestsPollTask: Task<Void, Never>?
+    /// Реже, чем непрочитанные сообщения: заявка — редкое событие, и её
+    /// мгновенную доставку берёт на себя пуш.
+    private static let requestsPollIntervalNs: UInt64 = 60_000_000_000
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var lastSuccessMessage: String?
@@ -278,6 +287,7 @@ final class FriendManager: ObservableObject {
         }
         defaults.removeObject(forKey: Self.pendingPinSyncKey)
         pendingPinSync = [:]
+        stopRequestsPolling()
         friends = []
         incomingRequests = []
         outgoingRequests = []
@@ -419,6 +429,31 @@ final class FriendManager: ObservableObject {
                 break // сеть недоступна — повторим при следующем loadFriends
             }
         }
+    }
+
+    /// Входящие заявки — вся «почта» вкладки «Друзья», и метка о них должна
+    /// зажигаться в таб-баре с любого экрана. Раньше список перечитывался
+    /// только пока вкладка открыта: заявка приходила, а бар молчал, пока
+    /// человек сам туда не заглянет. В фоне не поллим — вернувшись,
+    /// приложение перечитает список само.
+    func startRequestsPolling() {
+        guard requestsPollTask == nil else { return }
+        requestsPollTask = Task { [weak self] in
+            await self?.loadIncomingRequests()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.requestsPollIntervalNs)
+                guard !Task.isCancelled else { break }
+                #if canImport(UIKit)
+                guard UIApplication.shared.applicationState == .active else { continue }
+                #endif
+                await self?.loadIncomingRequests()
+            }
+        }
+    }
+
+    func stopRequestsPolling() {
+        requestsPollTask?.cancel()
+        requestsPollTask = nil
     }
 
     func loadIncomingRequests() async {

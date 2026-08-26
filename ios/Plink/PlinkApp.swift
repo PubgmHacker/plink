@@ -139,6 +139,17 @@ extension PlinkAppDelegate: UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        // Пуш застал приложение открытым: сразу перечитываем то, о чём он
+        // сообщил. Иначе метка на вкладке появится только со следующим тактом
+        // фонового опроса — баннер уже погас, а бар всё ещё чист.
+        switch notification.request.content.userInfo["kind"] as? String {
+        case "friend_request":
+            Task { @MainActor in await FriendManager.shared.loadIncomingRequests() }
+        case "dm":
+            Task { @MainActor in await DMChatService.shared.refreshUnread() }
+        default:
+            break
+        }
         completionHandler([.banner, .list, .sound, .badge])
     }
 

@@ -316,19 +316,22 @@ struct V4FriendsViewLive: View {
             guard let target else { return }
             consumePendingChat(target)
         }
-        .sheet(item: $dmFriend, onDismiss: {
-            Task { await dmService.refreshUnread() }
-        }) { friend in
-            NavigationStack {
-                DMChatView(friend: friend)
-                    .environmentObject(dmService)
-                    .toolbar {
-                        V4SheetCloseToolbarItem { dmFriend = nil }
-                    }
+        // Личка — полноэкранный экран, а не шит. Шит давал ручку-свайп сверху,
+        // скруглённые углы и просвет родителя по краям: в мессенджерах чат
+        // так не открывают. Теперь он занимает экран целиком, включая полосу
+        // статус-бара под блюром шапки, и закрывается кнопкой «‹» или свайпом
+        // от левого края. Своя (вертикальная) анимация показа гасится
+        // транзакцией — горизонтальный ход рисует PlinkPushCover.
+        .transaction({ $0.disablesAnimations = true }) { view in
+            view.fullScreenCover(item: $dmFriend, onDismiss: {
+                Task { await dmService.refreshUnread() }
+            }) { friend in
+                PlinkPushCover(onClose: { dmFriend = nil }) {
+                    DMChatView(friend: friend)
+                        .environmentObject(dmService)
+                }
+                .preferredColorScheme(.dark)
             }
-            .preferredColorScheme(.dark)
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
         }
         .sheet(item: $profileFriend) { friend in
             NavigationStack {
@@ -763,8 +766,16 @@ struct V4FriendsViewLive: View {
                     showRequests = true
                 } label: {
                     ZStack(alignment: .topTrailing) {
-                        Image(systemName: requestBadge > 0 ? "person.badge.clock.fill" : "tray.full")
-                            .font(.system(size: 17, weight: .semibold))
+                        // Колокол, а не лоток: лоток читался как «архив» —
+                        // непонятно, что там и зачем туда заходить. Заявки в
+                        // друзья и есть уведомления этой вкладки, а знак
+                        // уведомлений во всех мессенджерах один.
+                        V4GlyphIcon(
+                            glyph: .bell,
+                            size: 18,
+                            filled: requestBadge > 0,
+                            weight: .regular
+                        )
                             .foregroundStyle(requestBadge > 0 ? theme.accentColor : V4.ink)
                             .frame(width: 40, height: 40)
                             .plinkGlass(.control, in: Circle())
@@ -781,7 +792,9 @@ struct V4FriendsViewLive: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(requestBadge > 0 ? "Заявки, \(requestBadge)" : "Заявки")
+                .accessibilityLabel(
+                    requestBadge > 0 ? "Уведомления, заявок: \(requestBadge)" : "Уведомления"
+                )
             } else {
                 Button {
                     HapticManager.impact(.light)
@@ -1297,8 +1310,7 @@ private struct FriendRequestsSheet: View {
                                 ZStack {
                                     Circle().fill(theme.accentColor.opacity(0.13))
                                     Circle().stroke(theme.accentColor.opacity(0.22), lineWidth: 1)
-                                    Image(systemName: "tray")
-                                        .font(.system(size: 22, weight: .semibold))
+                                    V4GlyphIcon(glyph: .bell, size: 22, weight: .regular)
                                         .foregroundStyle(theme.accentColor)
                                 }
                                 .frame(width: 58, height: 58)

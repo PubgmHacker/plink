@@ -506,6 +506,9 @@ struct PlinkApprovedV4Root: View {
             // Instant unread badges app-wide
             DMChatService.shared.startUnreadPolling()
             await DMChatService.shared.refreshUnread()
+            // Заявки в друзья метят вкладку «Друзья» так же, как сообщения,
+            // поэтому читаются в фоне всей оболочкой, а не самой вкладкой.
+            FriendManager.shared.startRequestsPolling()
         }
 
         // 07.08.2026: раньше здесь стояли четыре последовательных await, и
@@ -622,6 +625,7 @@ struct PlinkLiquidTabBar: View {
     /// Unread DMs — red badge on «Друзья» tab when user is not in that chat.
     var friendsUnread: Int = 0
     @ObservedObject private var dmService = DMChatService.shared
+    @ObservedObject private var friendManager = FriendManager.shared
     /// Ширина ряда вкладок — для пересчёта позиции пальца в индекс при ведении.
     @State private var barWidth: CGFloat = 0
     /// X пальца, пока он прижат к бару (nil — отпущен). Пока палец держит
@@ -646,7 +650,13 @@ struct PlinkLiquidTabBar: View {
         ]
     }
 
-    private var friendsBadge: Int { max(friendsUnread, dmService.totalUnread) }
+    /// Метка вкладки «Друзья» = непрочитанные личные + входящие заявки.
+    /// friendsUnread и totalUnread — одно и то же число из двух рук, поэтому
+    /// они берутся по максимуму, а заявки прибавляются: это отдельное
+    /// событие, и без слагаемого о нём в баре не узнать.
+    private var friendsBadge: Int {
+        max(friendsUnread, dmService.totalUnread) + friendManager.incomingRequests.count
+    }
 
     var body: some View {
         // Контейнер нужен, чтобы пилюля выделения на iOS 26 перетекала между
