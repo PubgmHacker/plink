@@ -13,9 +13,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   parseISODuration,
   interleave,
+  searchYouTube,
   searchRutube,
   searchVK,
   searchAllProviders,
+  fetchWithRetry,
   type VideoSearchItem,
 } from '../../services/videoSearch.js';
 
@@ -147,7 +149,53 @@ describe('searchVK', () => {
   });
 });
 
+describe('fetchWithRetry', () => {
+  const noSleep = async () => {};
+
+  it('повторяет запрос после 429 и отдаёт удачный ответ', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return calls === 1 ? jsonResponse({}, false, 429) : jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+
+    const resp = await fetchWithRetry('https://example.test/', {}, 2, 0, noSleep);
+    expect(calls).toBe(2);
+    expect(resp.status).toBe(200);
+  });
+
+  it('не повторяет 403 — это не заминка, а отказ', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return jsonResponse({}, false, 403);
+    }) as unknown as typeof fetch;
+
+    const resp = await fetchWithRetry('https://example.test/', {}, 2, 0, noSleep);
+    expect(calls).toBe(1);
+    expect(resp.status).toBe(403);
+  });
+
+  it('после последней попытки возвращает сам 429, а не бросает', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse({}, false, 429)) as unknown as typeof fetch;
+
+    const resp = await fetchWithRetry('https://example.test/', {}, 2, 0, noSleep);
+    expect(resp.status).toBe(429);
+  });
+});
+
 describe('searchAllProviders', () => {
+  it('запрос к YouTube уходит с quotaUser — иначе лимит делится по IP Railway', async () => {
+    let seen = '';
+    globalThis.fetch = vi.fn(async (input: any) => {
+      seen = String(input);
+      return jsonResponse({ items: [] });
+    }) as unknown as typeof fetch;
+
+    await searchYouTube('коты', 6, 'key');
+    expect(new URL(seen).searchParams.get('quotaUser')).toBe('plink-search');
+  });
+
   it('без ключей отдаёт RuTube, а не 500 на весь поиск', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({ results: [{ id: 'r1', title: 'RT', video_url: 'https://rutube.ru/video/r1/' }] }),

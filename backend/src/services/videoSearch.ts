@@ -34,6 +34,33 @@ export interface VideoSearchItem {
 const TIMEOUT_MS = 10_000;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
+// Google без quotaUser считает лимит по IP запрашивающего. Railway выпускает
+// трафик через общий адрес, поэтому наш поиск делил ведро с чужими сервисами
+// и ловил 429 через раз при одном запросе в пять секунд. Постоянная строка
+// уводит приложение в собственное ведро — это ровно то, для чего параметр
+// и сделан. Крутить её по запросам нельзя: это уже обход квоты.
+const YOUTUBE_QUOTA_USER = 'plink-search';
+
+/** Одна повторная попытка на 429/503 — заминка у провайдера не должна
+ *  оставлять пользователя с пустой лентой. Пауза фиксированная: выдача
+ *  ждёт синхронно, и разброс тут только мешал бы воспроизводимости. */
+export async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  tries = 2,
+  pauseMs = 400,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<Response> {
+  let last: Response | undefined;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    const resp = await fetch(url, init);
+    if (resp.status !== 429 && resp.status !== 503) return resp;
+    last = resp;
+    if (attempt < tries - 1) await sleep(pauseMs);
+  }
+  return last as Response;
+}
+
 /** ISO 8601 (PT1H30M15S) → секунды. */
 export function parseISODuration(raw: string | undefined | null): number | null {
   if (!raw) return null;
@@ -54,8 +81,9 @@ export async function searchYouTube(q: string, limit: number, apiKey: string): P
   url.searchParams.set('type', 'video');
   url.searchParams.set('maxResults', String(limit));
   url.searchParams.set('key', apiKey);
+  url.searchParams.set('quotaUser', YOUTUBE_QUOTA_USER);
 
-  const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const resp = await fetchWithRetry(url.toString(), { signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!resp.ok) {
     throw new Error(`youtube ${resp.status}`);
   }
