@@ -30,6 +30,10 @@ struct ConnectedServicesView: View {
             }
         }
         .id(tick)
+        .task {
+            // Протухшая сессия больше не показывается как «Подключён».
+            if !(await LinkedExternalAccount.revalidateConnected()).isEmpty { tick += 1 }
+        }
         .sheet(item: $connecting) { account in
             CinemaAccountLoginSheet(account: account) {
                 account.markConnected()
@@ -83,7 +87,9 @@ struct ConnectedServicesView: View {
     }
 }
 
-private struct CinemaAccountLoginSheet: View {
+/// Вход в сервис настоящей страницей самого сервиса.
+/// Используется и профилем, и мастером комнаты, и подсказкой в комнате.
+struct CinemaAccountLoginSheet: View {
     let account: LinkedExternalAccount
     let onDone: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -91,6 +97,7 @@ private struct CinemaAccountLoginSheet: View {
     @State private var pageTitle = ""
     @State private var canGoBack = false
     @State private var canGoForward = false
+    @State private var noSessionYet = false
 
     var body: some View {
         NavigationStack {
@@ -110,14 +117,30 @@ private struct CinemaAccountLoginSheet: View {
                     Button("Отмена") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Я вошёл") {
-                        onDone()
-                        dismiss()
+                    Button("Готово") {
+                        // Кнопка не «верит на слово»: сессия засчитывается,
+                        // только если сервис реально поставил куки.
+                        Task {
+                            let signedIn = await CinemaSessionStore.hasCookies(forHosts: account.cookieHosts)
+                            await MainActor.run {
+                                if signedIn {
+                                    onDone()
+                                    dismiss()
+                                } else {
+                                    noSessionYet = true
+                                }
+                            }
+                        }
                     }
                     .fontWeight(.bold)
                 }
             }
         }
         .preferredColorScheme(.dark)
+        .alert("Вход не завершён", isPresented: $noSessionYet) {
+            Button("Продолжить вход", role: .cancel) {}
+        } message: {
+            Text("\(account.title) ещё не открыл сессию на этом iPhone. Войдите на странице сервиса и нажмите «Готово».")
+        }
     }
 }

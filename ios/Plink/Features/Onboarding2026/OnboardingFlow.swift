@@ -157,23 +157,6 @@ struct OnboardingFlow: View {
 // Свайп между экранами в офскрин-рендере не воспроизвести, а судить о
 // редизайне надо по всем трём. Точка входа отдаёт одну сцену по номеру.
 
-struct OnboardingScenePreview: View {
-    let page: Int
-
-    var body: some View {
-        ZStack {
-            PlinkTheatre.velvetDeep.ignoresSafeArea()
-            ProjectorBeamBackground().ignoresSafeArea()
-            switch page {
-            case 1:  OnboardingReelsScene()
-            case 2:  OnboardingAIScene()
-            default: OnboardingSyncScene()
-            }
-        }
-        .preferredColorScheme(.dark)
-    }
-}
-
 // MARK: - Общая рамка экрана
 
 /// Сцена сверху, текст снизу — одинаково на всех экранах, чтобы при свайпе

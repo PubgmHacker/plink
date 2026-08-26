@@ -122,7 +122,7 @@ struct FeedbackSheetView: View {
 
                 // Send button
                 if sent {
-                    Label("Отправлено! Спасибо ❤️", systemImage: "checkmark.circle.fill")
+                    Label("Отправлено — спасибо", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(V4.free)
                         .font(.system(size: 15, weight: .semibold))
                         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() } }

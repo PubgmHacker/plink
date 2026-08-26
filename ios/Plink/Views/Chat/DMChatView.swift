@@ -1713,47 +1713,6 @@ private struct DMReactionPickerSheet: View {
 
 // MARK: - Circle avatar
 
-private struct DMCircleAvatar: View {
-    let url: URL?
-    let letter: String
-    var size: CGFloat = 28
-
-    var body: some View {
-        Group {
-            if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    default:
-                        letterView
-                    }
-                }
-            } else {
-                letterView
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .id(url?.absoluteString ?? "letter-\(letter)")
-    }
-
-    private var letterView: some View {
-        ZStack {
-            Circle().fill(
-                LinearGradient(
-                    colors: [Cinema2026.accent.opacity(0.75), Color.purple.opacity(0.55)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            Text(letter)
-                .font(.system(size: max(10, size * 0.38), weight: .bold))
-                .foregroundColor(.white)
-        }
-    }
-}
-
 // MARK: - DM Bubble (Telegram clusters + reactions + glass capsules)
 
 private struct DMMessageRow: View {

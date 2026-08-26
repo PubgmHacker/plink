@@ -296,11 +296,14 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var mediaId: String?  // Typed media ID for host commands
     public private(set) var roomCode: String?
 
-    /// Хост шарит экран (Netflix/Disney/кино — режим «ваш экран»).
-    public private(set) var isScreenSharing = false
-    /// Короткая подсказка в UI комнаты про режим экрана / DRM.
-    public private(set) var screenShareStatusLine: String?
-    private var screenCapture: ScreenCaptureService?
+    /// Сервис, чья страница играет в комнате (кинотеатр, VK, Rutube).
+    /// Картинку каждому отдаёт сам сервис — Plink синхронизирует только время.
+    private(set) var subscriptionService: VideoService?
+    /// Короткая подсказка в UI комнаты: чей плеер открыт и нужен ли вход.
+    public private(set) var serviceNoticeLine: String?
+    /// Сервис требует подписки, а этот участник его ещё не подключал:
+    /// плеер покажет свою страницу входа, и врать «всё готово» нельзя.
+    public private(set) var needsServiceLogin = false
     public let currentUserId: String  // Identity via init, not UserDefaults
     public let currentUsername: String  //
     private var chatCatchupCursor: String?  // Opaque server cursor
@@ -502,10 +505,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                     startAmbientPalettePolling()
                 }
 
-                // Netflix/Disney/кино: WebView для входа хоста + ReplayKit.
-                // Кадры уходят в onFrame → будущий LiveKit; пока RTC stub —
-                // захват всё равно стартует честно (не молчим про «ваш экран»).
-                await beginScreenShareIfNeeded(for: source)
+                // Кинотеатр / VK / Rutube: в комнате открыт официальный плеер
+                // сервиса. Ничего не транслируется — считаем только, чей это
+                // сервис и нужен ли этому участнику вход.
+                updateServiceNotice(for: source)
             } catch {
                 // P0 FIX: the native AVPlayer path can still fail (expired
                 // stream, poisoned cache, 403). Recover with the official
@@ -730,7 +733,7 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         // Оставленная задача разбудила бы модель уже вне комнаты.
         clearPauseRequest()
         lastPauseRequestAt = nil
-        Task { await stopScreenShare() }
+        clearServiceNotice()
         realtimeClient.disconnect()
         coordinator.teardown()
         syncController.resetCompletely()
@@ -1594,11 +1597,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         if let ask = pendingPauseRequest {
             return String(format: l.string(.presencePauseAsk), ask.username)
         }
-        if isScreenSharing {
-            return isHost ? "Ваш экран в эфире" : "Хост шарит экран"
+        if needsServiceLogin, let service = subscriptionService {
+            return "Войдите в \(service.title)"
         }
-        if screenShareStatusLine != nil, case .embed = mediaSource {
-            return isHost ? "Режим «ваш экран»" : "Кино через экран хоста"
+        if let service = subscriptionService {
+            return "Смотрим в \(service.title)"
         }
         if let state = lastAuthoritativeState, !state.playing {
             return l.string(.presencePaused)
@@ -1609,51 +1612,47 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         return l.string(.presenceWatchingTogether)
     }
 
-    /// Netflix/Disney/кино → embed: хост включает ReplayKit in-app capture.
-    private func beginScreenShareIfNeeded(for source: PlaybackSource) async {
-        guard case .embed = source else {
-            screenShareStatusLine = nil
+    /// Комната открыла страницу сервиса (`.embed`). Разбираем по домену, чей
+    /// это плеер, и говорим участнику правду: контент отдаёт сервис, вход —
+    /// его собственный, Plink держит общее время и ничего не транслирует.
+    private func updateServiceNotice(for source: PlaybackSource) {
+        guard case .embed(let url) = source else {
+            clearServiceNotice()
             return
         }
-        screenShareStatusLine = isHost
-            ? "Кинотеатр / OTT: войдите в свой аккаунт. Экран шарится через ReplayKit — Plink не обходит DRM."
-            : "Хост смотрит через свой экран. Когда LiveKit включён, вы увидите его картинку здесь."
-
-        guard isHost else { return }
-
-        let capture = screenCapture ?? ScreenCaptureService()
-        screenCapture = capture
-        capture.onError = { [weak self] message in
-            Task { @MainActor in
-                self?.screenShareStatusLine = "Шаринг экрана: \(message)"
-                self?.isScreenSharing = false
-            }
+        guard let service = VideoService.service(forHost: url.host) else {
+            // Произвольная страница: сервис не опознан, но обещание то же.
+            subscriptionService = nil
+            needsServiceLogin = false
+            serviceNoticeLine = "Страница открыта у каждого своя — Plink держит общее время."
+            return
         }
-        do {
-            try await capture.startCapture()
-            isScreenSharing = true
-            AnalyticsService.shared.track("screen_share_started", parameters: ["room_id": _roomId])
-        } catch {
-            isScreenSharing = false
-            screenShareStatusLine =
-                "Не удалось начать шаринг экрана: \(error.localizedDescription). WebView остаётся для вашего входа."
-            Logger.app.warn("[ScreenShare] start failed: \(error.localizedDescription)")
+
+        subscriptionService = service
+        let hasAccess = ServiceAuthStore.hasAccess(to: service.serviceType)
+        needsServiceLogin = service.requiresSubscription && !hasAccess
+
+        if needsServiceLogin {
+            serviceNoticeLine =
+                "\(service.title) откроет свою страницу входа: смотреть можно по своей подписке. Plink не раздаёт контент и не обходит DRM."
+        } else if service.requiresSubscription {
+            serviceNoticeLine =
+                "Играет \(service.title) — у каждого свой аккаунт, время общее."
+        } else {
+            serviceNoticeLine = nil
         }
     }
 
-    private func stopScreenShare() async {
-        guard let capture = screenCapture else {
-            isScreenSharing = false
-            screenShareStatusLine = nil
-            return
-        }
-        await capture.stopCapture()
-        if isScreenSharing {
-            AnalyticsService.shared.track("screen_share_stopped", parameters: ["room_id": _roomId])
-        }
-        isScreenSharing = false
-        screenShareStatusLine = nil
-        screenCapture = nil
+    /// Участник вошёл в сервис прямо из комнаты — подсказка должна погаснуть.
+    func refreshServiceAccess() {
+        guard let source = mediaSource else { return }
+        updateServiceNotice(for: source)
+    }
+
+    private func clearServiceNotice() {
+        subscriptionService = nil
+        serviceNoticeLine = nil
+        needsServiceLogin = false
     }
 
     /// P0 12.08.2026: передача роли хоста на живой комнате.
@@ -2141,9 +2140,6 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     var bufferedFraction: Double { 0 }
     var qualityLabel: String { coordinator.capabilities.supportsPiP ? "HD" : "SD" }
     var hostId: String? { roomHostId }
-    var activeSpeakerName: String? { nil }
-    var microphoneState: MicrophoneUIState { .off }
-    var cameraState: CameraUIState { .off }
     var unreadCount: Int { 0 }
 
     // Danmaku placements come from DanmakuEngine. The model
@@ -2335,57 +2331,6 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         OrientationManager.shared.forcePortrait()
         #endif
     }
-    func toggleMicrophone() async {
-        // P0 5.1: голос выключен целиком (LiveKit не сконфигурирован).
-        // Кнопка скрыта флагом в PresenceBar и V4RoomControlsRow; guard —
-        // второй барьер.
-        //
-        // Раньше здесь открывался пейволл .voiceChat. Это продажа фичи,
-        // которой в сборке нет: LiveKit не подключён (ждём аккаунт Apple
-        // Developer), поэтому оплативший Плинк+ получил бы ровно ничего.
-        // Пока голос недоступен — молча ничего не делаем и пишем в лог.
-        guard FeatureFlags.liveKitVoiceEnabled else {
-            Logger.webrtc.warn("toggleMicrophone(): голос недоступен (LiveKit не подключён) — пейволл не показываем")
-            return
-        }
-        // P0.2: Premium gate for speaking
-        guard PremiumStatusManager.shared.isPremium else {
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .showPlinkPlusPaywall,
-                    object: nil,
-                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
-                )
-            }
-            return
-        }
-        // Delegate to RTC controller if available
-        // (rtcController is internal; in full impl would call it)
-        // For now, toggle state for UI
-        // In real: await rtcController?.toggleMic()
-    }
-
-    func toggleCamera() async {
-        // Camera in room — Plink+ only (same as voice).
-        // Тот же дефект, что в toggleMicrophone — пейволл за фичу,
-        // которой нет в сборке. Убран.
-        guard FeatureFlags.liveKitVoiceEnabled else {
-            Logger.webrtc.warn("toggleCamera(): видео в комнате недоступно (LiveKit не подключён) — пейволл не показываем")
-            return
-        }
-        guard PremiumStatusManager.shared.isPremium else {
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .showPlinkPlusPaywall,
-                    object: nil,
-                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.cameraFilter]
-                )
-            }
-            return
-        }
-        // In real: await rtcController?.toggleCamera()
-    }
-
     // Send a reaction emoji via RealtimeClient.
     // Validates against ReactionPalette — free emojis always sendable,
     // premium requires Plink+ entitlement.

@@ -214,7 +214,7 @@ struct UnifiedSearchView: View {
             thumbnailURL: item.artworkURL?.absoluteString,
             streamURL: item.watchURL,
             duration: nil,
-            mediaType: isYouTube ? .video : (item.isSeries ? .series : .movie),
+            mediaType: item.origin.isClip ? .video : (item.isSeries ? .series : .movie),
             source: isYouTube ? .youtube : .url,
             videoId: isYouTube ? item.id : nil
         )

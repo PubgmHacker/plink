@@ -300,9 +300,12 @@ struct AuthLaunchGate: View {
         defaults.removeObject(forKey: Self.pendingDeepLinkDateKey)
     }
 
-    // MARK: - Mock Data for Simulator Testing
+    // MARK: - Дизайн-превью
 
-    /// Заполняет приложение моковыми данными для тестирования без интернета
+    #if DEBUG
+    /// Подставляет локальную сессию для флага `-plink.designpreview`, чтобы
+    /// снимать экраны в симуляторе без сети. Только Debug: в релизной сборке
+    /// этого кода нет.
     private func setupMocksForPreview() {
         // Создаём мокового пользователя
         let mockUser = User(
@@ -331,8 +334,9 @@ struct AuthLaunchGate: View {
         // Перечитываем сессию из хранилища
         AuthService.shared.rebindSessionFromStorage()
 
-        Logger.app.info("[AuthGate] Mock user injected: \(mockUser.displayTitle)")
+        Logger.app.info("[AuthGate] design-preview session: \(mockUser.displayTitle)")
     }
+    #endif
 }
 
 // MARK: - Cinematic splash («restoring session»)

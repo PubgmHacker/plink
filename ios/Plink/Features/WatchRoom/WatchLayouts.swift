@@ -71,27 +71,15 @@ private struct RoomControlsRowBridge: View {
     var body: some View {
         V4RoomControlsRow(
             privacy: $model.privacyLevel,
-            hasPlus: PremiumStatusManager.shared.isPremium,
             queueCount: model.roomQueue.count,
-            micEnabled: false,
-            cameraEnabled: false,
             onTapPrivacy: {
                 // Уровень доступа меняет только хост — гостю шторка
                 // показала бы контролы, которые ничего не делают.
                 guard model.isHost else { return }
                 privacySheetPresented = true
             },
-            onToggleMic: { Task { await model.toggleMicrophone() } },
-            onToggleCamera: { Task { await model.toggleCamera() } },
             onOpenQueue: { queuePresented = true },
             onInvite: { invitePresented = true },
-            onLockedTap: {
-                NotificationCenter.default.post(
-                    name: .showPlinkPlusPaywall,
-                    object: nil,
-                    userInfo: ["trigger": PlinkPlusPaywall.Trigger.voiceChat]
-                )
-            },
             accent: V4.accent
         )
         .sheet(isPresented: $privacySheetPresented) {
@@ -150,7 +138,7 @@ struct LandscapeWatchLayout: View {
                             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                             .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
                     }
-                    .accessibilityLabel("Open chat")
+                    .accessibilityLabel("Открыть чат")
                     .padding(.trailing, 12)
                 }
             }

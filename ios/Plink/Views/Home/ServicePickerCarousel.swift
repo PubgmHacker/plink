@@ -7,14 +7,6 @@ enum ServiceRegion: String {
     case russian
     case international
     case universal
-
-    var badge: String {
-        switch self {
-        case .russian: return "🇷🇺"
-        case .international: return "🌍"
-        case .universal: return "🔗"
-        }
-    }
 }
 
 extension VideoService {

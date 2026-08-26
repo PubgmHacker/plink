@@ -46,15 +46,6 @@ enum PlinkGlassRole {
 
 // MARK: - Доступность
 
-/// Считывает системные настройки, отключающие стекло.
-///
-/// Increase Contrast принудительно включает Reduce Transparency, поэтому
-/// одного флага достаточно для обоих случаев.
-private struct PlinkGlassAccessibility {
-    let reduceTransparency: Bool
-    let reduceMotion: Bool
-}
-
 // MARK: - Основной модификатор
 
 private struct PlinkGlassSurface<S: InsettableShape>: ViewModifier {

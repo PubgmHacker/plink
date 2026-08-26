@@ -149,6 +149,8 @@ struct V4ReelItem: Identifiable, Equatable {
     let title: String
     let subtitle: String
     let art: V4ReelArt
+    /// Кадр тайтла. Пока не загрузился — виден градиент art.
+    var artworkURL: URL?
     /// Идентификатор ролика для официального плеера. Пока не заполняется.
     var youtubeID: String?
 
@@ -157,44 +159,49 @@ struct V4ReelItem: Identifiable, Equatable {
         title: String,
         subtitle: String,
         art: V4ReelArt,
+        artworkURL: URL? = nil,
         youtubeID: String? = nil
     ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.art = art
+        self.artworkURL = artworkURL
         self.youtubeID = youtubeID
     }
 
     static func == (lhs: V4ReelItem, rhs: V4ReelItem) -> Bool { lhs.id == rhs.id }
 
-    /// Те же четыре карточки, что в макете.
-    static let placeholders: [V4ReelItem] = [
-        V4ReelItem(
-            id: "dune-3",
-            title: "Дюна: Часть третья",
-            subtitle: "Трейлер · 2026 · фантастика · 2 ч 41 мин",
-            art: .rose
-        ),
-        V4ReelItem(
-            id: "project-ave",
-            title: "Проект Аве",
-            subtitle: "Трейлер · 2026 · триллер · 1 ч 58 мин",
-            art: .teal
-        ),
-        V4ReelItem(
-            id: "periphery-2",
-            title: "Периферия, сезон 2",
-            subtitle: "Тизер · 2026 · сериал · 8 серий",
-            art: .amber
-        ),
-        V4ReelItem(
-            id: "quiet-dawn",
-            title: "Тихий рассвет",
-            subtitle: "Трейлер · 2026 · драма · 2 ч 06 мин",
-            art: .indigo
-        ),
-    ]
+    /// Карточка ленты из живого каталога.
+    ///
+    /// 26.08.2026: здесь лежали четыре вписанных тайтла («Дюна: Часть
+    /// третья», «Проект Аве», «Периферия, сезон 2», «Тихий рассвет») —
+    /// двух последних не существует. Придуманный каталог в отгруженном
+    /// разделе снят: лента берёт полку «Новинки» того же стора, что кормит
+    /// Главную, и показывает настоящие названия с настоящими кадрами.
+    init(from result: V4SearchResult) {
+        self.id = result.id
+        self.title = result.title
+        self.subtitle = result.subtitle
+        self.art = Self.art(forSeed: result.id)
+        self.artworkURL = result.artworkURL ?? result.posterURL
+        self.youtubeID = result.origin == .youtube ? result.id : nil
+    }
+
+    /// Градиент под кадром — от идентификатора, а не по кругу: у одного
+    /// тайтла всегда один и тот же фон, и он не скачет между запусками.
+    private static func art(forSeed seed: String) -> V4ReelArt {
+        var hash: UInt32 = 2_166_136_261
+        for byte in seed.utf8 {
+            hash = (hash ^ UInt32(byte)) &* 16_777_619
+        }
+        switch hash % 4 {
+        case 0: return .indigo
+        case 1: return .rose
+        case 2: return .teal
+        default: return .amber
+        }
+    }
 }
 
 // MARK: - Лента
@@ -203,7 +210,7 @@ struct V4ReelItem: Identifiable, Equatable {
 /// листается вертикальным свайпом. Никаких стрелок.
 struct V4ReelsPanel: View {
     let theme: V4Theme
-    var items: [V4ReelItem] = V4ReelItem.placeholders
+    var items: [V4ReelItem] = []
 
     /// Каталог ещё не подключён: карточки — витрина будущей ленты.
     /// Раньше поверх ленты лежал полноэкранный дизмер с плашкой «Будет
@@ -378,6 +385,22 @@ struct V4ReelsPanel: View {
         ZStack(alignment: .topLeading) {
             V4ReelArtView(art: reel.art)
 
+            // Настоящий кадр поверх градиента. Градиент остаётся подложкой:
+            // пока кадр летит по сети, окно плеера не мигает чёрным.
+            if let artworkURL = reel.artworkURL {
+                AsyncImage(url: artworkURL) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .transition(.opacity)
+                    }
+                }
+                .clipped()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+
             // Мелкий бейдж «СКОРО» в превью снят: про состояние раздела
             // теперь говорит крупный онбординг-слой вкладки ИИ, а подпись
             // в углу кадра дублировала его и читалась дешёвой. В живом
@@ -466,7 +489,7 @@ struct V4ReelsPanel: View {
         VStack(spacing: 10) {
             V4GlyphIcon(glyph: .play, size: 26, weight: .regular)
                 .foregroundStyle(V4.muted)
-            Text("Трейлеры появятся, когда подключим каталог")
+            Text("Каталог загружается")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(V4.muted)
                 .multilineTextAlignment(.center)

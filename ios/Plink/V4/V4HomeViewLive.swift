@@ -554,8 +554,18 @@ struct V4HomeViewLive: View {
                 // Фильм · ★ 7,3»), у трендов Netflix источник тоже назван
                 // («Netflix · В трендах недели · №1») — приставка YouTube
                 // остаётся только у обычных роликов, где subtitle = канал.
-                let raw = item.origin == .youtube && !item.subtitle.hasPrefix("Netflix")
-                    ? "YouTube · \(item.subtitle)" : item.subtitle
+                let raw: String = {
+                    switch item.origin {
+                    case .youtube:
+                        return item.subtitle.hasPrefix("Netflix")
+                            ? item.subtitle : "YouTube · \(item.subtitle)"
+                    case .video(let service):
+                        return item.subtitle.isEmpty
+                            ? service.title : "\(service.title) · \(item.subtitle)"
+                    case .cinema:
+                        return item.subtitle
+                    }
+                }()
                 // Первый сегмент меты — сервис: уходит из мелкой строки в
                 // крупный бейдж героя. Год или рейтинг первым сегментом
                 // (кино без источника) бейджем не притворяются.
@@ -819,17 +829,24 @@ struct V4HomeViewLive: View {
         }
     }
 
-    /// Мета под названием карточки: «2023 · Фильм» у кино, канал — у ролика.
-    /// Название без контекста заставляло гадать, фильм это или трейлер.
+    /// Мета под названием карточки: «Иви · 2023 · Фильм» у кино, канал —
+    /// у ролика. Название без контекста заставляло гадать, фильм это или
+    /// трейлер.
+    ///
+    /// Кинотеатр — первым сегментом (26.08.2026). Витрина чередует каталоги
+    /// нескольких кинотеатров, но на постере это не видно ничем: бейдж
+    /// сервиса есть только у героя и в превью. Ряд читался как один
+    /// кинотеатр на весь экран. Обрезка идёт с хвоста — при нехватке ширины
+    /// уходит тип, а не источник: подписку надо знать до тапа.
     private func cardMeta(_ item: V4SearchResult) -> String? {
-        if item.origin == .youtube {
+        if item.origin.isClip {
             let channel = item.subtitle.trimmingCharacters(in: .whitespaces)
             return channel.isEmpty ? nil : channel
         }
-        var parts: [String] = []
+        var parts: [String] = [item.origin.service.title]
         if let year = item.year { parts.append(String(year)) }
         if let kind = item.kindLabel { parts.append(kind) }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return parts.joined(separator: " · ")
     }
 
     /// VoiceOver-описание карточки целиком: бейджи скрыты от чтения
@@ -1043,6 +1060,21 @@ struct V4HomeViewLive: View {
                 videoId: videoId
             )
             analyticsSource = "youtube"
+        case (.native, .video(let service)):
+            // Ролик стороннего хостинга: комната сама разберёт ссылку
+            // (RuTube и VK идут через свои embed-контроллеры).
+            mediaItem = MediaItem(
+                id: item.id,
+                title: item.title,
+                artist: nil,
+                thumbnailURL: item.artworkURL?.absoluteString,
+                streamURL: item.watchURL,
+                duration: nil,
+                mediaType: .video,
+                source: .url,
+                videoId: nil
+            )
+            analyticsSource = service.rawValue
         case (.native, .cinema(let service)):
             mediaItem = MediaItem(
                 id: item.id,

@@ -913,11 +913,14 @@ struct V4FriendsViewLive: View {
     /// она обводит рамкой пустоту и превращает экран в виджет — так не делает
     /// ни один мессенджер. Заголовок «Чаты» над ней объявлял разделом то,
     /// чего нет, и дублировал белую вкладку прямо над ним.
-    func emptyCanvas(icon: String, title: String, subtitle: String,
+    /// `extra` — второй канал под кнопкой (26.08.2026): пустым «Чатам» он
+    /// отдан под живой список людей, а не под ещё одну надпись.
+    func emptyCanvas<Extra: View>(icon: String, title: String, subtitle: String,
                      ctaIcon: String = "plus", cta: String? = nil,
                      style: V4EmptyStyle = .bubbles,
                      minHeight: CGFloat = 360,
-                     action: (() -> Void)? = nil) -> some View {
+                     action: (() -> Void)? = nil,
+                     @ViewBuilder extra: @escaping () -> Extra = { EmptyView() }) -> some View {
         V4EmptyState(
             icon: icon,
             title: title,
@@ -927,7 +930,8 @@ struct V4FriendsViewLive: View {
             style: style,
             primary: (cta != nil && action != nil)
                 ? .init(title: cta!, icon: ctaIcon, run: action!)
-                : nil
+                : nil,
+            extra: extra
         )
         .padding(.horizontal, 24)
         // −100: столько скролл держит под таб-баром, иначе центр уезжает вниз.

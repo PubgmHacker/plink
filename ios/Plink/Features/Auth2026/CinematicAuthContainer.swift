@@ -126,30 +126,6 @@ struct AuthPrimaryButtonStyle: ButtonStyle {
     }
 }
 
-/// Вторичная кнопка: стеклянная капсула с тонкой рамкой.
-struct AuthProviderButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(PlinkTheatre.screen)
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .plinkGlass(.control, cornerRadius: 18)
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.82 : 1)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-            .animation(
-                reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7),
-                value: configuration.isPressed
-            )
-    }
-}
-
 // MARK: - Поле ввода: стеклянная капсула, teal при фокусе
 
 struct CompactAuthField: View {
@@ -254,33 +230,7 @@ struct AuthInlineNotice: View {
 
 // MARK: - Моно-микроподпись («таймкод»)
 
-struct AuthMonoTag: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .tracking(2.2)
-            .foregroundStyle(PlinkTheatre.muted)
-    }
-}
-
 // MARK: - Разделитель
-
-struct AuthDivider: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Rectangle().fill(PlinkTheatre.hairline).frame(height: 0.5)
-            Text(text)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .tracking(1.4)
-                .foregroundStyle(PlinkTheatre.muted)
-            Rectangle().fill(PlinkTheatre.hairline).frame(height: 0.5)
-        }
-    }
-}
 
 // MARK: - Юридический футер
 

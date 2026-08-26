@@ -35,6 +35,8 @@ struct WatchRoomScreen: View {
     // Одноразовый хинт про контролы
     @AppStorage("plink.roomControlsHintShown") private var roomControlsHintShown = false
     @State private var showControlsHint = false
+    /// Сервис комнаты требует своего входа — открываем его настоящую страницу.
+    @State private var loginAccount: LinkedExternalAccount?
 
     private var layoutVariant: WatchRoomLayoutState.Variant {
         if widthClass == .regular && heightClass != .compact { return .tablet }
@@ -77,25 +79,43 @@ struct WatchRoomScreen: View {
             WatchReactionLayer(events: model.reactions, reduceMotion: reduceMotion)
                 .allowsHitTesting(false)
 
-            if let line = model.screenShareStatusLine {
+            if let line = model.serviceNoticeLine {
                 VStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: model.isScreenSharing ? "rectangle.inset.filled.and.person.filled" : "display")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text(line)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(3)
-                        Spacer(minLength: 0)
+                    Button {
+                        guard model.needsServiceLogin,
+                              let service = model.subscriptionService,
+                              let account = LinkedExternalAccount(service: service) else { return }
+                        HapticManager.impact(.light)
+                        loginAccount = account
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: model.needsServiceLogin
+                                  ? "person.crop.circle.badge.questionmark"
+                                  : "person.2.badge.key.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(line)
+                                .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(3)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 0)
+                            if model.needsServiceLogin {
+                                Text("Войти")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(Cinema2026.accent)
+                            }
+                        }
+                        .foregroundStyle(Cinema2026.text)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Cinema2026.raised.opacity(0.92), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 56)
                     }
-                    .foregroundStyle(Cinema2026.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Cinema2026.raised.opacity(0.92), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .padding(.horizontal, 16)
-                    .padding(.top, 56)
+                    .buttonStyle(.plain)
+                    .disabled(!model.needsServiceLogin)
                     Spacer()
                 }
-                .allowsHitTesting(false)
+                .allowsHitTesting(model.needsServiceLogin)
                 .transition(.opacity)
             }
 
@@ -323,6 +343,15 @@ struct WatchRoomScreen: View {
         .sheet(isPresented: $showPollComposer) {
             PollComposerSheet { question, options in
                 model.sendPoll(question: question, options: options)
+            }
+        }
+        // Участник без подписки на сервис комнаты: плеер покажет его страницу
+        // входа, поэтому даём войти прямо отсюда, не выходя из комнаты.
+        .sheet(item: $loginAccount) { account in
+            CinemaAccountLoginSheet(account: account) {
+                account.markConnected()
+                loginAccount = nil
+                model.refreshServiceAccess()
             }
         }
         // P1 5.11 (ревью): панель живой темы презентуется С УРОВНЯ ЭКРАНА.

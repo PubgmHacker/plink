@@ -79,8 +79,8 @@ public final class EmbedPlaybackController: PlaybackControlling {
             playerURL = url
 
         case .vk(let videoId):
-            // VK Video — load embed page
-            guard let url = URL(string: "https://vk.com/video_ext.php?\(videoId)") else {
+            // VK Video — тот же канонический билдер, что и в VKPlaybackController.
+            guard let url = RoomCreateMedia.vkEmbedURL(fromId: videoId) else {
                 throw ProviderError.unsupportedSource
             }
             playerURL = url

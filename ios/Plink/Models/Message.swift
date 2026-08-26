@@ -118,24 +118,12 @@ struct ChatMessage: Codable, Identifiable, Sendable {
             id: "msg_001",
             roomID: "room_001",
             senderID: "user_001",
-            senderName: "Alex",
-            text: "This is awesome! 🎬",
+            senderName: "Алиса",
+            text: "Отличный кадр",
             timestamp: .now.addingTimeInterval(-120),
             isRead: true,
             senderAvatarURL: nil
         )
-    }
-}
-
-// MARK: - System Message (join/leave notifications)
-struct SystemMessage: Identifiable, Sendable {
-    let id = UUID().uuidString
-    let roomID: String
-    let text: String
-    let timestamp: Date
-
-    var timeString: String {
-        timestamp.formatted(.dateTime.hour().minute())
     }
 }
 

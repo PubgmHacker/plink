@@ -29,12 +29,6 @@ enum Logger {
         static func error(_ msg: String) { Logger.log(msg, domain: "SYNC", level: .error) }
     }
 
-    enum webrtc {
-        static func info(_ msg: String)  { Logger.log(msg, domain: "WebRTC", level: .info) }
-        static func warn(_ msg: String)  { Logger.log(msg, domain: "WebRTC", level: .warn) }
-        static func error(_ msg: String) { Logger.log(msg, domain: "WebRTC", level: .error) }
-    }
-
     enum store {
         static func info(_ msg: String)  { Logger.log(msg, domain: "StoreKit", level: .info) }
         static func warn(_ msg: String)  { Logger.log(msg, domain: "StoreKit", level: .warn) }

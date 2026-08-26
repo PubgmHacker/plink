@@ -217,39 +217,6 @@ struct V4Heading: View {
     }
 }
 
-struct V4MediaCard: View {
-    let title: String
-    let meta: String
-    var thumbnailURL: String? = nil   // Обложка видео
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            if let urlStr = thumbnailURL, let url = URL(string: urlStr) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFill()
-                    default:
-                        V4CardGradient()
-                    }
-                }.clipped()
-            } else {
-                V4CardGradient()
-            }
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.75)],
-                startPoint: .center, endPoint: .bottom
-            )
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 13.92, weight: .bold)).foregroundStyle(.white)
-                Text(meta).font(.system(size: 11.52)).foregroundStyle(.white.opacity(0.75))
-            }.padding(12)
-        }
-        .frame(width: 222, height: 132)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(V4.line, lineWidth: 1))
-    }
-}
-
 private struct V4CardGradient: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -355,6 +322,11 @@ struct V4Hero: View {
         case "netflix":        return Color(red: 0.90, green: 0.03, blue: 0.08)
         case "youtube":        return Color(red: 1.00, green: 0.00, blue: 0.00)
         case "кинопоиск":      return Color(red: 1.00, green: 0.40, blue: 0.00)
+        // Второй каталог витрины (26.08.2026): без своей строки точка героя
+        // была белой заглушкой — единственный кинотеатр без цвета бренда.
+        case "premier":        return Color(red: 0.94, green: 0.27, blue: 0.27)
+        case "окко", "okko":   return Color(red: 1.00, green: 0.00, blue: 0.20)
+        case "смотрим":        return Color(red: 0.00, green: 0.63, blue: 0.69)
         default:               return .white.opacity(0.75)
         }
     }
@@ -411,7 +383,4 @@ struct V4SheetCloseToolbarItem: ToolbarContent {
         }
     }
 }
-
-
-
 

@@ -76,30 +76,12 @@ enum V4RoomPrivacyLevel: Int, CaseIterable, Identifiable {
 struct V4RoomControlsRow: View {
     @Binding var privacy: V4RoomPrivacyLevel
 
-    /// Есть ли подписка Плинк+. Без неё микрофон и видео закрыты.
-    var hasPlus: Bool = false
     /// Сколько фильмов стоит в очереди.
     var queueCount: Int = 0
 
-    var micEnabled: Bool = false
-    var cameraEnabled: Bool = false
-
-    /// Доступен ли голос/видео в комнате ВООБЩЕ. Пока LiveKit не подключён к
-    /// сборке (ждём аккаунт Apple Developer), кнопок здесь быть не должно.
-    ///
-    /// Раньше гейта не было. Кнопки рисовались всегда, а `onLockedTap` у
-    /// пользователя без подписки открывал пейволл триггера .voiceChat —
-    /// то есть приложение продавало голосовой чат, которого в сборке нет.
-    /// PresenceBar.swift:63 такой гейт имел, эта поверхность — нет.
-    var voiceAvailable: Bool = FeatureFlags.liveKitVoiceEnabled
-
     var onTapPrivacy: () -> Void = {}
-    var onToggleMic: () -> Void = {}
-    var onToggleCamera: () -> Void = {}
     var onOpenQueue: () -> Void = {}
     var onInvite: () -> Void = {}
-    /// Вызывается при тапе по закрытой кнопке — открыть пейволл Плинк+.
-    var onLockedTap: () -> Void = {}
 
     var accent: Color = V4.accent
 
@@ -110,26 +92,6 @@ struct V4RoomControlsRow: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 6) {
-                if voiceAvailable {
-                    V4RoomIconButton(
-                        glyph: .mic,
-                        filled: micEnabled,
-                        locked: !hasPlus,
-                        accent: accent,
-                        action: hasPlus ? onToggleMic : onLockedTap
-                    )
-                    .accessibilityLabel(hasPlus ? "Микрофон" : "Микрофон — доступен в Плинк+")
-
-                    V4RoomIconButton(
-                        glyph: .camera,
-                        filled: cameraEnabled,
-                        locked: !hasPlus,
-                        accent: accent,
-                        action: hasPlus ? onToggleCamera : onLockedTap
-                    )
-                    .accessibilityLabel(hasPlus ? "Видео" : "Видео — доступно в Плинк+")
-                }
-
                 V4RoomIconButton(
                     glyph: .queue,
                     badgeCount: queueCount,
@@ -422,7 +384,6 @@ struct V4RoomPrivacySheet: View {
 
                     V4RoomControlsRow(
                         privacy: $privacy,
-                        hasPlus: false,
                         queueCount: 3,
                         onTapPrivacy: { showSheet = true }
                     )

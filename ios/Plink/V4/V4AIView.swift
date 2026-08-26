@@ -323,6 +323,9 @@ struct V4VoiceDock: View {
 struct V4AIViewLive: View {
     let theme: V4Theme
     @Bindable var store: V4AIStore
+    /// Тот же стор, что кормит Главную: лента берёт из него полку «Новинки»,
+    /// поэтому за онбордингом видны настоящие тайтлы, а не выдуманные.
+    @Bindable var searchStore: V4SearchStore
     /// Вкладка сейчас на экране. Корень держит все вкладки живыми через ZStack,
     /// поэтому уход с вкладки виден только отсюда — и обрывает запись.
     var isActive: Bool = true
@@ -340,6 +343,7 @@ struct V4AIViewLive: View {
             // кнопок — выглядел как сломанный экран, а не как продукт.
             V4ReelsPanel(
                 theme: theme,
+                items: reelItems,
                 isPreview: true,
                 onWatchTogether: { reel in
                     Task { await store.send("Собери комнату на «\(reel.title)»") }
@@ -368,6 +372,9 @@ struct V4AIViewLive: View {
         .foregroundStyle(V4.ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("screen.ai")
+        .task {
+            await searchStore.loadShelf(HomeCinemaCatalog.freshChip)
+        }
         .onChange(of: isActive) { _, active in
             if !active { capture.cancel() }
         }
@@ -375,6 +382,14 @@ struct V4AIViewLive: View {
             if phase != .active { capture.cancel() }
         }
         .onDisappear { capture.cancel() }
+    }
+
+    /// Лента = полка «Новинки» каталога. Восьми карточек хватает: за фростом
+    /// онбординга видны только первые, а грузить всю полку в ленту незачем.
+    private var reelItems: [V4ReelItem] {
+        searchStore.shelf(for: HomeCinemaCatalog.freshChip)
+            .prefix(8)
+            .map(V4ReelItem.init(from:))
     }
 
     /// Голос с ленты уходит в чат: там живут пузыри и кнопки подтверждения.

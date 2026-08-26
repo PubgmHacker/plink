@@ -1,43 +1,12 @@
 // Plink/Features/WatchRoom/WatchRoomCompositionRoot.swift
-// Composition root for v2 realtime + playback path
+// Сборка экрана комнаты: единственное место, где создаётся WatchRoomModel.
 //
-// Wired into MainTabView via makeScreenForRoom(room:...)
-// Real legacy fallback — returns actual RoomView, not placeholder
-//
-// This is the SINGLE entry point that decides whether to use v2 (WatchRoomScreen)
-// or legacy (RoomView) path. Controlled by FeatureFlags.realtimeProtocolV2.
+// Владелец модели — WatchRoomContainer: он держит её в @State и зовёт
+// makeModelForRoom один раз за сессию комнаты.
 
 import SwiftUI
 
 public enum WatchRoomCompositionRoot {
-    /// Creates the watch room screen for a Room model — v2 or legacy.
-    /// Called from MainTabView's fullScreenCover.
-    /// Not public — Room is internal type, method must match.
-    @MainActor
-    static func makeScreenForRoom(
-        room: Room,
-        userId: String,
-        username: String,
-        apiBaseURL: URL,
-        wsBaseURL: URL,
-        authToken: String
-    ) -> some View {
-        if FeatureFlags.realtimeProtocolV2 {
-            let model = makeModelForRoom(
-                room: room,
-                userId: userId,
-                username: username,
-                apiBaseURL: apiBaseURL,
-                wsBaseURL: wsBaseURL,
-                authToken: authToken
-            )
-            return AnyView(WatchRoomScreen(model: model))
-        } else {
-            // Real legacy fallback — actual RoomView, not placeholder
-            return AnyView(Text("Legacy room view retired"))
-        }
-    }
-
     /// Модель должна создаваться ОДИН раз и жить в
     /// @State владельца (WatchRoomContainer) — makeScreenForRoom из body
     /// пересоздавал WatchRoomModel на каждом пересчёте: комната сбрасывалась,
@@ -195,25 +164,17 @@ public enum WatchRoomCompositionRoot {
         return nil
     }
 
-    /// VK: https://vk.com/video_ext.php?... or /video-123_456.
+    /// VK: https://vk.com/video_ext.php?... , /video-123_456 или /clip-123_456.
     ///
     /// Матч строго по хосту (PlinkHost). Раньше проверка была `lower.contains("vk.com")`
     /// по ВСЕЙ строке URL — то есть `https://evil.ru/watch?ref=vk.com` проходил
     /// как видео ВК, и функция возвращала этот же URL (см. fallback `return url`),
     /// который уходил в `.vk(...)` и грузился в плеер комнаты у всех участников.
     private static func extractVKVideoId(from url: String) -> String? {
-        guard let parsed = URL(string: url),
-              PlinkHost.matches(parsed.host, anyOf: PlinkHost.vkDomains) else { return nil }
-        let lower = url.lowercased()
-        if let components = URLComponents(string: url), lower.contains("video_ext.php") {
-            let query = components.query ?? ""
-            return query.isEmpty ? nil : query
-        }
-        if let range = lower.range(of: "video") {
-            let after = String(url[range.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "/?"))
-            if !after.isEmpty { return after }
-        }
-        return url
+        // Разбор один на всё приложение: `RoomCreateMedia` тянет `oid_id`
+        // строго из пути. Прежний вариант резал строку по подстроке «video»
+        // и в худшем случае возвращал сам URL — плеер получал не тот id.
+        RoomCreateMedia.extractVKVideoId(from: url)
     }
 
     /// Rutube: https://rutube.ru/video/<32-hex>/ or /play/embed/<id>/
@@ -323,17 +284,6 @@ public enum FeatureFlags {
     private static let cacheKey = "plink.feature_flags_cache"
     private static let cacheTTL: TimeInterval = 300  // 5 minutes
 
-    /// Master switch for v2 realtime + playback path.
-    /// Checks remote config first (cached), falls back to UserDefaults.
-    public static var realtimeProtocolV2: Bool {
-        // UserDefaults is DEBUG override only
-        if UserDefaults.standard.bool(forKey: "plink.realtime_protocol_v2_debug") {
-            return true
-        }
-        // Check cached remote config
-        return true  // Temporarily forced TRUE for v2 testing
-    }
-
     /// P1 audit: kill-switch for native YouTube stream extraction (App Store
     /// review safety). Remote flag key: "youtube_native_extraction".
     /// Defaults to TRUE; flip the remote flag (or the DEBUG UserDefaults
@@ -355,13 +305,7 @@ public enum FeatureFlags {
         return cache.flags
     }
 
-    /// Fetch remote flags from backend — call on app launch
-    /// P0 voice: LiveKit availability (checked from backend)
-    public static var liveKitVoiceEnabled: Bool { false }
-
-    /// P0 voice: Refresh LiveKit availability from backend
-    public static func refreshLiveKitAvailability(apiBaseURL: URL) async { }
-
+    /// Забирает удалённые флаги с бэкенда — вызывается при запуске.
     public static func fetchRemoteFlags(apiBaseURL: URL, authToken: String) async {
         var request = URLRequest(url: apiBaseURL.appendingPathComponent("api/feature-flags"))
         request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")

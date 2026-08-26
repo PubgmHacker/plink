@@ -107,9 +107,60 @@ extension V4FriendsViewLive {
         }
     }
 
+    /// Кому написать: до четырёх реальных друзей прямо в пустом экране.
+    /// Порядок — тот же `orderedFriends`, что и у инбокса, так что первым
+    /// стоит закреплённый человек, а не случайный. Пятого и дальше берёт
+    /// на себя «Новая беседа» — она же единственный вход к групповым.
+    @ViewBuilder
+    private var chatsSuggestions: some View {
+        let people = Array(orderedFriends.prefix(4))
+        if !people.isEmpty {
+            VStack(spacing: 14) {
+                Text("КОМУ НАПИСАТЬ")
+                    .font(.system(size: 10.5, weight: .heavy))
+                    .tracking(1.8)
+                    .foregroundStyle(V4.muted)
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(people) { friend in
+                        Button {
+                            HapticManager.selection()
+                            dmFriend = friend
+                        } label: {
+                            VStack(spacing: 7) {
+                                friendAvatar(friend, size: 54)
+                                Text(friend.displayTitle)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(V4.ink)
+                                    .lineLimit(1)
+                                    // 66 pt: четыре лица + зазоры = 306 pt,
+                                    // влезают в 345 pt контента. На 58 pt
+                                    // обрезался даже «plink_sim_demo».
+                                    .frame(width: 66)
+                            }
+                        }
+                        .buttonStyle(V4PressableCardStyle())
+                        .accessibilityLabel("Написать: \(friend.displayTitle)")
+                    }
+                }
+                Button {
+                    HapticManager.selection()
+                    showCompose = true
+                } label: {
+                    Text("Новая беседа")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                }
+                .accessibilityIdentifier("chats.emptyCompose")
+            }
+            .padding(.top, 26)
+        }
+    }
+
     var chatsBlock: some View {
         let inbox = unifiedInbox
-        let empty = inbox.isEmpty && !inboxIsLoading
+        // -plink.designempty (DEBUG) — тот же флаг, что у списка людей:
+        // снять пустые «Чаты» на аккаунте с перепиской иначе нечем.
+        let empty = (inbox.isEmpty && !inboxIsLoading) || V4FriendsEmptyDesign.forced
         return VStack(alignment: .leading, spacing: 12) {
             // Пустой инбокс — не «секция без строк», а весь экран: заголовок
             // и стеклянная карточка появляются только когда есть что
@@ -124,14 +175,20 @@ extension V4FriendsViewLive {
                         cta: "Найти друга"
                     ) { showAddFriend = true }
                 } else {
-                    // Друзья есть, переписок нет — зовём написать первым.
+                    // Друзья есть, переписок нет. Белой кнопки «Написать»
+                    // здесь больше нет (26.08.2026): она открывала компоуз —
+                    // ещё один список людей, — и дублировала ✎ в шапке, ту
+                    // самую кнопку, ради которой из заголовка секции уже
+                    // убрали текстовое «Добавить». Вместо неё сами люди:
+                    // тап по лицу открывает личку сразу, как строка контакта
+                    // в пустом списке Signal и как компоуз Telegram.
                     emptyCanvas(
                         icon: "square.and.pencil",
-                        title: "Напиши первым",
-                        subtitle: "Выбери друга — беседа появится здесь",
-                        ctaIcon: "square.and.pencil",
-                        cta: "Написать"
-                    ) { showCompose = true }
+                        title: "Начни переписку",
+                        subtitle: "Отсюда зовут в комнату и договариваются, что смотреть."
+                    ) {
+                        chatsSuggestions
+                    }
                 }
             } else {
                 // Без текстового «Добавить» в заголовке: входы — ✎ и «+» в шапке

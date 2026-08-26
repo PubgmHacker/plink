@@ -32,7 +32,6 @@ struct WatchRoomUIState: Equatable {
     var ambient: AmbientState = AmbientState()
     var roomTitle: String = ""
     var hostDisplayName: String = ""
-    var presence: [PresencePill] = []
 }
 
 // MARK: - Toast
@@ -46,12 +45,3 @@ struct RoomToast: Identifiable, Equatable {
 
 // MARK: - Presence
 
-struct PresencePill: Identifiable, Equatable, Sendable {
-    let id: String           // user id
-    let displayName: String
-    let avatarColorHex: UInt32
-    let isSpeaking: Bool
-    let isHost: Bool
-
-    var avatarColor: Color { Color(hex: avatarColorHex) }
-}

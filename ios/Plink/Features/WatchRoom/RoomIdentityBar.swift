@@ -17,7 +17,7 @@ struct RoomIdentityBar: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Plink Room")
+                Text("Комната")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Cinema2026.text)
                     .lineLimit(1)
@@ -32,7 +32,7 @@ struct RoomIdentityBar: View {
                         .overlay(Capsule().stroke(Cinema2026.accent.opacity(0.26), lineWidth: 0.5))
 
                     if let host = model.participants.first(where: { $0.userId == model.hostId }) {
-                        Text("Host: \(host.username)")
+                        Text("Хост: \(host.username)")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(Cinema2026.secondary)
                             .lineLimit(1)
@@ -44,7 +44,7 @@ struct RoomIdentityBar: View {
 
             HStack(spacing: 8) {
                 if model.isHost {
-                    Text("HOST")
+                    Text("ХОСТ")
                         .font(.system(size: 10, weight: .heavy))
                         .foregroundStyle(Cinema2026.amber)
                         .padding(.horizontal, 8)

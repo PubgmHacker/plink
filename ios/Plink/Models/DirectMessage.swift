@@ -170,16 +170,6 @@ struct Conversation: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-// MARK: - DM Payload (WebSocket outbound)
-struct DMPayload: Codable, Sendable {
-    let type: String             // "dm"
-    let conversationID: String
-    let senderID: String
-    let recipientID: String
-    let senderName: String
-    let text: String
-}
-
 // MARK: - Telegram-style pinned message snapshot
 
 /// One pinned DM in a chat (my view). «Pin for both» also creates the

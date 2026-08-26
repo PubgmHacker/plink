@@ -119,9 +119,9 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
     static var preview: Room {
         Room(
             id: "room_001",
-            name: "Movie Night 🍿",
+            name: "Вечер кино",
             hostID: "user_001",
-            hostName: "Alex",
+            hostName: "Алиса",
             code: "ABC123",
             participants: [
                 UserPreview(id: "user_001", username: "Alex", avatarURL: nil, isOnline: true),
@@ -230,4 +230,3 @@ enum RoomPrivacy: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 }
-struct ActiveRoomResponse: Decodable { let room: Room? }

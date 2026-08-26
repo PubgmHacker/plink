@@ -27,6 +27,23 @@ enum CinemaSessionStore {
         }
     }
 
+    /// Есть ли в постоянном jar хоть одна живая кука этих доменов.
+    ///
+    /// Отрицательный ответ — надёжный: без единой куки сервиса вход
+    /// невозможен по определению. Положительный лишь означает «сессия
+    /// заведена» — подтвердить подписку может только сам сервис, поэтому
+    /// на нём мы ничего не обещаем.
+    static func hasCookies(forHosts hosts: [String]) async -> Bool {
+        guard !hosts.isEmpty else { return false }
+        let store = persistent
+        let cookies = await store.httpCookieStore.allCookies()
+        let now = Date()
+        return cookies.contains { cookie in
+            if let expires = cookie.expiresDate, expires <= now { return false }
+            return hosts.contains { cookieHost(cookie.domain, matches: $0) }
+        }
+    }
+
     private static func cookieHost(_ cookieDomain: String, matches host: String) -> Bool {
         let domain = cookieDomain.hasPrefix(".") ? String(cookieDomain.dropFirst()) : cookieDomain
         return domain == host || domain.hasSuffix(".\(host)") || host.hasSuffix(".\(domain)")
@@ -91,6 +108,12 @@ enum LinkedExternalAccount: String, CaseIterable, Identifiable {
         case .netflix: return .netflix
         case .disney: return .disney
         }
+    }
+
+    /// Обратный поиск: комната знает сервис, а вход живёт на аккаунте.
+    init?(service: VideoService) {
+        guard let match = Self.allCases.first(where: { $0.videoService == service }) else { return nil }
+        self = match
     }
 
     var loginURL: URL {
@@ -160,5 +183,26 @@ enum LinkedExternalAccount: String, CaseIterable, Identifiable {
 
     static var connectedCount: Int {
         allCases.filter(\.isConnected).count
+    }
+
+    /// Снимает отметку «подключён», если куки сервиса исчезли.
+    ///
+    /// Флаг лежал в UserDefaults бессрочно: WebKit чистил протухшую сессию,
+    /// а профиль продолжал показывать «Подключён» и пускал в каталог без входа.
+    /// Сюда попадают только те, кто отмечен подключённым, — лишних чтений нет.
+    @discardableResult
+    static func revalidateConnected() async -> [LinkedExternalAccount] {
+        var dropped: [LinkedExternalAccount] = []
+        for account in allCases where account.isConnected {
+            if await CinemaSessionStore.hasCookies(forHosts: account.cookieHosts) { continue }
+            switch account {
+            case .yandex:
+                ServiceAuthStore.markYandexID(false)
+            default:
+                if let svc = account.videoService { ServiceAuthStore.logout(svc.serviceType) }
+            }
+            dropped.append(account)
+        }
+        return dropped
     }
 }

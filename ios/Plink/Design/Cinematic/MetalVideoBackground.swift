@@ -677,22 +677,6 @@ final class MetalVideoRenderer: NSObject, MTKViewDelegate {
 // UIImageView.animationImages for theme preview cards — low-memory if frames are downscaled.
 // Use this for small preview thumbnails where Metal would be overkill.
 
-struct APNGThemePreview: View {
-    let framePrefix: String        // e.g. "live_theme_1_frame"
-    let frameCount: Int            // number of frames
-    let frameDuration: Double      // seconds per frame
-    var size: CGFloat = 112
-
-    var body: some View {
-        APNGPreviewRepresentable(
-            framePrefix: framePrefix,
-            frameCount: frameCount,
-            frameDuration: frameDuration,
-            size: size
-        )
-    }
-}
-
 struct APNGPreviewRepresentable: UIViewRepresentable {
     let framePrefix: String
     let frameCount: Int

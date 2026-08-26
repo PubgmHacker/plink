@@ -6,25 +6,55 @@
 // ждут кино из онлайн-кинотеатров. Роут бэкенда менять нельзя (деплой не в
 // наших руках), поэтому кинотеатральный каталог собирается клиентом.
 //
-// Источник данных — публичный каталог Иви (api.ivi.ru/mobileapi): единственный
-// из российских кинотеатров, который отдаёт афишу без ключа и токена. Каждая
-// карточка ведёт на страницу просмотра ivi.ru — комната открывает её в
-// WebView, хост входит в свой аккаунт. Кинопоиск/Okko/Wink/PREMIER открытого
-// каталога не дают, поэтому они подключены «мостиком»: из превью тайтла можно
-// создать комнату сразу на странице поиска этого кинотеатра (V4WatchTarget).
-// Plink не предоставляет контент и не обходит защиту — только открывает
-// официальные страницы.
+// 26.08.2026: «витрина не должна состоять из одного Иви».
+//
+// Источников два, и оба публичные — это все российские кинотеатры, которые
+// отдают афишу без ключа и без подписи запроса (проверено вживую 26.08.2026):
+//
+//   • Иви     — api.ivi.ru/mobileapi/catalogue/v7 (категории, жанры, годы);
+//   • PREMIER — premier.one/uma-api/metainfo/tv   (без фильтров, см. ниже).
+//
+// Полка склеивается из обоих круговым интерливом: Иви → PREMIER → Иви → …,
+// чтобы подпись под карточками чередовалась, а не повторяла одно название
+// кинотеатра весь ряд.
+//
+// Почему не Кинопоиск, Окко, Смотрим и Wink — их каталог закрыт, и обойти
+// это нечем: api.kinopoisk.dev требует токен, ctx.okko.tv не резолвится в DNS
+// (а www.okko.tv отдаёт JS-заглушку антибота), apis.smotrim.ru/graphql
+// отвечает 400, а его /api/v1/videos — только региональной новостной лентой,
+// wink.ru и more.tv закрыты 403. Поэтому они подключены «мостиком»: из превью
+// тайтла можно создать комнату сразу на странице поиска этого кинотеатра
+// (V4WatchTarget). Plink не предоставляет контент и не обходит защиту —
+// только открывает официальные страницы.
 
 import Foundation
 
 // MARK: - Происхождение карточки витрины
 
-/// Откуда карточка на витрине: YouTube-поиск или каталог кинотеатра.
+/// Откуда карточка на витрине: ролик видеохостинга или тайтл кинокаталога.
 /// От происхождения зависят бейдж превью, подпись героя и то, какой
 /// MediaItem соберёт комната. Codable — ради дискового кэша полок.
 enum V4ContentOrigin: Hashable, Sendable, Codable {
     case youtube
+    /// Ролик стороннего видеохостинга — RuTube, VK Видео. Подпись строится
+    /// из канала и длительности, как у YouTube; год и рейтинг у роликов
+    /// отсутствуют, а «Где ещё смотреть» к ним неприменимо.
+    case video(VideoService)
     case cinema(VideoService)
+
+    /// Сервис карточки: он же бейдж превью и цвет.
+    var service: VideoService {
+        switch self {
+        case .youtube: return .youtube
+        case .video(let s), .cinema(let s): return s
+        }
+    }
+
+    /// Ролик, а не тайтл каталога: мета берётся из канала и длительности.
+    var isClip: Bool {
+        if case .cinema = self { return false }
+        return true
+    }
 }
 
 /// Что именно смотреть из превью тайтла: сам элемент («Смотреть вместе»)
@@ -34,8 +64,11 @@ enum V4WatchTarget: Hashable, Sendable {
     case cinema(VideoService, String)
 }
 
-// MARK: - Каталог кинотеатра
+// MARK: - Каталог кинотеатров (агрегатор + Иви)
 
+/// Фасад витрины: снаружи виден только `fetchShelf` — что внутри одного
+/// кинотеатра, двух или пяти, вызывающая сторона не знает. Здесь же лежит
+/// каталог Иви; PREMIER — ниже, отдельным типом.
 enum V4CinemaCatalog {
     // MARK: Запросы полок
 
@@ -108,9 +141,49 @@ enum V4CinemaCatalog {
 
     // MARK: Загрузка полки
 
-    /// Собирает кинотеатральную часть полки. Ошибки сети не бросаются:
-    /// пустой результат — сигнал добрать полку YouTube-хвостом.
+    /// Кинотеатральная часть полки: Иви и PREMIER тянутся параллельно и
+    /// чередуются на ряду. Ошибки сети не бросаются — пустой результат
+    /// означает «добери полку YouTube-хвостом», а отказ одного кинотеатра
+    /// полку не роняет: её несёт второй.
     static func fetchShelf(_ chip: String) async -> [V4SearchResult] {
+        async let ivi = fetchIviShelf(chip)
+        async let premier = V4PremierCatalog.fetchShelf(chip)
+        return interleaveCinemas([await ivi, await premier])
+    }
+
+    /// Круговой интерлив по кинотеатрам: Иви → PREMIER → Иви → PREMIER.
+    ///
+    /// Иви открывает ряд — у него глубже каталог, есть рейтинг Кинопоиска и
+    /// чистый кадр для героя. PREMIER встаёт в каждую вторую позицию, пока не
+    /// кончится (по узким чипам вроде «Аниме» его в каталоге просто нет),
+    /// дальше ряд достраивает Иви.
+    ///
+    /// Дедупликация двойная: по id — от повторов внутри кинотеатра, по
+    /// «название + год» — от одного тайтла, который лежит и там и там.
+    /// Первым выигрывает тот, кто раньше в ряду.
+    private static func interleaveCinemas(_ buckets: [[V4SearchResult]]) -> [V4SearchResult] {
+        var merged: [V4SearchResult] = []
+        var seenIDs = Set<String>()
+        var seenTitles = Set<String>()
+        var row = 0
+        while true {
+            var advanced = false
+            for bucket in buckets where row < bucket.count {
+                advanced = true
+                let item = bucket[row]
+                guard seenIDs.insert(item.id).inserted else { continue }
+                let titleKey = item.title.lowercased() + "|" + (item.year.map(String.init) ?? "")
+                guard seenTitles.insert(titleKey).inserted else { continue }
+                merged.append(item)
+            }
+            if !advanced { break }
+            row += 1
+        }
+        return merged
+    }
+
+    /// Полка Иви: несколько запросов каталога параллельно, потом интерлив.
+    private static func fetchIviShelf(_ chip: String) async -> [V4SearchResult] {
         let queries = queries(for: chip)
         guard !queries.isEmpty else { return [] }
 
@@ -384,6 +457,438 @@ enum V4CinemaCatalog {
             case url, width, height
             case contentFormat = "content_format"
         }
+    }
+}
+
+// MARK: - Каталог PREMIER (26.08.2026)
+//
+// Витрина состояла из одного Иви — и это было видно: подпись «Иви» на каждой
+// карточке подряд. Второй кинотеатр с открытым каталогом нашёлся один —
+// PREMIER: `premier.one/uma-api/metainfo/tv/` отдаёт афишу без ключа и без
+// подписи запроса (проверено вживую 26.08.2026).
+//
+// У этого API нет ни поиска, ни фильтров, ни сортировки: параметры `type`,
+// `ordering`, `sort`, `page_size` он молча игнорирует, `per_page` прибит к 12,
+// порядок — по возрастанию id, то есть свежие тайтлы лежат в самом хвосте.
+// Поля `count` тоже нет — только `has_next`. Поэтому клиент сначала находит
+// номер последней страницы, потом тянет хвост пачкой и фильтрует по чипу сам.
+// Пул общий для всех полок: строится один раз, живёт сутки на диске.
+enum V4PremierCatalog {
+    // MARK: Настройки источника
+
+    private static let host = "https://premier.one/uma-api/metainfo/tv/"
+    /// Сколько последних страниц каталога составляют пул. 16 × 12 = 192 сырых
+    /// тайтла → ~159 уникальных (замер 26.08.2026), запрос всего пула — 1,9 с
+    /// при шести параллельных соединениях.
+    private static let poolPages = 16
+    private static let maxParallel = 6
+    /// С какой страницы начинается поиск хвоста на первом запуске. 603 —
+    /// последняя страница на 26.08.2026; значение только затравка, дальше
+    /// клиент хранит найденное сам.
+    private static let seedLastPage = 603
+    /// Бюджет поиска хвоста в запросах. Каталог растёт примерно на страницу в
+    /// месяц: шага в одну страницу хватает, а если приложение не запускали
+    /// полгода — хвост догоняется за несколько холодных стартов, каждый раз
+    /// сохраняя новое приближение.
+    private static let tailProbeBudget = 8
+
+    private static let poolCacheKey = "plink.home.premier.pool.v1"
+    private static let lastPageKey = "plink.home.premier.lastpage.v1"
+    private static let cacheTTL: TimeInterval = 24 * 60 * 60
+
+    // MARK: Тайтл пула
+
+    /// Карточка витрины плюс то, по чему её отбирает чип. Жанр и тип нужны
+    /// после декода, поэтому лежат в кэше рядом с готовой карточкой —
+    /// пересобирать пул ради фильтра нельзя, он суточный.
+    struct PooledTitle: Codable, Sendable {
+        let card: V4SearchResult
+        let genreIDs: [Int]
+        let typeName: String
+        let year: Int?
+    }
+
+    private struct CachedPool: Codable {
+        let savedAt: Date
+        let titles: [PooledTitle]
+    }
+
+    // MARK: Отбор под чип
+
+    // Идентификаторы жанров сверены с /uma-api/metainfo/genre/ (26.08.2026):
+    // 1 Фантастика, 3 Комедия, 12 Мистика, 14 Юмор, 16 Анимация, 17 Фэнтези,
+    // 20 Ужасы, 29 Мультфильм, 34 Аниме, 45 Скетчком.
+    private static func matches(_ title: PooledTitle, chip: String) -> Bool {
+        func genre(_ ids: Set<Int>) -> Bool { !ids.isDisjoint(with: title.genreIDs) }
+        switch chip {
+        case HomeCinemaCatalog.freshChip:
+            guard let year = title.year else { return false }
+            return year >= V4CinemaCatalog.nowYear - 1
+        case "Фильмы":       return title.typeName == "movie"
+        case "Сериалы":      return title.typeName == "series"
+        case "Мультфильмы":  return genre([29, 16])
+        case "Фантастика":   return genre([1, 17])
+        case "Комедии":      return genre([3, 14, 45])
+        case "Ужасы":        return genre([20, 12])
+        case "Аниме":        return genre([34])
+        default:             return true // «Для вас», ™topweek
+        }
+    }
+
+    /// Сколько тайтлов PREMIER отдаёт на одну полку.
+    ///
+    /// Без потолка широкий чип забирал весь пул: на «Для вас» вставало 159
+    /// карточек PREMIER против 46 у Иви, чередование кончалось на 46-й, и
+    /// дальше тянулся хвост из одного кинотеатра — ровно то, от чего уходили.
+    /// 24 держат чередование по всей видимой части полки.
+    private static let shelfLimit = 24
+
+    /// Кинотеатральная часть полки от PREMIER. Ошибки наружу не идут: пустой
+    /// ответ означает «полку несёт Иви», а не сбой витрины.
+    static func fetchShelf(_ chip: String) async -> [V4SearchResult] {
+        let pool = await Pool.shared.titles()
+        return pool.lazy.filter { matches($0, chip: chip) }.prefix(shelfLimit).map(\.card)
+    }
+
+    // MARK: Пул хвоста
+
+    /// Общий пул на все полки. Девять чипов Главной просыпаются почти
+    /// одновременно — актор гарантирует, что каталог соберётся один раз, а не
+    /// девять: параллельные вызовы ждут одну и ту же задачу.
+    private actor Pool {
+        static let shared = Pool()
+
+        private var titlesInMemory: [PooledTitle] = []
+        private var loadedAt: Date?
+        private var inFlight: Task<[PooledTitle], Never>?
+
+        func titles() async -> [PooledTitle] {
+            if let loadedAt, !titlesInMemory.isEmpty,
+               Date().timeIntervalSince(loadedAt) < cacheTTL {
+                return titlesInMemory
+            }
+            if let inFlight { return await inFlight.value }
+
+            let cached = readCache()
+            if let cached, Date().timeIntervalSince(cached.savedAt) < cacheTTL {
+                titlesInMemory = cached.titles
+                loadedAt = cached.savedAt
+                return cached.titles
+            }
+
+            let task = Task<[PooledTitle], Never> { await build() }
+            inFlight = task
+            let fresh = await task.value
+            inFlight = nil
+
+            // Сеть не ответила — отдаём протухший кэш: вчерашняя афиша
+            // PREMIER на полке лучше, чем полка из одного Иви.
+            guard !fresh.isEmpty else { return cached?.titles ?? [] }
+            titlesInMemory = fresh
+            loadedAt = Date()
+            writeCache(fresh)
+            return fresh
+        }
+    }
+
+    /// Хвост каталога → уникальные тайтлы, свежие сверху.
+    private static func build() async -> [PooledTitle] {
+        let lastPage = await discoverLastPage()
+        let pages = Array(max(1, lastPage - poolPages + 1)...max(1, lastPage))
+
+        var byPage: [Int: [RawTitle]] = [:]
+        var cursor = 0
+        // Шесть соединений — потолок: при большем параллелизме premier.one
+        // роняет часть запросов на TLS-рукопожатии (замер 26.08.2026).
+        // Страница, которая не пришла, просто не даёт тайтлов — пул от этого
+        // не рушится.
+        await withTaskGroup(of: (Int, [RawTitle]).self) { group in
+            func addNext() {
+                guard cursor < pages.count else { return }
+                let page = pages[cursor]
+                cursor += 1
+                group.addTask { (page, await fetchPage(page)?.results ?? []) }
+            }
+            for _ in 0..<min(maxParallel, pages.count) { addNext() }
+            for await (page, items) in group {
+                byPage[page] = items
+                addNext()
+            }
+        }
+
+        // Каталог отсортирован по возрастанию id, поэтому свежее — в конце:
+        // страницы разворачиваются, порядок внутри страницы сохраняется.
+        var seen = Set<String>()
+        var result: [PooledTitle] = []
+        for page in pages.reversed() {
+            for raw in byPage[page] ?? [] {
+                guard let mapped = map(raw) else { continue }
+                // Один и тот же тайтл встречается в каталоге дважды (разные
+                // id под одинаковым названием и годом) — на витрине он должен
+                // стоять один раз.
+                let key = mapped.card.title.lowercased() + "|" + (mapped.year.map(String.init) ?? "")
+                guard seen.insert(key).inserted else { continue }
+                result.append(mapped)
+            }
+        }
+        return result
+    }
+
+    /// Номер последней страницы каталога. `count` API не отдаёт — только
+    /// `has_next`, поэтому хвост ищется шагом в страницу от запомненного
+    /// значения и сохраняется на следующий запуск.
+    private static func discoverLastPage() async -> Int {
+        let defaults = UserDefaults.standard
+        let stored = defaults.object(forKey: lastPageKey) as? Int
+        var page = max(1, stored ?? seedLastPage)
+        var budget = tailProbeBudget
+
+        guard var probe = await fetchPage(page) else { return page }
+        budget -= 1
+
+        if probe.results.isEmpty {
+            // Ушли за край каталога — отступаем назад до живой страницы.
+            while budget > 0, page > 1 {
+                page -= 1
+                budget -= 1
+                guard let back = await fetchPage(page) else { break }
+                if !back.results.isEmpty { break }
+            }
+        } else {
+            // Каталог подрос — идём вперёд, пока API обещает продолжение.
+            while budget > 0, probe.hasNext {
+                guard let forward = await fetchPage(page + 1), !forward.results.isEmpty else { break }
+                page += 1
+                budget -= 1
+                probe = forward
+            }
+        }
+
+        defaults.set(page, forKey: lastPageKey)
+        return page
+    }
+
+    private static func fetchPage(_ page: Int) async -> Page? {
+        guard var components = URLComponents(string: host) else { return nil }
+        components.queryItems = [URLQueryItem(name: "page", value: String(page))]
+        guard let url = components.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                #if DEBUG
+                print("[V4PremierCatalog] HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1) стр. \(page)")
+                #endif
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(PageResponse.self, from: data)
+            return Page(results: decoded.results, hasNext: decoded.hasNext)
+        } catch {
+            #if DEBUG
+            print("[V4PremierCatalog] стр. \(page) не загрузилась: \(error)")
+            #endif
+            return nil
+        }
+    }
+
+    // MARK: Маппинг в карточку витрины
+
+    private static func map(_ raw: RawTitle) -> PooledTitle? {
+        guard let name = raw.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        // Кроме кино каталог отдаёт `broadcast` — прямые эфиры телеканала.
+        // Их нельзя поставить на паузу вдвоём, поэтому на витрину они не идут.
+        guard let type = raw.type?.name, ["movie", "series", "show"].contains(type) else { return nil }
+        guard let watch = watchURL(raw) else { return nil }
+
+        let year = raw.year.flatMap(Int.init) ?? raw.yearStart.flatMap(Int.init)
+        let isSeries = raw.type?.serialContent ?? (type != "movie")
+        let kindLabel: String
+        switch type {
+        case "movie": kindLabel = "Фильм"
+        case "show":  kindLabel = "Шоу"
+        default:      kindLabel = "Сериал"
+        }
+
+        // У свежих тайтлов рейтинга ещё нет — приходит ноль. Ноль на карточке
+        // читается как «оценили и поставили 0», поэтому звезда просто исчезает.
+        var ratingText: String?
+        if let kp = raw.rating?.kinopoisk, kp >= 1 {
+            ratingText = String(format: "%.1f", kp).replacingOccurrences(of: ".", with: ",")
+        } else if let own = raw.rating?.rating, own >= 1 {
+            ratingText = String(format: "%.1f", own).replacingOccurrences(of: ".", with: ",")
+        }
+
+        var meta: [String] = ["PREMIER"]
+        if let year { meta.append(String(year)) }
+        meta.append(kindLabel)
+        if let ratingText { meta.append("★ \(ratingText)") }
+
+        // `poster_url` в каталоге пуст у всех тайтлов хвоста — постер живёт
+        // в `pictures`. Широкий кадр берётся из фонового изображения тайтла:
+        // это чистый кадр без вшитого названия, как BackgroundImage у Иви.
+        let pictures = raw.pictures ?? [:]
+        let poster = url(pictures["g_iconic_poster_1000x1500"]
+            ?? pictures["g_iconic_poster_600x800"]
+            ?? raw.posterURL)
+        let hero = url(pictures["g_iconic_background_3840x2160"]
+            ?? pictures["banner_landscape"]
+            ?? pictures["g_iconic_poster_3840x2160"]
+            ?? raw.picture)
+
+        return PooledTitle(
+            card: V4SearchResult(
+                id: "premier-\(raw.id)",
+                title: name,
+                subtitle: meta.joined(separator: " · "),
+                artworkURL: hero,
+                posterURL: poster,
+                duration: nil,
+                isSelectable: true,
+                origin: .cinema(.premier),
+                watchURL: watch,
+                year: year,
+                kindLabel: kindLabel,
+                ratingText: ratingText,
+                isFreeOnService: false,
+                isSeries: isSeries
+            ),
+            genreIDs: (raw.genres ?? []).map(\.id),
+            typeName: type,
+            year: year
+        )
+    }
+
+    /// Страница тайтла на premier.one.
+    ///
+    /// `absolute_url` из каталога брать нельзя: у большинства карточек там
+    /// служебный `/metainfo/tv/<id>/`, то есть адрес самого API, а не живая
+    /// страница. Рабочий адрес собирается из slug, с которого снимается
+    /// технический хвост `_tnt_premier_<hex>`: с ним premier.one отвечает 404,
+    /// без него открывает тайтл — проверено на 20 карточках из 20 (26.08.2026).
+    private static func watchURL(_ raw: RawTitle) -> String? {
+        guard let slug = raw.slug, !slug.isEmpty else { return nil }
+        let clean = slug.replacingOccurrences(
+            of: "_tnt_premier_[0-9a-f]+$", with: "", options: [.regularExpression]
+        )
+        guard !clean.isEmpty else { return nil }
+        return "https://premier.one/show/\(clean)"
+    }
+
+    private static func url(_ raw: String?) -> URL? {
+        guard var raw, !raw.isEmpty else { return nil }
+        if raw.hasPrefix("http://") { raw = "https://" + raw.dropFirst("http://".count) }
+        return URL(string: raw)
+    }
+
+    // MARK: Дисковый кэш
+
+    private static func readCache() -> CachedPool? {
+        guard let data = UserDefaults.standard.data(forKey: poolCacheKey),
+              let cached = try? JSONDecoder().decode(CachedPool.self, from: data),
+              !cached.titles.isEmpty else { return nil }
+        return cached
+    }
+
+    private static func writeCache(_ titles: [PooledTitle]) {
+        guard let data = try? JSONEncoder().encode(CachedPool(savedAt: Date(), titles: titles))
+        else { return }
+        UserDefaults.standard.set(data, forKey: poolCacheKey)
+    }
+
+    // MARK: DTO каталога
+
+    private struct Page: Sendable {
+        let results: [RawTitle]
+        let hasNext: Bool
+    }
+
+    private struct PageResponse: Decodable {
+        let results: [RawTitle]
+        let hasNext: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case results
+            case hasNext = "has_next"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            // Тот же приём, что и в каталоге Иви: один аномальный тайтл не
+            // должен уносить страницу целиком.
+            let lenient = try c.decodeIfPresent([SafeTitle].self, forKey: .results)
+            results = (lenient ?? []).compactMap(\.value)
+            if let flag = try? c.decodeIfPresent(Bool.self, forKey: .hasNext) {
+                hasNext = flag ?? false
+            } else {
+                hasNext = false
+            }
+        }
+    }
+
+    private struct SafeTitle: Decodable, Sendable {
+        let value: RawTitle?
+        init(from decoder: Decoder) throws { value = try? RawTitle(from: decoder) }
+    }
+
+    private struct RawTitle: Decodable, Sendable {
+        let id: Int
+        let slug: String?
+        let name: String?
+        let year: String?
+        let yearStart: String?
+        let type: RawType?
+        let genres: [RawGenre]?
+        let rating: RawRating?
+        let pictures: [String: String]?
+        let posterURL: String?
+        let picture: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, slug, name, year, type, genres, rating, pictures, picture
+            case yearStart = "year_start"
+            case posterURL = "poster_url"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            // id обязателен — без него не собрать ни ключ карточки, ни лог.
+            // Остальное каталог отдаёт без гарантий схемы, поэтому каждое поле
+            // гасится через try?, а не роняет тайтл.
+            id = try c.decode(Int.self, forKey: .id)
+            slug = try? c.decodeIfPresent(String.self, forKey: .slug)
+            name = try? c.decodeIfPresent(String.self, forKey: .name)
+            // Год приходит строкой («2026»), а не числом.
+            year = try? c.decodeIfPresent(String.self, forKey: .year)
+            yearStart = try? c.decodeIfPresent(String.self, forKey: .yearStart)
+            type = try? c.decodeIfPresent(RawType.self, forKey: .type)
+            genres = try? c.decodeIfPresent([RawGenre].self, forKey: .genres)
+            rating = try? c.decodeIfPresent(RawRating.self, forKey: .rating)
+            pictures = try? c.decodeIfPresent([String: String].self, forKey: .pictures)
+            posterURL = try? c.decodeIfPresent(String.self, forKey: .posterURL)
+            picture = try? c.decodeIfPresent(String.self, forKey: .picture)
+        }
+    }
+
+    private struct RawType: Decodable, Sendable {
+        let name: String?
+        let serialContent: Bool?
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case serialContent = "serial_content"
+        }
+    }
+
+    private struct RawGenre: Decodable, Sendable {
+        let id: Int
+    }
+
+    private struct RawRating: Decodable, Sendable {
+        let rating: Double?
+        let kinopoisk: Double?
     }
 }
 

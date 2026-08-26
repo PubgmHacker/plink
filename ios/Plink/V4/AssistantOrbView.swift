@@ -401,14 +401,4 @@ public struct AssistantOrbView: UIViewRepresentable {
 // MARK: - Превью
 
 #if DEBUG
-struct AssistantOrbView_Previews: PreviewProvider {
-    static var previews: some View {
-        VStack(spacing: 24) {
-            AssistantOrbView(state: .listening)
-                .frame(width: 280, height: 280)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(red: 0.043, green: 0.055, blue: 0.086))
-    }
-}
 #endif

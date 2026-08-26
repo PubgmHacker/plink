@@ -130,7 +130,7 @@ struct WatchChatView: View {
                     }
                     .padding(.trailing, 12)
                     .padding(.bottom, 12)
-                    .accessibilityLabel("Scroll to latest message")
+                    .accessibilityLabel("К последнему сообщению")
                 }
             }
             .overlay(alignment: .top) {

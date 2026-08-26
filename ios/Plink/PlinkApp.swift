@@ -88,10 +88,6 @@ final class PlinkAppDelegate: NSObject, UIApplicationDelegate {
         // отчёты прошлых сессий на /api/telemetry/crash при запуске.
         CrashReporter.shared.install()
         CrashReporter.shared.uploadPendingReports()
-        // Soft-detect LiveKit so mic UI can appear when ops enable keys
-        if let base = URL(string: PlinkConfig.baseURLString) {
-            Task { await FeatureFlags.refreshLiveKitAvailability(apiBaseURL: base) }
-        }
         return true
     }
 

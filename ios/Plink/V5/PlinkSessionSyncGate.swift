@@ -345,35 +345,3 @@ private struct ReauthSheet: View {
 
 // MARK: - Superseded banner
 
-struct SessionSupersededBanner: View {
-    @Bindable var gate: SessionSyncGate
-
-    init(gate: SessionSyncGate) {
-        self.gate = gate
-    }
-
-    var body: some View {
-        if case let .superseded(device, at) = gate.state {
-            HStack(spacing: 12) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Аккаунт открыт на другом устройстве")
-                        .font(.subheadline.bold())
-                    Text("\(device) · \(at.formatted(.dateTime.hour().minute()))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Выйти там") {
-                    Task { await gate.signOutOthers() }
-                }
-                .font(.caption.bold())
-            }
-            .padding(12)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .padding(.horizontal)
-        }
-    }
-}

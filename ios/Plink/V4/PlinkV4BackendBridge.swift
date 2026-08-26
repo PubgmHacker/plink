@@ -217,11 +217,13 @@ final class V4SearchStore {
         let token = AuthTokenStore.shared.token
         let base = apiBase
 
-        // Кинотеатры в приоритете (22.08.2026): полку открывает каталог
-        // Иви — настоящие фильмы и сериалы с постерами, годом и рейтингом,
-        // а не «фильм полностью» с чужих YouTube-каналов.
-        // «Полку обновила сеть» — только если ЖИВОЙ источник (каталог Иви или
-        // YouTube-хвост) реально что-то отдал. Кэш трендов (суточный, читается
+        // Кинотеатры в приоритете (22.08.2026): полку открывают каталоги
+        // кинотеатров — настоящие фильмы и сериалы с постерами, годом и
+        // рейтингом, а не «фильм полностью» с чужих YouTube-каналов.
+        // Кинотеатров два, и они чередуются на ряду (26.08.2026) — интерлив
+        // внутри V4CinemaCatalog, стору всё равно, сколько их там.
+        // «Полку обновила сеть» — только если ЖИВОЙ источник (каталоги
+        // кинотеатров или YouTube-хвост) реально что-то отдал. Кэш трендов (суточный, читается
         // без сети) за сеть не считается: иначе при мёртвой сети 6 карточек из
         // кэша трендов схлопнули бы и выселили с диска показанную полку на 20.
         let cinemaItems = await V4CinemaCatalog.fetchShelf(chip)
@@ -239,9 +241,9 @@ final class V4SearchStore {
             }
         }
 
-        // YouTube остаётся хвостом: добирает полку, когда каталог дал мало
-        // (узкий жанр, недоступен api.ivi.ru), и целиком подменяет её,
-        // когда кинотеатр не ответил. Полка живёт при падении любого из двух.
+        // YouTube остаётся хвостом: добирает полку, когда каталоги дали мало
+        // (узкий жанр — «Аниме» есть у Иви и отсутствует у PREMIER), и целиком
+        // подменяет её, когда не ответил ни один кинотеатр. Полка живёт при падении любого из двух.
         // «Новинкам» хвост нужен всегда: театральные премьеры года живут
         // в свежих YouTube-трейлерах, а не в открытых каталогах.
         if merged.count < 12 || chip == HomeCinemaCatalog.freshChip {
@@ -410,10 +412,15 @@ final class V4SearchStore {
 
     private func performSearch(_ query: String) async {
         state = .loading
-        // Кино из витрины — первым. Серверный /api/media/search умеет только
-        // YouTube, а у Иви рабочего публичного поиска нет (search/v7 всегда
-        // пуст, common/v7 отдаёт персон и мусор — проверено 22.08.2026),
-        // поэтому фильмы ищутся локально по уже собранным полкам.
+        // Кино из витрины — первым. Ни у Иви, ни у PREMIER рабочего публичного
+        // поиска нет (у Иви search/v7 всегда пуст, common/v7 отдаёт персон и
+        // мусор — проверено 22.08.2026; у PREMIER ручки поиска нет вовсе —
+        // 26.08.2026), поэтому фильмы ищутся локально по уже собранным полкам.
+        //
+        // Серверный /api/media/search в проде отвечает только роликами YouTube;
+        // в этом репозитории роут уже ходит и в RuTube с VK, но не выкачен.
+        // Клиент к этому готов заранее: V4SearchResult(from:) определяет сервис
+        // по хосту присланной ссылки, а не считает YouTube единственным.
         let cinema = cinemaMatches(query)
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         guard let url = URL(string: "\(apiBase)/api/media/search?q=\(encoded)&limit=20") else { return }
@@ -447,7 +454,8 @@ final class V4SearchStore {
         var prefixHits: [V4SearchResult] = []
         var containsHits: [V4SearchResult] = []
         for chip in shelves.keys.sorted() {
-            for item in shelves[chip] ?? [] where item.origin != .youtube {
+            for item in shelves[chip] ?? [] {
+                guard case .cinema = item.origin else { continue }
                 guard seen.insert(item.id).inserted else { continue }
                 let title = item.title.lowercased()
                 if title.hasPrefix(needle) {
@@ -512,7 +520,13 @@ struct V4SearchResult: Identifiable, Hashable, Sendable, Codable {
         self.isSeries = isSeries
     }
 
+    /// Ряд поисковой выдачи. Поиск ходит не только на YouTube, поэтому
+    /// сервис определяется по хосту присланной ссылки, а не вписан: ряд
+    /// RuTube с youtube.com/watch?v=<id> в watchURL открывал бы в комнате
+    /// чужой ролик или пустой плеер.
     init(from v: YouTubeVideoSummary) {
+        let link = v.url?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let service = link.isEmpty ? nil : VideoService.service(forURL: link)
         id = v.videoId
         title = v.title
         subtitle = v.channelTitle
@@ -524,8 +538,14 @@ struct V4SearchResult: Identifiable, Hashable, Sendable, Codable {
             duration = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
         } else { duration = nil }
         isSelectable = v.isEmbeddable
-        origin = .youtube
-        watchURL = "https://www.youtube.com/watch?v=\(v.videoId)"
+        switch service {
+        case .some(.youtube), .none:
+            origin = .youtube
+            watchURL = link.isEmpty ? "https://www.youtube.com/watch?v=\(v.videoId)" : link
+        case .some(let other):
+            origin = .video(other)
+            watchURL = link
+        }
         year = nil
         kindLabel = nil
         ratingText = nil

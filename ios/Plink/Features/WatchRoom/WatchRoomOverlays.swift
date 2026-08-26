@@ -10,8 +10,6 @@
 //   - ChatAvatar             (small avatar in chat bubble)
 //   - ParticipantAvatar      (larger avatar in presence bar)
 //   - DanmakuCanvasLayer     (flying comments overlay)
-//   - VoiceActionButton      (mic toggle)
-//   - CameraActionButton     (camera toggle)
 //
 // All chrome uses .ultraThinMaterial + subtle strokes for depth.
 
@@ -105,7 +103,7 @@ struct WatchChatHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("Chat")
+            Text("Чат")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Cinema2026.text)
 
@@ -130,7 +128,7 @@ struct WatchChatHeader: View {
                         .frame(width: 28, height: 28)
                         .background(Cinema2026.raised, in: Circle())
                 }
-                .accessibilityLabel("Close chat")
+                .accessibilityLabel("Закрыть чат")
             }
         }
         .padding(.horizontal, 16)
@@ -309,81 +307,10 @@ private struct DanmakuItemView: View {
     }
 }
 
-// MARK: - Voice / Camera buttons
-
-struct VoiceActionButton: View {
-    let state: MicrophoneUIState
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: iconName)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(iconColor)
-                .frame(width: 38, height: 38)
-                .background(bgColor, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var iconName: String {
-        switch state {
-        case .off: return "mic.slash.fill"
-        case .on: return "mic.fill"
-        case .talking: return "mic.fill"
-        case .pushToTalk: return "mic.fill"
-        }
-    }
-    private var iconColor: Color {
-        switch state {
-        case .off: return Cinema2026.danger
-        case .on: return Cinema2026.text
-        case .talking: return Cinema2026.accent
-        case .pushToTalk: return Cinema2026.amber
-        }
-    }
-    private var bgColor: Color {
-        switch state {
-        case .talking: return Cinema2026.accent.opacity(0.16)
-        default: return .clear
-        }
-    }
-    private var accessibilityLabel: String {
-        switch state {
-        case .off: return "Unmute"
-        case .on: return "Mute"
-        case .talking: return "Talking"
-        case .pushToTalk: return "Hold to talk"
-        }
-    }
-}
-
-struct CameraActionButton: View {
-    let state: CameraUIState
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: iconName)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(state == .on ? Cinema2026.accent : Cinema2026.secondary)
-                .frame(width: 38, height: 38)
-                .background(.clear, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(state == .on ? "Camera off" : "Camera on")
-    }
-
-    private var iconName: String {
-        state == .on ? "video.fill" : "video.slash.fill"
-    }
-}
-
-// MARK: - Rutube fallback toast
+// MARK: - Rutube fallback
 
 /// Toast shown when source is .rutube and the embedded player's JS API
-/// is unavailable. Tapping "Open" launches SFSafariViewController with
+/// is unavailable. Tapping «Открыть» launches SFSafariViewController with
 /// the Rutube video URL.
 struct RutubeFallbackToast: View {
     let onOpen: () -> Void
@@ -395,10 +322,10 @@ struct RutubeFallbackToast: View {
                 .foregroundStyle(Cinema2026.amber)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Sync unavailable")
+                Text("Синхронизация недоступна")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Cinema2026.text)
-                Text("Open in Rutube to watch")
+                Text("Откройте в Rutube, чтобы смотреть")
                     .font(.system(size: 11))
                     .foregroundStyle(Cinema2026.secondary)
             }
@@ -406,14 +333,14 @@ struct RutubeFallbackToast: View {
             Spacer()
 
             Button(action: onOpen) {
-                Text("Open")
+                Text("Открыть")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
                     .background(Cinema2026.accentAction, in: Capsule())
             }
-            .accessibilityLabel("Open in Rutube")
+            .accessibilityLabel("Открыть в Rutube")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

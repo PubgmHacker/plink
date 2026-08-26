@@ -232,12 +232,24 @@ struct RoomEmptyStateView: View {
             VStack(spacing: 6) {
                 ZStack(alignment: .bottomTrailing) {
                     friendAvatar(friend)
-                    Circle()
-                        .fill(Color(red: 0.3, green: 0.9, blue: 0.55))
-                        .frame(width: 11, height: 11)
-                        .overlay(Circle().stroke(Cinema2026.background, lineWidth: 2))
+                    // Приглашение меняет точку присутствия на галочку:
+                    // раньше «✓» стояла прямо в подписи и ломала обрезку
+                    // длинных имён по ширине чипа.
+                    Group {
+                        if isInvited {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(accent)
+                                .background(Circle().fill(Cinema2026.background).frame(width: 13, height: 13))
+                        } else {
+                            Circle()
+                                .fill(Color(red: 0.3, green: 0.9, blue: 0.55))
+                                .frame(width: 11, height: 11)
+                                .overlay(Circle().stroke(Cinema2026.background, lineWidth: 2))
+                        }
+                    }
                 }
-                Text(isInvited ? "Приглашён ✓" : friend.displayTitle)
+                Text(isInvited ? "Приглашён" : friend.displayTitle)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(isInvited ? accent : Cinema2026.text)
                     .lineLimit(1)

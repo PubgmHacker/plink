@@ -146,7 +146,7 @@ struct PlinkSidebarShell: View {
             }
             .task { await roomsStore?.load() }
         case .ai:
-            V4AIViewLive(theme: theme, store: aiStore)
+            V4AIViewLive(theme: theme, store: aiStore, searchStore: searchStore)
         case .friends:
             V4FriendsViewLive(
                 theme: theme,

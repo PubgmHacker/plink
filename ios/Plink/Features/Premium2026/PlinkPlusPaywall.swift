@@ -27,16 +27,14 @@ import SwiftUI
 import StoreKit
 
 struct PlinkPlusPaywall: View {
-    enum Trigger: Identifiable { case emoji, theme, capacity, cameraFilter, settings, voiceChat
+    enum Trigger: Identifiable { case emoji, theme, capacity, settings
 
     var id: String {
         switch self {
         case .emoji: return "emoji"
         case .theme: return "theme"
         case .capacity: return "capacity"
-        case .cameraFilter: return "cameraFilter"
         case .settings: return "settings"
-        case .voiceChat: return "voiceChat"
         }
     }
 }
@@ -217,9 +215,7 @@ struct PlinkPlusPaywall: View {
         case .emoji: return L.string(.plusHeadlineEmoji)
         case .theme: return L.string(.plusHeadlineTheme)
         case .capacity: return L.string(.plusHeadlineCapacity)
-        case .cameraFilter: return L.string(.plusHeadlineCameraFilter)
         case .settings: return L.string(.plusHeadlineSettings)
-        case .voiceChat: return L.string(.plusHeadlineVoiceChat)
         }
     }
 
@@ -323,10 +319,8 @@ struct PaywallArtwork: View {
         case .emoji: return "face.smiling.fill"
         case .theme: return "paintpalette.fill"
         case .capacity: return "person.3.fill"
-        case .cameraFilter: return "camera.filters"
         // Медальон сам круглый — star.circle.fill рисовал круг в круге.
         case .settings: return "star.fill"
-        case .voiceChat: return "mic.fill"
         }
     }
 }
@@ -356,11 +350,7 @@ struct PaywallBenefits: View {
         case .emoji: return [L.string(.plusBenefitPremiumReactions), L.string(.plusBenefitCustomEmoji), L.string(.plusBenefitAiPriority)]
         case .theme: return [L.string(.plusBenefitLiveThemes), L.string(.plusBenefitAvatarFrames), L.string(.plusBenefitCapacity20)]
         case .capacity: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority), L.string(.plusBenefitCineBubbles)]
-        case .cameraFilter: return [L.string(.plusBenefitVideoFilters), L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority)]
         case .settings: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitAiPriority), L.string(.plusBenefitLiveThemes)]
-        // Голос в сборке не продаём (LiveKit выключен). Триггер .voiceChat
-        // показывает те же реальные плюсы, что capacity/themes.
-        case .voiceChat: return [L.string(.plusBenefitCapacity20), L.string(.plusBenefitLiveThemes), L.string(.plusBenefitAiPriority)]
         }
     }
 }

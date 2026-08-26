@@ -142,11 +142,24 @@ struct RoomCreationView: View {
         }
         .sheet(isPresented: $showAuthSheet) {
             if let svc = pendingAuthService {
-                ServiceAuthSheet(service: svc) {
+                ServiceAuthSheet(service: svc) { contentURL, title in
                     ServiceAuthStore.markAuthorized(svc.serviceType)
                     showAuthSheet = false
                     selectedService = svc
-                    withAnimation { step = .content }
+                    let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !contentURL.isEmpty else {
+                        withAnimation { step = .content }
+                        return
+                    }
+                    detectedVideo = DetectedVideo(
+                        title: cleanTitle.isEmpty ? nil : cleanTitle,
+                        embedURL: contentURL,
+                        originalURL: contentURL,
+                        service: svc,
+                        thumbnailURL: Self.thumbnailURL(for: contentURL, service: svc)
+                    )
+                    roomName = cleanTitle.isEmpty ? svc.title : cleanTitle
+                    withAnimation { step = .setup }
                 }
             }
         }
@@ -183,12 +196,12 @@ struct RoomCreationView: View {
         carouselServices.filter { serviceFilter.matches($0) }
     }
 
-    /// Честная витрина: прямой синх vs «ваш экран» (Netflix/Disney/кино остаются).
+    /// Честная витрина: открытое всем vs то, что живёт по своей подписке.
     private var worksNowFiltered: [VideoService] {
         filteredServices.filter { $0.deliveryBucket == .worksNow }
     }
-    private var yourScreenFiltered: [VideoService] {
-        filteredServices.filter { $0.deliveryBucket == .yourScreen }
+    private var subscriptionFiltered: [VideoService] {
+        filteredServices.filter { $0.deliveryBucket == .bySubscription }
     }
 
     private var serviceStep: some View {
@@ -246,7 +259,7 @@ struct RoomCreationView: View {
             ServiceFilterChips(filter: $serviceFilter)
                 .padding(.bottom, 18)
 
-            // Прямой синхронный поток (YouTube / VK / Rutube / …)
+            // Открыто всем: YouTube / VK / Rutube / Смотрим / браузер
             if !worksNowFiltered.isEmpty {
                 sectionLabel(
                     DeliveryBucket.worksNow.sectionTitle,
@@ -267,18 +280,18 @@ struct RoomCreationView: View {
                 .padding(.bottom, 24)
             }
 
-            // Netflix / Disney / кино — остаются в выборе, режим «ваш экран»
-            if !yourScreenFiltered.isEmpty {
+            // Netflix / Disney / кино — остаются в выборе, вход по своей подписке
+            if !subscriptionFiltered.isEmpty {
                 sectionLabel(
-                    DeliveryBucket.yourScreen.sectionTitle,
-                    subtitle: DeliveryBucket.yourScreen.sectionSubtitle,
+                    DeliveryBucket.bySubscription.sectionTitle,
+                    subtitle: DeliveryBucket.bySubscription.sectionSubtitle,
                     accent: true
                 )
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(yourScreenFiltered, id: \.self) { svc in
+                        ForEach(subscriptionFiltered, id: \.self) { svc in
                             ServiceCarouselCard(service: svc) { selectService(svc) }
                         }
                     }
@@ -314,6 +327,7 @@ struct RoomCreationView: View {
             recentServices = RecentServicesStore.recents
             refreshClipboardSuggestion()
         }
+        .task { await revalidateCinemaSessions() }
     }
 
     private func useClipboardSuggestion(_ clip: (url: String, service: VideoService)) {
@@ -341,6 +355,14 @@ struct RoomCreationView: View {
             return
         }
         clipboardSuggestion = (raw, svc)
+    }
+
+    /// Протухшие сессии кинотеатров снимаются до того, как карточки
+    /// покажут «Вы вошли» и пустят в каталог без входа.
+    private func revalidateCinemaSessions() async {
+        if !(await LinkedExternalAccount.revalidateConnected()).isEmpty {
+            recentServices = RecentServicesStore.recents
+        }
     }
 
     private func selectService(_ svc: VideoService) {
@@ -404,7 +426,7 @@ struct RoomCreationView: View {
             Text("Прямая ссылка")
                 .font(.system(size: 22, weight: .black))
                 .foregroundStyle(Cinema2026.text)
-            Text("mp4, m3u8 или страница. Не Google — вставь URL сами.")
+            Text("mp4, m3u8 или страница с плеером. Ссылка на поиск не подойдёт.")
                 .font(.system(size: 14))
                 .foregroundStyle(Cinema2026.secondary)
             TextField("https://…", text: $customURLDraft)
@@ -642,152 +664,6 @@ struct RoomCreationView: View {
     }
 }
 
-// MARK: - Direct Service Card (YouTube / VK / Rutube)
-struct DirectServiceCard: View {
-    let service: VideoService
-    let action: () -> Void
-    @State private var pressed = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                // Brand gradient
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [service.accentColor.opacity(0.9), service.accentColor.opacity(0.4), .black.opacity(0.5)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 210, height: 140)
-
-                // Inner glow
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(service.accentColor.opacity(0.35), lineWidth: 1)
-                    .frame(width: 210, height: 140)
-
-                // SYNC badge
-                VStack {
-                    HStack {
-                        Spacer()
-                        HStack(spacing: 4) {
-                            Circle().fill(.green).frame(width: 5, height: 5)
-                            Text("SYNC")
-                                .font(.system(size: 8, weight: .black))
-                                .tracking(1.2)
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.35), in: Capsule())
-                        .padding(12)
-                    }
-                    Spacer()
-                }
-                .frame(width: 210, height: 140)
-
-                // Bottom info
-                HStack(alignment: .bottom, spacing: 10) {
-                    ServiceLogoView(service: service, size: 42)
-                        .shadow(color: .black.opacity(0.4), radius: 6)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(service.title)
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                        Text(service.subtitle)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                }
-                .padding(14)
-            }
-            .frame(width: 210, height: 140)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .shadow(color: service.accentColor.opacity(0.35), radius: 14, x: 0, y: 6)
-            .scaleEffect(pressed ? 0.96 : 1.0)
-        }
-        .buttonStyle(.plain)
-        .animation(.spring(response: 0.22, dampingFraction: 0.65), value: pressed)
-        .simultaneousGesture(DragGesture(minimumDistance: 0)
-            .onChanged { _ in pressed = true }
-            .onEnded { _ in pressed = false })
-    }
-}
-
-// MARK: - Cinema Service Card (Kinopoisk, Netflix, Okko...)
-struct CinemaServiceCard: View {
-    let service: VideoService
-    let action: () -> Void
-    @State private var pressed = false
-
-    private var isAuthorized: Bool {
-        ServiceAuthStore.hasAccess(to: service.serviceType)
-    }
-
-    var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(service.accentColor.opacity(0.12))
-                            .frame(width: 64, height: 64)
-                        ServiceLogoView(service: service, size: 44)
-                    }
-
-                    Text(service.title)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Cinema2026.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
-                    // Host badge
-                    HStack(spacing: 3) {
-                        Image(systemName: isAuthorized ? "checkmark.circle.fill" : "crown.fill")
-                            .font(.system(size: 8))
-                        Text(isAuthorized ? "Вход" : "Host")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .foregroundStyle(isAuthorized ? .green : Cinema2026.accent)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        (isAuthorized ? Color.green : Cinema2026.accent).opacity(0.12),
-                        in: Capsule()
-                    )
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 6)
-                .background {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Cinema2026.surface)
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(
-                            isAuthorized
-                                ? LinearGradient(colors: [.green.opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                : LinearGradient(colors: [service.accentColor.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            lineWidth: 1
-                        )
-                }
-
-                // Green dot if authorized
-                if isAuthorized {
-                    Circle().fill(Color.green).frame(width: 8, height: 8).padding(8)
-                }
-            }
-            .scaleEffect(pressed ? 0.94 : 1.0)
-        }
-        .buttonStyle(.plain)
-        .animation(.spring(response: 0.22, dampingFraction: 0.65), value: pressed)
-        .simultaneousGesture(DragGesture(minimumDistance: 0)
-            .onChanged { _ in pressed = true }
-            .onEnded { _ in pressed = false })
-    }
-}
-
 // MARK: - Other Service Row (Browser, Custom URL)
 struct OtherServiceRow: View {
     let service: VideoService
@@ -827,7 +703,8 @@ struct OtherServiceRow: View {
 // MARK: - Service Auth Sheet
 struct ServiceAuthSheet: View {
     let service: VideoService
-    let onAuthorized: () -> Void
+    /// (адрес контента, заголовок страницы) — пусто, если вход был без выбора.
+    let onAuthorized: (String, String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var webShown: Bool = false
 
@@ -848,18 +725,17 @@ struct ServiceAuthSheet: View {
                     Text("Войдите в \(service.title)")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(Cinema2026.text)
-                    Text("Чтобы стать Host, необходима подписка \(service.title).\nГости смотрят бесплатно через Plink.")
+                    Text("В комнате откроется плеер \(service.title). Каждый смотрит в своём аккаунте — Plink синхронизирует время.")
                         .font(.system(size: 15))
                         .foregroundStyle(Cinema2026.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 30)
                 }
 
-                // Benefits
                 VStack(spacing: 12) {
-                    authBenefit(icon: "key.fill", text: "Войдите один раз — сессия сохраняется")
-                    authBenefit(icon: "iphone", text: "Чтобы снова войти — откройте Настройки → Сервисы")
-                    authBenefit(icon: "person.2.fill", text: "Гостям подписка не нужна")
+                    authBenefit(icon: "key.fill", text: "Вход один раз — сессия остаётся на этом iPhone")
+                    authBenefit(icon: "gearshape.fill", text: "Сменить аккаунт: Настройки → Кинотеатры")
+                    authBenefit(icon: "person.2.fill", text: "Подписка \(service.title) нужна каждому участнику")
                 }
                 .padding(.horizontal, 30)
 
@@ -887,7 +763,7 @@ struct ServiceAuthSheet: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 20)
 
-                Button("Позже") { dismiss() }
+                Button("Позже") { dismiss() }  // без входа мастер остаётся на выборе сервиса
                     .font(.system(size: 15))
                     .foregroundStyle(Cinema2026.secondary)
                     .padding(.bottom, 30)
@@ -897,8 +773,11 @@ struct ServiceAuthSheet: View {
                 V4SheetCloseToolbarItem { dismiss() }
             }
             .sheet(isPresented: $webShown) {
-                ServiceBrowserView(service: service) { _, _ in
-                    onAuthorized()
+                // Каталог сервиса — он же страница входа. Выбранный тайтл
+                // передаём дальше: раньше он терялся и фильм искали заново.
+                ServiceBrowserView(service: service) { contentURL, title in
+                    webShown = false
+                    onAuthorized(contentURL, title)
                 }
                 .preferredColorScheme(.dark)
             }

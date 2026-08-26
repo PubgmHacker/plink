@@ -2,23 +2,22 @@ import SwiftUI
 import WebKit
 
 // MARK: - ServiceBrowserView
-/// REDESIGNED: Full-screen WebView with smart video page detection.
+/// Каталог сервиса во весь экран: пользователь ходит по сайту как обычно,
+/// а Plink следит за адресом и ловит страницу с видео.
 ///
-/// When the user navigates to a video page in the service's catalog:
-///   • For YouTube/VK/Rutube: detects the video page URL pattern automatically
-///     and offers to "Создать комнату" with the embeddable URL
-///   • For cinema services (Kinopoisk, Ivi, Okko, etc.): the page URL itself
-///     becomes the content URL — the WebView acts as the player in the room
+/// Что происходит при попадании на видео:
+///   • YouTube / VK / Rutube — из адреса достаётся id и собирается эмбед,
+///     комната сразу получает играющую ссылку.
+///   • Кинотеатры — сама страница и есть контент: её открывает плеер комнаты,
+///     каждый участник смотрит через свой аккаунт.
 ///
-/// Auth requirements:
-///   • YouTube, VK Video, Rutube: NO auth required for public content
-///   • Kinopoisk, Ivi, Okko, Wink, Start, Premier, KION: subscription required
-///     (user logs in via the WebView; cookies persist between sessions)
-///   • Смотрим: free (state TV, no subscription)
+/// Вход:
+///   • YouTube, VK Видео, Rutube, Смотрим — без входа.
+///   • Кинопоиск, Иви, Okko, Wink, START, Premier, KION — по своей подписке;
+///     вход идёт в этом же WebView, куки живут между запусками.
 ///
-/// The "Создать комнату" button is always available at the bottom, but when
-/// a video page is detected, a prominent banner appears prompting the user
-/// to create a room with the detected content.
+/// Кнопка «Создать комнату» доступна всегда — на случай, когда автоопределение
+/// молчит (например, Netflix /browse).
 struct ServiceBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     let service: VideoService
@@ -73,7 +72,7 @@ struct ServiceBrowserView: View {
                     )
                     .id(reloadToken)
 
-                    if service.deliveryBucket == .yourScreen || service == .browser {
+                    if service.deliveryBucket == .bySubscription || service == .browser {
                         createFromPageBar
                     }
                 }
@@ -140,7 +139,7 @@ struct ServiceBrowserView: View {
     }
 
     /// Кино/браузер: автодетект срабатывает не на каждой странице (Netflix /browse).
-    /// Кнопка создаёт комнату с текущим URL — хост шарит экран с этой страницы.
+    /// Кнопка создаёт комнату с текущим адресом — его откроет плеер у каждого.
     private var createFromPageBar: some View {
         Button {
             let href = currentURL?.absoluteString ?? service.browseURL
@@ -159,8 +158,8 @@ struct ServiceBrowserView: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "rectangle.inset.filled.and.person.filled")
-                Text(service.deliveryBucket == .yourScreen
+                Image(systemName: "person.2.badge.plus.fill")
+                Text(service.deliveryBucket == .bySubscription
                      ? "Создать комнату с этой страницы"
                      : "Создать комнату с этой вкладки")
                     .font(.system(size: 15, weight: .bold))
@@ -448,16 +447,17 @@ extension VideoService {
             }
 
         case .vk:
-            if PlinkHost.matches(host, anyOf: PlinkHost.vkDomains) {
-                let path = url.path.lowercased()
-                if path.contains("/video") || path.contains("/clip") {
-                    return DetectedVideo(
-                        title: title,
-                        embedURL: urlString,
-                        originalURL: urlString,
-                        service: .vk
-                    )
-                }
+            // Страница ВК в плеере комнаты не играет: нужен video_ext с
+            // раскладкой oid=/id=. Без разобранного id это не видео.
+            if PlinkHost.matches(host, anyOf: PlinkHost.vkDomains),
+               let videoId = RoomCreateMedia.extractVKVideoId(from: urlString),
+               let embed = RoomCreateMedia.vkEmbedURL(fromId: videoId) {
+                return DetectedVideo(
+                    title: title,
+                    embedURL: embed.absoluteString,
+                    originalURL: urlString,
+                    service: .vk
+                )
             }
 
         case .rutube:
@@ -472,7 +472,7 @@ extension VideoService {
             }
 
         case .kinopoisk, .ivi, .okko, .wink, .start, .premier, .smotrim, .kion, .netflix, .disney:
-            // DRM: страница = контент для режима «ваш экран».
+            // DRM: страница и есть контент — её откроет плеер комнаты.
             // Netflix — /title/ и /watch/, Кинопоиск — /film/, Disney — /play/.
             let path = url.path.lowercased()
             let videoPatterns = [

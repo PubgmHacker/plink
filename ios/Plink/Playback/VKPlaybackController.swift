@@ -59,15 +59,12 @@ public final class VKPlaybackController: PlaybackControlling {
         webView = web
         embeddedView = web
 
-        // VK video_ext embed. id may be full query or "oid_id"
-        let embedURL: URL
-        if id.contains("http") {
-            embedURL = URL(string: id)!
-        } else if id.contains("oid=") || id.contains("video_ext") {
-            embedURL = URL(string: id.hasPrefix("http") ? id : "https://vk.com/video_ext.php?\(id)")!
-        } else {
-            // assume oid_id or just use as-is
-            embedURL = URL(string: "https://vk.com/video_ext.php?\(id)")!
+        // «oid_id» без раскладки на oid=/id= отдаёт страницу без плеера,
+        // поэтому URL собирает один канонический билдер.
+        guard let embedURL = RoomCreateMedia.vkEmbedURL(fromId: id) else {
+            isReady = false
+            lastError = "Не удалось разобрать ссылку ВК"
+            throw ProviderError.unsupportedSource
         }
         web.load(URLRequest(url: embedURL))
 

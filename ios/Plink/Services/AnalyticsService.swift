@@ -65,9 +65,8 @@ final class AnalyticsService {
     func inviteFriend() { track("invite_friend") }
     func funnelInvite() { track("funnel_invite") }
 
-    // MARK: - Media / voice / premium
+    // MARK: - Media / premium
 
-    func voiceChatStarted() { track("voice_chat_started") }
     func themeChanged(_ theme: String) {
         track("theme_changed", parameters: ["theme": theme])
     }

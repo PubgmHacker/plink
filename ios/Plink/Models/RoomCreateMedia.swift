@@ -2,7 +2,7 @@ import Foundation
 
 /// Сборка MediaItem при создании комнаты. Вынесено из UI, чтобы каждый
 /// VideoService имел один проверяемый путь: YouTube/VK/Rutube — прямой синх,
-/// кинотеатры — страница хоста (режим «ваш экран»), custom — файл или URL.
+/// кинотеатры — страница сервиса по своей подписке, custom — файл или URL.
 enum RoomCreateMedia {
     static func mediaItem(
         service: VideoService,
@@ -119,10 +119,40 @@ enum RoomCreateMedia {
               PlinkHost.matches(url.host, anyOf: PlinkHost.vkDomains) else { return nil }
         if url.path.contains("video_ext.php"), let q = url.query, !q.isEmpty { return q }
         // Keep the leading minus: vk.com/video-123_456 → oid=-123 (group).
-        if let match = url.path.range(of: #"video-?\d+_\d+"#, options: .regularExpression) {
-            return String(url.path[match]).dropFirst(5).description
+        // Клипы лежат по /clip-123_456 и играют тем же video_ext.
+        if let match = url.path.range(of: #"(?:video|clip)-?\d+_\d+"#, options: .regularExpression) {
+            let token = String(url.path[match])
+            let idPart = token.drop(while: { $0.isLetter })
+            return String(idPart)
         }
         return nil
+    }
+
+    /// Единственный способ собрать играющий эмбед ВК.
+    ///
+    /// Проверено вживую: `video_ext.php?-123_456` отдаёт страницу-заглушку без
+    /// плеера — payload несёт только форма `oid=<oid>&id=<id>`. Поэтому любой
+    /// «oid_id» здесь раскладывается на два параметра, а готовая query-строка
+    /// (в ней уже есть oid/hash от самого ВК) проходит как есть.
+    static func vkEmbedURL(fromId id: String) -> URL? {
+        let raw = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        if raw.hasPrefix("http") { return URL(string: raw) }
+
+        var query = raw.hasPrefix("?") ? String(raw.dropFirst()) : raw
+        if !query.contains("oid=") {
+            // «-123_456» или «123_456» → oid=-123&id=456
+            let parts = query.split(separator: "_", maxSplits: 1).map(String.init)
+            guard parts.count == 2,
+                  !parts[0].isEmpty, !parts[1].isEmpty,
+                  parts[1].allSatisfy(\.isNumber),
+                  parts[0].dropFirst(parts[0].hasPrefix("-") ? 1 : 0).allSatisfy(\.isNumber)
+            else { return nil }
+            query = "oid=\(parts[0])&id=\(parts[1])"
+        }
+        if !query.contains("hd=") { query += "&hd=2" }
+        if !query.contains("js_api") { query += "&js_api=1" }
+        return URL(string: "https://vk.com/video_ext.php?\(query)")
     }
 
     static func extractRutubeVideoId(from raw: String) -> String? {

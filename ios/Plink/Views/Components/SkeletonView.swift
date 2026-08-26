@@ -61,22 +61,6 @@ struct SkeletonCircle: View {
     }
 }
 
-// MARK: - Room card skeleton (used in home screen)
-struct SkeletonRoomCard: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            SkeletonRect(width: 64, height: 64, cornerRadius: 10)
-            VStack(alignment: .leading, spacing: 8) {
-                SkeletonRect(height: 14)
-                SkeletonRect(width: 120, height: 11)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-}
-
 // MARK: - Group row skeleton (used in groups list)
 struct SkeletonGroupRow: View {
     var body: some View {
@@ -159,15 +143,3 @@ struct HomeSkeletonView: View {
     }
 }
 
-// MARK: - Groups skeleton
-struct GroupsSkeletonView: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(0..<6, id: \.self) { _ in
-                SkeletonGroupRow()
-                Divider().padding(.leading, 72)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}

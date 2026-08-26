@@ -134,7 +134,7 @@ struct PlinkApprovedV4Root: View {
                     // превью-режиме, поверх неё онбординг со сферой и «Скоро»,
                     // и два рабочих входа — чат и голос. Разговор поднимается
                     // отдельным экраном (fullScreenCover ниже).
-                    V4AIViewLive(theme: theme, store: aiStore, isActive: tab == 3)
+                    V4AIViewLive(theme: theme, store: aiStore, searchStore: searchStore, isActive: tab == 3)
                         .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                     // Настройки — не вкладка: шесть кнопок теснили таббар, а
                     // маршрут не ежедневный. Вход — строка «Общие настройки»

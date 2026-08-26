@@ -3,29 +3,32 @@ import SwiftUI
 
 // MARK: - Playback Mode
 /// Как сервис воспроизводится. Определяет технический путь.
+///
+/// Трансляции экрана в Plink нет и не будет: комната синхронизирует ВРЕМЯ,
+/// а картинку каждый участник получает от самого сервиса. Поэтому режимов
+/// ровно два — прямой поток и страница сервиса в плеере комнаты.
 enum PlaybackMode: String, Sendable {
     /// Прямой поток в AVPlayer (YouTube через extraction, MP4/M3U8/HLS).
     case directStream
-    /// WebView с JS-bridge синхронизацией (кинотеатры — нужна подписка).
+    /// Официальный плеер сервиса в WebView, синхронизируемый через JS-мост
+    /// (кинотеатры, VK, Rutube, произвольная страница).
     case webview
-    /// Хост смотрит у себя (подписка/DRM) и шарит экран через ReplayKit.
-    case screenShare
 }
 
 // MARK: - Delivery bucket (честная витрина)
-/// Продуктовая группировка: что реально играет сразу, а что — через экран хоста.
+/// Продуктовая группировка: что открыто всем, а что живёт по подписке.
 /// Сервисы из каталога НЕ удаляются — меняется только обещание после выбора.
 enum DeliveryBucket: String, CaseIterable, Identifiable, Sendable {
     case worksNow
-    case yourScreen
+    case bySubscription
 
     var id: String { rawValue }
 
     @MainActor
     var sectionTitle: String {
         switch self {
-        case .worksNow: return "РАБОТАЕТ СРАЗУ"
-        case .yourScreen: return "ВАШ ЭКРАН · КИНОТЕАТРЫ"
+        case .worksNow: return "ОТКРЫТО ВСЕМ"
+        case .bySubscription: return "ПО ПОДПИСКЕ · КИНОТЕАТРЫ"
         }
     }
 
@@ -33,9 +36,9 @@ enum DeliveryBucket: String, CaseIterable, Identifiable, Sendable {
     var sectionSubtitle: String {
         switch self {
         case .worksNow:
-            return "Прямой синх — жми и смотрите вместе"
-        case .yourScreen:
-            return "Остаются в выборе: хост входит в свой аккаунт и шарит экран. Plink не обходит DRM."
+            return "Играет у всех сразу — выбирайте и смотрите вместе"
+        case .bySubscription:
+            return "Плеер сервиса открывается прямо в комнате. Каждый входит в свой аккаунт — Plink держит общее время."
         }
     }
 }
@@ -180,26 +183,62 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
         allCases.filter { $0.group == group }
     }
 
-    /// Честная витрина: Netflix/Disney/кино остаются в списке, но как «ваш экран».
+    /// Честная витрина: кинотеатры остаются в списке, но с пометкой «по подписке».
+    /// «Смотрим» и браузер бесплатны, поэтому живут рядом с прямыми потоками.
     var deliveryBucket: DeliveryBucket {
         switch self {
-        case .youtube, .vk, .rutube, .customURL:
+        case .youtube, .vk, .rutube, .customURL, .browser, .smotrim:
             return .worksNow
-        case .netflix, .disney, .browser, .kinopoisk, .ivi, .okko, .wink, .start, .premier, .smotrim, .kion:
-            return .yourScreen
+        case .netflix, .disney, .kinopoisk, .ivi, .okko, .wink, .start, .premier, .kion:
+            return .bySubscription
         }
     }
 
     // MARK: - Playback
 
     var playbackMode: PlaybackMode {
-        switch deliveryBucket {
-        case .worksNow:
+        switch self {
+        case .youtube, .customURL:
             return .directStream
-        case .yourScreen:
-            // Cinema/OTT: WebView для входа хоста + ReplayKit screen share для комнаты.
-            return requiresSubscription || self == .browser ? .screenShare : .webview
+        // VK и Rutube играют официальным эмбедом, кинотеатры — своей страницей.
+        case .vk, .rutube, .browser, .smotrim,
+             .netflix, .disney, .kinopoisk, .ivi, .okko, .wink, .start, .premier, .kion:
+            return .webview
         }
+    }
+
+    /// Домены сервиса — по ним определяется, чья страница играет в комнате,
+    /// и в чьём cookie-хранилище искать живую сессию.
+    var hosts: [String] {
+        switch self {
+        case .youtube: return PlinkHost.youtubeDomains
+        case .vk: return PlinkHost.vkDomains
+        case .rutube: return PlinkHost.rutubeDomains
+        case .netflix: return ["netflix.com"]
+        case .disney: return ["disneyplus.com"]
+        case .kinopoisk: return ["kinopoisk.ru", "hd.kinopoisk.ru"]
+        case .ivi: return ["ivi.ru"]
+        case .okko: return ["okko.tv"]
+        case .wink: return ["wink.ru"]
+        case .start: return ["start.ru"]
+        case .premier: return ["premier.one"]
+        case .smotrim: return ["smotrim.ru"]
+        case .kion: return ["kion.ru"]
+        case .browser, .customURL: return []
+        }
+    }
+
+    /// Сервис, которому принадлежит страница. Нужен комнате: по URL медиа
+    /// она понимает, какой логотип показать и чей вход предложить.
+    static func service(forHost host: String?) -> VideoService? {
+        guard let host, !host.isEmpty else { return nil }
+        return allCases.first { service in
+            !service.hosts.isEmpty && PlinkHost.matches(host, anyOf: service.hosts)
+        }
+    }
+
+    static func service(forURL raw: String) -> VideoService? {
+        service(forHost: URL(string: raw)?.host)
     }
 
     /// Host needs an active subscription on the service (Netflix/Disney + RU cinemas).
@@ -220,10 +259,10 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
     /// Short App Store–safe disclaimer shown when host picks a subscription service.
     @MainActor
     var subscriptionDisclaimer: String {
-        if deliveryBucket == .yourScreen {
-            return "«\(title)» — режим «ваш экран»: нужна ваша подписка, гости смотрят через шаринг экрана. Plink не предоставляет контент и не обходит DRM."
+        guard deliveryBucket == .bySubscription else {
+            return "«\(title)» открыт всем — подписка не нужна."
         }
-        return "Требуется активная подписка \(title). Plink не предоставляет контент — вы входите в свой аккаунт."
+        return "«\(title)» играет прямо в комнате: вы выбираете тайтл в своём аккаунте, Plink синхронизирует время. Каждый смотрит через свою подписку — Plink не раздаёт контент и не обходит DRM."
     }
 
     // MARK: - Display
@@ -253,21 +292,21 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
     /// Краткое описание для премиум-карточки выбора сервиса
     var subtitle: String {
         switch self {
-        case .youtube: return "Миллиарды видео"
-        case .vk: return "Видео и клипы"
-        case .rutube: return "Шоу и стримы"
-        case .netflix: return "Фильмы и сериалы"
-        case .disney: return "Marvel, Star Wars и др."
-        case .browser: return "Открыть любой сайт"
-        case .customURL: return "Прямая ссылка .mp4 / .m3u8"
-        case .kinopoisk: return "Фильмы и сериалы"
-        case .ivi: return "Кино и мультфильмы"
-        case .okko: return "Спорт и кино"
-        case .wink: return "Кино и ТВ"
-        case .start: return "Сериалы и шоу"
-        case .premier: return "Премьеры и спорт"
-        case .smotrim: return "Телеканалы и шоу"
-        case .kion: return "Кино и сериалы"
+        case .youtube: return "Ролики, стримы, трейлеры"
+        case .vk: return "Клипы, сериалы, трансляции"
+        case .rutube: return "Шоу, сериалы, стримы"
+        case .netflix: return "Оригинальные сериалы и кино"
+        case .disney: return "Marvel, Star Wars, Pixar"
+        case .browser: return "Любая страница с плеером"
+        case .customURL: return "Прямая ссылка .mp4 или .m3u8"
+        case .kinopoisk: return "Большой каталог и Originals"
+        case .ivi: return "Кино, сериалы, мультфильмы"
+        case .okko: return "Кино и спортивные трансляции"
+        case .wink: return "Кино и ТВ-каналы"
+        case .start: return "Оригинальные сериалы START"
+        case .premier: return "Шоу ТНТ и оригиналы"
+        case .smotrim: return "Эфир ВГТРК и архив"
+        case .kion: return "Кино и оригиналы KION"
         }
     }
 

@@ -660,16 +660,13 @@ struct TrendingPreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    /// Сервис карточки: бейдж и цвет. У роликов — YouTube.
-    private var service: VideoService {
-        if case .cinema(let s) = item.origin { return s }
-        return .youtube
-    }
+    /// Сервис карточки: бейдж и цвет.
+    private var service: VideoService { item.origin.service }
 
     /// Мета без имени сервиса — оно уже на бейдже.
     private var metaLine: String {
         switch item.origin {
-        case .youtube:
+        case .youtube, .video:
             var parts = [item.subtitle]
             if let duration = item.duration { parts.append(duration) }
             return parts.filter { !$0.isEmpty }.joined(separator: " · ")

@@ -593,17 +593,13 @@ enum L10n {
         case plusBenefitLiveThemes = "plus.benefitLiveThemes"
         case plusBenefitAvatarFrames = "plus.benefitAvatarFrames"
         case plusBenefitCapacity20 = "plus.benefitCapacity20"
-        case plusBenefitVideoFilters = "plus.benefitVideoFilters"
         case plusBenefitCineBubbles = "plus.benefitCineBubbles"
-        case plusBenefitVoiceChat = "plus.benefitVoiceChat"
         // Paywall — заголовки, план-пикер, честный CTA, юр. ссылки.
         // Раньше всё это было хардкодом по-русски прямо во вьюхе.
         case plusHeadlineEmoji = "plus.headline.emoji"
         case plusHeadlineTheme = "plus.headline.theme"
         case plusHeadlineCapacity = "plus.headline.capacity"
-        case plusHeadlineCameraFilter = "plus.headline.cameraFilter"
         case plusHeadlineSettings = "plus.headline.settings"
-        case plusHeadlineVoiceChat = "plus.headline.voiceChat"
         case plusBadgeBestValue = "plus.badge.bestValue"
         case plusSaveFormat = "plus.save.format"
         case plusPerMonthFormat = "plus.perMonth.format"
@@ -2137,23 +2133,10 @@ enum L10n {
             .english: "20 members instead of 10",
             .chinese: "20人而非10人"
         ],
-        .plusBenefitVideoFilters: [
-            .russian: "Видео-фильтры",
-            .english: "Video filters",
-            .chinese: "视频滤镜"
-        ],
         .plusBenefitCineBubbles: [
             .russian: "Кино-баблы и живые темы",
             .english: "Cine-bubbles and live themes",
             .chinese: "电影气泡和动态主题"
-        ],
-        // У .plusBenefitVoiceChat был ключ без перевода — на пейволле
-        // триггера .voiceChat в списке выгод рисовалась строка
-        // "plus.benefitVoiceChat".
-        .plusBenefitVoiceChat: [
-            .russian: "Голосовой чат в комнате",
-            .english: "In-room voice chat",
-            .chinese: "房间内语音聊天"
         ],
         // Paywall — заголовки по триггеру
         .plusHeadlineEmoji: [
@@ -2171,20 +2154,10 @@ enum L10n {
             .english: "Bring everyone in.",
             .chinese: "把所有朋友都叫来。"
         ],
-        .plusHeadlineCameraFilter: [
-            .russian: "Выглядите лучше в кадре.",
-            .english: "Look better on camera.",
-            .chinese: "在镜头前更好看。"
-        ],
         .plusHeadlineSettings: [
             .russian: "Больше характера с Plink+.",
             .english: "More character with Plink+.",
             .chinese: "用 Plink+ 展现个性。"
-        ],
-        .plusHeadlineVoiceChat: [
-            .russian: "Голосовой чат в комнате.",
-            .english: "Voice chat in the room.",
-            .chinese: "房间内语音聊天。"
         ],
         // Paywall — план-пикер и CTA
         .plusBadgeBestValue: [
