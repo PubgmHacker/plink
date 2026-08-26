@@ -433,13 +433,15 @@ extension V4FriendsViewLive {
 
     private func emptyChannelLabel(icon: String, title: String, subtitle: String) -> some View {
         HStack(spacing: 13) {
+            // Нейтрально: тёплая тема красит и подложку экрана, и такой
+            // кружок — иконка растворялась в собственном фоне.
             ZStack {
                 Circle()
-                    .fill(theme.accentColor.opacity(0.14))
+                    .fill(Color.white.opacity(0.08))
                     .frame(width: 36, height: 36)
                 Image(systemName: icon)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.accentColor)
+                    .foregroundStyle(V4.ink)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -467,14 +469,16 @@ extension V4FriendsViewLive {
             showRequests = true
         } label: {
             HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(theme.accentColor)
-                        .frame(width: 38, height: 38)
-                    Text("\(requestBadge)")
-                        .font(.system(size: 15, weight: .heavy))
-                        .foregroundStyle(theme.buttonTextColor)
-                }
+                // То же лицо, что у карточки заявок в хабе: нейтральный
+                // глиф и красная метка — акцент остаётся фону и заливкам.
+                V4GlyphIcon(glyph: .requests, size: 16, filled: true, weight: .regular)
+                    .foregroundStyle(V4.ink)
+                    .frame(width: 38, height: 38)
+                    .background(Color.white.opacity(0.08), in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        V4CountBadge(count: requestBadge)
+                            .offset(x: 5, y: -3)
+                    }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(LocalizationManager.shared.string(.frEmptyRequests))
                         .font(.system(size: 15, weight: .bold))
@@ -623,21 +627,21 @@ extension V4FriendsViewLive {
                         showRequests = true
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "person.badge.clock.fill")
-                                .font(.system(size: 12, weight: .semibold))
+                            // Глиф и подпись — нейтральные, счётчик — красный:
+                            // акцент красит живую подложку, и на тёплой теме
+                            // оранжевый чип на оранжевом свечении сливался.
+                            V4GlyphIcon(glyph: .requests, size: 12, filled: true, weight: .semibold)
                             Text("Заявки")
                                 .font(.system(size: 13.5, weight: .semibold))
-                            Text("\(requests)")
-                                .font(.system(size: 11.5, weight: .bold))
-                                .foregroundStyle(theme.buttonTextColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1.5)
-                                .background(theme.accentColor, in: Capsule())
+                            V4CountBadge(count: requests, fontSize: 10, ringed: false)
                         }
-                        .foregroundStyle(theme.accentColor)
+                        .foregroundStyle(V4.ink)
                         .padding(.horizontal, 13)
                         .frame(height: 34)
-                        .overlay(Capsule().stroke(theme.accentColor.opacity(0.45), lineWidth: 1))
+                        .background {
+                            Capsule().fill(V4.raised.opacity(0.6))
+                                .overlay(Capsule().stroke(V4.line.opacity(0.6), lineWidth: 0.8))
+                        }
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)

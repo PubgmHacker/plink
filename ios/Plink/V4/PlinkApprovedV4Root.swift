@@ -796,13 +796,10 @@ struct PlinkLiquidTabBar: View {
                     .scaleEffect(isSelected ? 1.06 : 1)
                 // Tab 2 = Друзья — unread DM badge
                 if index == 2, friendsBadge > 0 {
-                    Text(friendsBadge > 9 ? "9+" : "\(friendsBadge)")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.red, in: Capsule())
-                        .offset(x: 10, y: -6)
+                    // Тот же V4CountBadge, что в шапках и строках: красный
+                    // сигнал в приложении один и не зависит от темы.
+                    V4CountBadge(count: friendsBadge, fontSize: 9)
+                        .offset(x: 9, y: -6)
                 }
             }
             Text(items[index].1)

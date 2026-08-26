@@ -310,6 +310,11 @@ struct V4FriendsViewLive: View {
                     await presentDM(friendId: key)
                 }
             }
+            // `-plink.designcompose` — сразу «Новое сообщение», `-plink.designrequests`
+            // — сразу шит заявок. Симулятору нельзя послать тап, а обе поверхности
+            // нужны для проверки иконок и меток.
+            if args.contains("-plink.designcompose") { showCompose = true }
+            if args.contains("-plink.designrequests") { showRequests = true }
             #endif
         }
         .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
@@ -654,12 +659,7 @@ struct V4FriendsViewLive: View {
                             .font(.system(size: 13, weight: .semibold))
                         // Badges
                         if seg == .chats, totalUnread > 0 {
-                            Text(totalUnread > 99 ? "99+" : "\(totalUnread)")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(V4.danger, in: Capsule())
+                            V4CountBadge(count: totalUnread, fontSize: 9, ringed: false)
                         }
                         if seg == .friends, let n = store?.friends.count, n > 0 {
                             Text("\(n)")
@@ -703,9 +703,13 @@ struct V4FriendsViewLive: View {
         } label: {
             HStack(spacing: 12) {
                 V4GlyphIcon(glyph: .requests, size: 17, filled: true, weight: .regular)
-                    .foregroundStyle(theme.accentColor)
+                    .foregroundStyle(V4.ink)
                     .frame(width: 40, height: 40)
-                    .background(theme.accentColor.opacity(0.14), in: Circle())
+                    .background(Color.white.opacity(0.08), in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        V4CountBadge(count: requestBadge)
+                            .offset(x: 5, y: -3)
+                    }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(requestsCardTitle)
@@ -723,7 +727,9 @@ struct V4FriendsViewLive: View {
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 64)
-            .plinkGlass(.control, cornerRadius: 18, tint: theme.accentColor)
+            // Стекло без подкраски темой: тёплый тинт на тёплой подложке
+            // превращал карточку в пятно, а не в строку.
+            .plinkGlass(.control, cornerRadius: 18)
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
@@ -770,24 +776,23 @@ struct V4FriendsViewLive: View {
                         // непонятно, что там и зачем туда заходить. Заявки в
                         // друзья и есть уведомления этой вкладки, а знак
                         // уведомлений во всех мессенджерах один.
+                        // Глиф не красится темой: акцент красит и живую
+                        // подложку, и иконку — в тёплых темах колокол
+                        // растворялся в собственном фоне. Состояние несёт
+                        // заливка символа и красная метка, а не цвет штриха.
                         V4GlyphIcon(
                             glyph: .bell,
                             size: 18,
                             filled: requestBadge > 0,
                             weight: .regular
                         )
-                            .foregroundStyle(requestBadge > 0 ? theme.accentColor : V4.ink)
+                            .foregroundStyle(V4.ink)
                             .frame(width: 40, height: 40)
                             .plinkGlass(.control, in: Circle())
 
                         if requestBadge > 0 {
-                            Text(requestBadge > 9 ? "9+" : "\(requestBadge)")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(theme.buttonTextColor)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(theme.accentColor, in: Capsule())
-                                .offset(x: 4, y: -2)
+                            V4CountBadge(count: requestBadge)
+                                .offset(x: 5, y: -3)
                         }
                     }
                 }
@@ -800,9 +805,8 @@ struct V4FriendsViewLive: View {
                     HapticManager.impact(.light)
                     showCompose = true
                 } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(theme.accentColor)
+                    V4GlyphIcon(glyph: .compose, size: 18, weight: .regular)
+                        .foregroundStyle(V4.ink)
                         .frame(width: 40, height: 40)
                         .plinkGlass(.control, in: Circle())
                 }
@@ -816,7 +820,7 @@ struct V4FriendsViewLive: View {
                 showAddFriend = true
             } label: {
                 V4GlyphIcon(glyph: .plus, size: 17, weight: .regular)
-                    .foregroundStyle(theme.accentColor)
+                    .foregroundStyle(V4.ink)
                     .frame(width: 40, height: 40)
                     .plinkGlass(.control, in: Circle())
             }
@@ -922,7 +926,7 @@ struct V4FriendsViewLive: View {
                         HStack(spacing: 5) {
                             if pinned {
                                 V4GlyphIcon(glyph: .pin, size: 9, filled: true, weight: .regular)
-                                    .foregroundStyle(theme.accentColor)
+                                    .foregroundStyle(V4.muted)
                             }
                             Text(friend.displayTitle)
                                 .font(.system(size: 15.5, weight: unread > 0 ? .heavy : .semibold))
@@ -932,7 +936,7 @@ struct V4FriendsViewLive: View {
                             if let lastAt {
                                 Text(Self.chatListTime(lastAt))
                                     .font(.system(size: 12, weight: unread > 0 ? .semibold : .regular))
-                                    .foregroundStyle(unread > 0 ? theme.accentColor : V4.muted)
+                                    .foregroundStyle(unread > 0 ? V4.ink : V4.muted)
                             }
                         }
                         HStack(spacing: 6) {
@@ -953,12 +957,7 @@ struct V4FriendsViewLive: View {
                             }
                             Spacer(minLength: 0)
                             if unread > 0 {
-                                Text(unread > 99 ? "99+" : "\(unread)")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(theme.accentColor, in: Capsule())
+                                V4CountBadge(count: unread, fontSize: 10, ringed: false)
                             }
                         }
                     }
@@ -973,7 +972,9 @@ struct V4FriendsViewLive: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(unread > 0 ? theme.accentColor.opacity(0.05) : Color.clear)
+        // Подсветка непрочитанной строки — нейтральная: акцентная плёнка
+        // на тёплой теме складывалась с подложкой в сплошное пятно.
+        .background(unread > 0 ? Color.white.opacity(0.045) : Color.clear)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(V4.line.opacity(0.45))
@@ -1196,19 +1197,23 @@ private struct ComposeMessageSheet: View {
             onNewGroup()
         } label: {
             HStack(spacing: 12) {
+                // Кружок и глиф — нейтральные: сверху шита лежит акцентное
+                // свечение, и акцент на акценте переставал читаться.
                 ZStack {
-                    Circle().fill(theme.accentColor.opacity(0.16))
-                    Circle().stroke(theme.accentColor.opacity(0.25), lineWidth: 0.8)
+                    Circle().fill(Color.white.opacity(0.08))
+                    Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.8)
                     Image(systemName: "person.3.fill")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.accentColor)
+                        .foregroundStyle(V4.ink)
                 }
                 .frame(width: 48, height: 48)
 
                 VStack(alignment: .leading, spacing: 2) {
+                    // Заголовок тоже нейтральный: строку выделяют место
+                    // (первая), подпись и шеврон, а не цвет темы.
                     Text("Новая беседа")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.accentColor)
+                        .foregroundStyle(V4.ink)
                     Text("Групповой чат с несколькими друзьями")
                         .font(.system(size: 12.5))
                         .foregroundStyle(V4.muted)
@@ -1308,10 +1313,10 @@ private struct FriendRequestsSheet: View {
                         if store.requests.isEmpty && store.outgoing.isEmpty {
                             VStack(spacing: 14) {
                                 ZStack {
-                                    Circle().fill(theme.accentColor.opacity(0.13))
-                                    Circle().stroke(theme.accentColor.opacity(0.22), lineWidth: 1)
+                                    Circle().fill(Color.white.opacity(0.06))
+                                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 1)
                                     V4GlyphIcon(glyph: .bell, size: 22, weight: .regular)
-                                        .foregroundStyle(theme.accentColor)
+                                        .foregroundStyle(V4.muted)
                                 }
                                 .frame(width: 58, height: 58)
                                 Text(LocalizationManager.shared.string(.frNoRequests))
@@ -1335,7 +1340,7 @@ private struct FriendRequestsSheet: View {
                                 Text(LocalizationManager.shared.string(.frIncoming))
                                     .font(.system(size: 11, weight: .heavy))
                                     .tracking(0.9)
-                                    .foregroundStyle(theme.accentColor)
+                                    .foregroundStyle(V4.ink)
                                     .padding(.horizontal, 18)
 
                                 VStack(spacing: 0) {
@@ -1553,31 +1558,15 @@ private struct AddFriendSheet: View {
                         LazyVStack(spacing: 0) {
                             ForEach(manager.searchResults) { user in
                                 HStack(spacing: 12) {
-                                    Group {
-                                        if let url = PlinkAvatarURL.resolve(userId: user.id, stored: user.avatarURL) {
-                                            AsyncImage(url: url) { phase in
-                                                if let img = phase.image {
-                                                    img.resizable().scaledToFill()
-                                                } else {
-                                                    Circle().fill(theme.accentColor.opacity(0.25))
-                                                        .overlay(
-                                                            Text(String(user.username.prefix(1)).uppercased())
-                                                                .font(.system(size: 15, weight: .bold))
-                                                                .foregroundStyle(.white)
-                                                        )
-                                                }
-                                            }
-                                        } else {
-                                            Circle().fill(theme.accentColor.opacity(0.25))
-                                                .overlay(
-                                                    Text(String(user.username.prefix(1)).uppercased())
-                                                        .font(.system(size: 15, weight: .bold))
-                                                        .foregroundStyle(.white)
-                                                )
-                                        }
-                                    }
-                                    .frame(width: 40, height: 40)
-                                    .clipShape(Circle())
+                                    // Заглушка аватара — общая палитра по id
+                                    // человека (PlinkStableAvatar), а не цвет
+                                    // темы: иначе все незнакомцы одного цвета.
+                                    PlinkStableAvatar(
+                                        url: PlinkAvatarURL.resolve(userId: user.id, stored: user.avatarURL),
+                                        letter: String(user.username.prefix(1)).uppercased(),
+                                        size: 40,
+                                        userId: user.id
+                                    )
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(user.username)
                                             .font(.system(size: 15, weight: .semibold))

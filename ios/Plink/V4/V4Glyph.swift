@@ -61,6 +61,8 @@ enum V4Glyph {
     case mail
     case photo
     case requests
+    /// Написать новое сообщение — ✎ в шапке «Чатов».
+    case compose
     case leave
 
     var symbol: String {
@@ -103,6 +105,7 @@ enum V4Glyph {
         case .mail:          return "envelope"
         case .photo:         return "photo.on.rectangle"
         case .requests:      return "person.badge.clock"
+        case .compose:       return "square.and.pencil"
         case .leave:         return "rectangle.portrait.and.arrow.right"
         }
     }
@@ -237,13 +240,7 @@ struct V4GlyphButton: View {
     @ViewBuilder
     private var badgeView: some View {
         if let badge, badge > 0 {
-            Text(badge > 99 ? "99+" : "\(badge)")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Color.white)
-                .padding(.horizontal, 5)
-                .frame(minWidth: 18, minHeight: 18)
-                .background(V4.danger, in: Capsule())
-                .overlay(Capsule().stroke(Color.black.opacity(0.35), lineWidth: 1.5))
+            V4CountBadge(count: badge)
                 .offset(x: 5, y: -3)
         } else if dot {
             Circle()
@@ -252,6 +249,38 @@ struct V4GlyphButton: View {
                 .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 1.5))
                 .offset(x: 2, y: 0)
         }
+    }
+}
+
+// MARK: - Счётчик-метка
+
+/// Красная метка со счётчиком — одна на всё приложение.
+///
+/// Цвет темы сюда не заходит намеренно. Акцент красит и фон экрана
+/// (живая подложка), и метку — в тёплых темах оранжевая метка на
+/// оранжевом свечении переставала читаться, а метка обязана быть
+/// заметной в любой теме и в любой фазе анимации фона. Тема живёт в
+/// подложке, в заливке главных кнопок и в тексте-действии; сигнал —
+/// всегда `V4.danger`.
+struct V4CountBadge: View {
+    let count: Int
+    /// Кегль цифры; от него считаются высота капсулы и поля.
+    var fontSize: CGFloat = 10
+    /// Тёмный ободок — когда метка лежит на иконке и её край иначе тонет.
+    var ringed: Bool = true
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.system(size: fontSize, weight: .bold))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, fontSize * 0.5)
+            .frame(minWidth: fontSize * 1.8, minHeight: fontSize * 1.8)
+            .background(V4.danger, in: Capsule())
+            .overlay {
+                if ringed {
+                    Capsule().stroke(Color.black.opacity(0.35), lineWidth: 1.5)
+                }
+            }
     }
 }
 
