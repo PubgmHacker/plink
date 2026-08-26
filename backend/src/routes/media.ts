@@ -3,6 +3,7 @@ import { extractStream, extractYouTubeStream, extractMetadata, UPSTREAM_USER_AGE
 import { youtubePlayerHTML } from '../services/youtubePlayer.js';
 import { proxyYouTubeEmbed } from '../services/youtubeEmbedProxy.js';
 import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
+import { searchAllProviders } from '../services/videoSearch.js';
 
 const EXTRACT_CACHE_TTL = 3600; // 1 час — прямой URL живёт долго
 
@@ -10,15 +11,19 @@ export default async function mediaRoutes(fastify, _options) {
   const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/media/search?q=запрос&limit=12 — YouTube поиск
-  // Removed `preHandler: [fastify.authenticate]` —
-  // search is now PUBLIC. Rationale:
-  //   1. YouTubeSearchView creates its own YouTubeSearchService instance
-  //      without DI of the auth token, so authenticated search would 401.
-  //   2. Search is a read-only proxy to YouTube Data API v3 — no user-
-  //      specific data is exposed.
-  //   3. Rate limiting (30 req/min) still protects against quota abuse.
-  //   4. YOUTUBE_API_KEY is server-side only — never exposed to clients.
+  // GET /api/media/search?q=запрос&limit=12 — поиск по видеохостингам
+  //
+  // Поиск публичный (без preHandler: [fastify.authenticate]):
+  //   1. Экран поиска создаёт свой сервис без DI токена — с авторизацией
+  //      он получал бы 401.
+  //   2. Это read-only прокси к чужим поисковым API — ничего личного.
+  //   3. Лимит 30 запросов в минуту защищает квоту.
+  //   4. Ключи живут только на сервере и наружу не уходят.
+  //
+  // 26.08.2026: провайдеров стало три. RuTube работает без ключа, поэтому
+  // отсутствие YOUTUBE_API_KEY больше не роняет поиск в 500 — выдача
+  // просто идёт из того, что настроено. VK включается VK_SERVICE_TOKEN:
+  // video.search без токена отвечает error_code 15.
   // ═══════════════════════════════════════════════════════════════════
   fastify.get('/media/search', {
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
@@ -26,48 +31,32 @@ export default async function mediaRoutes(fastify, _options) {
     const { q, limit = '12' } = request.query as any;
 
     if (!q) return reply.status(400).send({ error: 'Query required' });
-    if (!YOUTUBE_API_KEY) {
-      return reply.status(500).send({ error: 'YOUTUBE_API_KEY not configured' });
-    }
+    const parsedLimit = Math.min(Math.max(parseInt(String(limit), 10) || 12, 1), 30);
 
-    // Cache key
-    const cacheKey = `yt:search:${q}:${limit}`;
+    const youtubeKey = process.env.YOUTUBE_API_KEY;
+    const vkToken = process.env.VK_SERVICE_TOKEN;
+
+    // Ключ кэша учитывает набор провайдеров: иначе выдача, собранная до
+    // выдачи токена VK, пережила бы его появление на десять минут.
+    const shape = [youtubeKey ? 'y' : '', 'r', vkToken ? 'v' : ''].join('');
+    const cacheKey = `media:search:${shape}:${q}:${parsedLimit}`;
     const cached = await cacheGet<any[]>(cacheKey);
     if (cached) return reply.send({ results: cached });
 
-    const url = new URL('https://www.googleapis.com/youtube/v3/search');
-    url.searchParams.set('part', 'snippet');
-    url.searchParams.set('q', q);
-    url.searchParams.set('type', 'video');
-    url.searchParams.set('maxResults', String(limit));
-    url.searchParams.set('key', YOUTUBE_API_KEY);
-
     try {
-      const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.error('YouTube API error', resp.status, errText);
-        return reply.status(resp.status).send({ error: 'YouTube API error' });
-      }
-      const data: any = await resp.json();
+      const { results, providers, failed } = await searchAllProviders(q, parsedLimit, {
+        youtubeKey,
+        vkToken,
+      });
 
-      const results = (data.items || [])
-        .filter((item: any) => item.id?.videoId)
-        .map((item: any) => {
-          const videoId = item.id.videoId;
-          return {
-            id: videoId,
-            title: item.snippet?.title || '',
-            channel: item.snippet?.channelTitle || '',
-            thumbnailURL: item.snippet?.thumbnails?.medium?.url ||
-                          item.snippet?.thumbnails?.default?.url || null,
-            duration: null,
-            // iOS YouTubeSearchResult requires `url` field — without it,
-            // Decodable fails silently and the user sees empty search results.
-            // Return watch URL so iOS can pass it directly to RoomSetupView.
-            url: `https://www.youtube.com/watch?v=${videoId}`,
-          };
-        });
+      if (!providers.length) {
+        console.error('Search: no provider answered', failed);
+        return reply.status(502).send({ error: 'Search upstream unavailable' });
+      }
+      for (const f of failed) {
+        if (f.reason.endsWith('not configured')) continue;
+        console.warn('Search provider failed', f.provider, f.reason);
+      }
 
       await cacheSet(cacheKey, results, 600); // 10 min
       reply.send({ results });

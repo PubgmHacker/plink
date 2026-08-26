@@ -158,16 +158,24 @@ export async function adminRoutes(fastify: any) {
           await tx.user.update({ where: { id }, data: updateData });
         }
 
+        // Столбцы actorId/targetType/targetId/requestId в модели AuditLog
+        // отсутствуют — Prisma отбивала такую запись прямо внутри транзакции,
+        // и бан откатывался с 500. Пишем схемой: кто (userId), что (action),
+        // над кем — в metadata.
         await tx.auditLog.create({
           data: {
-            actorId: request.user.id,
+            userId: request.user.id,
             action: AuditActions.USER_BANNED,
-            targetType: 'USER',
-            targetId: id,
             ip: request.ip,
-            requestId: request.id,
-            metadata: { durationHours, bannedUntil, banStatus, reason, targetRole: targetUser.role },
-          } as any,
+            metadata: {
+              targetUserId: id,
+              durationHours,
+              bannedUntil,
+              banStatus,
+              reason,
+              targetRole: targetUser.role,
+            },
+          },
         });
       });
     } catch (txErr: any) {
@@ -202,16 +210,14 @@ export async function adminRoutes(fastify: any) {
           await tx.user.update({ where: { id }, data: { bannedUntil: null } });
         }
 
+        // Та же схема, что и в бане: несуществующие столбцы роняли транзакцию.
         await tx.auditLog.create({
           data: {
-            actorId: request.user.id,
+            userId: request.user.id,
             action: 'admin.user.unban',
-            targetType: 'USER',
-            targetId: id,
             ip: request.ip,
-            requestId: request.id,
-            metadata: { reason },
-          } as any,
+            metadata: { targetUserId: id, reason },
+          },
         });
       });
     } catch (txErr: any) {
@@ -290,16 +296,19 @@ export async function adminRoutes(fastify: any) {
 
   fastify.post('/admin/moderation/messages/:id/delete', async (request: any, reply: any) => {
     const { id } = request.params;
-    await prisma.chatMessage.delete({ where: { id } });
+    // deleteMany вместо delete: жалобу разбирают после того, как сообщение
+    // могли снести автомодерацией или сам автор. delete в этом случае бросал
+    // P2025 → 500 на кнопке, которая по факту уже отработала.
+    const { count } = await prisma.chatMessage.deleteMany({ where: { id } });
 
     await logAudit({
       userId: request.user.id,
       action: 'admin.message.delete',
       ip: request.ip,
-      metadata: { messageId: id },
+      metadata: { messageId: id, deleted: count },
     });
 
-    reply.send({ success: true });
+    reply.send({ success: true, deleted: count });
   });
 
   // ─── Flags ─────────────────────────────────────────────────────────
