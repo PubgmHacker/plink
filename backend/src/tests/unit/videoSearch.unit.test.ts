@@ -152,11 +152,11 @@ describe('searchVK', () => {
 describe('fetchWithRetry', () => {
   const noSleep = async () => {};
 
-  it('повторяет запрос после 429 и отдаёт удачный ответ', async () => {
+  it('повторяет запрос после 503 и отдаёт удачный ответ', async () => {
     let calls = 0;
     globalThis.fetch = vi.fn(async () => {
       calls += 1;
-      return calls === 1 ? jsonResponse({}, false, 429) : jsonResponse({ ok: true });
+      return calls === 1 ? jsonResponse({}, false, 503) : jsonResponse({ ok: true });
     }) as unknown as typeof fetch;
 
     const resp = await fetchWithRetry('https://example.test/', {}, 2, 0, noSleep);
@@ -176,24 +176,38 @@ describe('fetchWithRetry', () => {
     expect(resp.status).toBe(403);
   });
 
-  it('после последней попытки возвращает сам 429, а не бросает', async () => {
-    globalThis.fetch = vi.fn(async () => jsonResponse({}, false, 429)) as unknown as typeof fetch;
+  it('не повторяет 429: у YouTube это суточная квота, повтор жжёт её вдвое', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return jsonResponse({}, false, 429);
+    }) as unknown as typeof fetch;
 
     const resp = await fetchWithRetry('https://example.test/', {}, 2, 0, noSleep);
+    expect(calls).toBe(1);
     expect(resp.status).toBe(429);
+  });
+
+  it('после последней попытки возвращает сам 503, а не бросает', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse({}, false, 503)) as unknown as typeof fetch;
+
+    const resp = await fetchWithRetry('https://example.test/', {}, 2, 0, noSleep);
+    expect(resp.status).toBe(503);
   });
 });
 
 describe('searchAllProviders', () => {
-  it('запрос к YouTube уходит с quotaUser — иначе лимит делится по IP Railway', async () => {
-    let seen = '';
+  it('исчерпанная суточная квота YouTube названа в причине, а не спрятана в «429»', async () => {
     globalThis.fetch = vi.fn(async (input: any) => {
-      seen = String(input);
-      return jsonResponse({ items: [] });
+      if (String(input).includes('googleapis.com')) return jsonResponse({}, false, 429);
+      return jsonResponse({ results: [] });
     }) as unknown as typeof fetch;
 
-    await searchYouTube('коты', 6, 'key');
-    expect(new URL(seen).searchParams.get('quotaUser')).toBe('plink-search');
+    await expect(searchYouTube('коты', 6, 'key')).rejects.toThrow('youtube 429 daily quota');
+
+    const res = await searchAllProviders('коты', 12, { youtubeKey: 'key' });
+    expect(res.failed.find((f) => f.provider === 'youtube')?.reason).toContain('daily quota');
+    expect(res.providers).toEqual(['rutube']);
   });
 
   it('без ключей отдаёт RuTube, а не 500 на весь поиск', async () => {

@@ -34,16 +34,13 @@ export interface VideoSearchItem {
 const TIMEOUT_MS = 10_000;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-// Google без quotaUser считает лимит по IP запрашивающего. Railway выпускает
-// трафик через общий адрес, поэтому наш поиск делил ведро с чужими сервисами
-// и ловил 429 через раз при одном запросе в пять секунд. Постоянная строка
-// уводит приложение в собственное ведро — это ровно то, для чего параметр
-// и сделан. Крутить её по запросам нельзя: это уже обход квоты.
-const YOUTUBE_QUOTA_USER = 'plink-search';
-
-/** Одна повторная попытка на 429/503 — заминка у провайдера не должна
- *  оставлять пользователя с пустой лентой. Пауза фиксированная: выдача
- *  ждёт синхронно, и разброс тут только мешал бы воспроизводимости. */
+/** Одна повторная попытка на 503 — заминка у провайдера не должна оставлять
+ *  пользователя с пустой лентой. Пауза фиксированная: выдача ждёт синхронно,
+ *  и разброс тут только мешал бы воспроизводимости.
+ *
+ *  429 сюда намеренно не входит. У YouTube это не «притормози», а исчерпанная
+ *  суточная квота проекта (см. searchYouTube) — повтор не может её дождаться
+ *  и лишь удваивает расход. Ждать бесполезное — хуже, чем не ждать. */
 export async function fetchWithRetry(
   url: string,
   init: RequestInit,
@@ -54,7 +51,7 @@ export async function fetchWithRetry(
   let last: Response | undefined;
   for (let attempt = 0; attempt < tries; attempt += 1) {
     const resp = await fetch(url, init);
-    if (resp.status !== 429 && resp.status !== 503) return resp;
+    if (resp.status !== 503) return resp;
     last = resp;
     if (attempt < tries - 1) await sleep(pauseMs);
   }
@@ -81,11 +78,18 @@ export async function searchYouTube(q: string, limit: number, apiKey: string): P
   url.searchParams.set('type', 'video');
   url.searchParams.set('maxResults', String(limit));
   url.searchParams.set('key', apiKey);
-  url.searchParams.set('quotaUser', YOUTUBE_QUOTA_USER);
 
   const resp = await fetchWithRetry(url.toString(), { signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!resp.ok) {
-    throw new Error(`youtube ${resp.status}`);
+    // 429 у YouTube приходит с одной-единственной причиной: search.list стоит
+    // 100 единиц из 10 000 суточных, то есть сто поисков в сутки на проект,
+    // и они кончаются к середине дня. Замерено 26.08.2026: лимит зовётся
+    // defaultSearchListPerDayPerProject, единица — 1/d/{project}. Отсюда два
+    // следствия. Первое: quotaUser не лечит, он делит per-user вёдра, а
+    // упирается проектное — проверено А/Б с параметром и без (0 из 6 в обеих
+    // половинах). Второе: причину надо назвать, иначе в логе стоит голое
+    // «youtube 429» и суточный потолок неотличим от сбоя сети.
+    throw new Error(`youtube ${resp.status}${resp.status === 429 ? ' daily quota' : ''}`);
   }
   const data: any = await resp.json();
   return (data.items || [])
