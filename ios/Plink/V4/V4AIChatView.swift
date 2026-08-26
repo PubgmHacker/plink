@@ -15,11 +15,23 @@ struct V4AIChatView: View {
     @Bindable var store: V4AIStore
     /// Открыть экран с сразу включённым микрофоном (вход «спросить голосом»).
     var autoStartVoice: Bool = false
+    /// Режим вкладки: экран живёт в оболочке рядом с остальными вкладками —
+    /// без кнопки «закрыть», на живом фоне приложения и с отступом под
+    /// плавающим таб-баром.
+    var isTab: Bool = false
+    /// Вкладка смонтирована всегда; активна ли она прямо сейчас. Уход с
+    /// вкладки обязан выключить микрофон и убрать клавиатуру.
+    var isActive: Bool = true
+    /// Счётчик запросов «спросить голосом». onAppear в постоянно
+    /// смонтированной вкладке отработает один раз за запуск, поэтому вход
+    /// голосом приходит новым значением счётчика.
+    var voiceTrigger: Int = 0
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var input = ""
+    @FocusState private var inputFocused: Bool
     @State private var showManualCreate = false
     @State private var confirmingAction: AIProposedAction?
     @State private var presentedRoom: Room?
@@ -77,19 +89,34 @@ struct V4AIChatView: View {
         // канваса) делал весь чат «выцветшим» рядом с остальными экранами.
         .background {
             ZStack {
-                V4.canvas
-                RadialGradient(
-                    colors: [theme.accentColor.opacity(0.10), .clear],
-                    center: UnitPoint(x: 0.5, y: 0),
-                    startRadius: 0,
-                    endRadius: 420
-                )
+                // Вкладка стоит на живом фоне приложения, как остальные
+                // четыре: свой непрозрачный канвас гасил бы тему Plink+
+                // ровно на одной вкладке из пяти. Свечение под шапкой тоже
+                // снято — живой фон уже даёт атмосферу, второй градиент
+                // поверх него читался пятном на пустом экране.
+                if !isTab {
+                    V4.canvas
+                    RadialGradient(
+                        colors: [theme.accentColor.opacity(0.10), .clear],
+                        center: UnitPoint(x: 0.5, y: 0),
+                        startRadius: 0,
+                        endRadius: 420
+                    )
+                }
             }
             .ignoresSafeArea()
         }
         .preferredColorScheme(.dark)
         .onAppear {
             if autoStartVoice { capture.startLocked(surface: "ai_chat_autostart") }
+        }
+        .onChange(of: voiceTrigger) { _, _ in
+            capture.startLocked(surface: "ai_tab_voice")
+        }
+        .onChange(of: isActive) { _, active in
+            guard !active else { return }
+            capture.cancel()
+            inputFocused = false
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { capture.cancel() }
@@ -118,20 +145,28 @@ struct V4AIChatView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            V4GlyphButton(
-                glyph: .close,
-                theme: theme,
-                kind: .glass,
-                diameter: 44,
-                iconSize: 15,
-                accessibility: "Закрыть чат"
-            ) {
-                capture.cancel()
-                dismiss()
+            if isTab {
+                // Вкладке нужен не выход, а лицо: сфера-компаньон живёт
+                // состоянием разговора (слушает, думает, ошибка).
+                AICompanionModel(theme: theme, size: 38, glow: 16, state: orbState)
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+            } else {
+                V4GlyphButton(
+                    glyph: .close,
+                    theme: theme,
+                    kind: .glass,
+                    diameter: 44,
+                    iconSize: 15,
+                    accessibility: "Закрыть чат"
+                ) {
+                    capture.cancel()
+                    dismiss()
+                }
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("ИИ-ассистент").font(.system(size: 16, weight: .heavy))
+                Text("ИИ-ассистент").font(.system(size: isTab ? 21 : 16, weight: .heavy))
                 Text(stateCaption)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(stateColor)
@@ -154,7 +189,9 @@ struct V4AIChatView: View {
             }
         }
         .frame(height: 61)
-        .padding(.horizontal, 15)
+        // Единый «вдох» шапок вкладок от статус-бара (см. Главная/Друзья).
+        .padding(.horizontal, isTab ? 18 : 15)
+        .padding(.top, isTab ? 12 : 0)
         .accessibilityIdentifier("screen.aichat")
     }
 
@@ -185,7 +222,12 @@ struct V4AIChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
+                // Разговор растёт снизу вверх, как в любом мессенджере:
+                // короткая переписка стоит над композером, а пустота
+                // уходит вверх, а не разрывает экран посередине.
+                .frame(maxWidth: .infinity, minHeight: 0, alignment: .leading)
             }
+            .defaultScrollAnchor(.bottom)
             .onChange(of: store.messages.count) { _, _ in
                 if let lastID = store.messages.last?.id {
                     withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
@@ -386,6 +428,7 @@ struct V4AIChatView: View {
 
             TextField("Спроси про фильмы и комнаты", text: $input, axis: .vertical)
                 .lineLimit(1...4)
+                .focused($inputFocused)
                 .foregroundStyle(V4.ink)
                 .font(.system(size: 14))
                 .padding(.vertical, 4)
@@ -423,7 +466,9 @@ struct V4AIChatView: View {
         .frame(minHeight: 58)
         .plinkGlass(.navigation, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, 13)
-        .padding(.bottom, 10)
+        // Во вкладке композер встаёт над плавающим таб-баром (64 + 4 pt
+        // отступов бара) с зазором в 8 pt, а не под ним.
+        .padding(.bottom, isTab ? 76 : 10)
     }
 
     private var stateColor: Color {

@@ -19,7 +19,7 @@ struct PlinkApprovedV4Root: View {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-plink.designtab"), args.indices.contains(i + 1),
-           let t = Int(args[i + 1]), (0...3).contains(t) {
+           let t = Int(args[i + 1]), (0...4).contains(t) {
             return t
         }
         #endif
@@ -50,12 +50,13 @@ struct PlinkApprovedV4Root: View {
     @State private var profileStore: V4ProfileStore?
     @State private var showCreateRoom = false
     @State private var showJoinByCode = false
-    // 02.08.2026: текстовый чат с ИИ — общий экран поверх вкладок, а не режим вкладки «ИИ».
-    // Открывается с «Главной» (поиск и карточка ассистента) и из шапки вкладки «ИИ».
-    @State private var showAIChat = false
-    // 03.08.2026: голосовой режим упразднён. Вход «спросить голосом» открывает
-    // тот же чат, но сразу включает микрофон.
-    @State private var aiChatAutoVoice = false
+    // 25.08.2026: ассистент вернулся вкладкой — и вкладка показывает сам чат,
+    // а не заглушку «Скоро». Экран монтируется один раз и живёт рядом с
+    // остальными вкладками, поэтому «спросить голосом» приходит не флагом
+    // (onAppear отработал бы только на старте), а счётчиком-триггером:
+    // каждый новый запрос увеличивает число, чат ловит onChange и включает
+    // микрофон.
+    @State private var aiVoiceTrigger = 0
     @State private var lastSharedRoomCode: String?
     @State private var joinErrorMessage: String?
     @State private var showJoinError = false
@@ -128,15 +129,19 @@ struct PlinkApprovedV4Root: View {
                         .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
                     V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
                         .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
-                    // 25.08.2026: вкладки «ИИ» больше нет — ассистент открывается
-                    // искрой в шапке «Главной» и из поиска (тот же .plinkOpenAIChat,
-                    // fullScreenCover ниже). Лента-превью V4AIViewLive не монтируется:
-                    // она показывала «Скоро» и дублировала входы в чат.
+                    // Вкладка «ИИ» — это сам разговор с ассистентом. Прежняя
+                    // лента-превью V4AIViewLive показывала «Скоро» и вела в тот
+                    // же чат двумя кнопками, поэтому вкладку сняли целиком.
+                    // Теперь вкладка открывает разговор сразу: искра в шапке
+                    // «Главной» ведёт сюда же, а не поднимает второй экран.
+                    V4AIChatView(theme: theme, store: aiStore, isTab: true,
+                                 isActive: tab == 3, voiceTrigger: aiVoiceTrigger)
+                        .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                     // Настройки — не вкладка: шесть кнопок теснили таббар, а
                     // маршрут не ежедневный. Вход — строка «Общие настройки»
                     // на лице профиля, шитом (правка 22.08.2026).
                     V4ProfileViewLive(theme:theme, store:profileStore, showAppearance:$appearance)
-                        .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
+                        .opacity(tab == 4 ? 1 : 0).allowsHitTesting(tab == 4)
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 // Маска вместо .clipped(): гард всё так же срезает
@@ -244,22 +249,19 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenFriendsTab"))) { _ in
             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 2 }
         }
-        // 02.08.2026: чат с ИИ — отдельная поверхность над вкладками.
+        // Искра в шапке «Главной» ведёт на вкладку «ИИ», а не поднимает
+        // второй экран поверх: разговор один, и место у него одно.
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIChat)) { _ in
-            aiChatAutoVoice = false
-            showAIChat = true
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 3 }
         }
         // 03.08.2026: «спросить голосом» больше не отдельный экран — это тот же
         // чат с включённым микрофоном.
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIVoice)) { _ in
-            aiChatAutoVoice = true
-            showAIChat = true
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 3 }
+            aiVoiceTrigger += 1
         }
 
         core
-        .fullScreenCover(isPresented: $showAIChat, onDismiss: { aiChatAutoVoice = false }) {
-            V4AIChatView(theme: theme, store: aiStore, autoStartVoice: aiChatAutoVoice)
-        }
         .sheet(isPresented: $showCreateRoom) {
             RoomCreationView(onRoomCreated: handleRoomCreated)
                 .environmentObject(APIClient.shared)
@@ -627,15 +629,16 @@ struct PlinkLiquidTabBar: View {
     private var activeSecondary: Color { let (_, c1, _, _) = theme.colors; return c1 }
 
     // M25 i18n: подписи через LocalizationManager (RU/EN/ZH).
-    // 25.08.2026: вкладок четыре (T4 «Слияние»). «Вечера» = комнаты + история,
-    // ИИ переехал искрой в шапку «Главной» — вкладка-превью дублировала входы.
-    // Друзья остаются на индексе 2: plinkOpenFriendsTab/pendingChat шлют tab=2.
+    // 25.08.2026: вкладок пять. «Вечера» = комнаты + история, «ИИ» открывает
+    // сам разговор с ассистентом. Друзья остаются на индексе 2:
+    // plinkOpenFriendsTab/pendingChat шлют tab=2; ассистент — 3, профиль — 4.
     private var items: [(String, String)] {
         let l = LocalizationManager.shared
         return [
             ("house.fill", l.string(.tabHome)),
             ("play.rectangle.fill", l.string(.tabRooms)),
             ("person.2.fill", l.string(.tabFriends)),
+            ("sparkles", l.string(.tabAI)),
             ("person.crop.circle.fill", l.string(.tabProfile))
         ]
     }

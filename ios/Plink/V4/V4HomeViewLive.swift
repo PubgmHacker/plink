@@ -441,7 +441,7 @@ struct V4HomeViewLive: View {
         _ = await (shelf, week)
     }
 
-    // MARK: Шапка — аватар, приветствие, искра ИИ, колокольчик
+    // MARK: Шапка — аватар, приветствие, колокольчик
 
     private var topBar: some View {
         HStack(spacing: 10) {
@@ -460,21 +460,9 @@ struct V4HomeViewLive: View {
 
             Spacer(minLength: 6)
 
-            // 25.08.2026 (T4): вкладки «ИИ» больше нет — ассистент живёт
-            // искрой в шапке. Открывает тот же общий чат поверх вкладок.
-            V4GlyphButton(
-                glyph: .sparkle,
-                theme: theme,
-                kind: .glass,
-                diameter: 44,
-                iconSize: 17,
-                accessibility: "Ассистент Plink",
-                action: {
-                    AnalyticsService.shared.track("ai_chat_used", parameters: ["source": "home_header"])
-                    NotificationCenter.default.post(name: .plinkOpenAIChat, object: nil)
-                }
-            )
-
+            // 25.08.2026: искру из шапки убрали — ассистент снова вкладка,
+            // и кнопка дублировала бы её в том же кадре. Вход в разговор
+            // один: таб «ИИ».
             NotificationInboxButton(
                 unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal,
                 theme: theme,
