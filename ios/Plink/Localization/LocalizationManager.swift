@@ -122,6 +122,15 @@ enum L10n {
         case frEmptySub = "fr.emptySub"
         case frFind = "fr.find"
         case frInviteLink = "fr.inviteLink"
+        // Пустая вкладка «Друзья» — экран-приглашение (25.08.2026)
+        case frEmptyHint = "fr.emptyHint"
+        case frEmptyPlaceholder = "fr.emptyPlaceholder"
+        case frEmptyFindTitle = "fr.emptyFindTitle"
+        case frEmptyFindSub = "fr.emptyFindSub"
+        case frEmptyLinkSub = "fr.emptyLinkSub"
+        case frEmptyRequests = "fr.emptyRequests"
+        case frEmptyRequestsSub = "fr.emptyRequestsSub"
+        case frEmptySendFailed = "fr.emptySendFailed"
 
         // DM chat extras (M26)
         case dmChatsBack = "dm.chatsBack"
@@ -656,10 +665,18 @@ enum L10n {
         .frFriendBadge: [.russian: "Друг", .english: "Friend", .chinese: "好友"],
         .frSent: [.russian: "Отправлено", .english: "Sent", .chinese: "已发送"],
         .frNobodyFound: [.russian: "Никого не нашли", .english: "Nobody found", .chinese: "未找到用户"],
-        .frEmptyTitle: [.russian: "Пока нет друзей", .english: "No friends yet", .chinese: "还没有好友"],
-        .frEmptySub: [.russian: "Пригласи друга — и смотрите вместе", .english: "Invite a friend — and watch together", .chinese: "邀请好友一起观看"],
+        .frEmptyTitle: [.russian: "Плинк начинается вдвоём", .english: "Plink starts with two", .chinese: "Plink 从两个人开始"],
+        .frEmptySub: [.russian: "Добавь друга — и включайте один фильм: пауза на двоих, реакции и чат поверх экрана.", .english: "Add a friend and press play on one film: a shared pause, reactions and chat over the screen.", .chinese: "添加好友，一起播放同一部电影：共享暂停、表情与悬浮聊天。"],
         .frFind: [.russian: "Найти друга", .english: "Find a friend", .chinese: "找好友"],
         .frInviteLink: [.russian: "Пригласить по ссылке", .english: "Invite via link", .chinese: "通过链接邀请"],
+        .frEmptyHint: [.russian: "Ник виден в профиле друга — под именем", .english: "A username sits under the name on any profile", .chinese: "用户名显示在个人资料的名字下方"],
+        .frEmptyPlaceholder: [.russian: "ник друга", .english: "friend’s username", .chinese: "好友的用户名"],
+        .frEmptyFindTitle: [.russian: "Найти по имени", .english: "Search by name", .chinese: "按名字搜索"],
+        .frEmptyFindSub: [.russian: "Поиск среди тех, кто уже в Плинке", .english: "Look through everyone already on Plink", .chinese: "在已加入 Plink 的人中查找"],
+        .frEmptyLinkSub: [.russian: "Твоя ссылка — в любой чат", .english: "Your link, in any chat", .chinese: "把你的链接发到任意聊天"],
+        .frEmptyRequests: [.russian: "Тебя уже зовут", .english: "Someone’s waiting", .chinese: "已经有人在等你"],
+        .frEmptyRequestsSub: [.russian: "Разобрать заявки", .english: "Review requests", .chinese: "查看好友请求"],
+        .frEmptySendFailed: [.russian: "Не удалось отправить заявку", .english: "Couldn’t send the request", .chinese: "请求发送失败"],
         // DM chat extras (M26)
         .dmChatsBack: [.russian: "Чаты", .english: "Chats", .chinese: "聊天"],
         .dmReaction: [.russian: "Реакция", .english: "Reaction", .chinese: "反应"],

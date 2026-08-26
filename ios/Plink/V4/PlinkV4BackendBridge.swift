@@ -541,6 +541,15 @@ struct V4SearchResult: Identifiable, Hashable, Sendable, Codable {
 final class V4FriendsStore {
     enum LoadState: Sendable, Equatable {
         case idle, loading, loaded, empty, failed(String)
+
+        /// Ответ получен — пустой список теперь означает «друзей правда нет»,
+        /// а не «ещё грузим». Экран-приглашение опирается только на это.
+        var isSettled: Bool {
+            switch self {
+            case .loaded, .empty: return true
+            case .idle, .loading, .failed: return false
+            }
+        }
     }
     private(set) var state: LoadState = .idle
     private(set) var friends: [Friend] = []

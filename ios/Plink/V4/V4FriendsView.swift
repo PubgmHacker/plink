@@ -100,6 +100,11 @@ struct V4FriendsViewLive: View {
     // открывает тот же компоуз.
     @State var showCompose = false
     @State var toast: String?
+    // Пустая вкладка «Друзья» — заявка по нику прямо с экрана (extension
+    // V4FriendsPeopleList): поле, отправка и текст ошибки.
+    @State var inviteUsername = ""
+    @State var inviteSending = false
+    @State var inviteError: String?
     @State private var roomToOpen: Room?
     @Environment(\.scenePhase) private var scenePhase
     /// Shared so unread badges survive sheet open/close.
@@ -108,7 +113,9 @@ struct V4FriendsViewLive: View {
     /// Forces avatar AsyncImage reload when session bust changes
     @State private var avatarBust = PlinkAvatarURL.sessionBust
 
-    private var requestBadge: Int { store?.requests.count ?? 0 }
+    // Не private: экран-приглашение (extension в другом файле) поднимает
+    // заявки над приглашением — человека уже позвали.
+    var requestBadge: Int { store?.requests.count ?? 0 }
 
     /// Pin order — shared store (not a private stored prop so memberwise init stays public).
     var pinStore: FriendPinStore { FriendPinStore.shared }
