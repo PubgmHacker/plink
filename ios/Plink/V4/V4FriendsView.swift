@@ -115,6 +115,8 @@ struct V4FriendsViewLive: View {
     @ObservedObject private var inviteService = RoomInviteService.shared
     /// Forces avatar AsyncImage reload when session bust changes
     @State private var avatarBust = PlinkAvatarURL.sessionBust
+    /// Видимая высота скролла хаба — по ней центруются пустые состояния.
+    @State var hubViewport: CGFloat = 0
 
     // Не private: экран-приглашение (extension в другом файле) поднимает
     // заявки над приглашением — человека уже позвали.
@@ -267,6 +269,12 @@ struct V4FriendsViewLive: View {
                 .padding(.bottom, 100)
             }
             .scrollContentBackground(.hidden)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: V4ViewportHeightKey.self, value: geo.size.height)
+                }
+            )
+            .onPreferenceChange(V4ViewportHeightKey.self) { hubViewport = $0 }
             .refreshable {
                 await store?.load()
                 await dmService.refreshUnread()
@@ -898,6 +906,34 @@ struct V4FriendsViewLive: View {
         )
         .padding(.vertical, 30)
         .padding(.horizontal, 12)
+    }
+
+    /// Пустое состояние во всю свободную высоту — без стеклянной карточки и
+    /// без заголовка секции. Карточка группирует строки; когда строк ноль,
+    /// она обводит рамкой пустоту и превращает экран в виджет — так не делает
+    /// ни один мессенджер. Заголовок «Чаты» над ней объявлял разделом то,
+    /// чего нет, и дублировал белую вкладку прямо над ним.
+    func emptyCanvas(icon: String, title: String, subtitle: String,
+                     ctaIcon: String = "plus", cta: String? = nil,
+                     style: V4EmptyStyle = .bubbles,
+                     minHeight: CGFloat = 360,
+                     action: (() -> Void)? = nil) -> some View {
+        V4EmptyState(
+            icon: icon,
+            title: title,
+            subtitle: subtitle,
+            accent: theme.accentColor,
+            accentInk: theme.buttonTextColor,
+            style: style,
+            primary: (cta != nil && action != nil)
+                ? .init(title: cta!, icon: ctaIcon, run: action!)
+                : nil
+        )
+        .padding(.horizontal, 24)
+        // −100: столько скролл держит под таб-баром, иначе центр уезжает вниз.
+        .frame(maxWidth: .infinity,
+               minHeight: max(hubViewport - 100, minHeight),
+               alignment: .center)
     }
 
     // История «с кем и что смотрели» переехала на вкладку «Вечера»

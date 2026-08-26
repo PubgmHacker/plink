@@ -44,7 +44,6 @@ private struct PlinkSeatRow: View {
     let letter: String
     let seed: String
     let imageURL: URL?
-    let accent: Color
 
     var body: some View {
         // Ряд, а не стопка аватарок: наложение требует непрозрачной заливки,
@@ -52,21 +51,20 @@ private struct PlinkSeatRow: View {
         // Раздвинутые кольца видно насквозь — место читается пустым.
         HStack(spacing: 11) {
             V4Avatar(letter: letter.isEmpty ? "П" : letter, seed: seed, size: 64, imageURL: imageURL)
-            EmptySeat(index: 0, size: 58, accent: accent, showsPlus: true)
-            EmptySeat(index: 1, size: 51, accent: accent, showsPlus: false)
-            EmptySeat(index: 2, size: 44, accent: accent, showsPlus: false)
+            EmptySeat(index: 0, size: 58)
+            EmptySeat(index: 1, size: 51)
+            EmptySeat(index: 2, size: 44)
         }
         .accessibilityHidden(true)
     }
 
-    /// Свободное место. Пунктир — потому что сплошное кольцо читается как
-    /// настоящий, уже добавленный человек без аватара. Кольцо белое, а не
-    /// акцентное: акцент здесь совпал бы с подсветкой темы и пропал.
+    /// Свободное место: тонкое кольцо, которое медленно светлеет и гаснет.
+    /// Кольцо белое, а не акцентное — акцент здесь совпал бы с подсветкой
+    /// темы и пропал. Плюса внутри нет: он изображал кнопку, которой не был,
+    /// и спорил с настоящей «+» в шапке.
     private struct EmptySeat: View {
         let index: Int
         let size: CGFloat
-        let accent: Color
-        let showsPlus: Bool
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @State private var lit = false
 
@@ -74,18 +72,10 @@ private struct PlinkSeatRow: View {
 
         var body: some View {
             ZStack {
-                Circle()
-                    .fill(.white.opacity(0.035 * base))
-                Circle()
-                    .strokeBorder(
-                        .white.opacity((lit ? 0.5 : 0.2) * base),
-                        style: StrokeStyle(lineWidth: 1.8, dash: [size * 0.17, size * 0.13])
-                    )
-                if showsPlus {
-                    Image(systemName: "plus")
-                        .font(.system(size: size * 0.3, weight: .semibold))
-                        .foregroundStyle(accent.opacity(lit ? 1 : 0.68))
-                }
+                Circle().fill(.white.opacity(0.05 * base))
+                // Сплошное кольцо, а не пунктир: пунктирная окружность —
+                // язык вайрфрейма, и вся сцена читалась недорисованной.
+                Circle().strokeBorder(.white.opacity((lit ? 0.34 : 0.15) * base), lineWidth: 1)
             }
             .frame(width: size, height: size)
             .onAppear {
@@ -274,8 +264,7 @@ extension V4FriendsViewLive {
             PlinkSeatRow(
                 letter: meLetter,
                 seed: AuthService.shared.currentUserValue?.id ?? "",
-                imageURL: meAvatarURL,
-                accent: theme.accentColor
+                imageURL: meAvatarURL
             )
             .padding(.bottom, 22)
 
@@ -315,7 +304,8 @@ extension V4FriendsViewLive {
         // Приглашение живёт по центру свободной полосы, а не под шапкой:
         // прижатый к верху блок оставлял полэкрана пустоты — ровно то, что
         // и делало старое состояние «деревенским».
-        .frame(maxWidth: .infinity, minHeight: 520, alignment: .center)
+        // −100: столько скролл держит под таб-баром.
+        .frame(maxWidth: .infinity, minHeight: max(hubViewport - 100, 520), alignment: .center)
     }
 
     /// Буква своего кресла — из имени, как в остальных списках.

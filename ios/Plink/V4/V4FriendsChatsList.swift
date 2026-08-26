@@ -109,49 +109,50 @@ extension V4FriendsViewLive {
 
     var chatsBlock: some View {
         let inbox = unifiedInbox
+        let empty = inbox.isEmpty && !inboxIsLoading
         return VStack(alignment: .leading, spacing: 12) {
-            // Без текстового «Добавить» в заголовке: входы — ✎ и «+» в шапке
-            // хаба, дубль здесь путал.
-            sectionHeader(
-                title: "Чаты",
-                icon: "bubble.left.and.bubble.right.fill",
-                count: inbox.isEmpty ? nil : inbox.count,
-                actionTitle: nil,
-                action: nil
-            )
-
-            sectionCard {
-                if inbox.isEmpty && inboxIsLoading {
-                    chatsLoadingSkeleton
-                } else if inbox.isEmpty {
-                    if (store?.friends.isEmpty ?? true) {
-                        emptyInside(
-                            icon: "bubble.left.and.bubble.right.fill",
-                            title: "Пока нет чатов",
-                            subtitle: "Добавь друга — переписки появятся здесь",
-                            // Лупа, как у той же кнопки на сегменте «Друзья»:
-                            // одно действие — одна иконка.
-                            ctaIcon: "magnifyingglass",
-                            cta: "Найти друга",
-                            // Чаты — мир людей: сцена-орбита, как у друзей.
-                            style: .orbit
-                        ) { showAddFriend = true }
-                    } else {
-                        // Друзья есть, переписок нет — зовём написать первым.
-                        emptyInside(
-                            icon: "square.and.pencil",
-                            title: "Пока нет переписок",
-                            subtitle: "Друзья уже здесь — напиши первым, с этого всё и начинается",
-                            ctaIcon: "square.and.pencil",
-                            cta: "Написать",
-                            style: .orbit
-                        ) { showCompose = true }
-                    }
+            // Пустой инбокс — не «секция без строк», а весь экран: заголовок
+            // и стеклянная карточка появляются только когда есть что
+            // группировать.
+            if empty {
+                if (store?.friends.isEmpty ?? true) {
+                    emptyCanvas(
+                        icon: "bubble.left.and.bubble.right.fill",
+                        title: "Здесь появятся переписки",
+                        subtitle: "Добавь друга — и напиши первым",
+                        ctaIcon: "magnifyingglass",
+                        cta: "Найти друга"
+                    ) { showAddFriend = true }
                 } else {
-                    ForEach(inbox) { item in
-                        switch item {
-                        case .dm(let friend):   friendChatRow(friend)
-                        case .group(let group): groupChatRow(group)
+                    // Друзья есть, переписок нет — зовём написать первым.
+                    emptyCanvas(
+                        icon: "square.and.pencil",
+                        title: "Напиши первым",
+                        subtitle: "Выбери друга — беседа появится здесь",
+                        ctaIcon: "square.and.pencil",
+                        cta: "Написать"
+                    ) { showCompose = true }
+                }
+            } else {
+                // Без текстового «Добавить» в заголовке: входы — ✎ и «+» в шапке
+                // хаба, дубль здесь путал.
+                sectionHeader(
+                    title: "Чаты",
+                    icon: "bubble.left.and.bubble.right.fill",
+                    count: inbox.isEmpty ? nil : inbox.count,
+                    actionTitle: nil,
+                    action: nil
+                )
+
+                sectionCard {
+                    if inbox.isEmpty {
+                        chatsLoadingSkeleton
+                    } else {
+                        ForEach(inbox) { item in
+                            switch item {
+                            case .dm(let friend):   friendChatRow(friend)
+                            case .group(let group): groupChatRow(group)
+                            }
                         }
                     }
                 }

@@ -230,69 +230,93 @@ struct V4ProjectorScene: View {
     }
 }
 
-/// Сигнатура пустых состояний мира людей: facepile — ряд перекрывающихся
-/// кругов-аватаров, как в шапках групповых чатов. Два тихих силуэта по
-/// бокам («здесь будут люди»), стеклянный медальон в центре и акцентный
-/// «+» на его краю. Кино-экранам остаётся луч проектора. Прежняя орбита
-/// с пунктиром, кометой и радаром снята: перегруз читался ИИ-рисовкой.
-struct V4OrbitScene: View {
-    let icon: String
-    var accent: Color = V4.accent
+/// Подпись пустых «Чатов» — не значок в кружке, а сами пузыри Плинка:
+/// та же форма V5BubbleShape и те же заливки, что в переписке. Экран
+/// показывает, чем он станет, вместо метафоры поверх пустоты. Во входящем
+/// бьются точки набора — «сейчас тебе напишут», приглашение, а не констатация.
+///
+/// 26.08.2026: сменил V4OrbitScene (facepile из двух силуэтов и медальона).
+/// Тот говорил про людей — то есть про соседнюю вкладку, — а его акцентный
+/// «+» изображал кнопку, которой не был: вторая цель в композиции с одной
+/// настоящей кнопкой внизу.
+struct V4BubblesScene: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lit = false
+    @State private var beat = false
 
     var body: some View {
-        HStack(spacing: -14) {
-            sideSlot
-                .zIndex(0)
+        VStack(alignment: .leading, spacing: 9) {
+            // Отправленная реплика — широкая, у правого края.
+            shell(width: 118, height: 32, outgoing: true) { Color.clear }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .opacity(lit ? 1 : 0)
+                .offset(y: lit ? 0 : 7)
 
-            ZStack(alignment: .bottomTrailing) {
-                Image(systemName: icon)
-                    .font(.system(size: 25, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white.opacity(0.95))
-                    .frame(width: 78, height: 78)
-                    .plinkGlass(.control, in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.35), radius: 14, y: 7)
-
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(width: 24, height: 24)
-                    .background(accent, in: Circle())
-                    // Обводка цветом фона отделяет бейдж от медальона —
-                    // тот же приём, что у точки онлайна на аватарах.
-                    .overlay(Circle().strokeBorder(V4.surface.opacity(0.95), lineWidth: 2))
-                    .offset(x: 2, y: 2)
-            }
-            .zIndex(1)
-
-            sideSlot
-                .zIndex(0)
+            // Ответ на подходе — узкий пузырь набора, как в живом чате.
+            shell(width: 64, height: 34, outgoing: false) { dots }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(lit ? 1 : 0)
+                .offset(y: lit ? 0 : 11)
         }
-        .frame(height: 96)
-        .opacity(lit ? 1 : 0)
-        .offset(y: lit ? 0 : 8)
+        .frame(width: 196)
         .onAppear {
             guard !lit else { return }
             if reduceMotion {
                 lit = true
             } else {
-                withAnimation(.easeOut(duration: 0.55)) { lit = true }
+                withAnimation(.easeOut(duration: 0.5)) { lit = true }
+                withAnimation(.easeOut(duration: 0.5).delay(0.12)) { beat = true }
             }
         }
         .accessibilityHidden(true)
     }
 
-    /// Боковой круг facepile: приглушённый силуэт будущего друга.
-    private var sideSlot: some View {
-        Image(systemName: "person.fill")
-            .font(.system(size: 19, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.38))
-            .frame(width: 54, height: 54)
-            .background(Color.white.opacity(0.06), in: Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.14), lineWidth: 1))
+    /// Корпус пузыря: заливки и обводка один в один из DMChatView, чтобы
+    /// пустой экран и первое сообщение выглядели одним материалом.
+    private func shell<C: View>(width: CGFloat, height: CGFloat, outgoing: Bool,
+                                @ViewBuilder content: () -> C) -> some View {
+        let shape = V5BubbleShape(isOutgoing: outgoing)
+        return content()
+            .frame(width: width, height: height)
+            .background {
+                ZStack {
+                    V4.raised
+                    if outgoing {
+                        Cinema2026.outgoingBubble
+                    } else {
+                        LinearGradient(
+                            colors: [Color(hex: "#2B3138"), Color(hex: "#232930")],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    }
+                }
+            }
+            .clipShape(shape)
+            .overlay(shape.stroke(.white.opacity(outgoing ? 0.20 : 0.14), lineWidth: 1))
+            .shadow(color: .black.opacity(0.30), radius: 9, y: 5)
+    }
+
+    /// Точки набора. Полоса под хвост входящего съедает слева — сдвигаем,
+    /// иначе три точки стоят не по центру корпуса.
+    private var dots: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(V4.ink.opacity(0.6))
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(beat ? 1 : 0.6)
+                    .opacity(beat ? 1 : 0.45)
+                    .animation(
+                        reduceMotion
+                            ? nil
+                            : .easeInOut(duration: 0.62)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(i) * 0.15),
+                        value: beat
+                    )
+            }
+        }
+        .offset(x: V5BubbleShape.tailWidth / 2)
     }
 }
 
@@ -336,6 +360,16 @@ struct V4GlassMedallion: View {
     }
 }
 
+/// Высота видимой полосы скролла — пустые состояния центруются по ней.
+/// Выдуманный `minHeight` прижимал блок к шапке, и под ним оставалось
+/// полэкрана пустоты: ровно то, из-за чего экран читался незакрытым.
+struct V4ViewportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// Пустое состояние V4: сцена с лучом проектора → короткий заголовок →
 /// пояснение в одну мысль → одно явное действие (+ необязательный второй
 /// канал через `extra`). Формула одна на всё приложение — Главная, Друзья,
@@ -346,9 +380,9 @@ struct V4GlassMedallion: View {
 enum V4EmptyStyle {
     /// Сцена с лучом проектора и веером постеров — пустые кино-миры.
     case scene
-    /// Орбита круга друзей с пустыми местами — пустые миры людей
-    /// (друзья, чаты): у социального ждуна своя сцена, не клон проектора.
-    case orbit
+    /// Пузыри переписки — пустые «Чаты»: экран показывает, чем станет,
+    /// а не рисует значок в кружке.
+    case bubbles
     /// Кружок-медальон без сцены — ошибки и служебные состояния.
     case plain
 }
@@ -376,9 +410,9 @@ struct V4EmptyState<Extra: View>: View {
             case .scene:
                 V4ProjectorScene(icon: icon, accent: accent)
                     .padding(.bottom, 14)
-            case .orbit:
-                V4OrbitScene(icon: icon, accent: accent)
-                    .padding(.bottom, 14)
+            case .bubbles:
+                V4BubblesScene()
+                    .padding(.bottom, 18)
             case .plain:
                 ZStack {
                     Circle()
