@@ -111,8 +111,10 @@ export async function searchRutube(q: string, limit: number): Promise<VideoSearc
       embedURL: r.embed_url || `https://rutube.ru/play/embed/${r.id}`,
       embeddable: r.is_hidden === true ? false : null,
     }));
-  if (items.length !== rawCount) {
-    console.warn(`rutube: raw=${rawCount} kept=${items.length} q="${q}"`);
+  // count — сколько совпадений насчитал сам RuTube. Если count большой,
+  // а results пустой, значит хостинг отдал заглушку по IP, а не «не нашёл».
+  if (items.length !== rawCount || items.length === 0) {
+    console.warn(`rutube: count=${data.count ?? '?'} raw=${rawCount} kept=${items.length} q="${q}"`);
   }
   return items;
 }
