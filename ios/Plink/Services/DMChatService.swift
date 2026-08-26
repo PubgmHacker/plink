@@ -788,6 +788,13 @@ final class DMChatService: ObservableObject {
         sendMessage(msg.text, to: friend, replyTo: replyTarget)
     }
 
+    /// Пришла ли по сети история этого диалога.
+    /// Пока не пришла, лента — офлайн-снимок: считать по ней «первое
+    /// непрочитанное» нельзя, в снимке нет только что доставленных сообщений.
+    func historyConfirmed(for friendID: String) -> Bool {
+        historyNetworkConfirmed.contains(conversationID(with: friendID))
+    }
+
     func messages(for friendID: String) -> [DirectMessage] {
         let convID = conversationID(with: friendID)
         let msgs = conversations[convID] ?? []

@@ -135,7 +135,7 @@ enum FriendPresence {
 
     /// Compact status for the chat header capsule (Telegram 2026 style).
     static func headerStatus(isOnline: Bool, lastSeenAt: Date?) -> String {
-        if isOnline { return "в сети · смотреть вместе" }
+        if isOnline { return "в сети" }
         guard let last = lastSeenAt else { return "был(а) недавно" }
         let sec = Date().timeIntervalSince(last)
         if sec < onlineGraceWindow { return "в сети" }

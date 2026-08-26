@@ -50,13 +50,14 @@ struct PlinkApprovedV4Root: View {
     @State private var profileStore: V4ProfileStore?
     @State private var showCreateRoom = false
     @State private var showJoinByCode = false
-    // 25.08.2026: ассистент вернулся вкладкой — и вкладка показывает сам чат,
-    // а не заглушку «Скоро». Экран монтируется один раз и живёт рядом с
-    // остальными вкладками, поэтому «спросить голосом» приходит не флагом
-    // (onAppear отработал бы только на старте), а счётчиком-триггером:
-    // каждый новый запрос увеличивает число, чат ловит onChange и включает
-    // микрофон.
-    @State private var aiVoiceTrigger = 0
+    // 26.08.2026, откат по замечанию владельца: вкладка «ИИ» — это раздел
+    // (лента трейлеров, сфера ассистента и крупное «Скоро»), а не голый чат.
+    // Накануне вкладку подменили разговором, и вместе с ним из приложения
+    // исчезли рилсы и сфера. Раздел вернулся, разговор снова живёт отдельной
+    // поверхностью поверх вкладок: у ленты и у чата разные роли.
+    @State private var showAIChat = false
+    /// «Спросить голосом» — тот же чат, но с сразу включённым микрофоном.
+    @State private var aiChatAutoVoice = false
     @State private var lastSharedRoomCode: String?
     @State private var joinErrorMessage: String?
     @State private var showJoinError = false
@@ -129,13 +130,11 @@ struct PlinkApprovedV4Root: View {
                         .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
                     V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
                         .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
-                    // Вкладка «ИИ» — это сам разговор с ассистентом. Прежняя
-                    // лента-превью V4AIViewLive показывала «Скоро» и вела в тот
-                    // же чат двумя кнопками, поэтому вкладку сняли целиком.
-                    // Теперь вкладка открывает разговор сразу: искра в шапке
-                    // «Главной» ведёт сюда же, а не поднимает второй экран.
-                    V4AIChatView(theme: theme, store: aiStore, isTab: true,
-                                 isActive: tab == 3, voiceTrigger: aiVoiceTrigger)
+                    // Вкладка «ИИ» — раздел целиком: лента трейлеров в
+                    // превью-режиме, поверх неё онбординг со сферой и «Скоро»,
+                    // и два рабочих входа — чат и голос. Разговор поднимается
+                    // отдельным экраном (fullScreenCover ниже).
+                    V4AIViewLive(theme: theme, store: aiStore, isActive: tab == 3)
                         .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                     // Настройки — не вкладка: шесть кнопок теснили таббар, а
                     // маршрут не ежедневный. Вход — строка «Общие настройки»
@@ -249,19 +248,23 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenFriendsTab"))) { _ in
             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 2 }
         }
-        // Искра в шапке «Главной» ведёт на вкладку «ИИ», а не поднимает
-        // второй экран поверх: разговор один, и место у него одно.
+        // Разговор с ассистентом — поверхность над вкладками: его зовут и с
+        // ленты «ИИ», и из поиска на «Главной».
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIChat)) { _ in
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 3 }
+            aiChatAutoVoice = false
+            showAIChat = true
         }
         // 03.08.2026: «спросить голосом» больше не отдельный экран — это тот же
         // чат с включённым микрофоном.
         .onReceive(NotificationCenter.default.publisher(for: .plinkOpenAIVoice)) { _ in
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 3 }
-            aiVoiceTrigger += 1
+            aiChatAutoVoice = true
+            showAIChat = true
         }
 
         core
+        .fullScreenCover(isPresented: $showAIChat, onDismiss: { aiChatAutoVoice = false }) {
+            V4AIChatView(theme: theme, store: aiStore, autoStartVoice: aiChatAutoVoice)
+        }
         .sheet(isPresented: $showCreateRoom) {
             RoomCreationView(onRoomCreated: handleRoomCreated)
                 .environmentObject(APIClient.shared)
@@ -629,8 +632,8 @@ struct PlinkLiquidTabBar: View {
     private var activeSecondary: Color { let (_, c1, _, _) = theme.colors; return c1 }
 
     // M25 i18n: подписи через LocalizationManager (RU/EN/ZH).
-    // 25.08.2026: вкладок пять. «Вечера» = комнаты + история, «ИИ» открывает
-    // сам разговор с ассистентом. Друзья остаются на индексе 2:
+    // 25.08.2026: вкладок пять. «Вечера» = комнаты + история, «ИИ» — раздел
+    // ленты с ассистентом. Друзья остаются на индексе 2:
     // plinkOpenFriendsTab/pendingChat шлют tab=2; ассистент — 3, профиль — 4.
     private var items: [(String, String)] {
         let l = LocalizationManager.shared

@@ -13,7 +13,6 @@ struct DMChatView: View {
     @State private var showEmojiPicker = false
     @State private var showWatchTogether = false
     @State private var showPeerProfile = false
-    @State private var showChatActions = false
     @State private var confirmDeleteChat = false
     @State private var confirmBlockUser = false
     @State private var reactionTarget: DirectMessage?
@@ -49,14 +48,39 @@ struct DMChatView: View {
     @State private var photoCaption = ""
     @State private var photoError: String?
     @ObservedObject private var blockManager = UserBlockManager.shared
+    // 26.08.2026, поиск по переписке. Шапка превращается в поле ввода, низ —
+    // в навигатор совпадений «N из M» со стрелками: так это устроено в
+    // Telegram, и так поиск не отнимает место у переписки, пока не нужен.
+    @State private var isSearching = false
+    @State private var searchQuery = ""
+    /// Номер текущего совпадения, 0 — самое свежее.
+    @State private var searchHitIndex = 0
+    @FocusState private var isSearchFocused: Bool
+    /// Подсветка строки. Зажигается на прыжке к цитате и на переходе по
+    /// совпадению: без неё непонятно, куда именно уехал список.
+    @State private var flashMessageID: String?
+    /// Низ переписки на экране. От этого зависит кнопка «вниз» — как в
+    /// Telegram, она приходит, только когда читаешь историю.
+    @State private var isAtBottom = true
+    /// Ширина ленты сообщений — считается один раз на список и раздаётся
+    /// строкам, чтобы пузырь знал свой потолок без собственного измерителя.
+    @State private var listWidth: CGFloat = 0
+    /// Сколько было непрочитано в момент открытия. Снимок берётся ДО
+    /// `chatDidOpen`, который обнуляет счётчик.
+    @State private var openUnread: Int = -1
+    /// Сообщение, над которым стоит полоса «Непрочитанные сообщения».
+    /// Ставится один раз и не прыгает, пока чат открыт, — как в Telegram.
+    @State private var unreadAnchorID: String?
+    @State private var unreadAnchorDone = false
+    @State private var unreadScrollDone = false
 
     /// Telegram iOS 2026 private-chat navigation metrics.
     private enum TGHeader {
-        /// Avatar sits on the right (Telegram 2025–26 chat header)
-        static let avatar: CGFloat = 40
+        /// Аватар стоит слева, сразу за стрелкой «назад» (Telegram/WhatsApp).
+        static let avatar: CGFloat = 36
         static let barHeight: CGFloat = 52
-        static let nameSize: CGFloat = 16
-        static let statusSize: CGFloat = 12
+        static let nameSize: CGFloat = 16.5
+        static let statusSize: CGFloat = 12.5
         /// Classic Telegram “online” green
         static let online = Color(red: 0.20, green: 0.78, blue: 0.35)
     }
@@ -103,17 +127,6 @@ struct DMChatView: View {
             ?? ""
     }
 
-    private var meLetter: String {
-        let name = UserDefaults.standard.string(forKey: "plink_current_display_name")
-            ?? UserDefaults.standard.string(forKey: "plink_current_username")
-            ?? "?"
-        return PlinkAvatarURL.letter(from: name)
-    }
-
-    private var meAvatarURL: URL? {
-        PlinkAvatarURL.stable(userId: meId.isEmpty ? nil : meId, stored: nil)
-    }
-
     private var messages: [DirectMessage] {
         dmService.messages(for: friend.id)
     }
@@ -122,8 +135,8 @@ struct DMChatView: View {
         ZStack {
             wallpaper.background
 
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
+            ScrollViewReader { proxy in
+              VStack(spacing: 0) {
                     VStack(spacing: 0) {
                     if let pin = currentPins.last {
                         pinnedBar(pin, proxy: proxy)
@@ -156,8 +169,7 @@ struct DMChatView: View {
                                         }
                                     }
                             }
-                            DMDayDivider(label: "Сегодня")
-
+                            let searchHitID = isSearching ? currentHitID : nil
                             ForEach(Array(messages.enumerated()), id: \.element.id) { index, msg in
                                 let own = msg.isFromCurrentUser(currentUserId: meId)
                                 let prevId = index > 0 ? messages[index - 1].senderID : nil
@@ -168,11 +180,19 @@ struct DMChatView: View {
                                     nextSenderId: nextId,
                                     isOwn: own
                                 )
+                                if index == 0 || !Calendar.current.isDate(
+                                    msg.timestamp,
+                                    inSameDayAs: messages[index - 1].timestamp
+                                ) {
+                                    DMDayDivider(label: DMDayLabel.text(for: msg.timestamp))
+                                }
+                                if msg.id == unreadAnchorID {
+                                    DMUnreadDivider()
+                                }
                                 DMMessageRow(
                                     message: msg,
                                     isOwn: own,
-                                    avatarURL: own ? meAvatarURL : peerAvatarURL,
-                                    letter: own ? meLetter : peerLetter,
+                                    containerWidth: listWidth,
                                     cluster: cluster,
                                     onReact: { reactionTarget = msg },
                                     onToggleChip: { emoji in
@@ -184,8 +204,6 @@ struct DMChatView: View {
                                             )
                                         }
                                     },
-                                    senderIsAdmin: own ? (AuthService.shared.currentUserValue?.isAdmin ?? false) : false,
-                                    senderIsPremium: own ? (AuthService.shared.currentUserValue?.isPremium ?? false) : false,
                                     replySenderName: msg.replyPreviewSenderID.map { $0 == meId ? "Вы" : liveFriend.displayTitle },
                                     isSelecting: isSelecting,
                                     isSelected: selectedMessageIDs.contains(msg.id),
@@ -199,6 +217,7 @@ struct DMChatView: View {
                                     onToggleSelection: { toggleSelection(msg) },
                                     onQuoteTap: { quotedId in
                                         withAnimation { proxy.scrollTo(quotedId, anchor: .center) }
+                                        flash(quotedId)
                                     },
                                     onEdit: { startEdit(msg) },
                                     onDelete: { deleteTarget = msg },
@@ -208,11 +227,38 @@ struct DMChatView: View {
                                 .id(msg.id)
                                 .padding(.horizontal, 8)
                                 .padding(.top, cluster.topPadding)
+                                // Полоса подсветки: прыжок к цитате и переход
+                                // по совпадению поиска гасят её через секунду.
+                                .background {
+                                    if flashMessageID == msg.id || searchHitID == msg.id {
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .fill(Cinema2026.accent.opacity(0.16))
+                                            .padding(.horizontal, -4)
+                                            .padding(.vertical, -3)
+                                    }
+                                }
                             }
+
+                            // Маркер низа: пока он на экране, кнопка «вниз»
+                            // не нужна. LazyVStack снимает его с рендера, как
+                            // только читатель ушёл в историю.
+                            Color.clear
+                                .frame(height: 8)
+                                .id("dm-bottom-sentinel")
+                                .onAppear { isAtBottom = true }
+                                .onDisappear { isAtBottom = false }
                         }
                         .padding(.vertical, 12)
-                        .padding(.bottom, 8)
                     }
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { listWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, width in
+                                    listWidth = width
+                                }
+                        }
+                    )
                     .scrollDismissesKeyboard(.interactively)
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 24)
@@ -239,8 +285,31 @@ struct DMChatView: View {
                             scrollToBottom(proxy: proxy, animated: false)
                         }
                     }
+                    // Телеграм открывает чат на первом непрочитанном, а не на дне.
+                    // Задержка — чтобы прыжок лёг поверх автоскролла вниз,
+                    // который срабатывает на том же приходе истории.
+                    .onChange(of: unreadAnchorID) { _, id in
+                        guard let id, !unreadScrollDone else { return }
+                        unreadScrollDone = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo(id, anchor: .top)
+                        }
                     }
-                }
+                    // Новый запрос — сразу к самому свежему совпадению.
+                    .onChange(of: searchQuery) { _, _ in
+                        searchHitIndex = 0
+                        focusSearchHit(0, proxy: proxy)
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !isAtBottom && !isSearching {
+                            scrollDownButton(proxy: proxy)
+                                .padding(.trailing, 12)
+                                .padding(.bottom, 12)
+                                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isAtBottom)
+                    }
 
                 if showEmojiPicker {
                     EmojiPickerGrid(chatText: $messageText)
@@ -258,11 +327,14 @@ struct DMChatView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                if isSelecting {
+                if isSearching {
+                    searchNavigatorBar(proxy: proxy)
+                } else if isSelecting {
                     selectionActionBar
                 } else {
                     glassInputBar
                 }
+              }
             }
         }
         // Telegram: fixed top bar over chat (safe-area aware)
@@ -409,6 +481,7 @@ struct DMChatView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
+            if openUnread < 0 { openUnread = dmService.unreadCount(for: friend.id) }
             dmService.chatDidOpen(friendId: friend.id)
             Task { await dmService.refreshUnread() }
             // Telegram-style draft: restore unsent text for this chat
@@ -426,6 +499,9 @@ struct DMChatView: View {
                 UserDefaults.standard.set(draft, forKey: "plink.dm_draft_\(friend.id)")
             }
         }
+        .onChange(of: messages.count) { _, _ in resolveUnreadAnchor() }
+        // Сеть могла подтвердить историю, не изменив длину ленты.
+        .onChange(of: dmService.historyEpoch) { _, _ in resolveUnreadAnchor() }
         .onReceive(NotificationCenter.default.publisher(for: .plinkChatWallpaperChanged)) { _ in
             wallpaper = PlinkChatWallpaperPrefs.current
         }
@@ -517,6 +593,211 @@ struct DMChatView: View {
 
     private func orderedSelectedIDs() -> [String] {
         messages.filter { selectedMessageIDs.contains($0.id) }.map(\.id)
+    }
+
+    /// Вход в режим выделения из меню — без предвыбранного сообщения.
+    private func startSelection() {
+        HapticManager.impact(.light)
+        endSearch()
+        withAnimation {
+            isSelecting = true
+            selectedMessageIDs = []
+        }
+    }
+
+    // MARK: Поиск по переписке
+
+    /// Совпадения в хронологическом порядке. Голосовые пропускаем: их text —
+    /// служебный маркер длительности, а не слова. У фото text — подпись,
+    /// она ищется наравне с обычными сообщениями.
+    private var searchHits: [DirectMessage] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        return messages.filter { msg in
+            guard !msg.isVoiceNote else { return false }
+            return msg.text.range(
+                of: query,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) != nil
+        }
+    }
+
+    /// id совпадения под курсором. Нумерация от свежего: «1 из 12» — это
+    /// последнее по времени, как в Telegram.
+    private var currentHitID: String? {
+        let hits = searchHits
+        guard !hits.isEmpty else { return nil }
+        let idx = min(max(0, searchHitIndex), hits.count - 1)
+        return hits[hits.count - 1 - idx].id
+    }
+
+    private func startSearch() {
+        HapticManager.impact(.light)
+        exitSelection()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+            replyTarget = nil
+            editTarget = nil
+            showEmojiPicker = false
+            searchQuery = ""
+            searchHitIndex = 0
+            isSearching = true
+        }
+        isInputFocused = false
+        // Клавиатура — после того, как поле встало в шапку: иначе фокус
+        // уходит в исчезающую строку заголовка.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            isSearchFocused = true
+        }
+    }
+
+    private func endSearch() {
+        guard isSearching else { return }
+        isSearchFocused = false
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+            isSearching = false
+            searchQuery = ""
+            searchHitIndex = 0
+            flashMessageID = nil
+        }
+    }
+
+    private func focusSearchHit(_ index: Int, proxy: ScrollViewProxy) {
+        let hits = searchHits
+        guard !hits.isEmpty else { return }
+        let clamped = min(max(0, index), hits.count - 1)
+        searchHitIndex = clamped
+        let msg = hits[hits.count - 1 - clamped]
+        withAnimation(.easeInOut(duration: 0.28)) {
+            proxy.scrollTo(msg.id, anchor: .center)
+        }
+    }
+
+    /// Где поставить полосу «Непрочитанные сообщения»: отсчитываем от конца
+    /// столько входящих, сколько чат числил непрочитанными при открытии.
+    private func resolveUnreadAnchor() {
+        guard !unreadAnchorDone, openUnread > 0, !messages.isEmpty else { return }
+        // Офлайн-снимок короче свежей истории ровно на только что доставленные
+        // сообщения — отсчёт по нему уводил полосу на столько же строк вверх.
+        guard dmService.historyConfirmed(for: friend.id) else { return }
+        unreadAnchorDone = true
+        let incoming = messages.filter { !$0.isFromCurrentUser(currentUserId: meId) }
+        guard incoming.count >= openUnread else { return }
+        let anchor = incoming[incoming.count - openUnread]
+        // Над самым первым сообщением переписки полоса выглядит мусором.
+        guard let idx = messages.firstIndex(where: { $0.id == anchor.id }), idx > 0 else { return }
+        unreadAnchorID = anchor.id
+    }
+
+    /// Короткая вспышка под строкой — след прыжка к цитате.
+    private func flash(_ id: String) {
+        withAnimation(.easeOut(duration: 0.16)) { flashMessageID = id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            guard flashMessageID == id else { return }
+            withAnimation(.easeInOut(duration: 0.45)) { flashMessageID = nil }
+        }
+    }
+
+    /// Кнопка «вниз» с числом непрочитанных — приходит, когда читаешь историю.
+    private func scrollDownButton(proxy: ScrollViewProxy) -> some View {
+        let unread = dmService.unreadCount(for: friend.id)
+        return Button {
+            HapticManager.impact(.light)
+            scrollToBottom(proxy: proxy)
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(width: 40, height: 40)
+                .plinkGlass(.control, in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.16), lineWidth: 0.8))
+                .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+                .overlay(alignment: .top) {
+                    if unread > 0 {
+                        Text(unread > 99 ? "99+" : "\(unread)")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Cinema2026.accent, in: Capsule())
+                            .overlay(Capsule().stroke(Color.black.opacity(0.4), lineWidth: 1))
+                            .offset(y: -8)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            unread > 0
+            ? "Вниз, непрочитанных \(unread)"
+            : "Вниз, к последним сообщениям"
+        )
+    }
+
+    /// Низ в режиме поиска: счётчик и стрелки по совпадениям.
+    private func searchNavigatorBar(proxy: ScrollViewProxy) -> some View {
+        let hits = searchHits
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let total = hits.count
+        return HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(
+                    query.isEmpty
+                    ? "Введите запрос"
+                    : (total == 0 ? "Ничего не найдено" : "\(min(searchHitIndex + 1, total)) из \(total)")
+                )
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(total == 0 ? Color.white.opacity(0.5) : Color.white.opacity(0.9))
+                // Честная оговорка: сервер поиска не отдаёт, ищем по тому,
+                // что уже загружено. Скролл вверх подтягивает старые страницы.
+                if dmService.hasMoreHistory(for: friend.id) {
+                    Text("По загруженной истории")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+            }
+            Spacer(minLength: 8)
+            searchStepButton(
+                icon: "chevron.up",
+                label: "Совпадение раньше",
+                enabled: searchHitIndex < total - 1
+            ) {
+                focusSearchHit(searchHitIndex + 1, proxy: proxy)
+            }
+            searchStepButton(
+                icon: "chevron.down",
+                label: "Совпадение позже",
+                enabled: searchHitIndex > 0 && total > 0
+            ) {
+                focusSearchHit(searchHitIndex - 1, proxy: proxy)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
+        }
+    }
+
+    private func searchStepButton(
+        icon: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            HapticManager.selection()
+            action()
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(enabled ? Color.white.opacity(0.92) : Color.white.opacity(0.28))
+                .frame(width: 36, height: 36)
+                .plinkGlass(.control, in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.7))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
     }
 
     /// Telegram pinned-message bar (top of chat, tap → scroll to message).
@@ -702,136 +983,232 @@ struct DMChatView: View {
         }
     }
 
-    private var telegramNavBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                // ── Left: back to all chats (glass pill + unread indicator)
-                Button {
-                    HapticManager.selection()
-                    dismiss()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .bold))
-                        Text(LocalizationManager.shared.string(.dmChatsBack))
-                            .font(.system(size: 16, weight: .semibold))
-                        if chatsUnreadBadge > 0 {
-                            Text(chatsUnreadBadge > 99 ? "99+" : "\(chatsUnreadBadge)")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Cinema2026.accent, in: Capsule())
+    /// Обычная шапка: «‹ Чаты», ник с присутствием, аватар и меню.
+    private var chatTitleRow: some View {
+        HStack(spacing: 8) {
+            // ── Назад к списку чатов + счётчик непрочитанных (WhatsApp/Telegram).
+            // Раньше здесь стояла стеклянная капсула «‹ Чаты»: вместе с
+            // центральной капсулой ника она съедала ширину, и статус обрезался
+            // многоточием («в сети · смотреть вме…»).
+            Button {
+                HapticManager.selection()
+                dismiss()
+            } label: {
+                HStack(spacing: 2) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
+                    if chatsUnreadBadge > 0 {
+                        Text(chatsUnreadBadge > 99 ? "99+" : "\(chatsUnreadBadge)")
+                            .font(.system(size: 15, weight: .semibold))
+                            .monospacedDigit()
+                    }
+                }
+                .foregroundStyle(Cinema2026.accent)
+                .frame(minWidth: 26, minHeight: 40, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                chatsUnreadBadge > 0
+                ? "К чатам, непрочитанных \(chatsUnreadBadge)"
+                : "К чатам"
+            )
+
+            // ── Аватар + ник и присутствие: одна цель нажатия → профиль
+            Button {
+                HapticManager.impact(.light)
+                showPeerProfile = true
+            } label: {
+                HStack(spacing: 10) {
+                    Group {
+                        if liveFriend.deleted {
+                            PlinkDeletedAvatar(size: TGHeader.avatar)
+                        } else {
+                            PlinkStableAvatar(
+                                url: peerAvatarURL,
+                                letter: peerLetter,
+                                size: TGHeader.avatar,
+                                userId: liveFriend.id
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                            )
+                            .overlay(alignment: .bottomTrailing) {
+                                if headerIsOnline {
+                                    Circle()
+                                        .fill(TGHeader.online)
+                                        .frame(width: 10, height: 10)
+                                        .overlay(Circle().stroke(Color.black.opacity(0.5), lineWidth: 1.5))
+                                        .offset(x: 1, y: 1)
+                                }
+                            }
                         }
                     }
-                    .foregroundStyle(.white.opacity(0.95))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .plinkGlass(.control, in: Capsule(style: .continuous))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.14), lineWidth: 0.7)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    chatsUnreadBadge > 0
-                    ? "К чатам, непрочитанных \(chatsUnreadBadge)"
-                    : "К чатам"
-                )
+                    .id("tg-av-\(liveFriend.id)-\(friendManager.avatarEpoch)-\(peerAvatarURL?.absoluteString ?? "")")
 
-                Spacer(minLength: 4)
-
-                // ── Center: glass capsule with nick + presence (tap → profile)
-                Button {
-                    HapticManager.impact(.light)
-                    showPeerProfile = true
-                } label: {
-                    VStack(spacing: 1) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(liveFriend.displayTitle)
                             .font(.system(size: TGHeader.nameSize, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                         Text(headerPresence)
-                            .font(.system(size: TGHeader.statusSize, weight: headerIsOnline ? .semibold : .regular))
+                            .font(.system(size: TGHeader.statusSize, weight: headerIsOnline ? .medium : .regular))
                             .foregroundStyle(
                                 headerIsOnline
                                 ? TGHeader.online
                                 : Color.white.opacity(0.55)
                             )
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 7)
-                    .frame(minWidth: 120, maxWidth: 200)
-                    .plinkGlass(.control, in: Capsule(style: .continuous))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
-                    )
-                    .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(liveFriend.displayTitle), \(headerPresence)")
+            .accessibilityHint("Открыть профиль")
+
+            // ── Правый блок действий. Место, где мессенджер держит звонок,
+            // у Plink занимает «смотреть вместе» — главное действие продукта.
+            if !liveFriend.deleted {
+                Button {
+                    HapticManager.impact(.light)
+                    showWatchTogether = true
+                } label: {
+                    Image(systemName: "play.rectangle.on.rectangle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(width: 34, height: 34)
+                        .plinkGlass(.control, in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.7))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(liveFriend.displayTitle), \(headerPresence)")
-                .accessibilityHint("Открыть профиль")
+                .accessibilityLabel("Смотреть вместе")
+            }
 
-                Spacer(minLength: 4)
-
-                // ── Right: avatar + more
-                HStack(spacing: 8) {
+            Menu {
+                Section {
                     Button {
-                        HapticManager.impact(.light)
                         showPeerProfile = true
                     } label: {
-                        Group {
-                            if liveFriend.deleted {
-                                PlinkDeletedAvatar(size: TGHeader.avatar)
-                            } else {
-                                PlinkStableAvatar(
-                                    url: peerAvatarURL,
-                                    letter: peerLetter,
-                                    size: TGHeader.avatar,
-                                    userId: liveFriend.id
-                                )
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                                )
-                                .overlay(alignment: .bottomTrailing) {
-                                    if headerIsOnline {
-                                        Circle()
-                                            .fill(TGHeader.online)
-                                            .frame(width: 11, height: 11)
-                                            .overlay(Circle().stroke(Color.black.opacity(0.45), lineWidth: 1.5))
-                                            .offset(x: 1, y: 1)
-                                    }
-                                }
-                            }
-                        }
-                        .id("tg-av-\(liveFriend.id)-\(friendManager.avatarEpoch)-\(peerAvatarURL?.absoluteString ?? "")")
+                        Label("Профиль", systemImage: "person.crop.circle")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Профиль \(liveFriend.displayTitle)")
-
-                    Button {
-                        HapticManager.impact(.light)
-                        showChatActions = true
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .frame(width: 34, height: 34)
-                            .plinkGlass(.control, in: Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Ещё")
                 }
-                .padding(.trailing, 2)
+                Section {
+                    Button {
+                        startSearch()
+                    } label: {
+                        Label("Поиск по переписке", systemImage: "magnifyingglass")
+                    }
+                    if !messages.isEmpty {
+                        Button {
+                            startSelection()
+                        } label: {
+                            Label("Выбрать сообщения", systemImage: "checkmark.circle")
+                        }
+                    }
+                }
+                Section {
+                    if blockManager.isBlocked(liveFriend.id) {
+                        Button {
+                            blockManager.unblockUser(liveFriend.id)
+                            HapticManager.impact(.light)
+                        } label: {
+                            Label("Разблокировать", systemImage: "hand.raised.slash")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            confirmBlockUser = true
+                        } label: {
+                            Label("Заблокировать", systemImage: "hand.raised")
+                        }
+                    }
+                    Button(role: .destructive) {
+                        confirmDeleteChat = true
+                    } label: {
+                        Label("Удалить чат", systemImage: "trash")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .frame(width: 34, height: 34)
+                    .plinkGlass(.control, in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.7))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(minHeight: TGHeader.barHeight)
+            .menuOrder(.fixed)
+            // Глобальный акцент красил и значки пунктов: у «Удалить чат»
+            // получалась красная подпись с оранжевой корзиной. В меню
+            // значок должен идти в цвет подписи — нейтральный у обычных,
+            // красный у опасных.
+            .tint(Color.primary)
+            .accessibilityLabel("Ещё")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 12)
+        .padding(.vertical, 6)
+        .frame(minHeight: TGHeader.barHeight)
+    }
+
+    /// Шапка в режиме поиска: поле на всю ширину и «Отмена». Telegram делает
+    /// так же — поиск занимает шапку целиком, а не теснит ник и аватар.
+    private var searchFieldRow: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                TextField(
+                    "",
+                    text: $searchQuery,
+                    prompt: Text("Поиск по переписке").foregroundColor(.white.opacity(0.45))
+                )
+                .font(.system(size: 15))
+                .foregroundStyle(.white)
+                .tint(Cinema2026.accent)
+                .submitLabel(.search)
+                .focused($isSearchFocused)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                if !searchQuery.isEmpty {
+                    Button {
+                        searchQuery = ""
+                        isSearchFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Очистить запрос")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .plinkGlass(.control, in: Capsule(style: .continuous))
+            .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 0.7))
+
+            Button("Отмена") { endSearch() }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Cinema2026.accent)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(minHeight: TGHeader.barHeight)
+    }
+
+    private var telegramNavBar: some View {
+        VStack(spacing: 0) {
+            if isSearching {
+                searchFieldRow.transition(.opacity)
+            } else {
+                chatTitleRow.transition(.opacity)
+            }
 
             Rectangle()
                 .fill(Color.white.opacity(0.08))
@@ -852,30 +1229,6 @@ struct DMChatView: View {
                     )
                 )
                 .ignoresSafeArea(edges: .top)
-        }
-        .confirmationDialog(
-            liveFriend.displayTitle,
-            isPresented: $showChatActions,
-            titleVisibility: .visible
-        ) {
-            Button("Профиль") { showPeerProfile = true }
-            if !liveFriend.deleted {
-                Button("Смотреть вместе") { showWatchTogether = true }
-            }
-            Button("Удалить чат", role: .destructive) {
-                confirmDeleteChat = true
-            }
-            if blockManager.isBlocked(liveFriend.id) {
-                Button("Разблокировать") {
-                    blockManager.unblockUser(liveFriend.id)
-                    HapticManager.impact(.light)
-                }
-            } else {
-                Button("Заблокировать", role: .destructive) {
-                    confirmBlockUser = true
-                }
-            }
-            Button("Отмена", role: .cancel) {}
         }
         .alert("Удалить чат?", isPresented: $confirmDeleteChat) {
             Button("Удалить", role: .destructive) {
@@ -1021,77 +1374,6 @@ struct DMChatView: View {
 
     // MARK: - Voice recording (Telegram / VK style)
 
-    private var composerLeading: some View {
-        HStack(spacing: 10) {
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                Image(systemName: "plus")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Cinema2026.accent)
-                    .frame(width: 34, height: 34)
-                    .background(Color.white.opacity(0.08), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Галерея")
-            .simultaneousGesture(TapGesture().onEnded { Task { await PlinkPermissions.preparePhotoPicker() } })
-
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    showEmojiPicker.toggle()
-                }
-                if showEmojiPicker { isInputFocused = false }
-            } label: {
-                Image(systemName: showEmojiPicker ? "keyboard.fill" : "face.smiling.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(showEmojiPicker ? Cinema2026.accent : Color.white.opacity(0.55))
-                    .frame(width: 34, height: 36)
-            }
-
-            TextField("Сообщение", text: $messageText, axis: .vertical)
-                .font(.system(size: 17))
-                .foregroundStyle(.white)
-                .lineLimit(1...5)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .frame(minHeight: 42)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.08))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 0.7)
-                )
-                .focused($isInputFocused)
-                .submitLabel(.send)
-                .onSubmit { sendAction() }
-                .onChange(of: messageText) { _, newValue in
-                    if !newValue.isEmpty, editTarget == nil {
-                        dmService.sendTyping(friendId: friend.id)
-                    }
-                    if newValue.count > charLimit {
-                        messageText = String(newValue.prefix(charLimit))
-                        HapticManager.impact(.light)
-                    }
-                }
-                // M25 UX: счётчик символов появляется при приближении к лимиту
-                .overlay(alignment: .topTrailing) {
-                    if messageText.count >= charLimit - 40 {
-                        Text("\(messageText.count)/\(charLimit)")
-                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(messageText.count >= charLimit ? Color.red : Color.white.opacity(0.5))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.black.opacity(0.55)))
-                            .offset(x: -10, y: -9)
-                            .transition(.opacity)
-                            .animation(.easeInOut(duration: 0.15), value: messageText.count >= charLimit)
-                    }
-                }
-        }
-    }
-
-    /// Left side of bar while holding: cancel hint + levels + timer.
     private var voiceRecordingLeading: some View {
         HStack(spacing: 10) {
             HStack(spacing: 5) {
@@ -1112,6 +1394,84 @@ struct DMChatView: View {
                 .font(.system(size: 15, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .frame(minWidth: 40, alignment: .trailing)
+        }
+    }
+
+    /// Поле ввода мессенджера 2026: смайл и скрепка живут ВНУТРИ капсулы,
+    /// снаружи остаётся один круг — микрофон или отправка. Раньше обе кнопки
+    /// стояли слева отдельно и отжимали поле почти на треть ширины.
+    private var composerLeading: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    showEmojiPicker.toggle()
+                }
+                if showEmojiPicker { isInputFocused = false }
+            } label: {
+                Image(systemName: showEmojiPicker ? "keyboard" : "face.smiling")
+                    // face.smiling — сплошной диск: рядом с волосяной скрепкой
+                    // он бил пятном, поэтому глушим его до её оптического веса.
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(showEmojiPicker ? Cinema2026.accent : Color.white.opacity(0.34))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(showEmojiPicker ? "Клавиатура" : "Эмодзи")
+
+            TextField("Сообщение", text: $messageText, axis: .vertical)
+                .font(.system(size: 17))
+                .foregroundStyle(.white)
+                .lineLimit(1...5)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 30)
+                .focused($isInputFocused)
+                .submitLabel(.send)
+                .onSubmit { sendAction() }
+                .onChange(of: messageText) { _, newValue in
+                    if !newValue.isEmpty, editTarget == nil {
+                        dmService.sendTyping(friendId: friend.id)
+                    }
+                    if newValue.count > charLimit {
+                        messageText = String(newValue.prefix(charLimit))
+                        HapticManager.impact(.light)
+                    }
+                }
+
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Галерея")
+            .simultaneousGesture(TapGesture().onEnded { Task { await PlinkPermissions.preparePhotoPicker() } })
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.7)
+        )
+        // M25 UX: счётчик символов появляется при приближении к лимиту
+        .overlay(alignment: .topTrailing) {
+            if messageText.count >= charLimit - 40 {
+                Text("\(messageText.count)/\(charLimit)")
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(messageText.count >= charLimit ? Color.red : Color.white.opacity(0.5))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.black.opacity(0.55)))
+                    .offset(x: -10, y: -9)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.15), value: messageText.count >= charLimit)
+            }
         }
     }
 
@@ -1247,13 +1607,15 @@ struct DMChatView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
-        guard let lastID = messages.last?.id else { return }
+        guard !messages.isEmpty else { return }
+        // Цель — маркер низа, а не последний пузырь: по пузырю лента вставала
+        // так, что маркер оставался под сгибом и кнопка «вниз» не гасла.
         if animated {
             withAnimation(.easeOut(duration: 0.22)) {
-                proxy.scrollTo(lastID, anchor: .bottom)
+                proxy.scrollTo("dm-bottom-sentinel", anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(lastID, anchor: .bottom)
+            proxy.scrollTo("dm-bottom-sentinel", anchor: .bottom)
         }
     }
 
@@ -1366,14 +1728,12 @@ private struct DMCircleAvatar: View {
 private struct DMMessageRow: View {
     let message: DirectMessage
     let isOwn: Bool
-    var avatarURL: URL?
-    var letter: String = "?"
+    /// Ширина ленты. Меряет её один GeometryReader на весь список, а не
+    /// каждая строка по отдельности.
+    var containerWidth: CGFloat = 0
     var cluster: ChatClusterLayout
     var onReact: () -> Void
     var onToggleChip: (String) -> Void
-    /// Sender roles — drive admin/premium ring on chat avatar.
-    var senderIsAdmin: Bool = false
-    var senderIsPremium: Bool = false
     // Telegram-style features
     var replySenderName: String? = nil
     var isSelecting: Bool = false
@@ -1390,54 +1750,51 @@ private struct DMMessageRow: View {
     var isFailed: Bool = false
     var onRetry: () -> Void = {}
 
+    /// До 26.08.2026 строка была обёрнута в GeometryReader ради этой цифры.
+    /// GeometryReader не имеет собственной высоты: он берёт предложенную, а
+    /// при `fixedSize` отдаёт запасные 10pt. Из-за этого КАЖДОЕ сообщение
+    /// занимало в потоке ~10pt и пузыри наезжали друг на друга стопкой —
+    /// то, что раньше пробовали лечить увеличением clusterGapSame.
+    private var bubbleMaxWidth: CGFloat {
+        guard containerWidth > 0 else { return PlinkTelegramBubbleMetrics.maxBubbleWidth }
+        return min(
+            PlinkTelegramBubbleMetrics.maxBubbleWidth,
+            containerWidth * PlinkTelegramBubbleMetrics.maxWidthRatio
+        )
+    }
+
     var body: some View {
-        GeometryReader { geo in
-            DMBubble(
-                message: message,
-                isOwn: isOwn,
-                avatarURL: avatarURL,
-                letter: letter,
-                cluster: cluster,
-                maxBubbleWidth: min(
-                    PlinkTelegramBubbleMetrics.maxBubbleWidth,
-                    geo.size.width * PlinkTelegramBubbleMetrics.maxWidthRatio
-                ),
-                onReact: onReact,
-                onToggleChip: onToggleChip,
-                senderIsAdmin: senderIsAdmin,
-                senderIsPremium: senderIsPremium,
-                replySenderName: replySenderName,
-                isSelecting: isSelecting,
-                isSelected: isSelected,
-                onReply: onReply,
-                onPinRequest: onPinRequest,
-                onForward: onForward,
-                onSelect: onSelect,
-                onToggleSelection: onToggleSelection,
-                onQuoteTap: onQuoteTap,
-                onEdit: onEdit,
-                onDelete: onDelete,
-                isFailed: isFailed,
-                onRetry: onRetry
-            )
-        }
-        .frame(minHeight: 1)
-        .fixedSize(horizontal: false, vertical: true)
+        DMBubble(
+            message: message,
+            isOwn: isOwn,
+            cluster: cluster,
+            maxBubbleWidth: bubbleMaxWidth,
+            onReact: onReact,
+            onToggleChip: onToggleChip,
+            replySenderName: replySenderName,
+            isSelecting: isSelecting,
+            isSelected: isSelected,
+            onReply: onReply,
+            onPinRequest: onPinRequest,
+            onForward: onForward,
+            onSelect: onSelect,
+            onToggleSelection: onToggleSelection,
+            onQuoteTap: onQuoteTap,
+            onEdit: onEdit,
+            onDelete: onDelete,
+            isFailed: isFailed,
+            onRetry: onRetry
+        )
     }
 }
 
 private struct DMBubble: View {
     let message: DirectMessage
     let isOwn: Bool
-    var avatarURL: URL?
-    var letter: String = "?"
     var cluster: ChatClusterLayout
     var maxBubbleWidth: CGFloat = PlinkTelegramBubbleMetrics.maxBubbleWidth
     var onReact: () -> Void
     var onToggleChip: (String) -> Void
-    /// Sender roles — drive admin/premium ring on chat avatar.
-    var senderIsAdmin: Bool = false
-    var senderIsPremium: Bool = false
     // Telegram-style features
     var replySenderName: String? = nil
     var isSelecting: Bool = false
@@ -1457,7 +1814,12 @@ private struct DMBubble: View {
     /// Horizontal swipe offset (Telegram swipe-to-reply).
     @State private var dragOffset: CGFloat = 0
 
-    private let avatarSize: CGFloat = PlinkTelegramBubbleMetrics.avatarSize
+    /// Текстовый пузырь несёт время внутри себя; фото, голосовые и
+    /// декоративные кино-пузыри — нет, им остаётся плашка под пузырём.
+    private var inlineMeta: Bool {
+        guard !message.isVoiceNote, !message.isPhotoMessage else { return false }
+        return PlinkMessageBubble.usesInlineMeta(styleID: message.bubbleStyle, isOwn: isOwn)
+    }
 
     private var photoURL: URL? {
         APIClient.shared.baseURL.appendingPathComponent("messages/photo/\(message.id)")
@@ -1465,11 +1827,10 @@ private struct DMBubble: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if isOwn {
-                Spacer(minLength: 36)
-            } else {
-                avatarSlot
-            }
+            // Личка — разговор двоих: аватарки у каждого сообщения здесь не
+            // нужны (их нет ни в Telegram, ни в WhatsApp, ни в iMessage),
+            // они съедали 40pt ширины и делали ленту «групповой».
+            if isOwn { Spacer(minLength: 52) }
 
             VStack(alignment: isOwn ? .trailing : .leading, spacing: 4) {
                 if let forwarded = message.forwardedFromName {
@@ -1516,6 +1877,7 @@ private struct DMBubble: View {
                         VoiceNoteBubble(
                             message: message,
                             isOwn: isOwn,
+                            isLastInGroup: cluster.isLastInGroup,
                             maxWidth: maxBubbleWidth
                         )
                     } else if message.isPhotoMessage {
@@ -1529,13 +1891,19 @@ private struct DMBubble: View {
                         )
                         .frame(maxWidth: min(maxBubbleWidth, PlinkTelegramBubbleMetrics.maxPhotoBubbleWidth), alignment: isOwn ? .trailing : .leading)
                     } else {
-                        PlinkMessageBubble(
-                            text: message.text,
-                            isOwn: isOwn,
-                            styleID: message.bubbleStyle,
-                            fontSize: PlinkTelegramBubbleMetrics.fontSize,
-                            isLastInGroup: cluster.isLastInGroup
-                        )
+                        PlinkWidthCap(cap: maxBubbleWidth) {
+                            PlinkMessageBubble(
+                                text: message.text,
+                                isOwn: isOwn,
+                                styleID: message.bubbleStyle,
+                                fontSize: PlinkTelegramBubbleMetrics.fontSize,
+                                isLastInGroup: cluster.isLastInGroup,
+                                timeText: inlineMeta ? message.timeString : nil,
+                                showTicks: inlineMeta && isOwn && !isFailed,
+                                isRead: message.isRead,
+                                isEdited: message.editedAt != nil
+                            )
+                        }
                     }
                 }
                 .contextMenu {
@@ -1593,7 +1961,7 @@ private struct DMBubble: View {
                     reactionChips
                 }
 
-                if cluster.isLastInGroup {
+                if !inlineMeta {
                     HStack(spacing: 3) {
                         if message.editedAt != nil {
                             Text(LocalizationManager.shared.string(.dmEdited))
@@ -1612,7 +1980,9 @@ private struct DMBubble: View {
                             .background(Capsule().fill(Color.black.opacity(0.42)))
                         if isOwn && !isFailed {
                             // Telegram ticks: one gray = sent, two blue = read
-                            TelegramReadTicks(isRead: message.isRead)
+                            PlinkReadTicks(isRead: message.isRead,
+                                           color: Color.white.opacity(0.55),
+                                           readColor: Color(red: 0.34, green: 0.78, blue: 1.0))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(Capsule().fill(Color.black.opacity(0.42)))
@@ -1646,11 +2016,7 @@ private struct DMBubble: View {
             .frame(maxWidth: maxBubbleWidth, alignment: isOwn ? .trailing : .leading)
             .fixedSize(horizontal: false, vertical: true)
 
-            if isOwn {
-                avatarSlot
-            } else {
-                Spacer(minLength: 36)
-            }
+            if !isOwn { Spacer(minLength: 52) }
         }
         .frame(maxWidth: .infinity, alignment: isOwn ? .trailing : .leading)
         .overlay(alignment: .leading) {
@@ -1752,21 +2118,6 @@ private struct DMBubble: View {
         }
     }
 
-    @ViewBuilder
-    private var avatarSlot: some View {
-        if cluster.showAvatar {
-            PlinkStableAvatar(
-                url: avatarURL,
-                letter: letter,
-                size: avatarSize,
-                userId: message.senderID,
-                isAdmin: senderIsAdmin,
-                isPremium: senderIsPremium
-            )
-        } else {
-            Color.clear.frame(width: avatarSize, height: avatarSize)
-        }
-    }
 }
 
 // MARK: - Photo preview sheet
@@ -1850,6 +2201,7 @@ struct PhotoSendPreviewSheet: View {
 private struct VoiceNoteBubble: View {
     let message: DirectMessage
     let isOwn: Bool
+    var isLastInGroup: Bool = true
     var maxWidth: CGFloat = PlinkTelegramBubbleMetrics.maxVoiceBubbleWidth
     @State private var player = VoiceNotePlayer.shared
     @State private var playError: String?
@@ -1941,7 +2293,10 @@ private struct VoiceNoteBubble: View {
             )
         }
         .frame(maxWidth: min(maxWidth, PlinkTelegramBubbleMetrics.maxVoiceBubbleWidth), alignment: .leading)
-        .padding(.horizontal, 12)
+        // Полосу под хвост резервируем всегда — иначе голосовые в кластере
+        // разъезжались бы по краю с текстовыми.
+        .padding(.leading, isOwn ? 12 : 12 + V5BubbleShape.tailWidth)
+        .padding(.trailing, isOwn ? 12 + V5BubbleShape.tailWidth : 12)
         .padding(.vertical, PlinkTelegramBubbleMetrics.padV)
         .background(
             // Заливки те же, что у текстовых пузырей (PlinkBubbleStyle.fillLayer):
@@ -1963,9 +2318,9 @@ private struct VoiceNoteBubble: View {
                 }
             }
         )
-        .clipShape(V5BubbleShape(isOutgoing: isOwn, isLastInGroup: true))
+        .clipShape(V5BubbleShape(isOutgoing: isOwn, isLastInGroup: isLastInGroup))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            V5BubbleShape(isOutgoing: isOwn, isLastInGroup: isLastInGroup)
                 .stroke(Color.white.opacity(isOwn ? 0.20 : 0.14), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
@@ -2029,33 +2384,35 @@ private struct VoiceWaveformStrip: View {
     }
 }
 
-// MARK: - Telegram read ticks (✓ / ✓✓)
+// MARK: - Day Divider (glass capsule)
 
-/// Exact Telegram semantics:
-///  - not read → single gray check
-///  - read by peer → two blue checks (slightly overlapping)
-private struct TelegramReadTicks: View {
-    let isRead: Bool
+/// Подпись разделителя. До правки 26.08.2026 капсула была одна на всю
+/// переписку и всегда говорила «Сегодня» — даже над сообщениями прошлого года.
+private enum DMDayLabel {
+    private static let withinYear: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.setLocalizedDateFormatFromTemplate("d MMMM")
+        return f
+    }()
 
-    private var tickColor: Color {
-        isRead ? Color(red: 0.34, green: 0.78, blue: 1.0) : Color.white.opacity(0.45)
-    }
+    private static let otherYear: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.setLocalizedDateFormatFromTemplate("d MMMM yyyy")
+        return f
+    }()
 
-    var body: some View {
-        HStack(spacing: isRead ? -4.5 : 0) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 9, weight: .bold))
-            if isRead {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
-            }
+    static func text(for date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return "Сегодня" }
+        if cal.isDateInYesterday(date) { return "Вчера" }
+        if cal.component(.year, from: date) == cal.component(.year, from: Date()) {
+            return withinYear.string(from: date)
         }
-        .foregroundStyle(tickColor)
-        .accessibilityLabel(isRead ? "Прочитано" : "Отправлено")
+        return otherYear.string(from: date)
     }
 }
-
-// MARK: - Day Divider (glass capsule)
 
 private struct DMDayDivider: View {
     let label: String
@@ -2074,6 +2431,27 @@ private struct DMDayDivider: View {
             .shadow(color: .black.opacity(0.25), radius: 4, y: 1)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
+    }
+}
+
+/// Полоса «Непрочитанные сообщения» — ровно та, что рисует Telegram
+/// над первым непрочитанным. В ленте её не было вовсе: вернувшись в чат,
+/// человек не видел, откуда продолжать читать.
+private struct DMUnreadDivider: View {
+    var body: some View {
+        Text("Непрочитанные сообщения")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.white.opacity(0.92))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.34))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Cinema2026.accent.opacity(0.6))
+                    .frame(height: 0.8)
+            }
+            .padding(.top, 10)
+            .accessibilityLabel("Непрочитанные сообщения")
     }
 }
 

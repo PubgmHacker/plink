@@ -274,7 +274,7 @@ internal struct BubbleStyleRenderer<Content: View>: View {
             .padding(.vertical, 10)
             .background(bubbleBackground(desc))
             .overlay(bubbleOverlay(desc, animate: shouldAnimate))
-            .clipShape(V5BubbleShape(isOutgoing: isOutgoing))
+            .clipShape(V5BubbleShape(isOutgoing: isOutgoing, hasTail: false))
             .onAppear {
                 guard shouldAnimate else { return }
                 triggerAnimation(for: desc.id)
@@ -412,32 +412,78 @@ internal struct BubbleStyleRenderer<Content: View>: View {
 
 // MARK: - V5BubbleShape (renamed to avoid clash with any legacy BubbleShape)
 
-/// Telegram-sized capsule bubble: large continuous corners; slight tail cut
-/// only on the last message of a group (via isLastInGroup on the parent).
+/// Пузырь мессенджера: крупные непрерывные углы и НАСТОЯЩИЙ хвостик
+/// у последнего сообщения серии — как в Telegram/WhatsApp.
+///
+/// 26.08.2026: до правки «хвостиком» был просто угол радиусом 8, и стоял он
+/// СВЕРХУ (topTrailing у исходящих) — перевёрнутая геометрия, которой нет ни
+/// в одном мессенджере. Теперь хвост выходит за корпус снизу-снаружи, а полоса
+/// под него зарезервирована паддингом всегда, чтобы пузыри серии стояли одной
+/// кромкой и хвост торчал только у последнего.
 struct V5BubbleShape: Shape {
     let isOutgoing: Bool
-    /// When false (middle of chain), use fully rounded capsule corners.
+    /// Хвост рисуется только у последнего пузыря серии.
     var isLastInGroup: Bool = true
+    /// Пузыри-картинки клипуются этой же формой — хвост срезал бы кадр,
+    /// поэтому они просят гладкую капсулу.
+    var hasTail: Bool = true
+
+    /// Насколько хвост выходит за корпус.
+    static let tailWidth: CGFloat = 6
 
     func path(in rect: CGRect) -> Path {
-        // Telegram iOS: short messages read as true capsules (radius ≈ half height),
-        // multi-line bubbles keep a large continuous corner (~20–22pt).
-        let r = min(22, max(16, rect.height / 2))
-        var path = Path()
-        // Tail corner is softer than a sharp point (TG ≈ 6–8pt)
-        let tail: CGFloat = isLastInGroup ? 8 : r
-        let tl: CGFloat = isOutgoing ? r : (isLastInGroup ? tail : r)
-        let tr: CGFloat = isOutgoing ? (isLastInGroup ? tail : r) : r
-        let bl: CGFloat = r
-        let br: CGFloat = r
-        path.addRoundedRect(
-            in: rect,
-            cornerRadii: RectangleCornerRadii(
-                topLeading: tl, bottomLeading: bl,
-                bottomTrailing: br, topTrailing: tr
+        var p = outgoingPath(size: rect.size)
+        if !isOutgoing {
+            p = p.applying(
+                CGAffineTransform(scaleX: -1, y: 1)
+                    .concatenating(CGAffineTransform(translationX: rect.width, y: 0))
             )
-        )
-        return path
+        }
+        return p.offsetBy(dx: rect.minX, dy: rect.minY)
+    }
+
+    /// Путь для исходящего пузыря в координатах от нуля; входящий — зеркало.
+    private func outgoingPath(size: CGSize) -> Path {
+        let reserve = hasTail ? Self.tailWidth : 0
+        let w = max(1, size.width - reserve)
+        let h = max(1, size.height)
+        // Короткие реплики читаются капсулой, многострочные держат крупный угол.
+        let rad = min(20, max(13, h / 2))
+        var p = Path()
+
+        guard hasTail, isLastInGroup else {
+            p.addRoundedRect(
+                in: CGRect(x: 0, y: 0, width: w, height: h),
+                cornerRadii: RectangleCornerRadii(
+                    topLeading: rad, bottomLeading: rad,
+                    bottomTrailing: rad, topTrailing: rad
+                )
+            )
+            return p
+        }
+
+        let neck = min(13, max(4, h - rad - 1))   // где корпус уходит в хвост
+        let hook = min(11, max(2, w - rad))       // насколько хвост подворачивается под корпус
+
+        p.move(to: CGPoint(x: rad, y: 0))
+        p.addLine(to: CGPoint(x: w - rad, y: 0))
+        p.addArc(center: CGPoint(x: w - rad, y: rad), radius: rad,
+                 startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        p.addLine(to: CGPoint(x: w, y: h - neck))
+        // наружу к кончику…
+        p.addQuadCurve(to: CGPoint(x: w + reserve, y: h),
+                       control: CGPoint(x: w, y: h - 3))
+        // …и подворот обратно под корпус
+        p.addQuadCurve(to: CGPoint(x: w - hook, y: h),
+                       control: CGPoint(x: w - hook * 0.28, y: h - 1.5))
+        p.addLine(to: CGPoint(x: rad, y: h))
+        p.addArc(center: CGPoint(x: rad, y: h - rad), radius: rad,
+                 startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        p.addLine(to: CGPoint(x: 0, y: rad))
+        p.addArc(center: CGPoint(x: rad, y: rad), radius: rad,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.closeSubpath()
+        return p
     }
 }
 
@@ -447,8 +493,8 @@ struct V5BubbleShape: Shape {
 enum PlinkTelegramBubbleMetrics {
     /// Telegram iOS message body ≈ 17pt
     static let fontSize: CGFloat = 17
-    static let padH: CGFloat = 15
-    static let padV: CGFloat = 11
+    static let padH: CGFloat = 13
+    static let padV: CGFloat = 8
     static let decorativePadH: CGFloat = 20
     static let decorativePadV: CGFloat = 13
     static let decorativeOuter: CGFloat = 11
@@ -461,10 +507,44 @@ enum PlinkTelegramBubbleMetrics {
     static let maxVoiceBubbleWidth: CGFloat = 238
     static let avatarSize: CGFloat = 32
     /// Vertical gap between consecutive same-sender messages.
-    /// Was 2 — too tight, bubbles visually overlapped on iOS 17+.
-    /// 6 gives clean separation without breaking Telegram cluster feel.
-    static let clusterGapSame: CGFloat = 6
-    static let clusterGapNew: CGFloat = 10
+    /// 6 было компенсацией сломанной раскладки строки (GeometryReader без
+    /// собственной высоты) — её починили 26.08.2026, и кластер вернулся к
+    /// телеграмной плотности: 3 внутри серии, 8 между сериями.
+    static let clusterGapSame: CGFloat = 3
+    static let clusterGapNew: CGFloat = 8
+}
+
+// MARK: - Width cap that still hugs content
+
+/// Предлагает ребёнку не больше `cap`, но занимает ровно столько, сколько тот занял.
+/// `.frame(maxWidth:)` растянул бы пузырь на всю доступную ширину вместе с фоном
+/// и зоной длинного нажатия — здесь пузырь обнимает текст и не перерастает лимит.
+struct PlinkWidthCap<Content: View>: View {
+    var cap: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        PlinkWidthCapLayout(cap: cap) { content }
+    }
+}
+
+private struct PlinkWidthCapLayout: Layout {
+    var cap: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let width = min(cap, proposal.width ?? cap)
+        return child.sizeThatFits(ProposedViewSize(width: max(1, width), height: proposal.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        child.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
 }
 
 // MARK: - BubbleIndexTracker
@@ -574,6 +654,30 @@ struct ChatClusterLayout: Equatable {
     }
 }
 
+// MARK: - Read ticks (Telegram)
+
+/// Одна галочка — отправлено, две — прочитано. Живёт рядом со временем
+/// внутри пузыря, поэтому цвет задаётся снаружи под заливку.
+struct PlinkReadTicks: View {
+    let isRead: Bool
+    var color: Color = Color.white.opacity(0.6)
+    var readColor: Color = Color.white
+    var size: CGFloat = 11
+
+    var body: some View {
+        HStack(spacing: isRead ? -4.5 : 0) {
+            Image(systemName: "checkmark")
+                .font(.system(size: size * 0.82, weight: .bold))
+            if isRead {
+                Image(systemName: "checkmark")
+                    .font(.system(size: size * 0.82, weight: .bold))
+            }
+        }
+        .foregroundStyle(isRead ? readColor : color)
+        .accessibilityLabel(isRead ? "Прочитано" : "Отправлено")
+    }
+}
+
 // MARK: - Shared bubble for DM + room chat (TikTok frames + glass capsules)
 
 /// Renders text with the **sender's** bubble / frame style.
@@ -587,6 +691,27 @@ struct PlinkMessageBubble: View {
     var fontSize: CGFloat = PlinkTelegramBubbleMetrics.fontSize
     /// Telegram tail: only last in group gets the "pointy" corner.
     var isLastInGroup: Bool = true
+    /// Telegram-инлайн: время, галочки и «изм.» живут ВНУТРИ пузыря справа снизу.
+    /// Раньше время висело отдельной плашкой на обоях — так не делает ни один
+    /// современный мессенджер, и на пёстрой картинке оно тонуло.
+    var timeText: String? = nil
+    var showTicks: Bool = false
+    var isRead: Bool = false
+    var isEdited: Bool = false
+
+    /// Декоративные кино-пузыри Plink+ рисуются картинкой — инлайн-мета туда
+    /// не влезает, у них время остаётся отдельной строкой.
+    static func usesInlineMeta(styleID: String?, isOwn: Bool) -> Bool {
+        let resolved: String
+        if let styleID, !styleID.isEmpty {
+            resolved = styleID
+        } else if isOwn {
+            resolved = PlinkBubbleStylePrefs.currentID
+        } else {
+            resolved = "bubble-quiet"
+        }
+        return CinemaBubbleStyle(rawValue: BubbleStyleRegistry.migrateLegacyID(resolved)) == nil
+    }
 
     private var frame: BubbleFrameModel {
         if let styleID, !styleID.isEmpty {
@@ -629,10 +754,16 @@ struct PlinkMessageBubble: View {
         let padH: CGFloat = isDecorative ? PlinkTelegramBubbleMetrics.decorativePadH : PlinkTelegramBubbleMetrics.padH
         let padV: CGFloat = isDecorative ? PlinkTelegramBubbleMetrics.decorativePadV : PlinkTelegramBubbleMetrics.padV
 
-        MessageRichText(text: text, fontSize: fontSize, textColor: bubbleTextColor)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-            .padding(.horizontal, padH)
+        HStack(alignment: .bottom, spacing: 7) {
+            MessageRichText(text: text, fontSize: fontSize, textColor: bubbleTextColor)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+            if let timeText {
+                inlineMeta(timeText)
+            }
+        }
+            .padding(.leading, isOwn ? padH : padH + V5BubbleShape.tailWidth)
+            .padding(.trailing, isOwn ? padH + V5BubbleShape.tailWidth : padH)
             .padding(.vertical, padV)
             .background(fillLayer.clipShape(shape))
             .overlay(borderLayer)
@@ -640,6 +771,42 @@ struct PlinkMessageBubble: View {
                 if isDecorative { TikTokFrameDecor(frame: frame) }
             }
             .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+    }
+
+    /// Время + галочки одной строкой у нижней кромки пузыря.
+    @ViewBuilder
+    private func inlineMeta(_ time: String) -> some View {
+        HStack(spacing: 3) {
+            if isEdited {
+                Text("изм.")
+                    .font(.system(size: 11))
+            }
+            Text(time)
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+            if showTicks {
+                PlinkReadTicks(isRead: isRead, color: metaColor, readColor: metaReadColor)
+            }
+        }
+        .foregroundStyle(metaColor)
+        .padding(.bottom, 1)
+        .accessibilityHidden(true)
+    }
+
+    /// Мета читается приглушённо — но не пропадает: на своём (ярком) пузыре
+    /// белый с прозрачностью, на чужом графитовом — тот же белый чуть тусклее.
+    private var metaColor: Color {
+        switch frame {
+        case .accent, .pulse: return Color(hex: "#08222B").opacity(0.55)
+        default: return Color.white.opacity(isOwn ? 0.72 : 0.5)
+        }
+    }
+
+    private var metaReadColor: Color {
+        switch frame {
+        case .accent, .pulse: return Color(hex: "#08222B").opacity(0.8)
+        default: return Color.white.opacity(0.95)
+        }
     }
 
     /// Белый на тёмных заливках; тёмный — на ярких циановых (accent/pulse),
@@ -784,7 +951,7 @@ struct PlinkPhotoMessageBubble: View {
     @State private var loadFailed = false
 
     private var shape: V5BubbleShape {
-        V5BubbleShape(isOutgoing: isOwn, isLastInGroup: isLastInGroup)
+        V5BubbleShape(isOutgoing: isOwn, isLastInGroup: isLastInGroup, hasTail: false)
     }
 
     var body: some View {

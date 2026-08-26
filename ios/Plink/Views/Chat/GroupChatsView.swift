@@ -453,13 +453,15 @@ struct GroupChatView: View {
                             }
                         }
                     } else {
-                        PlinkMessageBubble(
-                            text: msg.content,
-                            isOwn: own,
-                            styleID: nil,
-                            fontSize: 16,
-                            isLastInGroup: true
-                        )
+                        PlinkWidthCap(cap: PlinkTelegramBubbleMetrics.maxBubbleWidth) {
+                            PlinkMessageBubble(
+                                text: msg.content,
+                                isOwn: own,
+                                styleID: nil,
+                                fontSize: 16,
+                                isLastInGroup: true
+                            )
+                        }
                     }
                 }
                 .contextMenu {

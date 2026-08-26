@@ -286,6 +286,30 @@ struct V4FriendsViewLive: View {
                                        avatarURL: nil, isOnline: false,
                                        friendsSince: Date())
             }
+            // `-plink.designdm <userId> [имя]` — сразу личка с этим человеком.
+            // Нужен, чтобы снимать шапку, поиск и разделители дней без прохода
+            // через хаб. Имя необязательно: без него в шапке будет id.
+            if let i = args.firstIndex(of: "-plink.designdm"), args.indices.contains(i + 1) {
+                let key = args[i + 1]
+                // `first` — первый реальный друг из списка: история сообщений
+                // подтягивается, а id не нужно знать заранее.
+                Task { @MainActor in
+                    if key == "first" {
+                        for _ in 0..<75 {
+                            let pool = store?.friends.isEmpty == false
+                                ? (store?.friends ?? [])
+                                : FriendManager.shared.friends
+                            if let friend = pool.first {
+                                dmFriend = friend
+                                return
+                            }
+                            try? await Task.sleep(nanoseconds: 400_000_000)
+                        }
+                        return
+                    }
+                    await presentDM(friendId: key)
+                }
+            }
             #endif
         }
         .onReceive(DeepLinkRouter.shared.$pendingChat) { target in

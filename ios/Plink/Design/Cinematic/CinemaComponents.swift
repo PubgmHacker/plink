@@ -420,6 +420,14 @@ struct MessageRichText: View {
         if parts.count == 1, case .custom(let pack, let name) = parts[0] {
             EmojiAssetImage(name: name, pack: pack)
                 .frame(width: 72, height: 72)
+        } else if parts.count == 1, case .text(let plain) = parts[0] {
+            // Обычный текст без кастомных эмодзи — родной Text: сам переносит строки
+            // и обнимает контент по ширине (пузырь не растягивается на всю строку).
+            Text(plain)
+                .font(.system(size: fontSize, weight: .regular))
+                .foregroundStyle(textColor)
+                .shadow(color: .black.opacity(0.22), radius: 0.5, y: 0.5)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             PlinkEmojiFlow(spacing: 2) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
@@ -453,35 +461,50 @@ struct PlinkEmojiFlow<Content: View>: View {
 private struct PlinkEmojiFlowLayout: Layout {
     var spacing: CGFloat
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxW = proposal.width ?? 280
-        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, h: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x + size.width > maxW, x > 0 {
+    private struct Slot {
+        var index: Int
+        var origin: CGPoint
+        var size: CGSize
+    }
+
+    /// Раскладка в один проход: ширина = реально занятая, а не вся предложенная,
+    /// иначе пузырь распирает на всю строку независимо от длины текста.
+    private func solve(maxW: CGFloat, subviews: Subviews) -> (slots: [Slot], size: CGSize) {
+        let limit = max(1, maxW)
+        var slots: [Slot] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowH: CGFloat = 0
+        var usedW: CGFloat = 0
+
+        for index in subviews.indices {
+            var size = subviews[index].sizeThatFits(ProposedViewSize(width: limit, height: nil))
+            size.width = min(size.width, limit)
+            if x + size.width > limit, x > 0 {
                 y += rowH + spacing
                 x = 0
                 rowH = 0
             }
+            slots.append(Slot(index: index, origin: CGPoint(x: x, y: y), size: size))
             x += size.width + spacing
             rowH = max(rowH, size.height)
-            h = max(h, y + rowH)
+            usedW = max(usedW, x - spacing)
         }
-        return CGSize(width: maxW, height: max(h, rowH))
+
+        return (slots, CGSize(width: max(0, min(limit, usedW)), height: max(0, y + rowH)))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        solve(maxW: proposal.width ?? 280, subviews: subviews).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX, x > bounds.minX {
-                y += rowH + spacing
-                x = bounds.minX
-                rowH = 0
-            }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowH = max(rowH, size.height)
+        for slot in solve(maxW: bounds.width, subviews: subviews).slots {
+            subviews[slot.index].place(
+                at: CGPoint(x: bounds.minX + slot.origin.x, y: bounds.minY + slot.origin.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(slot.size)
+            )
         }
     }
 }

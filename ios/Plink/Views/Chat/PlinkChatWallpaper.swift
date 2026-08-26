@@ -80,13 +80,13 @@ enum PlinkChatWallpaper: String, CaseIterable, Identifiable, Sendable {
 
                 // Soft light orbs for depth (3D feel)
                 Circle()
-                    .fill(Color.white.opacity(isLight ? 0.28 : 0.10))
+                    .fill(Color.white.opacity(isLight ? 0.20 : 0.06))
                     .frame(width: geo.size.width * 0.55)
                     .blur(radius: 50)
                     .offset(x: -geo.size.width * 0.2, y: -geo.size.height * 0.15)
 
                 Circle()
-                    .fill(colors.last?.opacity(0.38) ?? Color.purple.opacity(0.28))
+                    .fill(colors.last?.opacity(0.22) ?? Color.purple.opacity(0.18))
                     .frame(width: geo.size.width * 0.7)
                     .blur(radius: 60)
                     .offset(x: geo.size.width * 0.25, y: geo.size.height * 0.35)
@@ -111,60 +111,47 @@ enum PlinkChatWallpaper: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Scattered sticker “models” like Telegram animated wallpaper patterns.
+/// Узор обоев — как в Telegram: плотная монохромная сетка, а не выставка
+/// цветных стикеров. Раньше эмодзи были 22–36pt в цвете при 0.38 прозрачности
+/// и перебивали сами сообщения; теперь это фактура, которую замечаешь вторым
+/// взглядом. Обесцвечивание + blend делают узор частью подложки, а не слоем
+/// картинок поверх неё.
 private struct TelegramStickerField: View {
     let stickers: [String]
     let size: CGSize
     let isLight: Bool
 
     var body: some View {
-        let cols = 5
-        let rows = 9
+        let cols = 6
         let cellW = size.width / CGFloat(cols)
+        let rows = max(6, Int((size.height / cellW).rounded(.up)))
         let cellH = size.height / CGFloat(rows)
 
-        Canvas { ctx, _ in
-            // Soft bubble circles behind stickers
-            for r in 0..<rows {
-                for c in 0..<cols {
-                    let seed = r * 17 + c * 31
-                    let ox = CGFloat((seed * 13) % 17) - 8
-                    let oy = CGFloat((seed * 7) % 15) - 7
-                    let cx = CGFloat(c) * cellW + cellW * 0.5 + ox
-                    let cy = CGFloat(r) * cellH + cellH * 0.5 + oy
-                    let rad = 10 + CGFloat(seed % 10)
-                    let circle = Path(ellipseIn: CGRect(x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2))
-                    ctx.fill(circle, with: .color(.white.opacity(isLight ? 0.18 : 0.07)))
-                }
-            }
-        }
-        .overlay {
-            // Emoji stickers as “3D models”
+        ZStack {
             ForEach(0..<(cols * rows), id: \.self) { i in
                 let r = i / cols
                 let c = i % cols
                 let seed = r * 17 + c * 31
-                // Skip some cells for airiness
-                if seed % 3 != 0 {
+                // Половина ячеек пустая — иначе узор превращается в ковёр.
+                if seed % 2 == 0 {
                     let emoji = stickers[seed % stickers.count]
-                    let ox = CGFloat((seed * 13) % 17) - 8
-                    let oy = CGFloat((seed * 7) % 15) - 7
-                    let fontSize = CGFloat(22 + (seed % 14))
-                    let rot = Double((seed * 11) % 40) - 20
+                    let ox = CGFloat((seed * 13) % 15) - 7
+                    let oy = CGFloat((seed * 7) % 13) - 6
+                    let glyph = CGFloat(15 + (seed % 8))
+                    let rot = Double((seed * 11) % 30) - 15
                     Text(emoji)
-                        .font(.system(size: fontSize))
-                        .shadow(color: .black.opacity(isLight ? 0.10 : 0.28), radius: 2, y: 1)
+                        .font(.system(size: glyph))
                         .rotationEffect(.degrees(rot))
-                        .scaleEffect(0.78 + CGFloat(seed % 5) * 0.05)
                         .position(
                             x: CGFloat(c) * cellW + cellW * 0.5 + ox,
                             y: CGFloat(r) * cellH + cellH * 0.5 + oy
                         )
-                        // Stickers are decoration only — must not compete with message capsules
-                        .opacity(isLight ? 0.42 : 0.38)
                 }
             }
         }
+        .saturation(0)
+        .opacity(isLight ? 0.16 : 0.22)
+        .blendMode(isLight ? .multiply : .plusLighter)
         .allowsHitTesting(false)
     }
 }

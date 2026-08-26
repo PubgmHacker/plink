@@ -347,14 +347,15 @@ private struct WatchChatBubbleInline: View {
                     )
                     .frame(maxWidth: PlinkTelegramBubbleMetrics.maxPhotoBubbleWidth, alignment: isOwn ? .trailing : .leading)
                 } else {
-                    PlinkMessageBubble(
-                        text: message.text,
-                        isOwn: isOwn,
-                        styleID: message.bubbleStyle,
-                        fontSize: PlinkTelegramBubbleMetrics.fontSize,
-                        isLastInGroup: cluster.isLastInGroup
-                    )
-                    .frame(maxWidth: PlinkTelegramBubbleMetrics.maxBubbleWidth, alignment: isOwn ? .trailing : .leading)
+                    PlinkWidthCap(cap: PlinkTelegramBubbleMetrics.maxBubbleWidth) {
+                        PlinkMessageBubble(
+                            text: message.text,
+                            isOwn: isOwn,
+                            styleID: message.bubbleStyle,
+                            fontSize: PlinkTelegramBubbleMetrics.fontSize,
+                            isLastInGroup: cluster.isLastInGroup
+                        )
+                    }
                 }
 
                 if message.isPending {
