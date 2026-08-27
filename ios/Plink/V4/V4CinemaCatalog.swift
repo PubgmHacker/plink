@@ -820,11 +820,7 @@ enum V4PremierCatalog {
             // должен уносить страницу целиком.
             let lenient = try c.decodeIfPresent([SafeTitle].self, forKey: .results)
             results = (lenient ?? []).compactMap(\.value)
-            if let flag = try? c.decodeIfPresent(Bool.self, forKey: .hasNext) {
-                hasNext = flag ?? false
-            } else {
-                hasNext = false
-            }
+            hasNext = (try? c.decodeIfPresent(Bool.self, forKey: .hasNext)) ?? false
         }
     }
 
@@ -898,8 +894,9 @@ enum V4PremierCatalog {
 // публикует официальный еженедельный Top 10 открытым TSV на
 // top10.netflix.com (обновляется по вторникам, файл отсортирован свежими
 // неделями сверху — проверено 22.08.2026). Клиент берёт последнюю неделю,
-// а карточку каждого тайтла собирает через существующий /api/media/search —
-// официальный русский трейлер с YouTube, который комната умеет играть.
+// а карточку каждого тайтла собирает тем же поиском, что и вся витрина
+// (V4ClipSearch) — официальный русский трейлер с YouTube, который комната
+// умеет играть.
 // Итог кэшируется на сутки: чарт меняется раз в неделю, витрина обновляется
 // сама, без релиза приложения и без вшитых названий.
 
@@ -923,24 +920,24 @@ enum V4TrendsCatalog {
 
     /// Карточки трендов: суточный кэш → сеть → протухший кэш как запасной.
     /// Ошибок наружу нет — тренды украшают витрину, а не держат её.
-    static func cards(apiBase: String, token: String?) async -> [V4SearchResult] {
+    static func cards() async -> [V4SearchResult] {
         let cached = readCache()
         if let cached, Date().timeIntervalSince(cached.savedAt) < cacheTTL {
             return cached.items
         }
-        let fresh = await buildCards(apiBase: apiBase, token: token)
+        let fresh = await buildCards()
         guard !fresh.isEmpty else { return cached?.items ?? [] }
         writeCache(fresh)
         return fresh
     }
 
-    private static func buildCards(apiBase: String, token: String?) async -> [V4SearchResult] {
+    private static func buildCards() async -> [V4SearchResult] {
         let titles = await latestWeekTitles()
         guard !titles.isEmpty else { return [] }
         var slots = [V4SearchResult?](repeating: nil, count: titles.count)
         await withTaskGroup(of: (Int, V4SearchResult?).self) { group in
             for (index, trend) in titles.enumerated() {
-                group.addTask { (index, await card(for: trend, apiBase: apiBase, token: token)) }
+                group.addTask { (index, await card(for: trend)) }
             }
             for await (index, card) in group { slots[index] = card }
         }
@@ -950,11 +947,9 @@ enum V4TrendsCatalog {
     /// Трейлер тайтла ищется по-русски: чарт глобальный, а витрина — наша.
     /// id карточки — чистый YouTube videoId: комната собирает MediaItem
     /// прямо из item.id (V4HomeViewLive.createRoomFromTrending).
-    private static func card(
-        for trend: TrendTitle, apiBase: String, token: String?
-    ) async -> V4SearchResult? {
+    private static func card(for trend: TrendTitle) async -> V4SearchResult? {
         let page = await V4SearchStore.searchPage(
-            "\(trend.title) трейлер на русском", apiBase: apiBase, token: token, limit: 3
+            "\(trend.title) трейлер на русском", limit: 3
         )
         guard let video = page.items.first else { return nil }
         return V4SearchResult(
@@ -1048,5 +1043,263 @@ enum V4TrendsCatalog {
         guard let data = try? JSONEncoder().encode(CachedTrends(savedAt: Date(), items: items))
         else { return }
         UserDefaults.standard.set(data, forKey: cacheKey)
+    }
+}
+
+// MARK: - Поиск роликов без ключей (26.08.2026)
+
+// Ролики искал бэкенд через YouTube Data API. Ключ упирался в суточную квоту
+// проекта — search.list стоит 100 единиц из 10 000, то есть сто поисков в
+// сутки на всё приложение, — и к середине дня выдача умирала. RuTube с того же
+// сервера отвечал 200 и пустым списком: у Railway не российский адрес.
+//
+// Оба упора снимаются одним решением: ролики ищет клиент, ровно так же, как
+// уже ищет кино в Иви и PREMIER. Это не обход защиты — это те же публичные
+// страницы, которые открывает браузер, и ключ им не нужен, как не нужен он
+// человеку, набравшему запрос на youtube.com. Заодно поиск ходит из страны
+// пользователя: RuTube отвечает ему нормально, потому что видит его адрес.
+//
+// Цена решения честная: разметка публичной выдачи не документирована и может
+// поменяться. Поэтому парсер ничего не требует — не нашёл ролики, вернул
+// пустой список, полку несёт второй источник и каталоги кинотеатров.
+enum V4ClipSearch {
+    /// Ролики под запрос: два видеохостинга параллельно, чередуются на ряду.
+    /// Ошибки не всплывают — половина выдачи лучше экрана ошибки.
+    static func search(_ query: String, limit: Int = 14) async -> [V4SearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        async let youtube = V4YouTubeWebSearch.search(trimmed, limit: limit)
+        async let rutube = V4RutubeSearch.search(trimmed, limit: limit)
+        return interleave([await youtube, await rutube], limit: limit)
+    }
+
+    /// Круговой интерлив с дедупликацией по id — как у кинотеатров.
+    private static func interleave(_ buckets: [[V4SearchResult]], limit: Int) -> [V4SearchResult] {
+        var merged: [V4SearchResult] = []
+        var seen = Set<String>()
+        var row = 0
+        while merged.count < limit {
+            var advanced = false
+            for bucket in buckets where row < bucket.count {
+                advanced = true
+                let item = bucket[row]
+                guard seen.insert(item.id).inserted else { continue }
+                merged.append(item)
+                if merged.count >= limit { break }
+            }
+            if !advanced { break }
+            row += 1
+        }
+        return merged
+    }
+
+    /// Запрос в том же виде, в каком его шлёт настольный браузер.
+    /// Проверено 26.08.2026: оба хоста отвечают и без этих заголовков —
+    /// это не пропуск, а страховка формы ответа. Парсер разбирает именно
+    /// десктопную разметку, а незнакомому клиенту YouTube вправе отдать
+    /// другую страницу; Accept-Language держит выдачу русской.
+    static func request(_ url: URL) -> URLRequest {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 12
+        req.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            forHTTPHeaderField: "User-Agent"
+        )
+        req.setValue("ru-RU,ru;q=0.9", forHTTPHeaderField: "Accept-Language")
+        return req
+    }
+}
+
+// MARK: Поиск YouTube по публичной странице
+
+/// Та же выдача, что видит человек на youtube.com/results. Ключ не нужен,
+/// квоты нет: страница публичная, отдаётся без входа.
+enum V4YouTubeWebSearch {
+    /// `sp=EgIQAQ%3D%3D` — фильтр «только видео»: без него в выдачу лезут
+    /// каналы и плейлисты, из которых комнату не собрать.
+    private static let videosOnly = "EgIQAQ%3D%3D"
+
+    static func search(_ query: String, limit: Int) async -> [V4SearchResult] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://www.youtube.com/results?search_query=\(encoded)&sp=\(videosOnly)")
+        else { return [] }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: V4ClipSearch.request(url))
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let html = String(data: data, encoding: .utf8),
+                  let root = initialData(in: html) else {
+                #if DEBUG
+                print("[V4YouTubeWebSearch] «\(query)»: страница без ytInitialData")
+                #endif
+                return []
+            }
+            return renderers(in: root).prefix(limit).compactMap(card(from:))
+        } catch is CancellationError {
+            return []
+        } catch {
+            #if DEBUG
+            print("[V4YouTubeWebSearch] «\(query)» не загрузился: \(error)")
+            #endif
+            return []
+        }
+    }
+
+    /// Выдача лежит в странице одним JSON-блоком `var ytInitialData = {…};`.
+    /// Границы ищутся по тексту, а не регуляркой: блок больше мегабайта, и
+    /// «ленивый» поиск подстроки по нему заметно дешевле.
+    private static func initialData(in html: String) -> Any? {
+        guard let start = html.range(of: "var ytInitialData = ") else { return nil }
+        let rest = html[start.upperBound...]
+        guard let end = rest.range(of: ";</script>") else { return nil }
+        return try? JSONSerialization.jsonObject(with: Data(rest[..<end.lowerBound].utf8))
+    }
+
+    /// Ролики разбросаны по дереву разделов выдачи, поэтому оно обходится
+    /// целиком: путь до videoRenderer YouTube меняет от релиза к релизу,
+    /// а сам ключ держится годами.
+    private static func renderers(in root: Any) -> [[String: Any]] {
+        var found: [[String: Any]] = []
+        func walk(_ node: Any) {
+            if let dict = node as? [String: Any] {
+                if let renderer = dict["videoRenderer"] as? [String: Any] { found.append(renderer) }
+                for value in dict.values { walk(value) }
+            } else if let array = node as? [Any] {
+                for value in array { walk(value) }
+            }
+        }
+        walk(root)
+        return found
+    }
+
+    private static func card(from renderer: [String: Any]) -> V4SearchResult? {
+        guard let videoId = renderer["videoId"] as? String, !videoId.isEmpty,
+              let title = runs(renderer["title"]), !title.isEmpty,
+              // Нет длительности — это эфир или премьера. Синхронно смотреть
+              // такое нельзя: у участников разные точки входа в поток.
+              let duration = (renderer["lengthText"] as? [String: Any])?["simpleText"] as? String
+        else { return nil }
+        let thumbnails = (renderer["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
+        return V4SearchResult(
+            id: videoId,
+            title: title,
+            subtitle: runs(renderer["ownerText"]) ?? runs(renderer["longBylineText"]) ?? "YouTube",
+            artworkURL: (thumbnails?.last?["url"] as? String).flatMap(URL.init(string:)),
+            posterURL: nil,
+            duration: duration,
+            isSelectable: true,
+            origin: .youtube,
+            watchURL: "https://www.youtube.com/watch?v=\(videoId)",
+            year: nil,
+            kindLabel: nil,
+            ratingText: nil,
+            isFreeOnService: false,
+            isSeries: false
+        )
+    }
+
+    /// Текст YouTube отдаёт кусками: `{"runs":[{"text":"…"}]}` либо
+    /// `{"simpleText":"…"}`. Встречаются оба варианта в одной странице.
+    private static func runs(_ node: Any?) -> String? {
+        guard let dict = node as? [String: Any] else { return nil }
+        if let simple = dict["simpleText"] as? String { return simple }
+        guard let runs = dict["runs"] as? [[String: Any]] else { return nil }
+        let text = runs.compactMap { $0["text"] as? String }.joined()
+        return text.isEmpty ? nil : text
+    }
+}
+
+// MARK: Поиск RuTube
+
+/// Публичный поиск RuTube. Ключа не требует; с сервера в Европе отвечает
+/// пустым списком, с устройства пользователя — нормальной выдачей.
+enum V4RutubeSearch {
+    private struct Page: Decodable {
+        let results: [Item]
+    }
+
+    private struct Item: Decodable {
+        let id: String
+        let title: String
+        let duration: Int?
+        let videoURL: String?
+        let thumbnailURL: String?
+        let isAdult: Bool?
+        let isLivestream: Bool?
+        let author: Author?
+
+        struct Author: Decodable { let name: String? }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, title, duration, author
+            case videoURL = "video_url"
+            case thumbnailURL = "thumbnail_url"
+            case isAdult = "is_adult"
+            case isLivestream = "is_livestream"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            // id и название обязательны: без них карточка не собирается.
+            id = try c.decode(String.self, forKey: .id)
+            title = (try? c.decode(String.self, forKey: .title)) ?? ""
+            duration = try? c.decodeIfPresent(Int.self, forKey: .duration)
+            videoURL = try? c.decodeIfPresent(String.self, forKey: .videoURL)
+            thumbnailURL = try? c.decodeIfPresent(String.self, forKey: .thumbnailURL)
+            isAdult = try? c.decodeIfPresent(Bool.self, forKey: .isAdult)
+            isLivestream = try? c.decodeIfPresent(Bool.self, forKey: .isLivestream)
+            author = try? c.decodeIfPresent(Author.self, forKey: .author)
+        }
+    }
+
+    static func search(_ query: String, limit: Int) async -> [V4SearchResult] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://rutube.ru/api/search/video/?query=\(encoded)&limit=\(limit)")
+        else { return [] }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: V4ClipSearch.request(url))
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+            let page = try JSONDecoder().decode(Page.self, from: data)
+            return page.results.compactMap(card(from:))
+        } catch is CancellationError {
+            return []
+        } catch {
+            #if DEBUG
+            print("[V4RutubeSearch] «\(query)» не загрузился: \(error)")
+            #endif
+            return []
+        }
+    }
+
+    private static func card(from item: Item) -> V4SearchResult? {
+        // Взрослое — мимо витрины: комнату видят все участники.
+        // Эфир — мимо по той же причине, что и у YouTube: он не синхронизируется.
+        guard !item.title.isEmpty, item.isAdult != true, item.isLivestream != true else { return nil }
+        let link = item.videoURL ?? "https://rutube.ru/video/\(item.id)/"
+        return V4SearchResult(
+            id: "rutube-\(item.id)",
+            title: item.title,
+            subtitle: item.author?.name ?? "RuTube",
+            artworkURL: item.thumbnailURL.flatMap(URL.init(string:)),
+            posterURL: nil,
+            duration: item.duration.flatMap(clock(_:)),
+            isSelectable: true,
+            origin: .video(.rutube),
+            watchURL: link,
+            year: nil,
+            kindLabel: nil,
+            ratingText: nil,
+            isFreeOnService: false,
+            isSeries: false
+        )
+    }
+
+    /// Секунды → «1:23:45» / «7:12», как подписаны ролики YouTube.
+    private static func clock(_ seconds: Int) -> String? {
+        guard seconds > 0 else { return nil }
+        let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
     }
 }

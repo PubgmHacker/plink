@@ -93,27 +93,24 @@ final class V4SearchStore {
     private(set) var state: SearchState = .idle
     private(set) var trending: [V4SearchResult] = []
     /// Причина, по которой подборка на «Главной» не загрузилась.
-    ///
-    /// FIX (07.08.2026): здесь с самого начала стоял пустой `catch {}`, а
-    /// HTTP-статус не проверялся вовсе. Когда на сервере не был задан
-    /// YOUTUBE_API_KEY, /api/media/trending отвечал 500 с телом
-    /// {"error":"YOUTUBE_API_KEY not configured"} — оно не разбиралось в
-    /// YouTubeSearchResponse, декодер бросал, catch глотал, и `trending`
-    /// молча оставался пустым. Экран показывал заглушку «пусто», хотя на
-    /// самом деле запрос падал. Ни пользователь, ни консоль об этом не знали.
+    /// Пустая полка обязана называть причину: пустой `catch {}` здесь уже
+    /// однажды прятал 500 от бэкенда за заглушкой «ничего нет» (07.08.2026).
     private(set) var trendingError: String?
     private var searchTask: Task<Void, Never>?
-    private let apiBase = PlinkConfig.baseURLString
 
-    // MARK: Кинокаталог Главной (22.08.2026)
+    // MARK: Кинокаталог Главной (22.08.2026, переписан 26.08.2026)
     //
     // Раньше витрину наполнял /api/media/trending — общий YouTube-чарт
     // региона: музыкальные клипы, влоги, что угодно, кроме кино. Люди же
-    // приходят в Plink смотреть фильмы и сериалы вместе. Роут бэкенда менять
-    // нельзя (деплой не в наших руках), поэтому каталог собирается клиентом
-    // поверх публичного /api/media/search: полка = чип Главной, запросы полки
-    // задаёт HomeCinemaCatalog. Полки кэшируются на время жизни стора —
-    // повторное переключение чипа мгновенно.
+    // приходят в Plink смотреть фильмы и сериалы вместе. Поэтому витрину
+    // собирает клиент: кино — из каталогов кинотеатров (V4CinemaCatalog),
+    // ролики — из открытого поиска YouTube и RuTube (V4ClipSearch). Полка =
+    // чип Главной, запросы полки задаёт HomeCinemaCatalog. Через бэкенд
+    // не ходит ни один из этих запросов: ключей у поиска больше нет, а
+    // RuTube отвечает выдачей только тому, кто спрашивает из России —
+    // то есть телефону пользователя, а не серверу Railway в Европе.
+    // Полки кэшируются на время жизни стора — повторное переключение
+    // чипа мгновенно.
 
     /// Загруженные полки: чип → результаты.
     private(set) var shelves: [String: [V4SearchResult]] = [:]
@@ -212,11 +209,6 @@ final class V4SearchStore {
             }
         }
 
-        // Токен и база снимаются на MainActor до ухода в TaskGroup —
-        // дочерние задачи ничего не трогают в сторе.
-        let token = AuthTokenStore.shared.token
-        let base = apiBase
-
         // Кинотеатры в приоритете (22.08.2026): полку открывают каталоги
         // кинотеатров — настоящие фильмы и сериалы с постерами, годом и
         // рейтингом, а не «фильм полностью» с чужих YouTube-каналов.
@@ -235,7 +227,7 @@ final class V4SearchStore {
         // чередованием трендовых карточек недели с каталогом — герой-карусель
         // несёт и чарт Netflix, и свежие релизы, а не архив каталога.
         if chip == HomeCinemaCatalog.allChip || chip == HomeCinemaCatalog.freshChip {
-            let trendCards = await V4TrendsCatalog.cards(apiBase: base, token: token)
+            let trendCards = await V4TrendsCatalog.cards()
             if !trendCards.isEmpty {
                 merged = Self.interleaved([trendCards, merged])
             }
@@ -252,7 +244,7 @@ final class V4SearchStore {
             await withTaskGroup(of: (Int, [V4SearchResult], String?).self) { group in
                 for (index, query) in queries.enumerated() {
                     group.addTask {
-                        let page = await Self.searchPage(query, apiBase: base, token: token)
+                        let page = await Self.searchPage(query)
                         return (index, page.items, page.error)
                     }
                 }
@@ -333,70 +325,22 @@ final class V4SearchStore {
         return merged
     }
 
-    /// Один запрос каталога. Ошибка не бросается, а возвращается текстом:
+    /// Один запрос за роликами. Ошибка не бросается, а возвращается текстом:
     /// полка из двух источников должна пережить падение одного из них.
     /// Не private: тем же поиском V4TrendsCatalog собирает карточки трендов.
     ///
-    /// Урок от 07.08.2026 сохранён: HTTP-статус проверяется ДО декодирования,
-    /// иначе тело ошибки сервера превращается в безымянный DecodingError.
+    /// 26.08.2026: ходит не на бэкенд, а прямо на YouTube и RuTube. Ключи и
+    /// суточные квоты YouTube Data API сняты вместе с серверным посредником,
+    /// а RuTube наконец видит адрес пользователя, а не европейский адрес
+    /// Railway, и отвечает выдачей вместо пустого списка.
     nonisolated static func searchPage(
-        _ query: String, apiBase: String, token: String?, limit: Int = 14
+        _ query: String, limit: Int = 14
     ) async -> (items: [V4SearchResult], error: String?) {
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        guard let url = URL(string: "\(apiBase)/api/media/search?q=\(encoded)&limit=\(limit)") else {
-            return ([], "Не удалось загрузить подборку")
-        }
-        var req = URLRequest(url: url)
-        if let token {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        do {
-            let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                #if DEBUG
-                let body = String(data: data, encoding: .utf8) ?? "<нечитаемое тело>"
-                print("[V4SearchStore] shelf «\(query)»: HTTP \(code) — \(body)")
-                #endif
-                return ([], "Сервер ответил \(code)")
-            }
-            let resp = try JSONDecoder().decode(YouTubeSearchResponse.self, from: data)
-            // Невстраиваемые ролики в полку не попадают: их всё равно нельзя
-            // смотреть в комнате, а битые карточки на витрине хуже короткой полки.
-            // Пустой id (бэкенд отдал элемент без id/videoId) — тоже мимо: тап по
-            // такой карточке создал бы комнату с пустым видео.
-            return (resp.results.map(V4SearchResult.init)
-                .filter { $0.isSelectable && !$0.id.isEmpty }, nil)
-        } catch is CancellationError {
-            return ([], nil)
-        } catch {
-            #if DEBUG
-            print("[V4SearchStore] shelf «\(query)» failed: \(error)")
-            #endif
-            return ([], userFacingTrendingError(error))
-        }
-    }
-
-    /// Тот же подход, что и в V4RoomsStore.userFacingLoadError: системные
-    /// описания URLError по-английски и пользователю ничего не говорят.
-    /// nonisolated — чистая функция, зовётся из фоновых задач полок.
-    nonisolated private static func userFacingTrendingError(_ error: Error) -> String {
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet:
-                return "Нет подключения к интернету"
-            case .timedOut:
-                return "Сервис отвечает слишком долго"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-                return "Не удалось подключиться к Plink"
-            default:
-                return "Не удалось загрузить подборку"
-            }
-        }
-        if error is DecodingError {
-            return "Сервер вернул неожиданный ответ"
-        }
-        return "Не удалось загрузить подборку"
+        let items = await V4ClipSearch.search(query, limit: limit)
+        // Пусто — это либо «правда ничего», либо оба хостинга не ответили.
+        // Различать здесь нечем и незачем: полку в обоих случаях несут
+        // кинотеатры, а экран поиска показывает «ничего не нашлось».
+        return (items.filter { $0.isSelectable && !$0.id.isEmpty }, nil)
     }
 
     func search(_ query: String) {
@@ -417,31 +361,16 @@ final class V4SearchStore {
         // мусор — проверено 22.08.2026; у PREMIER ручки поиска нет вовсе —
         // 26.08.2026), поэтому фильмы ищутся локально по уже собранным полкам.
         //
-        // Серверный /api/media/search в проде отвечает только роликами YouTube;
-        // в этом репозитории роут уже ходит и в RuTube с VK, но не выкачен.
-        // Клиент к этому готов заранее: V4SearchResult(from:) определяет сервис
-        // по хосту присланной ссылки, а не считает YouTube единственным.
+        // Ролики ищутся с устройства — на YouTube и RuTube напрямую, без
+        // ключей и серверного посредника (см. V4ClipSearch). Кино из витрины
+        // всё равно идёт первым: локальное совпадение по названию точнее
+        // любого видеохостинга.
         let cinema = cinemaMatches(query)
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        guard let url = URL(string: "\(apiBase)/api/media/search?q=\(encoded)&limit=20") else { return }
-        do {
-            var req = URLRequest(url: url)
-            if let token = AuthTokenStore.shared.token {
-                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            let (data, _) = try await URLSession.shared.data(for: req)
-            let resp = try JSONDecoder().decode(YouTubeSearchResponse.self, from: data)
-            var seen = Set(cinema.map(\.id))
-            let merged = cinema + resp.results.map(V4SearchResult.init)
-                .filter { !$0.id.isEmpty && seen.insert($0.id).inserted }
-            state = merged.isEmpty ? .empty : .loaded(merged)
-        } catch is CancellationError {
-            return
-        } catch {
-            // Сеть упала, но локальные кино-совпадения есть — они полезнее
-            // экрана ошибки.
-            state = cinema.isEmpty ? .failed(error.localizedDescription) : .loaded(cinema)
-        }
+        let clips = await V4ClipSearch.search(query, limit: 20)
+        guard !Task.isCancelled else { return }
+        var seen = Set(cinema.map(\.id))
+        let merged = cinema + clips.filter { !$0.id.isEmpty && seen.insert($0.id).inserted }
+        state = merged.isEmpty ? .empty : .loaded(merged)
     }
 
     /// Совпадения по названию среди кинокарточек загруженных полок.
@@ -520,38 +449,6 @@ struct V4SearchResult: Identifiable, Hashable, Sendable, Codable {
         self.isSeries = isSeries
     }
 
-    /// Ряд поисковой выдачи. Поиск ходит не только на YouTube, поэтому
-    /// сервис определяется по хосту присланной ссылки, а не вписан: ряд
-    /// RuTube с youtube.com/watch?v=<id> в watchURL открывал бы в комнате
-    /// чужой ролик или пустой плеер.
-    init(from v: YouTubeVideoSummary) {
-        let link = v.url?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let service = link.isEmpty ? nil : VideoService.service(forURL: link)
-        id = v.videoId
-        title = v.title
-        subtitle = v.channelTitle
-        artworkURL = v.thumbnailURLString.flatMap(URL.init(string:))
-        posterURL = nil
-        let secs = v.durationSeconds ?? v.duration ?? 0
-        if secs > 0 {
-            let h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60
-            duration = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-        } else { duration = nil }
-        isSelectable = v.isEmbeddable
-        switch service {
-        case .some(.youtube), .none:
-            origin = .youtube
-            watchURL = link.isEmpty ? "https://www.youtube.com/watch?v=\(v.videoId)" : link
-        case .some(let other):
-            origin = .video(other)
-            watchURL = link
-        }
-        year = nil
-        kindLabel = nil
-        ratingText = nil
-        isFreeOnService = false
-        isSeries = false
-    }
 }
 
 // MARK: - V4 Friends Store (P1.1)
@@ -1030,91 +927,3 @@ final class V4ProfileStore {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Перенесено 26.07.2026 из Views/Home/YouTubeSearchView.swift:
-// экранная часть того файла мертва (0 вызовов), но эти DTO декодирует
-// живой мост ниже. Перенос сделан ДО удаления файла.
-// ─────────────────────────────────────────────────────────────
-
-struct YouTubeVideoSummary: Decodable, Identifiable, Sendable {
-    let id: String
-    let title: String
-    let channel: String
-    let thumbnailURL: String?
-    // Backend may send `durationSeconds` (new) or `duration` (legacy).
-    // Decode either; prefer durationSeconds when present.
-    let durationSeconds: Int?
-    let duration: Int?
-    let url: String?
-    let embeddable: Bool?
-    let privacyStatus: String?
-    let liveBroadcastContent: String?
-
-    // Back-compat: when backend omits these, default to safe values.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        // `id` may be missing if backend returns videoId only — fall back to videoId.
-        self.id = try c.decodeIfPresent(String.self, forKey: .id)
-            ?? c.decodeIfPresent(String.self, forKey: .videoId)
-            ?? ""
-        self.title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        // `channel` may be missing — fall back to channelTitle.
-        self.channel = try c.decodeIfPresent(String.self, forKey: .channel)
-            ?? c.decodeIfPresent(String.self, forKey: .channelTitle)
-            ?? ""
-        self.thumbnailURL = try c.decodeIfPresent(String.self, forKey: .thumbnailURL)
-        self.durationSeconds = try c.decodeIfPresent(Int.self, forKey: .durationSeconds)
-        self.duration = try c.decodeIfPresent(Int.self, forKey: .duration)
-        self.url = try c.decodeIfPresent(String.self, forKey: .url)
-        self.embeddable = try c.decodeIfPresent(Bool.self, forKey: .embeddable)
-        self.privacyStatus = try c.decodeIfPresent(String.self, forKey: .privacyStatus)
-        self.liveBroadcastContent = try c.decodeIfPresent(String.self, forKey: .liveBroadcastContent)
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, videoId, title, channel, channelTitle
-        case thumbnailURL, duration, durationSeconds
-        case url, embeddable, privacyStatus, liveBroadcastContent
-    }
-
-    // Convenience accessors
-    var videoId: String { id }
-    var channelTitle: String { channel }
-    var resolvedDurationSeconds: Int? { durationSeconds ?? duration }
-    var thumbnailURLString: String? { thumbnailURL }
-    var resolvedLiveBroadcastContent: String { liveBroadcastContent ?? "none" }
-    var resolvedEmbeddable: Bool? { embeddable }
-
-    // Brain Revision 3: row states based on embeddable field.
-    //   - true → selectable (green checkmark when selected)
-    //   - false → disabled, "Нельзя встроить" label, lock icon, 50% opacity
-    //   - nil → selectable but with "Проверим при запуске" hint (amber dot)
-    var embeddableState: EmbeddableState {
-        if let embeddable {
-            return embeddable ? .embeddable : .notEmbeddable
-        }
-        return .unknown
-    }
-
-    enum EmbeddableState {
-        case embeddable      // embeddable == true  → selectable, no badge
-        case notEmbeddable   // embeddable == false → disabled, "Нельзя встроить"
-        case unknown         // embeddable == nil   → selectable, "Проверим при запуске"
-    }
-
-    var isEmbeddable: Bool { embeddable != false }
-
-    var isLive: Bool { resolvedLiveBroadcastContent == "live" }
-
-    var durationText: String? {
-        guard let seconds = resolvedDurationSeconds, seconds > 0 else { return nil }
-        let h = seconds / 3600
-        let m = (seconds % 3600) / 60
-        let s = seconds % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-    }
-}
-
-struct YouTubeSearchResponse: Decodable, Sendable {
-    let results: [YouTubeVideoSummary]
-}
