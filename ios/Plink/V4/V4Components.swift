@@ -264,7 +264,22 @@ struct V4Hero: View {
                     .clipped()
             }
             // Скрим поверх кадра — иначе заголовок и мета тонут в артворке.
-            LinearGradient(colors: [.clear, Color.oklch(0.06,0.01,190,alpha:0.95)], startPoint: UnitPoint(x:0.5,y:0.28), endPoint: .bottom)
+            // 26.08.2026: двух стопов не хватало. Линейный переход от 0.28 к
+            // низу набирал под строкой меты только ~0.5 альфы, и на светлом
+            // кадре (титры вроде «OFFICIAL» у трейлеров Netflix) серая мета
+            // исчезала в белых буквах. Стопы сгущаются к низу: верхние две
+            // трети кадра остаются чистыми, нижняя треть — плотная подложка
+            // под бейдж, заголовок, мету и кнопку, как на афишах Apple TV.
+            LinearGradient(
+                stops: [
+                    .init(color: .clear,      location: 0.00),
+                    .init(color: scrim(0.08), location: 0.20),
+                    .init(color: scrim(0.44), location: 0.46),
+                    .init(color: scrim(0.86), location: 0.66),
+                    .init(color: scrim(0.96), location: 1.00)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
             VStack(alignment: .leading, spacing: 10) {
                 if let provider, !provider.isEmpty {
                     HStack(spacing: 7) {
@@ -278,7 +293,7 @@ struct V4Hero: View {
                     }
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
-                    .background(.black.opacity(0.38), in: Capsule())
+                    .background(.black.opacity(0.55), in: Capsule())
                     .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
                     .accessibilityLabel("Сервис: \(provider)")
                 }
@@ -286,8 +301,15 @@ struct V4Hero: View {
                 // съедает весь кадр героя целиком.
                 Text(title).font(.system(size: 26.4, weight: .bold)).foregroundStyle(V4.ink)
                     .lineLimit(2)
-                Text(meta).font(.system(size: 13.12)).foregroundStyle(V4.muted)
+                    .shadow(color: .black.opacity(0.55), radius: 10, y: 2)
+                // Мета — белая с прозрачностью, а не V4.muted: серый по кадру
+                // читался хуже всего, при этом иерархия сохраняется (тише
+                // заголовка). Тень — страховка на случай, когда под текстом
+                // оказался самый светлый участок артворка.
+                Text(meta).font(.system(size: 13.12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
+                    .shadow(color: .black.opacity(0.60), radius: 8, y: 1)
                 Button(action: action) {
                     HStack(spacing: 7) {
                         Image(systemName: "play.fill").font(.system(size: 12, weight: .bold))
@@ -312,6 +334,12 @@ struct V4Hero: View {
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous))
         .shadow(color: .black.opacity(0.40), radius: 27, y: 25)
+    }
+
+    /// Плотность скрима под текстом героя. Один тон холста V4 — скрим
+    /// гасит кадр, а не красит его в другой цвет.
+    private func scrim(_ alpha: Double) -> Color {
+        Color.oklch(0.06, 0.01, 190, alpha: alpha)
     }
 
     /// Фирменный цвет точки в бейдже сервиса. Неизвестный сервис получает

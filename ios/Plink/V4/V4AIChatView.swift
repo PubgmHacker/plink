@@ -339,7 +339,7 @@ struct V4AIChatView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
                 if store.lastSuggestions.isEmpty {
-                    chip("Очередь", "Собери очередь на вечер")
+                    chip("Очередь", "Собери очередь на просмотр")
                     chip("У друзей", "Что смотрят друзья?")
                     chip("Через AI", "Создай комнату с Inception")
                 } else {
@@ -368,7 +368,7 @@ struct V4AIChatView: View {
                     Label("Подобрать фильм", systemImage: "film")
                 }
                 Button {
-                    Task { await store.send("Собери очередь на вечер") }
+                    Task { await store.send("Собери очередь на просмотр") }
                 } label: {
                     Label("Собрать очередь", systemImage: "list.bullet")
                 }

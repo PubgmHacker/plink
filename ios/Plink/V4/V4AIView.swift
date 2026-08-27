@@ -435,7 +435,7 @@ struct V4AIViewLive: View {
                     .foregroundStyle(V4.ink)
                     .padding(.top, 2)
 
-                Text("Подборки трейлеров под ваши вечера уже в работе. А чат с ИИ и голосовой ввод работают прямо сейчас.")
+                Text("Подборки трейлеров под то, что вы смотрите, уже в работе. А чат с ИИ и голосовой ввод работают прямо сейчас.")
                     .font(.system(size: 13.5))
                     .foregroundStyle(V4.muted)
                     .multilineTextAlignment(.center)

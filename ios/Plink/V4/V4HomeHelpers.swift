@@ -489,7 +489,7 @@ struct HomeFallbackPlaceholder: View {
         V4EmptyState(
             icon: "film.stack",
             title: "Пока тихо",
-            subtitle: "Подборка обновляется. Найди видео вручную — и собери первый вечер кино.",
+            subtitle: "Подборка обновляется. Найди видео вручную — и открой первую комнату.",
             accent: theme.accentColor,
             accentInk: theme.buttonTextColor,
             // Вход в комнату, когда trending пуст (нет сети / пустая подборка).

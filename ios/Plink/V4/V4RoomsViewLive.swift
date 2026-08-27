@@ -4,9 +4,13 @@
 // один блок «Все комнаты» с сегментами «Открытые / Мои / По коду» и списком
 // широких карточек вместо сетки 2×2.
 //
-// 25.08.2026. Вкладка переименована в «Вечера» и забрала историю
-// «с кем и что смотрели» из хаба «Вместе»: прошлые вечера — это про кино,
-// а не про людей, и им место рядом с живыми комнатами.
+// 25.08.2026. Вкладка забрала историю «с кем и что смотрели» из хаба
+// «Вместе»: прошлые просмотры — это про кино, а не про людей, и им место
+// рядом с живыми комнатами.
+//
+// 26.08.2026. Имя вкладки вернулось к «Комнатам»: «Вечера» обещали вечер,
+// а смотрят в любое время дня — и «комната» это то самое слово, которым
+// зовёт кнопка, код приглашения и пуш.
 
 import SwiftUI
 import UIKit
@@ -88,7 +92,7 @@ struct V4RoomsViewLive: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            V4Heading(eyebrow: "КИНО ВМЕСТЕ", title: "Вечера")
+            V4Heading(eyebrow: "КИНО ВМЕСТЕ", title: "Комнаты")
                 .accessibilityIdentifier("screen.rooms")
             Spacer()
             Button {
@@ -848,7 +852,7 @@ struct V4RoomsViewLive: View {
     private var recentBlock: some View {
         if !recentRooms.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                sectionTitle("Прошлые вечера")
+                sectionTitle("Что смотрели")
                     .padding(.top, 26)
 
                 Text(LocalizationManager.shared.string(.frHistorySub))
@@ -922,7 +926,7 @@ struct V4RoomsViewLive: View {
                             .foregroundStyle(V4.muted)
                             .lineLimit(1)
                     } else {
-                        Text("Вечер наедине · код \(room.code)")
+                        Text("Только вы · код \(room.code)")
                             .font(.system(size: 11.5, weight: .semibold))
                             .foregroundStyle(V4.muted)
                             .lineLimit(1)
@@ -939,7 +943,7 @@ struct V4RoomsViewLive: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Прошлый вечер: \(mediaTitle)")
+        .accessibilityLabel("Смотрели: \(mediaTitle)")
     }
 
     /// Друзья, бывшие в комнате, — сверка участников со списком друзей.

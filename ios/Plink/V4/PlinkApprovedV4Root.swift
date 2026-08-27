@@ -636,7 +636,7 @@ struct PlinkLiquidTabBar: View {
     private var activeSecondary: Color { let (_, c1, _, _) = theme.colors; return c1 }
 
     // M25 i18n: подписи через LocalizationManager (RU/EN/ZH).
-    // 25.08.2026: вкладок пять. «Вечера» = комнаты + история, «ИИ» — раздел
+    // 25.08.2026: вкладок пять. «Комнаты» = живые комнаты + история, «ИИ» — раздел
     // ленты с ассистентом. Друзья остаются на индексе 2:
     // plinkOpenFriendsTab/pendingChat шлют tab=2; ассистент — 3, профиль — 4.
     private var items: [(String, String)] {
@@ -696,7 +696,7 @@ struct PlinkLiquidTabBar: View {
             GeometryReader { g in
                 let W = g.size.width
                 Capsule(style: .continuous)
-                    .fill(activeSecondary.opacity(dragX == nil ? 0.16 : 0.22))
+                    .fill(activeSecondary.opacity(dragX == nil ? 0.20 : 0.28))
                     .overlay {
                         Capsule(style: .continuous)
                             .strokeBorder(
@@ -809,7 +809,12 @@ struct PlinkLiquidTabBar: View {
                 // а не обрезается многоточием.
                 .minimumScaleFactor(0.8)
         }
-        .foregroundStyle(isSelected ? activeSecondary : V4.muted)
+        // 26.08.2026: активная вкладка белая, а не цвета темы. На тёплых
+        // палитрах акцентная иконка ложилась на акцентную пилюлю поверх
+        // акцентного фона — три оттенка одного цвета, выделение исчезало.
+        // Тема остаётся пилюле (это фон), иконка и подпись — тот же белый,
+        // что у главных кнопок приложения.
+        .foregroundStyle(isSelected ? V4.ink : V4.muted)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 7)
         .contentShape(Rectangle())
