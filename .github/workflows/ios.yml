@@ -40,7 +40,7 @@ jobs:
       run:
         working-directory: ios
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Printed rather than pinned. project.yml asks for Xcode 16, the runner image
       # ships it by default, and pinning a path like /Applications/Xcode_16.2.app breaks
@@ -63,7 +63,7 @@ jobs:
       # There is no committed Package.resolved: it lives inside the generated
       # .xcodeproj, which is gitignored.
       - name: Cache resolved Swift packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ios/.spm-cache
           key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
@@ -162,7 +162,7 @@ jobs:
     name: SwiftLint + SwiftFormat
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The format check compares against the base branch, which a shallow clone
           # does not have.
