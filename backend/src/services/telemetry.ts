@@ -42,15 +42,15 @@ export async function initTelemetry(endpoint?: string) {
   if (endpoint) {
     console.warn(
       `[Telemetry] OTEL_ENDPOINT задан (${endpoint}), но OTLP-экспортёр не собран: ` +
-      'нужны @opentelemetry/sdk-node и exporter-trace-otlp-http. ' +
-      'Спаны через withSpan() сейчас no-op; трейсы ведёт Sentry.'
+        'нужны @opentelemetry/sdk-node и exporter-trace-otlp-http. ' +
+        'Спаны через withSpan() сейчас no-op; трейсы ведёт Sentry.',
     );
     return;
   }
 
   console.log(
     '[Telemetry] OTLP-экспортёр не настроен — withSpan() работает как no-op. ' +
-    'Трассировку ведёт Sentry (см. Sentry.init в app.ts).'
+      'Трассировку ведёт Sentry (см. Sentry.init в app.ts).',
   );
 }
 
@@ -58,7 +58,7 @@ export async function initTelemetry(endpoint?: string) {
 export function withSpan<T>(
   name: string,
   fn: (span: any) => T | Promise<T>,
-  options?: { kind?: SpanKind; attributes?: Record<string, any> }
+  options?: { kind?: SpanKind; attributes?: Record<string, any> },
 ): T | Promise<T> {
   const tracer = trace.getTracer(SERVICE_NAME);
   return tracer.startActiveSpan(name, { kind: options?.kind }, async (span) => {

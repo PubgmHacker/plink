@@ -1,20 +1,20 @@
 // src/tests/contract/roomAppearance.contract.test.ts
-// Живая доставка темы комнаты.
+// Live delivery of the room theme.
 //
-// PATCH /rooms/:id/appearance раньше «броадкастил» через несуществующий
-// fastify.io — доставка была мёртвой. Теперь роут публикует событие в
-// RoomEventBus, а gateway разворачивает его в wire-сообщение v2.
-// Тесты закрывают три стыка:
-//   1) событие проходит РЕАЛЬНУЮ схему шины (не молча дропается подписчиком);
-//   2) РЕАЛЬНЫЙ gateway.eventToServerMessage даёт сообщение, проходящее
-//      ServerMessageSchema (раньше здесь была ручная копия маппинга — тест
-//      зеленел бы, даже если продакшн-маппинг сломан);
-//   3) call-site в rooms.ts на месте — иначе доставка снова станет мёртвой,
-//      а схемы останутся валидными и вся сюита зелёной.
+// PATCH /rooms/:id/appearance used to "broadcast" through a non-existent
+// fastify.io, so delivery was dead. The route now publishes an event to the
+// RoomEventBus and the gateway expands it into a v2 wire message.
+// The tests cover three seams:
+//   1) the event passes the REAL bus schema (it is not silently dropped by a subscriber);
+//   2) the REAL gateway.eventToServerMessage yields a message that passes
+//      ServerMessageSchema (this used to be a hand-written copy of the mapping, so the
+//      test would stay green even with the production mapping broken);
+//   3) the call site in rooms.ts is in place; otherwise delivery goes dead again while
+//      the schemas stay valid and the whole suite stays green.
 //
-// Схемы и функции берём из исходников, а не переписываем копией: roomEventBus.contract
-// как раз показал, чем кончается ручное зеркало (его копия успела разойтись
-// с оригиналом по clientMessageId/senderId/text).
+// Schemas and functions come from the sources rather than a rewritten copy:
+// roomEventBus.contract showed exactly how a hand-kept mirror ends (its copy had
+// drifted from the original on clientMessageId/senderId/text).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -26,9 +26,9 @@ import {
 } from '../../contracts/realtime-v2.js';
 import { RoomEventSchema, type RoomEvent } from '../../realtime/roomEventBus.js';
 
-// gateway.ts тянет config, который требует DATABASE_URL на импорте. Реальных
-// подключений при импорте нет (Redis-клиенты создаются в конструкторе класса),
-// поэтому достаточно заглушки в env ДО динамического импорта.
+// gateway.ts pulls in config, which requires DATABASE_URL at import time. Nothing
+// connects on import (the Redis clients are created in the class constructor), so a
+// placeholder in env BEFORE the dynamic import is enough.
 process.env.DATABASE_URL ||= 'postgresql://test:test@localhost:5432/plink_test';
 const { eventToServerMessage, RealtimeGateway } = await import('../../realtime/gateway.js');
 
@@ -107,7 +107,7 @@ describe('room.appearance.updated — провод (реальный gateway.eve
       },
       serverTimeMs: 1_700_000_000_000,
     });
-    // updatedAt/updatedBy остаются в БД и наружу не выходят
+    // updatedAt/updatedBy stay in the database and never go out
     expect(wire.appearance.updatedBy).toBeUndefined();
     expect(wire.appearance.updatedAt).toBeUndefined();
   });
@@ -124,8 +124,8 @@ describe('room.appearance.updated — провод (реальный gateway.eve
       { ...busEvent, themeId: 'x'.repeat(64), themeRevision: 9999, intensity: 0.44 },
     ];
     for (const v of variants) {
-      RoomEventSchema.parse(v); // событие легально для шины…
-      const msg = ServerMessageSchema.parse(eventToServerMessage(v)); // …и для провода
+      RoomEventSchema.parse(v); // the event is legal for the bus…
+      const msg = ServerMessageSchema.parse(eventToServerMessage(v)); // …and for the wire
       expect(msg).toMatchObject({
         type: 'room.appearance.updated',
         appearance: {
@@ -168,12 +168,12 @@ describe('room.appearance.updated — провод (реальный gateway.eve
   });
 });
 
-// ── Тривайр на call-site ──────────────────────────────────────────────────
-// Схемы и маппинг проверяются в изоляции, а «роут вообще зовёт публикацию» —
-// нет: поднимать rooms.ts с prisma/auth/redis здесь слишком дорого. Поэтому
-// читаем исходник, как это уже делает protocol-parity-тест для Swift. Если из
-// rooms.ts убрать вызов, доставка снова станет мёртвой — и упадёт именно этот
-// тест, а не «ничего».
+// ── Tripwire on the call site ──────────────────────────────────────────────────
+// Schemas and the mapping are checked in isolation, but "does the route call the
+// publish at all" is not: bringing up rooms.ts with prisma/auth/redis is too expensive
+// here. So we read the source, the way the protocol-parity test already does for
+// Swift. Remove the call from rooms.ts and delivery goes dead again, and it is this
+// test that fails rather than "nothing".
 const ROOMS_SRC = readFileSync(
   fileURLToPath(new URL('../../routes/rooms.ts', import.meta.url)),
   'utf8',
@@ -186,21 +186,26 @@ describe('room.appearance.updated — call-site в routes/rooms.ts', () => {
   });
 
   it('метод, который зовёт роут, реально есть у gateway', () => {
-    // Пара с тестом выше: строка в rooms.ts + метод в классе. Переименуют
-    // метод — упадёт эта проверка, а не тишина в проде.
+    // Pairs with the test above: the line in rooms.ts plus the method on the class.
+    // Rename the method and this check fails, instead of silence in production.
     expect(typeof (RealtimeGateway.prototype as any).publishRoomAppearance).toBe('function');
   });
 
   it('вызов НЕ спрятан за optional chaining (иначе это тихий no-op)', () => {
-    // Именно `?.()` на самом методе однажды превратило доставку в фикцию:
-    // исключения нет, catch не срабатывает, в логе пусто.
+    // It was `?.()` on the method itself that once turned delivery into a fiction:
+    // no exception, catch never fires, nothing in the log.
     expect(ROOMS_SRC).not.toContain('publishRoomAppearance?.(');
   });
 
   it('у роута есть рейт-лимит (PATCH усиливает фан-аут на всю комнату)', () => {
-    const routeIdx = ROOMS_SRC.indexOf("fastify.patch('/rooms/:id/appearance'");
-    expect(routeIdx).toBeGreaterThan(-1);
-    const head = ROOMS_SRC.slice(routeIdx, routeIdx + 400);
-    expect(head).toContain('rateLimit');
+    // Layout-independent: Prettier may put the path on its own line, so match the
+    // call with a regex and look for the limiter anywhere in the route options,
+    // i.e. between `fastify.patch(` and the handler's `async (`.
+    const route = /fastify\.patch\(\s*'\/rooms\/:id\/appearance'/.exec(ROOMS_SRC);
+    expect(route).not.toBeNull();
+    const rest = ROOMS_SRC.slice(route!.index);
+    const handlerAt = rest.search(/async\s*\(/);
+    expect(handlerAt).toBeGreaterThan(0);
+    expect(rest.slice(0, handlerAt)).toContain('rateLimit');
   });
 });

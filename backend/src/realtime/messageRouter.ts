@@ -392,13 +392,43 @@ export function createMessageRouter(deps: RouterDeps) {
         // иначе клиент предлагает эмодзи, которые сервер отбивает INVALID_REACTION
         // (ровно так 😡 и 💜 из бесплатного ряда выдавали ошибку каждому).
         const ALLOWED_FREE_EMOJIS = new Set([
-          '❤️', '😂', '😍', '👍', '🔥', '😮', '😢', '👏', '🎉', '💯',
-          '🤣', '🥰', '😱', '🤩', '🤔', '😴', '🤯', '🥳', '😭', '🤗',
-          '😡', '💜',
+          '❤️',
+          '😂',
+          '😍',
+          '👍',
+          '🔥',
+          '😮',
+          '😢',
+          '👏',
+          '🎉',
+          '💯',
+          '🤣',
+          '🥰',
+          '😱',
+          '🤩',
+          '🤔',
+          '😴',
+          '🤯',
+          '🥳',
+          '😭',
+          '🤗',
+          '😡',
+          '💜',
         ]);
         const ALLOWED_PREMIUM_EMOJIS = new Set([
-          '💎', '👑', '🚀', '⚡', '🌟', '🎨', '🎭', '🏆', '🌈', '✨',
-          '😎', '🥺', '💫',
+          '💎',
+          '👑',
+          '🚀',
+          '⚡',
+          '🌟',
+          '🎨',
+          '🎭',
+          '🏆',
+          '🌈',
+          '✨',
+          '😎',
+          '🥺',
+          '💫',
         ]);
         const allAllowed = new Set([...ALLOWED_FREE_EMOJIS, ...ALLOWED_PREMIUM_EMOJIS]);
 
@@ -424,8 +454,8 @@ export function createMessageRouter(deps: RouterDeps) {
             where: { id: socket.userId! },
             select: { isPremium: true, premiumUntil: true },
           });
-          const isPremium = user?.isPremium === true &&
-            (!user.premiumUntil || user.premiumUntil > new Date());
+          const isPremium =
+            user?.isPremium === true && (!user.premiumUntil || user.premiumUntil > new Date());
           if (!isPremium) {
             sendError(socket, 'PREMIUM_REQUIRED', 'This reaction requires Plink+');
             return;

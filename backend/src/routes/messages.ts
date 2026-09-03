@@ -28,11 +28,31 @@ export type RoomInviteDTO = {
 };
 
 const FREE_REACT_EMOJIS = new Set([
-  '❤️', '👍', '😂', '😮', '😢', '🔥', '👏', '🎉', '💯', '🥰',
-  '😍', '🤔', '😭', '🙏', '✨', '🤣', '😎', '🤝', '💪', '👀',
+  '❤️',
+  '👍',
+  '😂',
+  '😮',
+  '😢',
+  '🔥',
+  '👏',
+  '🎉',
+  '💯',
+  '🥰',
+  '😍',
+  '🤔',
+  '😭',
+  '🙏',
+  '✨',
+  '🤣',
+  '😎',
+  '🤝',
+  '💪',
+  '👀',
 ]);
 
-function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataUrl: string } | null {
+function parseImageDataURL(
+  input: string,
+): { mime: string; buffer: Buffer; dataUrl: string } | null {
   const match = input.match(/^data:(image\/(jpeg|jpg|png|webp));base64,(.+)$/i);
   if (!match) return null;
   const mime = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
@@ -43,8 +63,10 @@ function parseImageDataURL(input: string): { mime: string; buffer: Buffer; dataU
     return null;
   }
   const isJPEG = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
-  const isPNG = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
-  const isWebP = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
+  const isPNG =
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  const isWebP =
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
   if (!isJPEG && !isPNG && !isWebP) return null;
   return { mime, buffer, dataUrl: `data:${mime};base64,${match[3]}` };
 }
@@ -62,7 +84,7 @@ function isSchemaDriftError(e: any): boolean {
 
 function aggregateReactions(
   rows: { emoji: string; userID: string }[],
-  me: string
+  me: string,
 ): { emoji: string; count: number; includesMe: boolean }[] {
   const map = new Map<string, { count: number; includesMe: boolean }>();
   for (const r of rows) {
@@ -86,14 +108,18 @@ export default async function messageRoutes(fastify) {
   const pruneTyping = () => {
     if (typingMap.size < 1000) return;
     const cutoff = Date.now() - TYPING_TTL_MS;
-    for (const [k, t] of typingMap) { if (t < cutoff) typingMap.delete(k); }
+    for (const [k, t] of typingMap) {
+      if (t < cutoff) typingMap.delete(k);
+    }
   };
   const markTyping = async (typistId: string, peerId: string): Promise<void> => {
     if (redis) {
       try {
         await redis.set(`dm:typing:${typistId}:${peerId}`, '1', 'PX', TYPING_TTL_MS);
         return;
-      } catch { /* Redis мигнул — держим индикатор хотя бы в пределах реплики */ }
+      } catch {
+        /* Redis мигнул — держим индикатор хотя бы в пределах реплики */
+      }
     }
     pruneTyping();
     typingMap.set(`${typistId}:${peerId}`, Date.now());
@@ -102,7 +128,9 @@ export default async function messageRoutes(fastify) {
     if (redis) {
       try {
         return (await redis.exists(`dm:typing:${typistId}:${peerId}`)) === 1;
-      } catch { /* fallback ниже */ }
+      } catch {
+        /* fallback ниже */
+      }
     }
     const last = typingMap.get(`${typistId}:${peerId}`) ?? 0;
     return Date.now() - last < TYPING_TTL_MS;
@@ -130,7 +158,8 @@ export default async function messageRoutes(fastify) {
   };
   const canNotifyTyping = async (me: string, peerId: string): Promise<boolean> => {
     // Невалидный id отбрасываем до БД: маршрут дёргают циклом со случайными uuid
-    if (!peerId || typeof peerId !== 'string' || peerId === me || !UUID_RE.test(peerId)) return false;
+    if (!peerId || typeof peerId !== 'string' || peerId === me || !UUID_RE.test(peerId))
+      return false;
     const key = `${me}:${peerId}`;
     const hit = typingAllowCache.get(key);
     if (hit && Date.now() - hit.at < typingAllowTtl(hit.allowed)) return hit.allowed;
@@ -158,51 +187,57 @@ export default async function messageRoutes(fastify) {
 
   // GET /messages/unread — inbox summary for chat list (Telegram-style sort)
   // Returns last message + unread count per friend (including read threads).
-  fastify.get('/messages/unread', {
-    preHandler: [fastify.authenticate],
-    // Клиент дёргает инбокс с многих экранов (запуск, сайдбар, friends view,
-    // выход из чата) — лимит как у соседних read-ручек, всплески переживает.
-    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
-  }, async (request, reply) => {
-    const me = request.user.id;
+  fastify.get(
+    '/messages/unread',
+    {
+      preHandler: [fastify.authenticate],
+      // Клиент дёргает инбокс с многих экранов (запуск, сайдбар, friends view,
+      // выход из чата) — лимит как у соседних read-ручек, всплески переживает.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const me = request.user.id;
 
-    // Инбокс собирался по последним 800 DM (take: 800) —
-    // один болтливый тред вытеснял остальные чаты вместе с их unread-счётчиками.
-    type UnreadRow = {
-      friendId: string;
-      unreadCount: number;
-      content: string | null;
-      mediaType: string | null;
-      lastAt: Date;
-    };
-    const buildPreview = (content: string | null, mediaType: string | null): string => {
-      const rawPreview = String(content || '');
-      const voiceish = mediaType === 'voice' || rawPreview.includes('[[vn:') || rawPreview.includes('🎤');
-      const photoish = mediaType === 'photo';
-      return voiceish
-        ? '🎤 Голосовое сообщение'
-        : photoish
-          ? (rawPreview.trim() ? `📷 ${rawPreview.slice(0, 76)}` : '📷 Фото')
-          : rawPreview.slice(0, 80);
-    };
+      // Инбокс собирался по последним 800 DM (take: 800) —
+      // один болтливый тред вытеснял остальные чаты вместе с их unread-счётчиками.
+      type UnreadRow = {
+        friendId: string;
+        unreadCount: number;
+        content: string | null;
+        mediaType: string | null;
+        lastAt: Date;
+      };
+      const buildPreview = (content: string | null, mediaType: string | null): string => {
+        const rawPreview = String(content || '');
+        const voiceish =
+          mediaType === 'voice' || rawPreview.includes('[[vn:') || rawPreview.includes('🎤');
+        const photoish = mediaType === 'photo';
+        return voiceish
+          ? '🎤 Голосовое сообщение'
+          : photoish
+            ? rawPreview.trim()
+              ? `📷 ${rawPreview.slice(0, 76)}`
+              : '📷 Фото'
+            : rawPreview.slice(0, 80);
+      };
 
-    // Ревью 21.08.2026: прежний CTE читал ВСЮ историю DM пользователя на каждый
-    // опрос инбокса (WHERE senderID = me OR receiverID = me → DISTINCT ON) —
-    // стоимость росла с историей без потолка. Теперь стоимость привязана к
-    // числу ДРУЗЕЙ, не сообщений:
-    //   • unread — один range-scan по (receiverID, isRead, senderID), размер =
-    //     числу непрочитанных (мало по определению);
-    //   • последнее сообщение — LATERAL по списку друзей, 2 индексные пробы
-    //     (senderID, receiverID, createdAt) LIMIT 1 на друга.
-    // Семантика сузилась сознательно: треды с НЕ-друзьями больше не отдаются.
-    // Клиент (DMChatService.unreadByFriend → V4FriendsView) рендерит инбокс
-    // только по друзьям — строки для экс-друзей и так были мёртвым грузом.
-    // Серверного кэша тут нет намеренно: клиент зовёт refreshUnread() сразу
-    // после закрытия чата (mark-read), кэш возвращал бы только что снятый
-    // бейдж. Индексы — миграция 20260821130000_dm_inbox_lateral.
-    let rows: UnreadRow[] | null = null;
-    try {
-      rows = await prisma.$queryRaw<UnreadRow[]>`
+      // Ревью 21.08.2026: прежний CTE читал ВСЮ историю DM пользователя на каждый
+      // опрос инбокса (WHERE senderID = me OR receiverID = me → DISTINCT ON) —
+      // стоимость росла с историей без потолка. Теперь стоимость привязана к
+      // числу ДРУЗЕЙ, не сообщений:
+      //   • unread — один range-scan по (receiverID, isRead, senderID), размер =
+      //     числу непрочитанных (мало по определению);
+      //   • последнее сообщение — LATERAL по списку друзей, 2 индексные пробы
+      //     (senderID, receiverID, createdAt) LIMIT 1 на друга.
+      // Семантика сузилась сознательно: треды с НЕ-друзьями больше не отдаются.
+      // Клиент (DMChatService.unreadByFriend → V4FriendsView) рендерит инбокс
+      // только по друзьям — строки для экс-друзей и так были мёртвым грузом.
+      // Серверного кэша тут нет намеренно: клиент зовёт refreshUnread() сразу
+      // после закрытия чата (mark-read), кэш возвращал бы только что снятый
+      // бейдж. Индексы — миграция 20260821130000_dm_inbox_lateral.
+      let rows: UnreadRow[] | null = null;
+      try {
+        rows = await prisma.$queryRaw<UnreadRow[]>`
         WITH friends AS (
           SELECT f."friendID" AS peer FROM "Friendship" f WHERE f."userID" = ${me}
           UNION
@@ -245,131 +280,226 @@ export default async function messageRoutes(fastify) {
         LEFT JOIN unread u ON u.peer = lm.peer
         ORDER BY lm.created_at DESC
       `;
-    } catch (e: any) {
-      // Ревью 26.07.2026: на фолбэк уходим ТОЛЬКО при drift схемы. Таймаут/обрыв
-      // соединения раньше молча отдавал деградированный инбокс (take: 800 без
-      // фильтра deletedForIDs) с кодом 200 — клиент не мог отличить его от верного.
-      if (!isSchemaDriftError(e)) {
-        console.error('[messages/unread] aggregate failed:', e?.message);
-        return reply
-          .status(503)
-          .send({ error: 'Inbox temporarily unavailable', code: 'INBOX_UNAVAILABLE' });
+      } catch (e: any) {
+        // Ревью 26.07.2026: на фолбэк уходим ТОЛЬКО при drift схемы. Таймаут/обрыв
+        // соединения раньше молча отдавал деградированный инбокс (take: 800 без
+        // фильтра deletedForIDs) с кодом 200 — клиент не мог отличить его от верного.
+        if (!isSchemaDriftError(e)) {
+          console.error('[messages/unread] aggregate failed:', e?.message);
+          return reply
+            .status(503)
+            .send({ error: 'Inbox temporarily unavailable', code: 'INBOX_UNAVAILABLE' });
+        }
+        rows = null;
+        console.warn('[messages/unread] raw aggregate failed (schema drift):', e?.message);
       }
-      rows = null;
-      console.warn('[messages/unread] raw aggregate failed (schema drift):', e?.message);
-    }
 
-    if (rows) {
-      return reply.send(
-        rows.map((r) => ({
-          friendId: r.friendId,
-          unreadCount: Number(r.unreadCount) || 0,
-          lastPreview: buildPreview(r.content, r.mediaType),
-          lastAt: r.lastAt,
-        }))
+      if (rows) {
+        return reply.send(
+          rows.map((r) => ({
+            friendId: r.friendId,
+            unreadCount: Number(r.unreadCount) || 0,
+            lastPreview: buildPreview(r.content, r.mediaType),
+            lastAt: r.lastAt,
+          })),
+        );
+      }
+
+      // Latest activity across all DMs involving me (read + unread)
+      const recent = await prisma.directMessage.findMany({
+        where: {
+          OR: [{ senderID: me }, { receiverID: me }],
+          // Ревью 26.07.2026: тот же фильтр, что и в raw-пути, — чтобы удалённые
+          // «у себя» треды не всплывали в инбоксе на фолбэке.
+          NOT: { deletedForIDs: { has: me } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 800,
+        select: {
+          senderID: true,
+          receiverID: true,
+          content: true,
+          createdAt: true,
+          isRead: true,
+          mediaType: true,
+          mediaData: true,
+        },
+      });
+
+      type Row = {
+        friendId: string;
+        unreadCount: number;
+        lastPreview: string;
+        lastAt: Date;
+      };
+      const byFriend = new Map<string, Row>();
+
+      for (const m of recent) {
+        const friendId = m.senderID === me ? m.receiverID : m.senderID;
+        if (!friendId || friendId === me) continue;
+
+        const existing = byFriend.get(friendId);
+        if (!existing) {
+          byFriend.set(friendId, {
+            friendId,
+            unreadCount: 0,
+            lastPreview: buildPreview(m.content, m.mediaType),
+            lastAt: m.createdAt,
+          });
+        }
+        // Unread only for inbound
+        if (m.receiverID === me && m.isRead === false) {
+          const row = byFriend.get(friendId)!;
+          row.unreadCount += 1;
+        }
+      }
+
+      // Sort by last activity desc so clients can apply pin overlay easily
+      const list = [...byFriend.values()].sort(
+        (a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime(),
       );
-    }
-
-    // Latest activity across all DMs involving me (read + unread)
-    const recent = await prisma.directMessage.findMany({
-      where: {
-        OR: [{ senderID: me }, { receiverID: me }],
-        // Ревью 26.07.2026: тот же фильтр, что и в raw-пути, — чтобы удалённые
-        // «у себя» треды не всплывали в инбоксе на фолбэке.
-        NOT: { deletedForIDs: { has: me } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 800,
-      select: {
-        senderID: true,
-        receiverID: true,
-        content: true,
-        createdAt: true,
-        isRead: true,
-        mediaType: true,
-        mediaData: true,
-      },
-    });
-
-    type Row = {
-      friendId: string;
-      unreadCount: number;
-      lastPreview: string;
-      lastAt: Date;
-    };
-    const byFriend = new Map<string, Row>();
-
-    for (const m of recent) {
-      const friendId = m.senderID === me ? m.receiverID : m.senderID;
-      if (!friendId || friendId === me) continue;
-
-      const existing = byFriend.get(friendId);
-      if (!existing) {
-        byFriend.set(friendId, {
-          friendId,
-          unreadCount: 0,
-          lastPreview: buildPreview(m.content, m.mediaType),
-          lastAt: m.createdAt,
-        });
-      }
-      // Unread only for inbound
-      if (m.receiverID === me && m.isRead === false) {
-        const row = byFriend.get(friendId)!;
-        row.unreadCount += 1;
-      }
-    }
-
-    // Sort by last activity desc so clients can apply pin overlay easily
-    const list = [...byFriend.values()].sort(
-      (a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime()
-    );
-    reply.send(list);
-  });
+      reply.send(list);
+    },
+  );
 
   // GET /messages/dm/:friendId — history; opening chat marks inbound as read
   // Cursor pagination contract:
   //   ?before=<ISO date | message id> — returns only messages strictly older than the cursor
   //   ?limit=<1..200> — page size (50 by default with `before`, 200 with no params at all,
   //   which keeps the pre-pagination response size for existing clients)
-  fastify.get('/messages/dm/:friendId', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { friendId } = request.params;
-    const me = request.user.id;
-    const q = (request.query ?? {}) as { before?: string; limit?: string };
+  fastify.get(
+    '/messages/dm/:friendId',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { friendId } = request.params;
+      const me = request.user.id;
+      const q = (request.query ?? {}) as { before?: string; limit?: string };
 
-    // Разбор курсора before: ISO-дата или id сообщения этого треда
-    let beforeDate: Date | null = null;
-    if (typeof q.before === 'string' && q.before.trim().length > 0) {
-      const raw = q.before.trim();
-      const asDate = new Date(raw);
-      if (!Number.isNaN(asDate.getTime()) && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
-        beforeDate = asDate;
-      } else {
-        const anchor = await prisma.directMessage
-          .findUnique({
-            where: { id: raw },
-            select: { createdAt: true, senderID: true, receiverID: true },
-          })
-          .catch(() => null);
-        if (anchor && (anchor.senderID === me || anchor.receiverID === me)) {
-          beforeDate = anchor.createdAt;
+      // Разбор курсора before: ISO-дата или id сообщения этого треда
+      let beforeDate: Date | null = null;
+      if (typeof q.before === 'string' && q.before.trim().length > 0) {
+        const raw = q.before.trim();
+        const asDate = new Date(raw);
+        if (!Number.isNaN(asDate.getTime()) && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+          beforeDate = asDate;
+        } else {
+          const anchor = await prisma.directMessage
+            .findUnique({
+              where: { id: raw },
+              select: { createdAt: true, senderID: true, receiverID: true },
+            })
+            .catch(() => null);
+          if (anchor && (anchor.senderID === me || anchor.receiverID === me)) {
+            beforeDate = anchor.createdAt;
+          }
+        }
+        if (!beforeDate) {
+          return reply.status(400).send({ error: 'Invalid before cursor', code: 'BAD_CURSOR' });
         }
       }
-      if (!beforeDate) {
-        return reply.status(400).send({ error: 'Invalid before cursor', code: 'BAD_CURSOR' });
+
+      // Лимит: явный 1..200; без limit — 50 при пагинации, 200 в обычном режиме (совместимость)
+      let take = beforeDate ? 50 : 200;
+      if (typeof q.limit === 'string' && q.limit.trim() !== '') {
+        const n = parseInt(q.limit, 10);
+        if (Number.isFinite(n)) take = Math.min(200, Math.max(1, n));
       }
-    }
 
-    // Лимит: явный 1..200; без limit — 50 при пагинации, 200 в обычном режиме (совместимость)
-    let take = beforeDate ? 50 : 200;
-    if (typeof q.limit === 'string' && q.limit.trim() !== '') {
-      const n = parseInt(q.limit, 10);
-      if (Number.isFinite(n)) take = Math.min(200, Math.max(1, n));
-    }
+      // Mark everything from this friend as read (user opened the chat).
+      // При пагинации старых страниц (before) сайд-эффект не нужен.
+      if (!beforeDate) {
+        await prisma.directMessage.updateMany({
+          where: {
+            senderID: friendId,
+            receiverID: me,
+            isRead: false,
+          },
+          data: { isRead: true },
+        });
+      }
 
-    // Mark everything from this friend as read (user opened the chat).
-    // При пагинации старых страниц (before) сайд-эффект не нужен.
-    if (!beforeDate) {
-      await prisma.directMessage.updateMany({
+      const cursorFilter = beforeDate ? { createdAt: { lt: beforeDate } } : {};
+
+      // IMPORTANT: take NEWEST messages, not oldest.
+      // `orderBy asc + take 100` returned the first 100 ever → inbox preview
+      // showed a new message that disappeared after open (not in the oldest 100).
+      let messages: any[];
+      try {
+        messages = await prisma.directMessage.findMany({
+          where: {
+            OR: [
+              { senderID: me, receiverID: friendId },
+              { senderID: friendId, receiverID: me },
+            ],
+            // Telegram: hide messages this user deleted for themselves
+            NOT: { deletedForIDs: { has: me } },
+            ...cursorFilter,
+          },
+          orderBy: { createdAt: 'desc' },
+          take,
+          include: {
+            reactions: {
+              select: { emoji: true, userID: true },
+            },
+            replyTo: {
+              select: { id: true, content: true, senderID: true, mediaType: true },
+            },
+          },
+        });
+        messages = messages.reverse(); // chronological for the client
+      } catch {
+        // Table may not exist yet mid-migrate / reactions missing
+        messages = await prisma.directMessage.findMany({
+          where: {
+            OR: [
+              { senderID: me, receiverID: friendId },
+              { senderID: friendId, receiverID: me },
+            ],
+            ...cursorFilter,
+          },
+          orderBy: { createdAt: 'desc' },
+          take,
+        });
+        messages = messages.reverse();
+      }
+
+      const payload = messages.map((m: any) => ({
+        id: m.id,
+        senderID: m.senderID,
+        receiverID: m.receiverID,
+        content: m.content,
+        isRead: m.isRead,
+        createdAt: m.createdAt,
+        mediaType: m.mediaType ?? null,
+        mediaDurationSec: m.mediaDurationSec ?? null,
+        // Never include mediaData in list — clients fetch via /messages/voice/:id
+        hasMedia: Boolean(m.mediaType && m.mediaData),
+        reactions: aggregateReactions(m.reactions ?? [], me),
+        editedAt: m.editedAt ?? null,
+        // Telegram-style reply/forward metadata
+        replyTo: m.replyTo
+          ? {
+              id: m.replyTo.id,
+              content: m.replyTo.content,
+              senderID: m.replyTo.senderID,
+              mediaType: m.replyTo.mediaType ?? null,
+            }
+          : null,
+        forwardedFromID: m.forwardedFromID ?? null,
+        forwardedFromName: m.forwardedFromName ?? null,
+      }));
+      reply.send(payload);
+    },
+  );
+
+  // POST /messages/dm/:friendId/read — explicit mark-read (e.g. chat stayed open)
+  fastify.post(
+    '/messages/dm/:friendId/read',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { friendId } = request.params;
+      const me = request.user.id;
+      const result = await prisma.directMessage.updateMany({
         where: {
           senderID: friendId,
           receiverID: me,
@@ -377,95 +507,9 @@ export default async function messageRoutes(fastify) {
         },
         data: { isRead: true },
       });
-    }
-
-    const cursorFilter = beforeDate ? { createdAt: { lt: beforeDate } } : {};
-
-    // IMPORTANT: take NEWEST messages, not oldest.
-    // `orderBy asc + take 100` returned the first 100 ever → inbox preview
-    // showed a new message that disappeared after open (not in the oldest 100).
-    let messages: any[];
-    try {
-      messages = await prisma.directMessage.findMany({
-        where: {
-          OR: [
-            { senderID: me, receiverID: friendId },
-            { senderID: friendId, receiverID: me },
-          ],
-          // Telegram: hide messages this user deleted for themselves
-          NOT: { deletedForIDs: { has: me } },
-          ...cursorFilter,
-        },
-        orderBy: { createdAt: 'desc' },
-        take,
-        include: {
-          reactions: {
-            select: { emoji: true, userID: true },
-          },
-          replyTo: {
-            select: { id: true, content: true, senderID: true, mediaType: true },
-          },
-        },
-      });
-      messages = messages.reverse(); // chronological for the client
-    } catch {
-      // Table may not exist yet mid-migrate / reactions missing
-      messages = await prisma.directMessage.findMany({
-        where: {
-          OR: [
-            { senderID: me, receiverID: friendId },
-            { senderID: friendId, receiverID: me },
-          ],
-          ...cursorFilter,
-        },
-        orderBy: { createdAt: 'desc' },
-        take,
-      });
-      messages = messages.reverse();
-    }
-
-    const payload = messages.map((m: any) => ({
-      id: m.id,
-      senderID: m.senderID,
-      receiverID: m.receiverID,
-      content: m.content,
-      isRead: m.isRead,
-      createdAt: m.createdAt,
-      mediaType: m.mediaType ?? null,
-      mediaDurationSec: m.mediaDurationSec ?? null,
-      // Never include mediaData in list — clients fetch via /messages/voice/:id
-      hasMedia: Boolean(m.mediaType && m.mediaData),
-      reactions: aggregateReactions(m.reactions ?? [], me),
-      editedAt: m.editedAt ?? null,
-      // Telegram-style reply/forward metadata
-      replyTo: m.replyTo
-        ? {
-            id: m.replyTo.id,
-            content: m.replyTo.content,
-            senderID: m.replyTo.senderID,
-            mediaType: m.replyTo.mediaType ?? null,
-          }
-        : null,
-      forwardedFromID: m.forwardedFromID ?? null,
-      forwardedFromName: m.forwardedFromName ?? null,
-    }));
-    reply.send(payload);
-  });
-
-  // POST /messages/dm/:friendId/read — explicit mark-read (e.g. chat stayed open)
-  fastify.post('/messages/dm/:friendId/read', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { friendId } = request.params;
-    const me = request.user.id;
-    const result = await prisma.directMessage.updateMany({
-      where: {
-        senderID: friendId,
-        receiverID: me,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
-    reply.send({ success: true, marked: result.count });
-  });
+      reply.send({ success: true, marked: result.count });
+    },
+  );
 
   // DELETE /messages/dm/:friendId — Telegram-style «delete chat»
   // По умолчанию — скрытие только у себя (deletedForIDs),
@@ -527,10 +571,7 @@ export default async function messageRoutes(fastify) {
         const bothHidden = await prisma.directMessage.findMany({
           where: {
             ...threadWhere,
-            AND: [
-              { deletedForIDs: { has: me } },
-              { deletedForIDs: { has: friendId } },
-            ],
+            AND: [{ deletedForIDs: { has: me } }, { deletedForIDs: { has: friendId } }],
           },
           select: { id: true },
           take: 5000,
@@ -547,147 +588,159 @@ export default async function messageRoutes(fastify) {
       }
 
       reply.send({ success: true, deleted: result.count, forBoth: false });
-    }
+    },
   );
 
-  fastify.post('/messages/dm', { preHandler: [fastify.authenticate, validateBody(dmSendBody)] }, async (request, reply) => {
-    const { receiverId, content, replyToId } = request.body;
-    // 280: room invites + short chat (was 150 — invites didn't fit)
-    if (!content || typeof content !== 'string' || content.length > 280) {
-      return reply.status(400).send({ error: 'Invalid message (max 280 chars)' });
-    }
+  fastify.post(
+    '/messages/dm',
+    { preHandler: [fastify.authenticate, validateBody(dmSendBody)] },
+    async (request, reply) => {
+      const { receiverId, content, replyToId } = request.body;
+      // 280: room invites + short chat (was 150 — invites didn't fit)
+      if (!content || typeof content !== 'string' || content.length > 280) {
+        return reply.status(400).send({ error: 'Invalid message (max 280 chars)' });
+      }
 
-    // ИИ-модератор в личке — активный мут и фильтр матов
-    {
-      const dmMutedSec = await muteRemainingSec('dm', request.user.id);
-      if (dmMutedSec > 0) {
-        return reply.status(403).send({
-          error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
-          code: 'MODERATION_MUTED',
-          mutedForSec: dmMutedSec,
-        });
+      // ИИ-модератор в личке — активный мут и фильтр матов
+      {
+        const dmMutedSec = await muteRemainingSec('dm', request.user.id);
+        if (dmMutedSec > 0) {
+          return reply.status(403).send({
+            error: `Вы замучены модератором ещё на ${dmMutedSec} сек`,
+            code: 'MODERATION_MUTED',
+            mutedForSec: dmMutedSec,
+          });
+        }
+        if (containsProfanity(content)) {
+          const seconds = await muteUser('dm', request.user.id, 'profanity');
+          void auditModeration({
+            roomId: `dm:${receiverId}`,
+            messageId: `dm-${Date.now()}`,
+            subjectUserId: request.user.id,
+            action: 'mute_profanity',
+            reasonCode: 'profanity',
+          });
+          return reply.status(403).send({
+            error: `Мут на ${seconds} сек за нецензурную лексику`,
+            code: 'MODERATION_MUTED',
+            mutedForSec: seconds,
+          });
+        }
       }
-      if (containsProfanity(content)) {
-        const seconds = await muteUser('dm', request.user.id, 'profanity');
-        void auditModeration({
-          roomId: `dm:${receiverId}`,
-          messageId: `dm-${Date.now()}`,
-          subjectUserId: request.user.id,
-          action: 'mute_profanity',
-          reasonCode: 'profanity',
-        });
-        return reply.status(403).send({
-          error: `Мут на ${seconds} сек за нецензурную лексику`,
-          code: 'MODERATION_MUTED',
-          mutedForSec: seconds,
-        });
+      if (!receiverId || typeof receiverId !== 'string') {
+        return reply.status(400).send({ error: 'receiverId required' });
       }
-    }
-    if (!receiverId || typeof receiverId !== 'string') {
-      return reply.status(400).send({ error: 'receiverId required' });
-    }
 
-    // Telegram: cannot message a deleted account
-    try {
-      const peer = await prisma.user.findUnique({
-        where: { id: receiverId },
-        select: { id: true, username: true, deletedAt: true } as any,
-      });
-      if (!peer) {
-        return reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
-      }
-      const { isDeletedUser } = await import('../services/accountTombstone.js');
-      if (isDeletedUser(peer as any)) {
-        return reply.status(403).send({
-          error: 'This account has been deleted',
-          code: 'ACCOUNT_DELETED',
+      // Telegram: cannot message a deleted account
+      try {
+        const peer = await prisma.user.findUnique({
+          where: { id: receiverId },
+          select: { id: true, username: true, deletedAt: true } as any,
         });
+        if (!peer) {
+          return reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        }
+        const { isDeletedUser } = await import('../services/accountTombstone.js');
+        if (isDeletedUser(peer as any)) {
+          return reply.status(403).send({
+            error: 'This account has been deleted',
+            code: 'ACCOUNT_DELETED',
+          });
+        }
+      } catch (e: any) {
+        if (!isSchemaDriftError(e)) {
+          console.error('[dm] peer check failed:', e?.message);
+          return reply
+            .status(503)
+            .send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
+        }
+        console.warn('[dm] peer check:', e?.message);
       }
-    } catch (e: any) {
-      if (!isSchemaDriftError(e)) {
-        console.error('[dm] peer check failed:', e?.message);
-        return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
-      }
-      console.warn('[dm] peer check:', e?.message);
-    }
 
-    // Also block if either side blocked the other.
-    // Enforcement блокировок fail-closed — ошибка БД не пропускает DM.
-    try {
-      const blocked = await prisma.userBlock.findFirst({
-        where: {
-          OR: [
-            { blockerID: request.user.id, blockedID: receiverId },
-            { blockerID: receiverId, blockedID: request.user.id },
-          ],
+      // Also block if either side blocked the other.
+      // Enforcement блокировок fail-closed — ошибка БД не пропускает DM.
+      try {
+        const blocked = await prisma.userBlock.findFirst({
+          where: {
+            OR: [
+              { blockerID: request.user.id, blockedID: receiverId },
+              { blockerID: receiverId, blockedID: request.user.id },
+            ],
+          },
+          select: { id: true },
+        });
+        if (blocked) {
+          return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
+        }
+      } catch (e: any) {
+        console.error('[dm] block check failed:', e?.message);
+        return reply
+          .status(503)
+          .send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
+      }
+
+      // Telegram-style reply: quoted message must belong to this thread
+      let replyTo: any = null;
+      if (replyToId && typeof replyToId === 'string') {
+        replyTo = await prisma.directMessage.findFirst({
+          where: {
+            id: replyToId,
+            OR: [
+              { senderID: request.user.id, receiverID: receiverId },
+              { senderID: receiverId, receiverID: request.user.id },
+            ],
+          },
+          select: { id: true, content: true, senderID: true, mediaType: true },
+        });
+        if (!replyTo) {
+          return reply
+            .status(400)
+            .send({ error: 'Reply target not in this chat', code: 'BAD_REPLY' });
+        }
+      }
+
+      const msg = await prisma.directMessage.create({
+        data: {
+          senderID: request.user.id,
+          receiverID: receiverId,
+          content,
+          isRead: false,
+          ...(replyTo ? { replyToID: replyTo.id } : {}),
         },
-        select: { id: true },
       });
-      if (blocked) {
-        return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
+
+      // Instant fanout over the user '@me' channel (polling stays as fallback)
+      try {
+        (fastify as any).gateway?.notifyUser(receiverId, {
+          type: 'dm.event',
+          event: 'message',
+          fromUserId: request.user.id,
+          messageId: msg.id,
+        });
+      } catch {
+        /* noop */
       }
-    } catch (e: any) {
-      console.error('[dm] block check failed:', e?.message);
-      return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
-    }
-
-    // Telegram-style reply: quoted message must belong to this thread
-    let replyTo: any = null;
-    if (replyToId && typeof replyToId === 'string') {
-      replyTo = await prisma.directMessage.findFirst({
-        where: {
-          id: replyToId,
-          OR: [
-            { senderID: request.user.id, receiverID: receiverId },
-            { senderID: receiverId, receiverID: request.user.id },
-          ],
-        },
-        select: { id: true, content: true, senderID: true, mediaType: true },
+      // APNs push (no-op when not configured). Styled-bubble envelopes start
+      // with '{' — don't leak raw JSON into the notification.
+      void pushToUser(receiverId, {
+        title: request.user.username || 'Plink',
+        body: content.startsWith('{') ? 'Новое сообщение' : content.slice(0, 120),
+        threadId: `dm-${request.user.id}`,
+        data: { kind: 'dm', fromUserId: request.user.id },
       });
-      if (!replyTo) {
-        return reply.status(400).send({ error: 'Reply target not in this chat', code: 'BAD_REPLY' });
-      }
-    }
 
-    const msg = await prisma.directMessage.create({
-      data: {
-        senderID: request.user.id,
-        receiverID: receiverId,
-        content,
-        isRead: false,
-        ...(replyTo ? { replyToID: replyTo.id } : {}),
-      },
-    });
-
-    // Instant fanout over the user '@me' channel (polling stays as fallback)
-    try {
-      (fastify as any).gateway?.notifyUser(receiverId, {
-        type: 'dm.event',
-        event: 'message',
-        fromUserId: request.user.id,
-        messageId: msg.id,
+      reply.send({
+        ...msg,
+        mediaType: null,
+        mediaDurationSec: null,
+        hasMedia: false,
+        reactions: [],
+        replyTo,
+        forwardedFromID: null,
+        forwardedFromName: null,
       });
-    } catch { /* noop */ }
-    // APNs push (no-op when not configured). Styled-bubble envelopes start
-    // with '{' — don't leak raw JSON into the notification.
-    void pushToUser(receiverId, {
-      title: request.user.username || 'Plink',
-      body: content.startsWith('{') ? 'Новое сообщение' : content.slice(0, 120),
-      threadId: `dm-${request.user.id}`,
-      data: { kind: 'dm', fromUserId: request.user.id },
-    });
-
-    reply.send({
-      ...msg,
-      mediaType: null,
-      mediaDurationSec: null,
-      hasMedia: false,
-      reactions: [],
-      replyTo,
-      forwardedFromID: null,
-      forwardedFromName: null,
-    });
-  });
+    },
+  );
 
   // POST /messages/dm/voice — real voice note (base64 audio + duration)
   // Free for friend DMs. Body:
@@ -728,7 +781,9 @@ export default async function messageRoutes(fastify) {
       } catch (e: any) {
         if (!isSchemaDriftError(e)) {
           console.error('[dm-voice] peer check failed:', e?.message);
-          return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
+          return reply
+            .status(503)
+            .send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
         }
         /* schema drift — allow path below */
       }
@@ -750,7 +805,9 @@ export default async function messageRoutes(fastify) {
         }
       } catch (e: any) {
         console.error('[dm-voice] block check failed:', e?.message);
-        return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
+        return reply
+          .status(503)
+          .send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
       }
 
       // Мут и фильтр матов действуют и на голосовые (капшен)
@@ -794,7 +851,7 @@ export default async function messageRoutes(fastify) {
       }
 
       const mimeMatch = dataUrl.match(
-        /^data:(audio\/(mp4|m4a|aac|mpeg|mp3|wav|x-m4a|caf));base64,(.+)$/i
+        /^data:(audio\/(mp4|m4a|aac|mpeg|mp3|wav|x-m4a|caf));base64,(.+)$/i,
       );
       if (!mimeMatch) {
         return reply.status(400).send({
@@ -860,7 +917,7 @@ export default async function messageRoutes(fastify) {
           detail: e?.message,
         });
       }
-    }
+    },
   );
 
   // GET /messages/voice/:messageId — stream voice note audio (participants only)
@@ -896,9 +953,7 @@ export default async function messageRoutes(fastify) {
         return reply.status(404).send({ error: 'No voice attachment' });
       }
 
-      const match = String(msg.mediaData).match(
-        /^data:(audio\/[a-z0-9.+-]+);base64,(.+)$/i
-      );
+      const match = String(msg.mediaData).match(/^data:(audio\/[a-z0-9.+-]+);base64,(.+)$/i);
       if (!match) {
         return reply.status(500).send({ error: 'Corrupt voice data' });
       }
@@ -909,7 +964,7 @@ export default async function messageRoutes(fastify) {
         .header('Content-Length', String(buffer.length))
         .type(mime)
         .send(buffer);
-    }
+    },
   );
 
   // POST /messages/dm/photo — photo message (base64 image + optional caption)
@@ -940,12 +995,16 @@ export default async function messageRoutes(fastify) {
         if (!peer) return reply.status(404).send({ error: 'User not found' });
         const { isDeletedUser } = await import('../services/accountTombstone.js');
         if (isDeletedUser(peer as any)) {
-          return reply.status(403).send({ error: 'This account has been deleted', code: 'ACCOUNT_DELETED' });
+          return reply
+            .status(403)
+            .send({ error: 'This account has been deleted', code: 'ACCOUNT_DELETED' });
         }
       } catch (e: any) {
         if (!isSchemaDriftError(e)) {
           console.error('[dm-photo] peer check failed:', e?.message);
-          return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
+          return reply
+            .status(503)
+            .send({ error: 'Messaging temporarily unavailable', code: 'PEER_CHECK_FAILED' });
         }
         console.warn('[dm-photo] peer check:', e?.message);
       }
@@ -961,10 +1020,13 @@ export default async function messageRoutes(fastify) {
           },
           select: { id: true },
         });
-        if (blocked) return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
+        if (blocked)
+          return reply.status(403).send({ error: 'Messaging not allowed', code: 'BLOCKED' });
       } catch (e: any) {
         console.error('[dm-photo] block check failed:', e?.message);
-        return reply.status(503).send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
+        return reply
+          .status(503)
+          .send({ error: 'Messaging temporarily unavailable', code: 'BLOCK_CHECK_FAILED' });
       }
 
       const parsed = parseImageDataURL(typeof body.imageData === 'string' ? body.imageData : '');
@@ -1035,7 +1097,7 @@ export default async function messageRoutes(fastify) {
         hasMedia: true,
         reactions: [],
       });
-    }
+    },
   );
 
   // GET /messages/photo/:messageId — stream photo attachment (participants only)
@@ -1063,7 +1125,7 @@ export default async function messageRoutes(fastify) {
         .header('Content-Length', String(parsed.buffer.length))
         .type(parsed.mime)
         .send(parsed.buffer);
-    }
+    },
   );
 
   // POST /messages/dm/:messageId/react — toggle Telegram-style reaction
@@ -1122,63 +1184,68 @@ export default async function messageRoutes(fastify) {
         });
       } catch (e: any) {
         console.warn('[dm-react]', e?.message);
-        return reply.status(503).send({ error: 'Reactions unavailable', code: 'REACTIONS_UNAVAILABLE' });
+        return reply
+          .status(503)
+          .send({ error: 'Reactions unavailable', code: 'REACTIONS_UNAVAILABLE' });
       }
-    }
+    },
   );
 
   // GET /messages/invites — pending room invites embedded in unread DMs
   // Format: "... plink-invite:CODE|ROOMID|RoomName"
-  fastify.get('/messages/invites', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const me = request.user.id;
-    const unread = await prisma.directMessage.findMany({
-      where: {
-        receiverID: me,
-        isRead: false,
-        content: { contains: 'plink-invite:' },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 30,
-      include: {
-        sender: { select: { id: true, username: true, avatarURL: true, displayName: true } },
-      },
-    });
-
-    // Use Array<T> constructor — never leave invites as never[] under strict tsc
-    const invites = new Array<RoomInviteDTO>();
-    for (const m of unread as any[]) {
-      const content = String(m?.content ?? '');
-      const marker = 'plink-invite:';
-      const idx = content.indexOf(marker);
-      if (idx < 0) continue;
-      const payload = content.slice(idx + marker.length).trim();
-      const parts = payload.split('|');
-      const code = (parts[0] || '').trim().toUpperCase();
-      const roomId = (parts[1] || '').trim();
-      const roomName = (parts[2] || 'Комната').trim() || 'Комната';
-      if (!code || code.length < 4) continue;
-      const fromUsername =
-        (m?.sender?.displayName as string | undefined) ||
-        (m?.sender?.username as string | undefined) ||
-        'Друг';
-      const fromAvatarURL =
-        m?.sender?.avatarURL != null ? String(m.sender.avatarURL) : null;
-      invites.push({
-        id: String(m.id),
-        messageId: String(m.id),
-        roomID: roomId || code,
-        roomCode: code,
-        roomName,
-        fromUserID: String(m.senderID),
-        fromUsername,
-        fromAvatarURL,
-        mediaTitle: null,
-        timestamp: m.createdAt as Date,
-        preview: content.slice(0, 120),
+  fastify.get(
+    '/messages/invites',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const me = request.user.id;
+      const unread = await prisma.directMessage.findMany({
+        where: {
+          receiverID: me,
+          isRead: false,
+          content: { contains: 'plink-invite:' },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        include: {
+          sender: { select: { id: true, username: true, avatarURL: true, displayName: true } },
+        },
       });
-    }
-    return reply.send(invites);
-  });
+
+      // Use Array<T> constructor — never leave invites as never[] under strict tsc
+      const invites = new Array<RoomInviteDTO>();
+      for (const m of unread as any[]) {
+        const content = String(m?.content ?? '');
+        const marker = 'plink-invite:';
+        const idx = content.indexOf(marker);
+        if (idx < 0) continue;
+        const payload = content.slice(idx + marker.length).trim();
+        const parts = payload.split('|');
+        const code = (parts[0] || '').trim().toUpperCase();
+        const roomId = (parts[1] || '').trim();
+        const roomName = (parts[2] || 'Комната').trim() || 'Комната';
+        if (!code || code.length < 4) continue;
+        const fromUsername =
+          (m?.sender?.displayName as string | undefined) ||
+          (m?.sender?.username as string | undefined) ||
+          'Друг';
+        const fromAvatarURL = m?.sender?.avatarURL != null ? String(m.sender.avatarURL) : null;
+        invites.push({
+          id: String(m.id),
+          messageId: String(m.id),
+          roomID: roomId || code,
+          roomCode: code,
+          roomName,
+          fromUserID: String(m.senderID),
+          fromUsername,
+          fromAvatarURL,
+          mediaTitle: null,
+          timestamp: m.createdAt as Date,
+          preview: content.slice(0, 120),
+        });
+      }
+      return reply.send(invites);
+    },
+  );
 
   // ── Telegram-style DM pins ───────────────────────────────────────────
   // POST /messages/dm/:friendId/pin { messageId, forBoth }
@@ -1219,7 +1286,7 @@ export default async function messageRoutes(fastify) {
       }
       await prisma.directMessagePin.createMany({ data: rows, skipDuplicates: true });
       reply.send({ success: true, forBoth: forBoth === true });
-    }
+    },
   );
 
   // DELETE /messages/dm/:friendId/pin/:messageId?forBoth=true — unpin
@@ -1241,7 +1308,7 @@ export default async function messageRoutes(fastify) {
         : { ownerID: me, peerID: friendId, messageID: messageId };
       const result = await prisma.directMessagePin.deleteMany({ where });
       reply.send({ success: true, removed: result.count });
-    }
+    },
   );
 
   // GET /messages/dm/:friendId/pins — my pinned messages in this chat
@@ -1274,9 +1341,9 @@ export default async function messageRoutes(fastify) {
           senderID: p.message?.senderID ?? '',
           mediaType: p.message?.mediaType ?? null,
           messageCreatedAt: p.message?.createdAt ?? null,
-        }))
+        })),
       );
-    }
+    },
   );
 
   // ── Telegram-style forward ──────────────────────────────────────────────
@@ -1350,7 +1417,7 @@ export default async function messageRoutes(fastify) {
         select: { id: true, username: true, displayName: true } as any,
       });
       const nameById = new Map(
-        senders.map((u: any) => [u.id, (u.displayName || u.username || 'Unknown') as string])
+        senders.map((u: any) => [u.id, (u.displayName || u.username || 'Unknown') as string]),
       );
 
       const created: any[] = [];
@@ -1375,7 +1442,7 @@ export default async function messageRoutes(fastify) {
         });
       }
       reply.send({ success: true, forwarded: created.length, messages: created });
-    }
+    },
   );
 
   // ── PATCH /messages/dm/message/:messageId — Telegram-style edit ──
@@ -1440,9 +1507,11 @@ export default async function messageRoutes(fastify) {
           fromUserId: me,
           messageId,
         });
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       reply.send({ success: true, id: updated.id, editedAt: (updated as any).editedAt });
-    }
+    },
   );
 
   // ── DELETE /messages/dm/message/:messageId?forBoth= — Telegram delete ──
@@ -1467,12 +1536,20 @@ export default async function messageRoutes(fastify) {
         try {
           const peerId = msg.senderID === me ? msg.receiverID : msg.senderID;
           (fastify as any).gateway?.notifyUser(peerId, {
-            type: 'dm.event', event: 'deleted', fromUserId: me, messageId,
+            type: 'dm.event',
+            event: 'deleted',
+            fromUserId: me,
+            messageId,
           });
           (fastify as any).gateway?.notifyUser(me, {
-            type: 'dm.event', event: 'deleted', fromUserId: peerId, messageId,
+            type: 'dm.event',
+            event: 'deleted',
+            fromUserId: peerId,
+            messageId,
           });
-        } catch { /* noop */ }
+        } catch {
+          /* noop */
+        }
         return reply.send({ success: true, removed: 1, forBoth: true });
       }
       // «Удалить у себя» — hide for me only
@@ -1484,11 +1561,16 @@ export default async function messageRoutes(fastify) {
       try {
         const peerId = msg.senderID === me ? msg.receiverID : msg.senderID;
         (fastify as any).gateway?.notifyUser(me, {
-          type: 'dm.event', event: 'deleted', fromUserId: peerId, messageId,
+          type: 'dm.event',
+          event: 'deleted',
+          fromUserId: peerId,
+          messageId,
         });
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       reply.send({ success: true, removed: 1, forBoth: false });
-    }
+    },
   );
 
   // ── Typing indicator (poll-friendly, in-memory) ──
@@ -1514,9 +1596,11 @@ export default async function messageRoutes(fastify) {
           event: 'typing',
           fromUserId: me,
         });
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       reply.send({ success: true });
-    }
+    },
   );
 
   fastify.get(
@@ -1530,6 +1614,6 @@ export default async function messageRoutes(fastify) {
     async (request: any, reply: any) => {
       const friendId = typeof request.params?.friendId === 'string' ? request.params.friendId : '';
       reply.send({ typing: await isTyping(friendId, request.user.id) });
-    }
+    },
   );
 }

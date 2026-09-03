@@ -24,17 +24,17 @@ const P2002 = () => Object.assign(new Error('Unique constraint failed'), { code:
 /// Фейковый tx-клиент. duplicate=true — база отбивает вставку уникальным
 /// ограничением (повторная доставка вебхука); granted=true — строка уже есть
 /// (повтор на базе, где уникальный индекс ещё не создан миграцией).
-function makeTx(opts: {
-  duplicate?: boolean;
-  granted?: boolean;
-  user?: { isPremium: boolean; premiumUntil: Date | null };
-} = {}) {
+function makeTx(
+  opts: {
+    duplicate?: boolean;
+    granted?: boolean;
+    user?: { isPremium: boolean; premiumUntil: Date | null };
+  } = {},
+) {
   return {
     subscription: {
       findFirst: vi.fn().mockResolvedValue(opts.granted ? { id: 'sub-1' } : null),
-      create: opts.duplicate
-        ? vi.fn().mockRejectedValue(P2002())
-        : vi.fn().mockResolvedValue({}),
+      create: opts.duplicate ? vi.fn().mockRejectedValue(P2002()) : vi.fn().mockResolvedValue({}),
     },
     user: {
       findUnique: vi.fn().mockResolvedValue(opts.user ?? { isPremium: false, premiumUntil: null }),
@@ -62,7 +62,9 @@ describe('grantWebPremium', () => {
 
     expect(result).toBe('granted');
     expect(tx.subscription.create).toHaveBeenCalledTimes(1);
-    expect(tx.subscription.create.mock.calls[0][0].data.originalTransactionId).toBe('yookassa:pay-1');
+    expect(tx.subscription.create.mock.calls[0][0].data.originalTransactionId).toBe(
+      'yookassa:pay-1',
+    );
     expect(tx.user.update).toHaveBeenCalledTimes(1);
     expect(prismaMock.$transaction.mock.calls[0][1]).toEqual({ isolationLevel: 'Serializable' });
     expect(logAuditMock).toHaveBeenCalledTimes(1);
@@ -84,7 +86,10 @@ describe('grantWebPremium', () => {
   });
 
   it('повторная доставка того же платежа не продлевает подписку (P2002 из create)', async () => {
-    const tx = makeTx({ duplicate: true, user: { isPremium: true, premiumUntil: new Date(Date.now() + 1e9) } });
+    const tx = makeTx({
+      duplicate: true,
+      user: { isPremium: true, premiumUntil: new Date(Date.now() + 1e9) },
+    });
     prismaMock.$transaction.mockImplementation(runTx(tx));
 
     const result = await grantWebPremium('user-1', '1m', 'pay-1');
@@ -99,13 +104,18 @@ describe('grantWebPremium', () => {
     // Регресс: если код выкачен раньше prisma migrate deploy, индекса нет и
     // create прошёл бы молча — премиум продлился бы второй раз без единой
     // ошибки в логах. Проверка внутри транзакции обязана это поймать.
-    const tx = makeTx({ granted: true, user: { isPremium: true, premiumUntil: new Date(Date.now() + 1e9) } });
+    const tx = makeTx({
+      granted: true,
+      user: { isPremium: true, premiumUntil: new Date(Date.now() + 1e9) },
+    });
     prismaMock.$transaction.mockImplementation(runTx(tx));
 
     const result = await grantWebPremium('user-1', '1m', 'pay-1');
 
     expect(result).toBe('duplicate');
-    expect(tx.subscription.findFirst.mock.calls[0][0].where.originalTransactionId).toBe('yookassa:pay-1');
+    expect(tx.subscription.findFirst.mock.calls[0][0].where.originalTransactionId).toBe(
+      'yookassa:pay-1',
+    );
     expect(tx.subscription.create).not.toHaveBeenCalled();
     expect(tx.user.update).not.toHaveBeenCalled();
     expect(logAuditMock).not.toHaveBeenCalled();
@@ -119,7 +129,9 @@ describe('grantWebPremium', () => {
   });
 
   it('прочие ошибки БД пробрасываются (вебхук ответит 5xx и ЮKassa повторит)', async () => {
-    prismaMock.$transaction.mockRejectedValue(Object.assign(new Error('serialization'), { code: 'P2034' }));
+    prismaMock.$transaction.mockRejectedValue(
+      Object.assign(new Error('serialization'), { code: 'P2034' }),
+    );
 
     await expect(grantWebPremium('user-1', '1m', 'pay-1')).rejects.toThrow('serialization');
   });

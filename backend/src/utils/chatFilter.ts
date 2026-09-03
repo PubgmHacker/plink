@@ -8,9 +8,7 @@ const BLOCKED = [
   /(https?:\/\/|www\.)\S{40,}/iu, // long link spam
 ];
 
-export type ChatFilterResult =
-  | { ok: true; text: string }
-  | { ok: false; reason: string };
+export type ChatFilterResult = { ok: true; text: string } | { ok: false; reason: string };
 
 export function filterChatMessage(raw: string): ChatFilterResult {
   const text = String(raw ?? '').trim();

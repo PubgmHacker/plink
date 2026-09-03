@@ -100,7 +100,10 @@ function muteUserLocal(scope: string, userId: string, reason: string, baseSecond
   const s = strikes.get(key);
   let count = 1;
   if (s && now - s.windowStart < STRIKE_WINDOW_MS) count = s.count + 1;
-  strikes.set(key, { count, windowStart: s && now - s.windowStart < STRIKE_WINDOW_MS ? s.windowStart : now });
+  strikes.set(key, {
+    count,
+    windowStart: s && now - s.windowStart < STRIKE_WINDOW_MS ? s.windowStart : now,
+  });
   const seconds = escalationSeconds(count, baseSeconds);
   mutes.set(key, { until: now + seconds * 1000, reason, strikes: count });
   return seconds;
@@ -216,7 +219,9 @@ export async function moderateImage(dataURL: string): Promise<ImageModerationRes
     clearTimeout(timer);
     if (!resp.ok) return { nsfw: false, checked: false };
     const data: any = await resp.json();
-    const answer = String(data.choices?.[0]?.message?.content ?? '').trim().toUpperCase();
+    const answer = String(data.choices?.[0]?.message?.content ?? '')
+      .trim()
+      .toUpperCase();
     return { nsfw: answer.includes('UNSAFE'), checked: true };
   } catch {
     return { nsfw: false, checked: false };
@@ -245,7 +250,9 @@ export async function auditModeration(args: {
         confidence: args.confidence ?? null,
         policyVersion: MOD_POLICY_VERSION,
         modelVersion: null,
-        evidenceHash: createHash('sha256').update(`${args.messageId}:${args.reasonCode}`).digest('hex'),
+        evidenceHash: createHash('sha256')
+          .update(`${args.messageId}:${args.reasonCode}`)
+          .digest('hex'),
         reversible: true,
       },
     });

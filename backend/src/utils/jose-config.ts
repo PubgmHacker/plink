@@ -43,7 +43,7 @@ const APPLE_ROOT_CA_PATHS = [
 interface VerifiedTransaction {
   originalTransactionId: string;
   environment: 'Sandbox' | 'Production';
-  expiresAt: number | null;  // ms since epoch, or null for lifetime
+  expiresAt: number | null; // ms since epoch, or null for lifetime
   revocationDate: number | null;
   productId?: string;
   transactionId?: string;
@@ -156,7 +156,7 @@ function verifyCertChain(x5c: string[]): X509Certificate | null {
   const chainRoot = certs[certs.length - 1];
   if (chainRoot.fingerprint256 !== root.fingerprint256) return null;
 
-  return certs[0];  // leaf — им проверяем подпись самого JWS
+  return certs[0]; // leaf — им проверяем подпись самого JWS
 }
 
 function verifyJWSSignature(
@@ -188,7 +188,9 @@ function verifyJWSSignature(
   const leaf = verifyCertChain(header.x5c);
   if (!leaf) {
     if (allowUnverified) {
-      console.warn('[iap] ALLOW_UNVERIFIED_IAP=true — подпись НЕ проверена (только для разработки)');
+      console.warn(
+        '[iap] ALLOW_UNVERIFIED_IAP=true — подпись НЕ проверена (только для разработки)',
+      );
       return payload;
     }
     console.warn('[iap] отклонено: цепочка сертификатов не ведёт к Apple Root CA');
@@ -231,8 +233,11 @@ export const JoseConfig = {
     const environment = payload.environment === 'Sandbox' ? 'Sandbox' : 'Production';
     // В production покупка из песочницы не даёт прав — иначе Premium
     // выдаётся бесплатно через сандбокс-аккаунт.
-    if (process.env.NODE_ENV === 'production' && environment === 'Sandbox'
-        && process.env.ALLOW_SANDBOX_IAP !== 'true') {
+    if (
+      process.env.NODE_ENV === 'production' &&
+      environment === 'Sandbox' &&
+      process.env.ALLOW_SANDBOX_IAP !== 'true'
+    ) {
       console.warn('[iap] отклонено: Sandbox-транзакция в production');
       return null;
     }
@@ -255,9 +260,10 @@ export const JoseConfig = {
 
     return {
       notificationType: payload.notificationType,
-      notificationUUID: typeof payload.notificationUUID === 'string' && payload.notificationUUID
-        ? payload.notificationUUID
-        : undefined,
+      notificationUUID:
+        typeof payload.notificationUUID === 'string' && payload.notificationUUID
+          ? payload.notificationUUID
+          : undefined,
       signedDate: toMillis(payload.signedDate),
       data: payload.data || {},
     };
@@ -271,8 +277,12 @@ export const JoseConfig = {
   /// отвечает на вопрос «цел ли криптотракт», а не «в каком режиме окружение».
   /// О включённом dev-обходе app.ts предупреждает отдельной строкой.
   selfTest(): boolean {
-    const fakeHeader = Buffer.from(JSON.stringify({ alg: 'ES256', x5c: ['AAAA'] })).toString('base64url');
-    const fakePayload = Buffer.from(JSON.stringify({ productId: 'x', bundleId: 'y' })).toString('base64url');
+    const fakeHeader = Buffer.from(JSON.stringify({ alg: 'ES256', x5c: ['AAAA'] })).toString(
+      'base64url',
+    );
+    const fakePayload = Buffer.from(JSON.stringify({ productId: 'x', bundleId: 'y' })).toString(
+      'base64url',
+    );
     const forged = `${fakeHeader}.${fakePayload}.AAAA`;
     return verifyJWSSignature(forged, false) === null;
   },

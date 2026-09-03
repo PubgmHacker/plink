@@ -4,29 +4,29 @@ info:
   version: 1.4.0
   description: |
     Plink — синхронный просмотр видео с друзьями.
-    
+
     ## Аутентификация
     Все endpoints (кроме /api/auth/signin, /api/auth/signup, /health) требуют JWT.
-    
+
     Используйте `Authorization: Bearer <token>` header.
-    
+
     ## Rate Limits
     - Signin: 10 attempts / 5 min
     - Signup: 5 attempts / 20 min  
     - Refresh: 60 attempts / 1 min
     - Media search: 30 attempts / 1 min
     - Stream extract: 20 attempts / 1 min
-    
+
     ## WebSocket
     Подключение: `wss://plink-production.up.railway.app/ws?token=JWT&roomId=ROOM_ID`
-    
+
     Message types:
     - `{ command: "ping", timestamp }` → `{ command: "pong", serverTimestamp }`
     - `{ command: "play"|"pause"|"seek", roomID, mediaTime, timestamp }`
     - `{ type: "chat", roomID, text }`
     - `{ action: "send_reaction", roomId, emoji }`
     - `{ type: "typing", roomId, isTyping }`
-    
+
 servers:
   - url: https://plink-production.up.railway.app
     description: Production
@@ -100,7 +100,7 @@ components:
           type: number
           description: Unix timestamp (ms) when access token expires
         user:
-          $ref: '#/components/schemas/User'
+          $ref: "#/components/schemas/User"
 
 paths:
   /health:
@@ -108,7 +108,7 @@ paths:
       summary: Health check
       security: []
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
@@ -140,13 +140,13 @@ paths:
                 password: { type: string, minLength: 6 }
                 username: { type: string, minLength: 3 }
       responses:
-        '200':
+        "200":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '409':
+                $ref: "#/components/schemas/AuthResponse"
+        "409":
           description: Email or username taken
 
   /api/auth/signin:
@@ -164,15 +164,15 @@ paths:
                 email: { type: string, format: email }
                 password: { type: string }
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
           description: Invalid credentials
-        '403':
+        "403":
           description: Account banned
 
   /api/auth/refresh:
@@ -189,13 +189,13 @@ paths:
               properties:
                 refreshToken: { type: string }
       responses:
-        '200':
+        "200":
           description: New token pair
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
           description: Invalid or expired refresh token
 
   /api/auth/logout:
@@ -204,7 +204,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: OK
 
   /api/rooms:
@@ -213,14 +213,14 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Room'
+                  $ref: "#/components/schemas/Room"
     post:
       summary: Create room
       security:
@@ -239,12 +239,12 @@ paths:
                 privacy: { type: string, enum: [public, private, link] }
                 password: { type: string }
       responses:
-        '200':
+        "200":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Room'
+                $ref: "#/components/schemas/Room"
 
   /api/media/search:
     get:
@@ -260,7 +260,7 @@ paths:
           in: query
           schema: { type: integer, default: 12 }
       responses:
-        '200':
+        "200":
           description: Search results
           content:
             application/json:
@@ -289,7 +289,7 @@ paths:
           schema: { type: string }
           description: YouTube video ID
       responses:
-        '200':
+        "200":
           description: Stream info
           content:
             application/json:
@@ -307,7 +307,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: OK
           content:
             application/json:
@@ -332,9 +332,13 @@ paths:
               required: [receipt, productId]
               properties:
                 receipt: { type: string, description: Base64 receipt data }
-                productId: { type: string, enum: [plink.premium.monthly, plink.premium.yearly, plink.premium.lifetime] }
+                productId:
+                  {
+                    type: string,
+                    enum: [plink.premium.monthly, plink.premium.yearly, plink.premium.lifetime],
+                  }
       responses:
-        '200':
+        "200":
           description: Verified
           content:
             application/json:

@@ -73,7 +73,11 @@ async function sendToDevice(deviceToken: string, content: PushContent): Promise<
   return new Promise<SendResult>((resolve) => {
     const client = http2.connect(apnsHost());
     const timer = setTimeout(() => {
-      try { client.close(); } catch { /* noop */ }
+      try {
+        client.close();
+      } catch {
+        /* noop */
+      }
       resolve('error');
     }, 10_000);
     client.on('error', () => {
@@ -95,7 +99,9 @@ async function sendToDevice(deviceToken: string, content: PushContent): Promise<
       status = Number(headers[':status'] ?? 0);
     });
     req.setEncoding('utf8');
-    req.on('data', (chunk) => { bodyText += chunk; });
+    req.on('data', (chunk) => {
+      bodyText += chunk;
+    });
     req.on('end', () => {
       clearTimeout(timer);
       client.close();
@@ -103,10 +109,16 @@ async function sendToDevice(deviceToken: string, content: PushContent): Promise<
       if (status === 410) return resolve('bad_token');
       try {
         const reason = JSON.parse(bodyText)?.reason;
-        if (reason === 'BadDeviceToken' || reason === 'Unregistered' || reason === 'DeviceTokenNotForTopic') {
+        if (
+          reason === 'BadDeviceToken' ||
+          reason === 'Unregistered' ||
+          reason === 'DeviceTokenNotForTopic'
+        ) {
           return resolve('bad_token');
         }
-      } catch { /* fallthrough */ }
+      } catch {
+        /* fallthrough */
+      }
       resolve('error');
     });
     req.on('error', () => {
@@ -154,7 +166,9 @@ export async function pushBroadcast(content: PushContent): Promise<number> {
       for (const { u, r } of results) {
         if (r === 'ok') sent++;
         if (r === 'bad_token') {
-          await prisma.user.update({ where: { id: u.id }, data: { fcmToken: null } }).catch(() => {});
+          await prisma.user
+            .update({ where: { id: u.id }, data: { fcmToken: null } })
+            .catch(() => {});
         }
       }
     }

@@ -20,7 +20,9 @@ const start = async () => {
 
   try {
     await app.listen({ port: config.PORT, host: '0.0.0.0' });
-    console.log(`🚀 Plink backend v2.0 (stabilize/protocol-v2) on port ${config.PORT} [${config.NODE_ENV}]`);
+    console.log(
+      `🚀 Plink backend v2.0 (stabilize/protocol-v2) on port ${config.PORT} [${config.NODE_ENV}]`,
+    );
     console.log(`   App Store compliant: ${config.APP_STORE_COMPLIANT}`);
     console.log('   Legacy stream relay: removed');
     console.log(`   Realtime v2:         ${config.REALTIME_PROTOCOL_V2 ? 'enabled' : 'disabled'}`);

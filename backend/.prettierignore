@@ -1,0 +1,11 @@
+# Prettier reads the ignore file in the directory it runs from, so `npm run format:check`
+# inside backend/ never sees ../.prettierignore. This is the subset of that list which
+# applies here: build output, generated code and lockfiles.
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+src/generated/
+prisma/migrations/
+package-lock.json
+*.log

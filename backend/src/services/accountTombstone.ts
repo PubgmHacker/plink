@@ -166,7 +166,11 @@ export async function purgeExpiredGuestAccounts(limit = 50): Promise<number> {
       await tombstoneAccount(row.id);
       n += 1;
     } catch (err) {
-      console.error('[guest-ttl] tombstone failed', row.id, err instanceof Error ? err.message : err);
+      console.error(
+        '[guest-ttl] tombstone failed',
+        row.id,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
   return n;
@@ -176,10 +180,13 @@ let guestLoop: ReturnType<typeof setInterval> | null = null;
 
 export function startGuestTombstoneLoop(): void {
   if (guestLoop) return;
-  guestLoop = setInterval(() => {
-    void purgeExpiredGuestAccounts().catch((err) => {
-      console.error('[guest-ttl] purge failed', err instanceof Error ? err.message : err);
-    });
-  }, 15 * 60 * 1000);
+  guestLoop = setInterval(
+    () => {
+      void purgeExpiredGuestAccounts().catch((err) => {
+        console.error('[guest-ttl] purge failed', err instanceof Error ? err.message : err);
+      });
+    },
+    15 * 60 * 1000,
+  );
   guestLoop.unref();
 }

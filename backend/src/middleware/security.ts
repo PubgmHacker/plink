@@ -13,31 +13,35 @@ export async function securityHeaders(request: any, reply: any) {
   // Without this, browsers honor global X-Frame-Options: DENY and the player
   // never loads — surface symptom is empty stage / YouTube 153 workarounds fail.
   const isEmbeddablePlayer =
-    url.includes('/api/media/youtube-player') ||
-    url.includes('/api/media/youtube-embed');
+    url.includes('/api/media/youtube-player') || url.includes('/api/media/youtube-embed');
 
   reply.header('X-Content-Type-Options', 'nosniff');
   if (isEmbeddablePlayer) {
     // Allow framing from any app origin (desktop tauri://, vite localhost, iOS WKWebView).
     reply.removeHeader?.('X-Frame-Options');
-    reply.header('Content-Security-Policy',
+    reply.header(
+      'Content-Security-Policy',
       "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
-      "script-src * 'unsafe-inline' 'unsafe-eval'; " +
-      "style-src * 'unsafe-inline'; " +
-      "img-src * data: blob:; media-src *; connect-src * wss:; frame-src *; child-src *;");
+        "script-src * 'unsafe-inline' 'unsafe-eval'; " +
+        "style-src * 'unsafe-inline'; " +
+        'img-src * data: blob:; media-src *; connect-src * wss:; frame-src *; child-src *;',
+    );
   } else {
     reply.header('X-Frame-Options', 'DENY');
-    reply.header('Content-Security-Policy',
+    reply.header(
+      'Content-Security-Policy',
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-      "img-src 'self' data: https:; media-src 'self' https:; " +
-      "connect-src 'self' wss: https:;");
+        "img-src 'self' data: https:; media-src 'self' https:; " +
+        "connect-src 'self' wss: https:;",
+    );
   }
   reply.header('X-XSS-Protection', '1; mode=block');
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-  reply.header('Permissions-Policy',
-    'geolocation=(), microphone=(), camera=(), payment=(), usb=()');
-  reply.header('Strict-Transport-Security',
-    'max-age=31536000; includeSubDomains; preload');
+  reply.header(
+    'Permissions-Policy',
+    'geolocation=(), microphone=(), camera=(), payment=(), usb=()',
+  );
+  reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
   // API + WebSocket: allow Tauri/Vite/desktop clients to read JSON responses.
   // Global same-origin CORP breaks fetch() from tauri://localhost even when CORS passes.
@@ -124,13 +128,15 @@ export function generateTOTPCode(secret: string, timestamp = Date.now()): string
   const counter = Math.floor(timestamp / 1000 / 30);
   const counterBuffer = Buffer.alloc(8);
   counterBuffer.writeBigInt64BE(BigInt(counter));
-  
+
   const hmac = crypto.createHmac('sha1', buffer).update(counterBuffer).digest();
   const offset = hmac[hmac.length - 1] & 0x0f;
-  const code = ((hmac[offset] & 0x7f) << 24 |
-                (hmac[offset + 1] & 0xff) << 16 |
-                (hmac[offset + 2] & 0xff) << 8 |
-                (hmac[offset + 3] & 0xff)) % 1000000;
+  const code =
+    (((hmac[offset] & 0x7f) << 24) |
+      ((hmac[offset + 1] & 0xff) << 16) |
+      ((hmac[offset + 2] & 0xff) << 8) |
+      (hmac[offset + 3] & 0xff)) %
+    1000000;
   return code.toString().padStart(6, '0');
 }
 
@@ -151,9 +157,7 @@ export function verifyTOTP(secret: string, code: string): boolean {
 
 /** Backup codes (8 штук, по 8 символов) */
 export function generateBackupCodes(): string[] {
-  return Array.from({ length: 8 }, () => 
-    crypto.randomBytes(4).toString('hex').toUpperCase()
-  );
+  return Array.from({ length: 8 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -168,28 +172,28 @@ export function validatePasswordStrength(password: string): {
 } {
   const feedback: string[] = [];
   let score = 0;
-  
+
   if (password.length >= 8) score++;
   else feedback.push('Минимум 8 символов');
-  
+
   if (password.length >= 12) score++;
-  
+
   if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
   else feedback.push('Нужны заглавные и строчные буквы');
-  
+
   if (/\d/.test(password)) score++;
   else feedback.push('Нужны цифры');
-  
+
   if (/[^a-zA-Z\d]/.test(password)) score++;
   else feedback.push('Нужны спецсимволы');
-  
+
   // Проверка на часто используемые пароли
   const common = ['password', '123456', 'qwerty', 'admin', 'letmein'];
-  if (common.some(p => password.toLowerCase().includes(p))) {
+  if (common.some((p) => password.toLowerCase().includes(p))) {
     score = 0;
     feedback.push('Слишком простой пароль');
   }
-  
+
   return { valid: score >= 3, score, feedback };
 }
 
@@ -200,7 +204,7 @@ export function validatePasswordStrength(password: string): {
 export async function isRoomHost(prisma, roomId: string, userId: string): Promise<boolean> {
   const room = await prisma.room.findUnique({
     where: { id: roomId },
-    select: { hostID: true }
+    select: { hostID: true },
   });
   return room?.hostID === userId;
 }
@@ -211,7 +215,7 @@ export function requireHost(prisma) {
     const userId = request.user.id;
     const room = await prisma.room.findUnique({
       where: { id: roomId },
-      select: { hostID: true }
+      select: { hostID: true },
     });
     if (!room) return reply.status(404).send({ error: 'Room not found' });
     if (room.hostID !== userId) {
@@ -220,7 +224,11 @@ export function requireHost(prisma) {
   };
 }
 
-export async function sanitizeChatMessage(clientMsg: any, user: { id: string; username: string; role: string }, prisma?: any) {
+export async function sanitizeChatMessage(
+  clientMsg: any,
+  user: { id: string; username: string; role: string },
+  prisma?: any,
+) {
   // Fetch avatarURL + isPremium + displayName so chat bubbles can show
   // avatars, names, AND we can validate bubble style permissions server-side.
   let avatarURL: string | null = null;
@@ -230,16 +238,14 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
     try {
       const userData = await prisma.user.findUnique({
         where: { id: user.id },
-        select: { avatarURL: true, isPremium: true, premiumUntil: true, displayName: true }
+        select: { avatarURL: true, isPremium: true, premiumUntil: true, displayName: true },
       });
       avatarURL = userData?.avatarURL || null;
       displayName = userData?.displayName || null;
       // Premium is active only if isPremium=true AND
       // premiumUntil is in the future (or null = lifetime).
       const now = new Date();
-      isPremium = !!userData?.isPremium && (
-        !userData.premiumUntil || userData.premiumUntil > now
-      );
+      isPremium = !!userData?.isPremium && (!userData.premiumUntil || userData.premiumUntil > now);
     } catch {}
   }
 
@@ -251,7 +257,7 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
     user.id,
     clientMsg.bubbleStyle || clientMsg.bubble_style || 'default',
     { role: user.role, isPremium },
-    prisma
+    prisma,
   );
 
   return {
@@ -259,8 +265,8 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
     roomID: clientMsg.roomID,
     id: clientMsg.id || crypto.randomUUID(),
     senderID: user.id,
-    senderName: user.username,  // Keep @username for compatibility
-    senderDisplayName: displayName,  // Telegram-style display name (nil on old clients)
+    senderName: user.username, // Keep @username for compatibility
+    senderDisplayName: displayName, // Telegram-style display name (nil on old clients)
     senderRole: user.role,
     senderAvatarURL: avatarURL,
     text: sanitizeText(clientMsg.text),
@@ -292,21 +298,11 @@ export async function sanitizeChatMessage(clientMsg: any, user: { id: string; us
 // from non-admins are HARD-BLOCKED (also downgraded to 'default', not
 // silently kept) — we log this as a security event for monitoring.
 
-const ALLOWED_STYLES = new Set([
-  'default',
-  'cute_duck',
-  'neon_cyber',
-  'admin_bubble',
-]);
+const ALLOWED_STYLES = new Set(['default', 'cute_duck', 'neon_cyber', 'admin_bubble']);
 
-const PREMIUM_STYLES = new Set([
-  'cute_duck',
-  'neon_cyber',
-]);
+const PREMIUM_STYLES = new Set(['cute_duck', 'neon_cyber']);
 
-const ADMIN_STYLES = new Set([
-  'admin_bubble',
-]);
+const ADMIN_STYLES = new Set(['admin_bubble']);
 
 /**
  * Validates a requested bubble style against the user's permissions.
@@ -323,7 +319,7 @@ export async function processMessageStyle(
   userId: string,
   requestedStyleId: string,
   user: { role: string; isPremium?: boolean },
-  prisma?: any
+  prisma?: any,
 ): Promise<string> {
   // ── 1. Normalize input ──────────────────────────────────────────────
   // Reject anything that's not a non-empty string. Default to 'default'.
@@ -336,7 +332,7 @@ export async function processMessageStyle(
   if (!ALLOWED_STYLES.has(requested)) {
     console.warn(
       `[security] Unknown bubble style '${requested}' from user ${userId}. ` +
-      `Downgrading to 'default'.`
+        `Downgrading to 'default'.`,
     );
     return 'default';
   }
@@ -350,12 +346,10 @@ export async function processMessageStyle(
     try {
       const userData = await prisma.user.findUnique({
         where: { id: userId },
-        select: { isPremium: true, premiumUntil: true }
+        select: { isPremium: true, premiumUntil: true },
       });
       const now = new Date();
-      isPremium = !!userData?.isPremium && (
-        !userData.premiumUntil || userData.premiumUntil > now
-      );
+      isPremium = !!userData?.isPremium && (!userData.premiumUntil || userData.premiumUntil > now);
     } catch {
       isPremium = false;
     }
@@ -377,7 +371,7 @@ export async function processMessageStyle(
   if (ADMIN_STYLES.has(requested)) {
     console.warn(
       `[security] Non-admin user ${userId} (role=${role}) attempted to use ` +
-      `admin bubble style '${requested}'. HARD-BLOCKED, downgrading to 'default'.`
+        `admin bubble style '${requested}'. HARD-BLOCKED, downgrading to 'default'.`,
     );
     return 'default';
   }
@@ -387,11 +381,11 @@ export async function processMessageStyle(
     if (!isPremium) {
       console.warn(
         `[security] Non-premium user ${userId} attempted to use premium ` +
-        `bubble style '${requested}'. Downgrading to 'default'.`
+          `bubble style '${requested}'. Downgrading to 'default'.`,
       );
       return 'default';
     }
-    return requested;  // User is premium, style is allowed
+    return requested; // User is premium, style is allowed
   }
 
   // ── 6. 'default' is always allowed for everyone ──────────────────────
@@ -434,7 +428,11 @@ export async function hashRoomPassword(plain: string): Promise<string> {
 }
 
 export async function verifyRoomPassword(plain: string, hashed: string): Promise<boolean> {
-  try { return await bcrypt.compare(plain, hashed); } catch { return false; }
+  try {
+    return await bcrypt.compare(plain, hashed);
+  } catch {
+    return false;
+  }
 }
 
 const rlMap = new Map<string, { count: number; resetAt: number }>();

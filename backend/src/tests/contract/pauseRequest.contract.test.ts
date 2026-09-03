@@ -204,7 +204,10 @@ describe('pause.requested — провод (реальный gateway.eventToServ
   });
 
   it('отклоняет protocolVersion != 2 на проводе', () => {
-    const bad = { ...(eventToServerMessage(busEvent) as Record<string, unknown>), protocolVersion: 1 };
+    const bad = {
+      ...(eventToServerMessage(busEvent) as Record<string, unknown>),
+      protocolVersion: 1,
+    };
     expect(() => PauseRequestedSchema.parse(bad)).toThrow();
   });
 });

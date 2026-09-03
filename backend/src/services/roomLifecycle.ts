@@ -34,13 +34,19 @@ function mediaMetaFromRoom(room: { name?: string; mediaItem?: string | null }): 
   let kind: string | null = null;
   if (room.mediaItem) {
     try {
-      const parsed = typeof room.mediaItem === 'string' ? JSON.parse(room.mediaItem) : room.mediaItem;
+      const parsed =
+        typeof room.mediaItem === 'string' ? JSON.parse(room.mediaItem) : room.mediaItem;
       if (parsed?.title && typeof parsed.title === 'string') title = parsed.title.slice(0, 200);
       // Постер — только http(s): data-URL в строку истории не пускаем.
-      if (parsed?.thumbnailURL && typeof parsed.thumbnailURL === 'string' && /^https?:\/\//i.test(parsed.thumbnailURL)) {
+      if (
+        parsed?.thumbnailURL &&
+        typeof parsed.thumbnailURL === 'string' &&
+        /^https?:\/\//i.test(parsed.thumbnailURL)
+      ) {
         thumb = parsed.thumbnailURL.slice(0, 2000);
       }
-      if (parsed?.mediaType && typeof parsed.mediaType === 'string') kind = parsed.mediaType.slice(0, 32);
+      if (parsed?.mediaType && typeof parsed.mediaType === 'string')
+        kind = parsed.mediaType.slice(0, 32);
     } catch {
       /* ignore */
     }
@@ -52,7 +58,7 @@ function mediaMetaFromRoom(room: { name?: string; mediaItem?: string | null }): 
 export async function recordWatchHistory(
   prisma: PrismaLike,
   userId: string,
-  room: { id: string; name?: string; mediaItem?: string | null }
+  room: { id: string; name?: string; mediaItem?: string | null },
 ): Promise<void> {
   try {
     const recent = await prisma.watchHistory.findFirst({
@@ -87,7 +93,7 @@ export async function recordWatchHistory(
 export async function endRoom(
   prisma: PrismaLike,
   roomId: string,
-  opts?: { extraUserIds?: string[] }
+  opts?: { extraUserIds?: string[] },
 ): Promise<{ ended: boolean; participantCount: number }> {
   const room = await prisma.room.findUnique({
     where: { id: roomId },
@@ -128,7 +134,7 @@ export async function endRoom(
 export async function maybeEndAfterLeave(
   prisma: PrismaLike,
   roomId: string,
-  leavingUserId: string
+  leavingUserId: string,
 ): Promise<{ roomEnded: boolean; newHostId?: string; newHostName?: string }> {
   const room = await prisma.room.findUnique({
     where: { id: roomId },
@@ -197,7 +203,7 @@ export async function maybeEndAfterLeave(
  */
 export async function sweepOrphanRooms(
   prisma: PrismaLike,
-  redis: any | null | undefined
+  redis: any | null | undefined,
 ): Promise<number> {
   // Лидер-лок на цикл: без него каждая реплика гоняет свип каждые 60с —
   // одинаковые запросы × N и гонки двух endRoom по одной комнате. TTL 55с
@@ -227,7 +233,7 @@ export async function sweepOrphanRooms(
     _count: { roomID: true },
   });
   const participantsByRoom = new Map<string, number>(
-    counts.map((c: any) => [c.roomID, Number(c._count?.roomID ?? 0)])
+    counts.map((c: any) => [c.roomID, Number(c._count?.roomID ?? 0)]),
   );
 
   const now = Date.now();

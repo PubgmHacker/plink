@@ -160,7 +160,9 @@ describe('pause.resolved — провод (реальный gateway.eventToServe
   });
 
   it('вердикт без атрибуции уходит с явным null, а не с пропавшим полем', () => {
-    const wire = JSON.parse(JSON.stringify(eventToServerMessage({ ...busEvent, requestUserId: null })));
+    const wire = JSON.parse(
+      JSON.stringify(eventToServerMessage({ ...busEvent, requestUserId: null })),
+    );
     expect(wire.requestUserId).toBeNull();
     expect('requestUserId' in wire).toBe(true);
     ServerMessageSchema.parse(wire);
@@ -198,7 +200,10 @@ describe('pause.resolved — провод (реальный gateway.eventToServe
   });
 
   it('отклоняет protocolVersion != 2 на проводе', () => {
-    const bad = { ...(eventToServerMessage(busEvent) as Record<string, unknown>), protocolVersion: 1 };
+    const bad = {
+      ...(eventToServerMessage(busEvent) as Record<string, unknown>),
+      protocolVersion: 1,
+    };
     expect(() => PauseResolvedSchema.parse(bad)).toThrow();
   });
 });

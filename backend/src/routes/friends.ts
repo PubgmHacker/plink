@@ -8,171 +8,173 @@ const MIN_SEARCH_LEN = 2;
 export default async function friendRoutes(fastify: any) {
   // GET /api/friends — accepted friendships (both directions, de-duplicated)
   // Some historical rows may exist only as A→B; always surface the other user.
-  fastify.get('/friends', { preHandler: [fastify.authenticate] }, async (request: any, reply: any) => {
-    const me = request.user.id;
-    // lastSeenAt optional until migrate — select dynamically
-    const selectUser: any = {
-      id: true,
-      username: true,
-      avatarURL: true,
-      avatarUpdatedAt: true,
-      isOnline: true,
-      displayName: true,
-      updatedAt: true,
-      lastSeenAt: true,
-      deletedAt: true,
-    };
-    const publicBase =
-      process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app';
-
-    // Always expose a loadable avatar endpoint with a version query so clients
-    // refetch immediately when a friend changes their photo (stable path, new ?v=).
-    const withAvatar = (u: any) => {
-      const id = u?.id;
-      if (!id) return u;
-      let versionMs = 0;
-      if (u.avatarUpdatedAt) {
-        const t = new Date(u.avatarUpdatedAt).getTime();
-        if (Number.isFinite(t)) versionMs = t;
-      } else if (u.avatarURL && String(u.avatarURL).includes('v=')) {
-        try {
-          const q = new URL(String(u.avatarURL), 'https://local').searchParams.get('v');
-          if (q && /^\d+$/.test(q)) versionMs = Number(q);
-        } catch {
-          /* ignore */
-        }
-      }
-      const url =
-        versionMs > 0
-          ? `${publicBase}/api/users/${id}/avatar?v=${versionMs}`
-          : `${publicBase}/api/users/${id}/avatar`;
-      return { ...u, avatarURL: url, avatarVersion: versionMs || null };
-    };
-
-    const mapFriend = (
-      u: any,
-      friendsSince: any,
-      pin?: { isPinned?: boolean; pinOrder?: number }
-    ) => {
-      // Telegram: deleted peers stay in the graph as «Удалённый аккаунт»
-      const deleted =
-        !!u?.deletedAt || String(u?.username || '').startsWith('deleted_');
-      if (deleted) {
-        return {
-          id: u.id,
-          username: u.username || `deleted_${String(u.id).slice(0, 8)}`,
-          avatarURL: null,
-          avatarVersion: null,
-          isOnline: false,
-          lastSeenAt: null,
-          displayName: 'Удалённый аккаунт',
-          friendsSince,
-          isPinned: !!pin?.isPinned,
-          pinOrder: typeof pin?.pinOrder === 'number' ? pin.pinOrder : 0,
-          isDeleted: true,
-        };
-      }
-      const base = withAvatar(u);
-      const pres = resolvePresence(base);
-      return {
-        id: base.id,
-        username: base.username,
-        avatarURL: base.avatarURL,
-        avatarVersion: base.avatarVersion,
-        isOnline: pres.isOnline,
-        lastSeenAt: pres.lastSeenAt,
-        displayName: base.displayName,
-        friendsSince,
-        isPinned: !!pin?.isPinned,
-        pinOrder: typeof pin?.pinOrder === 'number' ? pin.pinOrder : 0,
-        isDeleted: false,
-      };
-    };
-
-    let asInitiator: any[] = [];
-    let asTarget: any[] = [];
-    try {
-      [asInitiator, asTarget] = await Promise.all([
-        prisma.friendship.findMany({
-          where: { userID: me },
-          include: { friend: { select: selectUser } },
-        }),
-        prisma.friendship.findMany({
-          where: { friendID: me },
-          include: { user: { select: selectUser } },
-        }),
-      ]);
-    } catch {
-      // Fallback if optional columns not migrated yet — keep deletedAt when present
-      const selectLegacy: any = {
+  fastify.get(
+    '/friends',
+    { preHandler: [fastify.authenticate] },
+    async (request: any, reply: any) => {
+      const me = request.user.id;
+      // lastSeenAt optional until migrate — select dynamically
+      const selectUser: any = {
         id: true,
         username: true,
         avatarURL: true,
+        avatarUpdatedAt: true,
         isOnline: true,
         displayName: true,
         updatedAt: true,
+        lastSeenAt: true,
         deletedAt: true,
       };
-      [asInitiator, asTarget] = await Promise.all([
-        prisma.friendship.findMany({
-          where: { userID: me },
-          include: { friend: { select: selectLegacy } },
-        }),
-        prisma.friendship.findMany({
-          where: { friendID: me },
-          include: { user: { select: selectLegacy } },
-        }),
-      ]);
-    }
+      const publicBase = process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app';
 
-    const byId = new Map<string, any>();
-    for (const f of asInitiator) {
-      if (!f.friend?.id) continue;
-      // Pin is only valid on MY row (userID = me)
-      byId.set(
-        f.friend.id,
-        mapFriend(f.friend, f.friendsSince, {
-          isPinned: f.isPinned,
-          pinOrder: f.pinOrder,
-        })
-      );
-    }
-    for (const f of asTarget) {
-      if (!f.user?.id || byId.has(f.user.id)) continue;
-      // Reverse-only row: no pin on my side yet
-      byId.set(f.user.id, mapFriend(f.user, f.friendsSince, { isPinned: false, pinOrder: 0 }));
-    }
+      // Always expose a loadable avatar endpoint with a version query so clients
+      // refetch immediately when a friend changes their photo (stable path, new ?v=).
+      const withAvatar = (u: any) => {
+        const id = u?.id;
+        if (!id) return u;
+        let versionMs = 0;
+        if (u.avatarUpdatedAt) {
+          const t = new Date(u.avatarUpdatedAt).getTime();
+          if (Number.isFinite(t)) versionMs = t;
+        } else if (u.avatarURL && String(u.avatarURL).includes('v=')) {
+          try {
+            const q = new URL(String(u.avatarURL), 'https://local').searchParams.get('v');
+            if (q && /^\d+$/.test(q)) versionMs = Number(q);
+          } catch {
+            /* ignore */
+          }
+        }
+        const url =
+          versionMs > 0
+            ? `${publicBase}/api/users/${id}/avatar?v=${versionMs}`
+            : `${publicBase}/api/users/${id}/avatar`;
+        return { ...u, avatarURL: url, avatarVersion: versionMs || null };
+      };
 
-    // Self-heal: if only one direction exists, create the reverse row.
-    // O(n) по Set вместо .some (было O(n^2)) и один
-    // createMany вместо последовательных create — эндпоинт клиент поллит
-    // каждую секунду. Записи происходят только пока в графе есть перекос.
-    const forwardIds = new Set<string>(
-      asInitiator.map((f: any) => f.friendID).filter((id: any): id is string => !!id),
-    );
-    const reverseIds = new Set<string>(
-      asTarget.map((f: any) => f.userID).filter((id: any): id is string => !!id),
-    );
-    const missing: { userID: string; friendID: string }[] = [];
-    for (const friendId of forwardIds) {
-      if (!reverseIds.has(friendId)) missing.push({ userID: friendId, friendID: me });
-    }
-    for (const userId of reverseIds) {
-      if (!forwardIds.has(userId)) missing.push({ userID: me, friendID: userId });
-    }
-    // Ревью: по одной строке за раз — легаси-строка с friendID, которого нет в
-    // User, даёт FK violation и одним createMany откатила бы весь батч (перекос
-    // не лечился бы никогда). Строк тут единицы, и только пока перекос есть.
-    for (const row of missing) {
+      const mapFriend = (
+        u: any,
+        friendsSince: any,
+        pin?: { isPinned?: boolean; pinOrder?: number },
+      ) => {
+        // Telegram: deleted peers stay in the graph as «Удалённый аккаунт»
+        const deleted = !!u?.deletedAt || String(u?.username || '').startsWith('deleted_');
+        if (deleted) {
+          return {
+            id: u.id,
+            username: u.username || `deleted_${String(u.id).slice(0, 8)}`,
+            avatarURL: null,
+            avatarVersion: null,
+            isOnline: false,
+            lastSeenAt: null,
+            displayName: 'Удалённый аккаунт',
+            friendsSince,
+            isPinned: !!pin?.isPinned,
+            pinOrder: typeof pin?.pinOrder === 'number' ? pin.pinOrder : 0,
+            isDeleted: true,
+          };
+        }
+        const base = withAvatar(u);
+        const pres = resolvePresence(base);
+        return {
+          id: base.id,
+          username: base.username,
+          avatarURL: base.avatarURL,
+          avatarVersion: base.avatarVersion,
+          isOnline: pres.isOnline,
+          lastSeenAt: pres.lastSeenAt,
+          displayName: base.displayName,
+          friendsSince,
+          isPinned: !!pin?.isPinned,
+          pinOrder: typeof pin?.pinOrder === 'number' ? pin.pinOrder : 0,
+          isDeleted: false,
+        };
+      };
+
+      let asInitiator: any[] = [];
+      let asTarget: any[] = [];
       try {
-        await prisma.friendship.createMany({ data: [row], skipDuplicates: true });
+        [asInitiator, asTarget] = await Promise.all([
+          prisma.friendship.findMany({
+            where: { userID: me },
+            include: { friend: { select: selectUser } },
+          }),
+          prisma.friendship.findMany({
+            where: { friendID: me },
+            include: { user: { select: selectUser } },
+          }),
+        ]);
       } catch {
-        /* unique race / битая легаси-строка — остальные всё равно лечим */
+        // Fallback if optional columns not migrated yet — keep deletedAt when present
+        const selectLegacy: any = {
+          id: true,
+          username: true,
+          avatarURL: true,
+          isOnline: true,
+          displayName: true,
+          updatedAt: true,
+          deletedAt: true,
+        };
+        [asInitiator, asTarget] = await Promise.all([
+          prisma.friendship.findMany({
+            where: { userID: me },
+            include: { friend: { select: selectLegacy } },
+          }),
+          prisma.friendship.findMany({
+            where: { friendID: me },
+            include: { user: { select: selectLegacy } },
+          }),
+        ]);
       }
-    }
 
-    reply.send([...byId.values()]);
-  });
+      const byId = new Map<string, any>();
+      for (const f of asInitiator) {
+        if (!f.friend?.id) continue;
+        // Pin is only valid on MY row (userID = me)
+        byId.set(
+          f.friend.id,
+          mapFriend(f.friend, f.friendsSince, {
+            isPinned: f.isPinned,
+            pinOrder: f.pinOrder,
+          }),
+        );
+      }
+      for (const f of asTarget) {
+        if (!f.user?.id || byId.has(f.user.id)) continue;
+        // Reverse-only row: no pin on my side yet
+        byId.set(f.user.id, mapFriend(f.user, f.friendsSince, { isPinned: false, pinOrder: 0 }));
+      }
+
+      // Self-heal: if only one direction exists, create the reverse row.
+      // O(n) по Set вместо .some (было O(n^2)) и один
+      // createMany вместо последовательных create — эндпоинт клиент поллит
+      // каждую секунду. Записи происходят только пока в графе есть перекос.
+      const forwardIds = new Set<string>(
+        asInitiator.map((f: any) => f.friendID).filter((id: any): id is string => !!id),
+      );
+      const reverseIds = new Set<string>(
+        asTarget.map((f: any) => f.userID).filter((id: any): id is string => !!id),
+      );
+      const missing: { userID: string; friendID: string }[] = [];
+      for (const friendId of forwardIds) {
+        if (!reverseIds.has(friendId)) missing.push({ userID: friendId, friendID: me });
+      }
+      for (const userId of reverseIds) {
+        if (!forwardIds.has(userId)) missing.push({ userID: me, friendID: userId });
+      }
+      // Ревью: по одной строке за раз — легаси-строка с friendID, которого нет в
+      // User, даёт FK violation и одним createMany откатила бы весь батч (перекос
+      // не лечился бы никогда). Строк тут единицы, и только пока перекос есть.
+      for (const row of missing) {
+        try {
+          await prisma.friendship.createMany({ data: [row], skipDuplicates: true });
+        } catch {
+          /* unique race / битая легаси-строка — остальные всё равно лечим */
+        }
+      }
+
+      reply.send([...byId.values()]);
+    },
+  );
 
   // GET /api/friends/requests/incoming
   fastify.get(
@@ -182,7 +184,15 @@ export default async function friendRoutes(fastify: any) {
       const requests = await prisma.friendRequest.findMany({
         where: { toUserID: request.user.id, status: 'pending' },
         include: {
-          fromUser: { select: { id: true, username: true, avatarURL: true, isOnline: true, displayName: true } },
+          fromUser: {
+            select: {
+              id: true,
+              username: true,
+              avatarURL: true,
+              isOnline: true,
+              displayName: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -211,7 +221,15 @@ export default async function friendRoutes(fastify: any) {
       const requests = await prisma.friendRequest.findMany({
         where: { fromUserID: request.user.id, status: 'pending' },
         include: {
-          toUser: { select: { id: true, username: true, avatarURL: true, isOnline: true, displayName: true } },
+          toUser: {
+            select: {
+              id: true,
+              username: true,
+              avatarURL: true,
+              isOnline: true,
+              displayName: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -258,21 +276,26 @@ export default async function friendRoutes(fastify: any) {
         return reply.status(400).send({ error: 'Cannot friend yourself' });
       }
 
-      const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+      const target = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { id: true },
+      });
       if (!target) return reply.status(404).send({ error: 'User not found' });
 
       // При блокировке (в любую сторону) заявки запрещены —
       // иначе заблокированный получал прямой канал пуш-уведомлений жертве.
       // Отвечаем 404, не раскрывая факт блокировки.
-      const blockedPair = await prisma.userBlock.findFirst({
-        where: {
-          OR: [
-            { blockerID: request.user.id, blockedID: targetId },
-            { blockerID: targetId, blockedID: request.user.id },
-          ],
-        },
-        select: { id: true },
-      }).catch(() => null);
+      const blockedPair = await prisma.userBlock
+        .findFirst({
+          where: {
+            OR: [
+              { blockerID: request.user.id, blockedID: targetId },
+              { blockerID: targetId, blockedID: request.user.id },
+            ],
+          },
+          select: { id: true },
+        })
+        .catch(() => null);
       if (blockedPair) return reply.status(404).send({ error: 'User not found' });
 
       // Already friends?
@@ -429,9 +452,8 @@ export default async function friendRoutes(fastify: any) {
         success: true,
         status: finalStatus,
         // Help both clients refresh without guessing
-        friendship: finalStatus === 'accepted'
-          ? { userA: req.fromUserID, userB: req.toUserID }
-          : null,
+        friendship:
+          finalStatus === 'accepted' ? { userA: req.fromUserID, userB: req.toUserID } : null,
       });
     },
   );
@@ -458,7 +480,10 @@ export default async function friendRoutes(fastify: any) {
   // Body optional: { pin: true|false }. Default true.
   fastify.post(
     '/friends/:friendId/pin',
-    { preHandler: [fastify.authenticate], config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
+    {
+      preHandler: [fastify.authenticate],
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
     async (request: any, reply: any) => {
       const me = request.user.id;
       const { friendId } = request.params as { friendId: string };
@@ -469,9 +494,11 @@ export default async function friendRoutes(fastify: any) {
       const wantPin = body.pin !== false;
 
       // Ensure my directional friendship row exists
-      let row = await prisma.friendship.findUnique({
-        where: { userID_friendID: { userID: me, friendID: friendId } },
-      }).catch(() => null);
+      let row = await prisma.friendship
+        .findUnique({
+          where: { userID_friendID: { userID: me, friendID: friendId } },
+        })
+        .catch(() => null);
 
       if (!row) {
         // Friendship might only exist reverse — create my side
@@ -534,65 +561,69 @@ export default async function friendRoutes(fastify: any) {
   );
 
   // GET /api/friends/search?q=
-  fastify.get('/friends/search', { preHandler: [fastify.authenticate] }, async (request: any, reply: any) => {
-    let { q } = request.query as { q?: string };
-    if (!q) return reply.send([]);
-    q = q.trim().replace(/^@/, '');
-    // Минимум 2 символа — запрос из одной буквы отдавал
-    // 20 произвольных аккаунтов (перечисление чужих профилей) и всегда бил
-    // full scan по users на каждый кейстрок.
-    // Ревью: длина считается в code points, а для не-ASCII (китайская локаль —
-    // один иероглиф = полноценное имя) порог 1 символ.
-    const qLen = [...q].length;
-    if (qLen < (/^[\x00-\x7F]*$/.test(q) ? MIN_SEARCH_LEN : 1)) return reply.send([]);
+  fastify.get(
+    '/friends/search',
+    { preHandler: [fastify.authenticate] },
+    async (request: any, reply: any) => {
+      let { q } = request.query as { q?: string };
+      if (!q) return reply.send([]);
+      q = q.trim().replace(/^@/, '');
+      // Минимум 2 символа — запрос из одной буквы отдавал
+      // 20 произвольных аккаунтов (перечисление чужих профилей) и всегда бил
+      // full scan по users на каждый кейстрок.
+      // Ревью: длина считается в code points, а для не-ASCII (китайская локаль —
+      // один иероглиф = полноценное имя) порог 1 символ.
+      const qLen = [...q].length;
+      if (qLen < (/^[\x00-\x7F]*$/.test(q) ? MIN_SEARCH_LEN : 1)) return reply.send([]);
 
-    // Ревью: поиск по хвосту id вернули — клиент показывает тег #<последние 8
-    // символов id> в результатах поиска и в профиле (FriendsView/User.shortId),
-    // полный UUID в UI не виден нигде. 8+ hex-символов = не перечисление.
-    const idTail = qLen >= 8 && /^[0-9a-fA-F-]+$/.test(q) ? [{ id: { endsWith: q } }] : [];
+      // Ревью: поиск по хвосту id вернули — клиент показывает тег #<последние 8
+      // символов id> в результатах поиска и в профиле (FriendsView/User.shortId),
+      // полный UUID в UI не виден нигде. 8+ hex-символов = не перечисление.
+      const idTail = qLen >= 8 && /^[0-9a-fA-F-]+$/.test(q) ? [{ id: { endsWith: q } }] : [];
 
-    // Hide soft-deleted tombstones from discovery (Telegram: cannot find deleted users)
-    let users: any[] = [];
-    try {
-      users = await prisma.user.findMany({
-        where: {
-          AND: [
-            { id: { not: request.user.id } },
-            { deletedAt: null } as any,
-            { NOT: { username: { startsWith: 'deleted_' } } },
-            {
-              OR: [
-                { username: { contains: q, mode: 'insensitive' } },
-                { displayName: { contains: q, mode: 'insensitive' } },
-                { id: { equals: q } },
-                ...idTail,
-              ],
-            },
-          ],
-        },
-        select: { id: true, username: true, avatarURL: true, isOnline: true, displayName: true },
-        take: 20,
-      });
-    } catch {
-      users = await prisma.user.findMany({
-        where: {
-          AND: [
-            { id: { not: request.user.id } },
-            { NOT: { username: { startsWith: 'deleted_' } } },
-            {
-              OR: [
-                { username: { contains: q, mode: 'insensitive' } },
-                { displayName: { contains: q, mode: 'insensitive' } },
-                { id: { equals: q } },
-                ...idTail,
-              ],
-            },
-          ],
-        },
-        select: { id: true, username: true, avatarURL: true, isOnline: true, displayName: true },
-        take: 20,
-      });
-    }
-    reply.send(users);
-  });
+      // Hide soft-deleted tombstones from discovery (Telegram: cannot find deleted users)
+      let users: any[] = [];
+      try {
+        users = await prisma.user.findMany({
+          where: {
+            AND: [
+              { id: { not: request.user.id } },
+              { deletedAt: null } as any,
+              { NOT: { username: { startsWith: 'deleted_' } } },
+              {
+                OR: [
+                  { username: { contains: q, mode: 'insensitive' } },
+                  { displayName: { contains: q, mode: 'insensitive' } },
+                  { id: { equals: q } },
+                  ...idTail,
+                ],
+              },
+            ],
+          },
+          select: { id: true, username: true, avatarURL: true, isOnline: true, displayName: true },
+          take: 20,
+        });
+      } catch {
+        users = await prisma.user.findMany({
+          where: {
+            AND: [
+              { id: { not: request.user.id } },
+              { NOT: { username: { startsWith: 'deleted_' } } },
+              {
+                OR: [
+                  { username: { contains: q, mode: 'insensitive' } },
+                  { displayName: { contains: q, mode: 'insensitive' } },
+                  { id: { equals: q } },
+                  ...idTail,
+                ],
+              },
+            ],
+          },
+          select: { id: true, username: true, avatarURL: true, isOnline: true, displayName: true },
+          take: 20,
+        });
+      }
+      reply.send(users);
+    },
+  );
 }

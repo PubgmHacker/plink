@@ -270,9 +270,7 @@ export function resolvePresence(user: {
 }): { isOnline: boolean; lastSeenAt: string | null } {
   const mem = presence.getMemoryLastSeen(user.id);
   const connected = presence.isConnected(user.id);
-  const dbLast = user.lastSeenAt
-    ? new Date(user.lastSeenAt).getTime()
-    : 0;
+  const dbLast = user.lastSeenAt ? new Date(user.lastSeenAt).getTime() : 0;
   // Do NOT fall back to updatedAt — avatar uploads / profile edits inflate it
   // and also heartbeat-less rows looked "online" forever or wildly stale.
   const lastMs = Math.max(mem ?? 0, Number.isFinite(dbLast) ? dbLast : 0);

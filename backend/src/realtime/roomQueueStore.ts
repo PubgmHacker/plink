@@ -357,7 +357,10 @@ async function mutateRoomQueue(
   if (op === 'remove') {
     const pending = pendingEnqueues.get(roomId);
     if (pending?.some((p) => p.id === itemId)) {
-      setPending(roomId, pending.filter((p) => p.id !== itemId));
+      setPending(
+        roomId,
+        pending.filter((p) => p.id !== itemId),
+      );
     }
   }
   if (redis) {
@@ -420,7 +423,9 @@ export async function clearRoomQueue(roomId: string): Promise<void> {
   if (!redis) return;
   try {
     await redis.del(redisKey(roomId));
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
 }
 
 /** Wire-пейлоад для broadcast очереди всем участникам комнаты. */

@@ -38,11 +38,12 @@ try { if (window.webkit && window.webkit.messageHandlers && Object.keys(window.w
 
 export async function proxyYouTubeEmbed(videoId: string): Promise<string> {
   const embedUrl = `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&modestbranding=1&iv_load_policy=3`;
-  
+
   const response = await fetch(embedUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-      'Accept': 'text/html,application/xhtml+xml',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      Accept: 'text/html,application/xhtml+xml',
       'Accept-Language': 'en-US,en;q=0.9',
     },
     signal: AbortSignal.timeout(10_000),
@@ -59,7 +60,7 @@ export async function proxyYouTubeEmbed(videoId: string): Promise<string> {
   html = html.replace(/src="\//g, 'src="https://www.youtube.com/');
   html = html.replace(/href="\/\//g, 'href="https://');
   html = html.replace(/src="\/\//g, 'src="https://');
-  
+
   // Rewrite CSS url() references
   html = html.replace(/url\(\//g, 'url(https://www.youtube.com/');
   html = html.replace(/url\(\/\//g, 'url(https://');
@@ -74,7 +75,10 @@ export async function proxyYouTubeEmbed(videoId: string): Promise<string> {
 
   // Add viewport meta for mobile
   if (!html.includes('name="viewport"')) {
-    html = html.replace('<head>', '<head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">');
+    html = html.replace(
+      '<head>',
+      '<head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">',
+    );
   }
 
   return html;

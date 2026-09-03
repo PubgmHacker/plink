@@ -32,7 +32,9 @@ async function api(path, { method = 'GET', token, body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   let json = null;
-  try { json = await res.json(); } catch {}
+  try {
+    json = await res.json();
+  } catch {}
   return { status: res.status, json };
 }
 
@@ -52,7 +54,8 @@ async function signup(suffix) {
       data: { email, username, password: await bcrypt.hash(password, 10) },
     });
     const si = await api('/auth/signin', { method: 'POST', body: { email, password } });
-    if (si.status !== 200) throw new Error(`signin ${suffix}: ${si.status} ${JSON.stringify(si.json)}`);
+    if (si.status !== 200)
+      throw new Error(`signin ${suffix}: ${si.status} ${JSON.stringify(si.json)}`);
     return { token: si.json.token, id: u.id, username };
   }
   throw new Error(`signup ${suffix}: ${r.status} ${JSON.stringify(r.json)}`);
@@ -60,12 +63,17 @@ async function signup(suffix) {
 
 async function wsConnect(roomId, token) {
   const ticket = await api('/realtime/ticket', { method: 'POST', token, body: { roomId } });
-  if (ticket.status !== 200) throw new Error(`ticket: ${ticket.status} ${JSON.stringify(ticket.json)}`);
+  if (ticket.status !== 200)
+    throw new Error(`ticket: ${ticket.status} ${JSON.stringify(ticket.json)}`);
   const jwt = ticket.json.jwt ?? ticket.json.ticket ?? ticket.json.token;
   // Оба сабпротокола обязательны: сервер выбирает plink.v2, тикет — второй.
   const ws = new WebSocket(`${WS_BASE}/ws/room/${roomId}`, ['plink.v2', `plink.ticket.${jwt}`]);
   const messages = [];
-  ws.on('message', (d) => { try { messages.push(JSON.parse(d.toString())); } catch {} });
+  ws.on('message', (d) => {
+    try {
+      messages.push(JSON.parse(d.toString()));
+    } catch {}
+  });
   await new Promise((resolve, reject) => {
     ws.once('open', resolve);
     ws.once('error', reject);
@@ -85,7 +93,11 @@ async function main() {
   check('Регистрация двух пользователей', !!a.token && !!b.token);
 
   // 2. Создание комнаты + вход по коду
-  const room = await api('/rooms', { method: 'POST', token: a.token, body: { name: `${tag} room` } });
+  const room = await api('/rooms', {
+    method: 'POST',
+    token: a.token,
+    body: { name: `${tag} room` },
+  });
   check('Создание комнаты', room.status === 200 || room.status === 201, `status=${room.status}`);
   const roomObj = room.json.room ?? room.json;
   const code = roomObj.code;
@@ -98,37 +110,79 @@ async function main() {
   // Как iOS-клиент: команды только после session.ready — до него сервер ещё
   // не навесил обработчик сообщений, и команда молча теряется.
   for (let i = 0; i < 40; i++) {
-    if (wsA.messages.some((m) => m.type === 'session.ready')
-      && wsB.messages.some((m) => m.type === 'session.ready')) break;
+    if (
+      wsA.messages.some((m) => m.type === 'session.ready') &&
+      wsB.messages.some((m) => m.type === 'session.ready')
+    )
+      break;
     await wait(250);
   }
-  wsA.ws.send(JSON.stringify({
-    type: 'sync.command', protocolVersion: 2, roomId: roomObj.id,
-    actionId: crypto.randomUUID(), mediaId: null, positionMs: 5000, playing: true, rate: 1,
-  }));
+  wsA.ws.send(
+    JSON.stringify({
+      type: 'sync.command',
+      protocolVersion: 2,
+      roomId: roomObj.id,
+      actionId: crypto.randomUUID(),
+      mediaId: null,
+      positionMs: 5000,
+      playing: true,
+      rate: 1,
+    }),
+  );
   await wait(1500);
-  const gotA = wsA.messages.some((m) => m.type === 'sync.state' || m.type === 'sync.state.snapshot');
+  const gotA = wsA.messages.some(
+    (m) => m.type === 'sync.state' || m.type === 'sync.state.snapshot',
+  );
   const gotB = wsB.messages.some((m) => m.type === 'sync.state');
   check('WS: хост получил sync-состояние', gotA, JSON.stringify(wsA.messages.map((m) => m.type)));
-  check('WS: зритель получил sync.state после команды хоста', gotB, JSON.stringify(wsB.messages.map((m) => m.type)));
-  wsA.ws.close(); wsB.ws.close();
+  check(
+    'WS: зритель получил sync.state после команды хоста',
+    gotB,
+    JSON.stringify(wsB.messages.map((m) => m.type)),
+  );
+  wsA.ws.close();
+  wsB.ws.close();
 
   // 4. DM + блокировка
-  const dm1 = await api('/messages/dm', { method: 'POST', token: a.token, body: { receiverId: b.id, content: 'привет' } });
-  check('DM до блокировки доставляется', dm1.status === 200 || dm1.status === 201, `status=${dm1.status}`);
-  const block = await api('/moderation/block', { method: 'POST', token: b.token, body: { userId: a.id } });
+  const dm1 = await api('/messages/dm', {
+    method: 'POST',
+    token: a.token,
+    body: { receiverId: b.id, content: 'привет' },
+  });
+  check(
+    'DM до блокировки доставляется',
+    dm1.status === 200 || dm1.status === 201,
+    `status=${dm1.status}`,
+  );
+  const block = await api('/moderation/block', {
+    method: 'POST',
+    token: b.token,
+    body: { userId: a.id },
+  });
   check('Блокировка пользователя', block.status === 200, `status=${block.status}`);
-  const dm2 = await api('/messages/dm', { method: 'POST', token: a.token, body: { receiverId: b.id, content: 'ещё' } });
+  const dm2 = await api('/messages/dm', {
+    method: 'POST',
+    token: a.token,
+    body: { receiverId: b.id, content: 'ещё' },
+  });
   check('DM после блокировки отклоняется', dm2.status === 403, `status=${dm2.status}`);
   const friendsB = await api('/friends', { token: b.token });
-  const friendIds = (friendsB.json?.friends ?? friendsB.json ?? []).map?.((f) => f.id ?? f.friendID) ?? [];
+  const friendIds =
+    (friendsB.json?.friends ?? friendsB.json ?? []).map?.((f) => f.id ?? f.friendID) ?? [];
   check('Заблокированный отсутствует в друзьях', !friendIds.includes(a.id));
 
   // 5. Бан: ставим bannedUntil напрямую, ждём TTL снапшота (30 с)
-  await prisma.user.update({ where: { id: b.id }, data: { bannedUntil: new Date(Date.now() + 3600_000) } });
+  await prisma.user.update({
+    where: { id: b.id },
+    data: { bannedUntil: new Date(Date.now() + 3600_000) },
+  });
   await wait(31_000);
   const bannedReq = await api('/friends', { token: b.token });
-  check('Бан действует на HTTP (403 после TTL снапшота)', bannedReq.status === 403, `status=${bannedReq.status}`);
+  check(
+    'Бан действует на HTTP (403 после TTL снапшота)',
+    bannedReq.status === 403,
+    `status=${bannedReq.status}`,
+  );
   let wsBanned = false;
   try {
     await wsConnect(roomObj.id, b.token);
@@ -139,10 +193,15 @@ async function main() {
 
   // 6. Удаление аккаунта через API (эндпоинт требует пароль)
   const del = await api('/gdpr/account', {
-    method: 'DELETE', token: a.token,
+    method: 'DELETE',
+    token: a.token,
     body: { password: `Passw0rd!${tag}`, confirmDelete: 'DELETE' },
   });
-  check('Удаление аккаунта без ошибок FK', del.status === 200 || del.status === 204, `status=${del.status} ${JSON.stringify(del.json)}`);
+  check(
+    'Удаление аккаунта без ошибок FK',
+    del.status === 200 || del.status === 204,
+    `status=${del.status} ${JSON.stringify(del.json)}`,
+  );
 
   // Уборка
   await prisma.user.deleteMany({ where: { username: { startsWith: tag } } });
@@ -150,4 +209,9 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch((e) => { console.error('E2E упал:', e); process.exit(1); }).finally(() => prisma.$disconnect());
+main()
+  .catch((e) => {
+    console.error('E2E упал:', e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());

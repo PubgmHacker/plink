@@ -39,7 +39,11 @@ function historyMedia(h: {
   if ((!thumb || !kind) && h.room?.mediaItem) {
     try {
       const parsed = JSON.parse(h.room.mediaItem);
-      if (!thumb && typeof parsed?.thumbnailURL === 'string' && /^https?:\/\//i.test(parsed.thumbnailURL)) {
+      if (
+        !thumb &&
+        typeof parsed?.thumbnailURL === 'string' &&
+        /^https?:\/\//i.test(parsed.thumbnailURL)
+      ) {
         thumb = parsed.thumbnailURL.slice(0, 2000);
       }
       if (!kind && typeof parsed?.mediaType === 'string') {
@@ -57,7 +61,12 @@ function historyMedia(h: {
 async function areFriends(a: string, b: string): Promise<boolean> {
   if (!a || !b || a === b) return false;
   const row = await prisma.friendship.findFirst({
-    where: { OR: [{ userID: a, friendID: b }, { userID: b, friendID: a }] },
+    where: {
+      OR: [
+        { userID: a, friendID: b },
+        { userID: b, friendID: a },
+      ],
+    },
     select: { id: true },
   });
   return Boolean(row);
@@ -65,14 +74,19 @@ async function areFriends(a: string, b: string): Promise<boolean> {
 
 /// Friend rail for profiles: pinned first, then newest friendships.
 /// Tombstoned accounts are skipped; presence resolved per friend.
-async function friendsPreview(userId: string, take = 12): Promise<Array<{
-  id: string;
-  username: string;
-  displayName: string | null;
-  avatarURL: string | null;
-  isOnline: boolean;
-  lastSeenAt: string | null;
-}>> {
+async function friendsPreview(
+  userId: string,
+  take = 12,
+): Promise<
+  Array<{
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarURL: string | null;
+    isOnline: boolean;
+    lastSeenAt: string | null;
+  }>
+> {
   const rows = await prisma.friendship.findMany({
     where: { userID: userId },
     orderBy: [{ isPinned: 'desc' }, { friendsSince: 'desc' }],
@@ -144,98 +158,114 @@ export default async function profileRoutes(fastify) {
   // POST /users/me/avatar — upload avatar as base64 data URL, persist in DB.
   // Rate limited, MIME-validated, and size-capped: this endpoint writes
   // caller-supplied bytes to a row every authenticated user can reach.
-  fastify.post('/users/me/avatar', {
-    preHandler: [fastify.authenticate],
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } }
-  }, async (request, reply) => {
-    const body = request.body as { avatar?: string; avatarData?: string };
-    const avatarInput = body.avatar ?? body.avatarData;
+  fastify.post(
+    '/users/me/avatar',
+    {
+      preHandler: [fastify.authenticate],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const body = request.body as { avatar?: string; avatarData?: string };
+      const avatarInput = body.avatar ?? body.avatarData;
 
-    if (!avatarInput || typeof avatarInput !== 'string') {
-      return reply.status(400).send({ error: 'Avatar data required' });
-    }
-
-    const mimeMatch = avatarInput.match(/^data:(image\/(jpeg|jpg|png|webp));base64,/);
-    if (!mimeMatch) {
-      return reply.status(400).send({
-        error: 'Invalid avatar format. Expected data:image/(jpeg|png|webp);base64,...'
-      });
-    }
-
-    const base64Data = avatarInput.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    if (buffer.length > 2 * 1024 * 1024) {
-      return reply.status(413).send({ error: 'Avatar too large. Max 2MB.' });
-    }
-
-    let isValidImage = false;
-    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
-      isValidImage = true;
-    } else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-      isValidImage = true;
-    } else if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
-      isValidImage = true;
-    }
-    if (!isValidImage) {
-      return reply.status(400).send({ error: 'Invalid image data. Magic bytes do not match JPEG/PNG/WebP.' });
-    }
-
-    const avatarData = avatarInput;
-    const now = new Date();
-    const avatarURL = avatarPublicURL(request.user.id, now.getTime());
-
-    await prisma.user.update({
-      where: { id: request.user.id },
-      data: {
-        avatarData,
-        avatarURL,
-        avatarUpdatedAt: now,
-      },
-    });
-
-    // Best-effort: push avatar change to online friends (legacy presence WS)
-    try {
-      const { presence } = await import('../services/presence.js');
-      const me = request.user.id;
-      const friendships = await prisma.friendship.findMany({
-        where: { OR: [{ userID: me }, { friendID: me }] },
-        select: { userID: true, friendID: true },
-        take: 500,
-      });
-      const friendIds = new Set<string>();
-      for (const f of friendships) {
-        if (f.userID === me) friendIds.add(f.friendID);
-        else friendIds.add(f.userID);
+      if (!avatarInput || typeof avatarInput !== 'string') {
+        return reply.status(400).send({ error: 'Avatar data required' });
       }
-      const payload = {
-        type: 'friend.avatar_updated',
-        userId: me,
-        avatarURL,
-        avatarVersion: now.getTime(),
-        at: now.toISOString(),
-      };
-      // gateway.notifyUser доставляет и на другие реплики (user:<id> pub/sub);
-      // presence.sendToUser — локальный fallback, если gateway не поднялся.
-      const gw = (fastify as any).gateway;
-      const encoded = JSON.stringify(payload);
-      for (const fid of friendIds) {
-        if (gw) gw.notifyUser(fid, payload);
-        else presence.sendToUser(fid, encoded);
-      }
-    } catch (e: any) {
-      console.warn('[avatar] friend notify failed:', e?.message || e);
-    }
 
-    reply.send({ avatarData, avatarURL, avatarVersion: now.getTime() });
-  });
+      const mimeMatch = avatarInput.match(/^data:(image\/(jpeg|jpg|png|webp));base64,/);
+      if (!mimeMatch) {
+        return reply.status(400).send({
+          error: 'Invalid avatar format. Expected data:image/(jpeg|png|webp);base64,...',
+        });
+      }
+
+      const base64Data = avatarInput.replace(/^data:image\/\w+;base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      if (buffer.length > 2 * 1024 * 1024) {
+        return reply.status(413).send({ error: 'Avatar too large. Max 2MB.' });
+      }
+
+      let isValidImage = false;
+      if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+        isValidImage = true;
+      } else if (
+        buffer[0] === 0x89 &&
+        buffer[1] === 0x50 &&
+        buffer[2] === 0x4e &&
+        buffer[3] === 0x47
+      ) {
+        isValidImage = true;
+      } else if (
+        buffer[0] === 0x52 &&
+        buffer[1] === 0x49 &&
+        buffer[2] === 0x46 &&
+        buffer[3] === 0x46
+      ) {
+        isValidImage = true;
+      }
+      if (!isValidImage) {
+        return reply
+          .status(400)
+          .send({ error: 'Invalid image data. Magic bytes do not match JPEG/PNG/WebP.' });
+      }
+
+      const avatarData = avatarInput;
+      const now = new Date();
+      const avatarURL = avatarPublicURL(request.user.id, now.getTime());
+
+      await prisma.user.update({
+        where: { id: request.user.id },
+        data: {
+          avatarData,
+          avatarURL,
+          avatarUpdatedAt: now,
+        },
+      });
+
+      // Best-effort: push avatar change to online friends (legacy presence WS)
+      try {
+        const { presence } = await import('../services/presence.js');
+        const me = request.user.id;
+        const friendships = await prisma.friendship.findMany({
+          where: { OR: [{ userID: me }, { friendID: me }] },
+          select: { userID: true, friendID: true },
+          take: 500,
+        });
+        const friendIds = new Set<string>();
+        for (const f of friendships) {
+          if (f.userID === me) friendIds.add(f.friendID);
+          else friendIds.add(f.userID);
+        }
+        const payload = {
+          type: 'friend.avatar_updated',
+          userId: me,
+          avatarURL,
+          avatarVersion: now.getTime(),
+          at: now.toISOString(),
+        };
+        // gateway.notifyUser доставляет и на другие реплики (user:<id> pub/sub);
+        // presence.sendToUser — локальный fallback, если gateway не поднялся.
+        const gw = (fastify as any).gateway;
+        const encoded = JSON.stringify(payload);
+        for (const fid of friendIds) {
+          if (gw) gw.notifyUser(fid, payload);
+          else presence.sendToUser(fid, encoded);
+        }
+      } catch (e: any) {
+        console.warn('[avatar] friend notify failed:', e?.message || e);
+      }
+
+      reply.send({ avatarData, avatarURL, avatarVersion: now.getTime() });
+    },
+  );
 
   // GET /users/:id/avatar — serve avatar image bytes from DB (no ephemeral disk).
   fastify.get('/users/:id/avatar', async (request, reply) => {
     const { id } = request.params;
     const user = await prisma.user.findUnique({
       where: { id },
-      select: { avatarData: true, avatarURL: true, updatedAt: true }
+      select: { avatarData: true, avatarURL: true, updatedAt: true },
     });
     if (!user) return reply.status(404).send({ error: 'User not found' });
 
@@ -337,19 +367,23 @@ export default async function profileRoutes(fastify) {
   });
 
   // POST /users/me/presence — app foreground heartbeat (online + lastSeen)
-  fastify.post('/users/me/presence', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    try {
-      const { presence } = await import('../services/presence.js');
-      const u = await prisma.user.findUnique({
-        where: { id: request.user.id },
-        select: { username: true },
-      });
-      await presence.restHeartbeat(request.user.id, u?.username);
-      reply.send({ success: true, isOnline: true, lastSeenAt: new Date().toISOString() });
-    } catch (e: any) {
-      reply.status(500).send({ error: e?.message || 'presence failed' });
-    }
-  });
+  fastify.post(
+    '/users/me/presence',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      try {
+        const { presence } = await import('../services/presence.js');
+        const u = await prisma.user.findUnique({
+          where: { id: request.user.id },
+          select: { username: true },
+        });
+        await presence.restHeartbeat(request.user.id, u?.username);
+        reply.send({ success: true, isOnline: true, lastSeenAt: new Date().toISOString() });
+      } catch (e: any) {
+        reply.status(500).send({ error: e?.message || 'presence failed' });
+      }
+    },
+  );
 
   // Pack v3: PATCH /users/me — обновление username + avatarURL + displayName + coverURL
   // Added displayName + coverURL (Telegram-style naming split).
@@ -365,7 +399,7 @@ export default async function profileRoutes(fastify) {
     if (displayName !== undefined) {
       const trimmed = String(displayName).trim();
       if (trimmed.length === 0) {
-        data.displayName = null;  // clear → backend uses username as display
+        data.displayName = null; // clear → backend uses username as display
       } else if (trimmed.length <= 50) {
         data.displayName = trimmed;
       }
@@ -392,7 +426,8 @@ export default async function profileRoutes(fastify) {
       const usernameRegex = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;
       if (!usernameRegex.test(data.username)) {
         return reply.status(400).send({
-          error: 'Username must be 5-32 characters, start with a letter, and contain only letters, numbers, and underscores'
+          error:
+            'Username must be 5-32 characters, start with a letter, and contain only letters, numbers, and underscores',
         });
       }
       // Normalize to lowercase for case-insensitive uniqueness
@@ -400,8 +435,8 @@ export default async function profileRoutes(fastify) {
       const existing = await prisma.user.findFirst({
         where: {
           username: { equals: data.username, mode: 'insensitive' },
-          NOT: { id: request.user.id }
-        }
+          NOT: { id: request.user.id },
+        },
       });
       if (existing) return reply.status(409).send({ error: 'Username already taken' });
     }
@@ -409,9 +444,21 @@ export default async function profileRoutes(fastify) {
     const updated = await prisma.user.update({
       where: { id: request.user.id },
       data,
-      select: { id: true, username: true, email: true, avatarURL: true, avatarData: true,
-                displayName: true, coverURL: true, statusText: true, profileClosed: true,
-                isPremium: true, premiumUntil: true, role: true, createdAt: true }
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        avatarURL: true,
+        avatarData: true,
+        displayName: true,
+        coverURL: true,
+        statusText: true,
+        profileClosed: true,
+        isPremium: true,
+        premiumUntil: true,
+        role: true,
+        createdAt: true,
+      },
     });
     reply.send(updated);
   });
@@ -440,115 +487,132 @@ export default async function profileRoutes(fastify) {
   // GET /api/profile/appearance
   // Phase 4: returns the user's saved appearance selection (cross-device restore).
   // Values are stored as JSON on the User row in `appearancePrefs`.
-  fastify.get('/profile/appearance', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.id },
-      select: { appearancePrefs: true }
-    });
-
-    // Defaults if user has never selected anything.
-    const defaults = {
-      appThemeID: 'electric-static',
-      bubbleStyleID: 'bubble-quiet',
-      emojiPackID: 'system-unicode'
-    };
-
-    if (!user?.appearancePrefs) {
-      return reply.send(defaults);
-    }
-    try {
-      const parsed = JSON.parse(user.appearancePrefs);
-      reply.send({
-        appThemeID: parsed.appThemeID ?? defaults.appThemeID,
-        bubbleStyleID: parsed.bubbleStyleID ?? defaults.bubbleStyleID,
-        emojiPackID: parsed.emojiPackID ?? defaults.emojiPackID
+  fastify.get(
+    '/profile/appearance',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { appearancePrefs: true },
       });
-    } catch {
-      reply.send(defaults);
-    }
-  });
+
+      // Defaults if user has never selected anything.
+      const defaults = {
+        appThemeID: 'electric-static',
+        bubbleStyleID: 'bubble-quiet',
+        emojiPackID: 'system-unicode',
+      };
+
+      if (!user?.appearancePrefs) {
+        return reply.send(defaults);
+      }
+      try {
+        const parsed = JSON.parse(user.appearancePrefs);
+        reply.send({
+          appThemeID: parsed.appThemeID ?? defaults.appThemeID,
+          bubbleStyleID: parsed.bubbleStyleID ?? defaults.bubbleStyleID,
+          emojiPackID: parsed.emojiPackID ?? defaults.emojiPackID,
+        });
+      } catch {
+        reply.send(defaults);
+      }
+    },
+  );
 
   // PUT /api/profile/appearance
   // Phase 4: persists the user's appearance selection for cross-device restore.
   // Rate limit + строгая zod-валидация — раньше можно было
   // писать килобайты произвольного мусора в appearancePrefs без ограничений.
-  fastify.put('/profile/appearance', {
-    preHandler: [fastify.authenticate],
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
-  }, async (request, reply) => {
-    // Идентификаторы тем/стилей — только kebab-case slug'и до 64 символов.
-    const appearanceIdSchema = z.string().min(1).max(64).regex(/^[a-z0-9-]+$/);
-    const appearanceBodySchema = z.object({
-      appThemeID: appearanceIdSchema,
-      bubbleStyleID: appearanceIdSchema,
-      emojiPackID: appearanceIdSchema,
-    });
-
-    const parsed = appearanceBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({
-        error: 'Некорректные appThemeID/bubbleStyleID/emojiPackID: ожидаются строки 1-64 символа из [a-z0-9-]'
+  fastify.put(
+    '/profile/appearance',
+    {
+      preHandler: [fastify.authenticate],
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      // Идентификаторы тем/стилей — только kebab-case slug'и до 64 символов.
+      const appearanceIdSchema = z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z0-9-]+$/);
+      const appearanceBodySchema = z.object({
+        appThemeID: appearanceIdSchema,
+        bubbleStyleID: appearanceIdSchema,
+        emojiPackID: appearanceIdSchema,
       });
-    }
-    const { appThemeID, bubbleStyleID, emojiPackID } = parsed.data;
 
-    const prefs = JSON.stringify({ appThemeID, bubbleStyleID, emojiPackID });
+      const parsed = appearanceBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error:
+            'Некорректные appThemeID/bubbleStyleID/emojiPackID: ожидаются строки 1-64 символа из [a-z0-9-]',
+        });
+      }
+      const { appThemeID, bubbleStyleID, emojiPackID } = parsed.data;
 
-    await prisma.user.update({
-      where: { id: request.user.id },
-      data: { appearancePrefs: prefs }
-    });
+      const prefs = JSON.stringify({ appThemeID, bubbleStyleID, emojiPackID });
 
-    await logAudit({
-      userId: request.user.id,
-      action: AuditActions.PROFILE_APPEARANCE_UPDATE,
-      ip: request.ip,
-      metadata: { appThemeID, bubbleStyleID, emojiPackID }
-    });
+      await prisma.user.update({
+        where: { id: request.user.id },
+        data: { appearancePrefs: prefs },
+      });
 
-    reply.status(204).send();
-  });
+      await logAudit({
+        userId: request.user.id,
+        action: AuditActions.PROFILE_APPEARANCE_UPDATE,
+        ip: request.ip,
+        metadata: { appThemeID, bubbleStyleID, emojiPackID },
+      });
+
+      reply.status(204).send();
+    },
+  );
 
   // POST /api/profile/delete
   // Phase 2.7: scheduled account deletion with grace period (14 days).
   // Marks the user as `scheduledForDeletionAt = now + 14d`; a cron job
   // (see services/gdpr.ts) performs the actual cascade delete after the
   // grace period expires. User can cancel by signing in before then.
-  fastify.post('/profile/delete', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { confirmAccountId, reason } = request.body;
+  fastify.post(
+    '/profile/delete',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { confirmAccountId, reason } = request.body;
 
-    if (confirmAccountId !== request.user.id) {
-      return reply.status(400).send({
-        error: 'Account ID confirmation does not match'
+      if (confirmAccountId !== request.user.id) {
+        return reply.status(400).send({
+          error: 'Account ID confirmation does not match',
+        });
+      }
+
+      const scheduledForDeletionAt = new Date();
+      scheduledForDeletionAt.setDate(scheduledForDeletionAt.getDate() + 14);
+
+      await prisma.user.update({
+        where: { id: request.user.id },
+        data: { scheduledForDeletionAt },
       });
-    }
 
-    const scheduledForDeletionAt = new Date();
-    scheduledForDeletionAt.setDate(scheduledForDeletionAt.getDate() + 14);
+      // Revoke all refresh tokens immediately — keeps access token valid until
+      // expiry (max 24h) but blocks long-lived session extension.
+      // (Import happens lazily to avoid circular import with tokens.js.)
+      const { revokeAllUserTokens } = await import('../utils/tokens.js');
+      await revokeAllUserTokens(request.user.id);
 
-    await prisma.user.update({
-      where: { id: request.user.id },
-      data: { scheduledForDeletionAt }
-    });
+      await logAudit({
+        userId: request.user.id,
+        action: AuditActions.ACCOUNT_DELETION_REQUESTED,
+        ip: request.ip,
+        metadata: { reason: reason ?? 'user_initiated', scheduledForDeletionAt },
+      });
 
-    // Revoke all refresh tokens immediately — keeps access token valid until
-    // expiry (max 24h) but blocks long-lived session extension.
-    // (Import happens lazily to avoid circular import with tokens.js.)
-    const { revokeAllUserTokens } = await import('../utils/tokens.js');
-    await revokeAllUserTokens(request.user.id);
-
-    await logAudit({
-      userId: request.user.id,
-      action: AuditActions.ACCOUNT_DELETION_REQUESTED,
-      ip: request.ip,
-      metadata: { reason: reason ?? 'user_initiated', scheduledForDeletionAt }
-    });
-
-    reply.send({
-      scheduledForDeletionAt,
-      message: 'Account scheduled for deletion in 14 days. Sign in before then to cancel.'
-    });
-  });
+      reply.send({
+        scheduledForDeletionAt,
+        message: 'Account scheduled for deletion in 14 days. Sign in before then to cancel.',
+      });
+    },
+  );
 
   // ─────────────────────────────────────────────────────────────────────
   // /users/me endpoints (existing)
@@ -558,278 +622,163 @@ export default async function profileRoutes(fastify) {
     const { id } = request.params;
     const user = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, username: true, avatarURL: true, isOnline: true }
+      select: { id: true, username: true, avatarURL: true, isOnline: true },
     });
     if (!user) return reply.status(404).send({ error: 'User not found' });
     reply.send(user);
   });
 
   // GET /api/users/:id/profile — public social profile + watch stats + badges
-  fastify.get('/users/:id/profile', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
+  fastify.get(
+    '/users/:id/profile',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
 
-    // Load with any — avoid Prisma select/type drift on optional columns (lastSeenAt)
-    let raw: any = null;
-    try {
-      raw = await prisma.user.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarURL: true,
-          coverURL: true,
-          statusText: true,
-          profileClosed: true,
-          isOnline: true,
-          lastSeenAt: true,
-          isPremium: true,
-          createdAt: true,
-          updatedAt: true,
-          deletedAt: true,
-        } as any,
-      });
-    } catch {
-      raw = await prisma.user.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarURL: true,
-          coverURL: true,
-          isOnline: true,
-          isPremium: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    }
-    if (!raw || typeof raw.id !== 'string') {
-      return reply.status(404).send({ error: 'User not found' });
-    }
+      // Load with any — avoid Prisma select/type drift on optional columns (lastSeenAt)
+      let raw: any = null;
+      try {
+        raw = await prisma.user.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarURL: true,
+            coverURL: true,
+            statusText: true,
+            profileClosed: true,
+            isOnline: true,
+            lastSeenAt: true,
+            isPremium: true,
+            createdAt: true,
+            updatedAt: true,
+            deletedAt: true,
+          } as any,
+        });
+      } catch {
+        raw = await prisma.user.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarURL: true,
+            coverURL: true,
+            isOnline: true,
+            isPremium: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+      }
+      if (!raw || typeof raw.id !== 'string') {
+        return reply.status(404).send({ error: 'User not found' });
+      }
 
-    // Telegram tombstone profile
-    const { isDeletedUser } = await import('../services/accountTombstone.js');
-    if (isDeletedUser(raw)) {
-      return reply.send({
+      // Telegram tombstone profile
+      const { isDeletedUser } = await import('../services/accountTombstone.js');
+      if (isDeletedUser(raw)) {
+        return reply.send({
+          id: String(raw.id),
+          username: String(raw.username ?? 'deleted'),
+          displayName: 'Удалённый аккаунт',
+          avatarURL: null,
+          coverURL: null,
+          statusText: null,
+          isOnline: false,
+          lastSeenAt: null,
+          isPremium: false,
+          isDeleted: true,
+          isClosed: false,
+          isFriend: false,
+          friendsCount: 0,
+          roomsCreated: 0,
+          filmsWatched: 0,
+          watchTimeMinutes: 0,
+          watchHistory: [],
+          friends: [],
+          badges: [],
+          joinedAt: raw.createdAt ?? null,
+        });
+      }
+
+      const profileUser = {
         id: String(raw.id),
-        username: String(raw.username ?? 'deleted'),
-        displayName: 'Удалённый аккаунт',
-        avatarURL: null,
-        coverURL: null,
-        statusText: null,
-        isOnline: false,
-        lastSeenAt: null,
-        isPremium: false,
-        isDeleted: true,
-        isClosed: false,
-        isFriend: false,
-        friendsCount: 0,
-        roomsCreated: 0,
-        filmsWatched: 0,
-        watchTimeMinutes: 0,
-        watchHistory: [],
-        friends: [],
-        badges: [],
-        joinedAt: raw.createdAt ?? null,
-      });
-    }
+        username: String(raw.username ?? 'user'),
+        displayName: (raw.displayName as string | null) ?? null,
+        avatarURL: (raw.avatarURL as string | null) ?? null,
+        coverURL: (raw.coverURL as string | null) ?? null,
+        statusText: (raw.statusText as string | null | undefined) ?? null,
+        isOnline: Boolean(raw.isOnline),
+        lastSeenAt: (raw.lastSeenAt as Date | null | undefined) ?? null,
+        isPremium: Boolean(raw.isPremium),
+        createdAt: raw.createdAt as Date,
+        updatedAt: (raw.updatedAt as Date | null | undefined) ?? null,
+      };
 
-    const profileUser = {
-      id: String(raw.id),
-      username: String(raw.username ?? 'user'),
-      displayName: (raw.displayName as string | null) ?? null,
-      avatarURL: (raw.avatarURL as string | null) ?? null,
-      coverURL: (raw.coverURL as string | null) ?? null,
-      statusText: (raw.statusText as string | null | undefined) ?? null,
-      isOnline: Boolean(raw.isOnline),
-      lastSeenAt: (raw.lastSeenAt as Date | null | undefined) ?? null,
-      isPremium: Boolean(raw.isPremium),
-      createdAt: raw.createdAt as Date,
-      updatedAt: (raw.updatedAt as Date | null | undefined) ?? null,
-    };
+      let isOnline: boolean = profileUser.isOnline;
+      let lastSeenAt: string | null = null;
+      try {
+        const { resolvePresence } = await import('../services/presence.js');
+        const p = resolvePresence({
+          id: profileUser.id,
+          isOnline: profileUser.isOnline,
+          lastSeenAt: profileUser.lastSeenAt ?? null,
+          updatedAt: profileUser.updatedAt ?? profileUser.createdAt,
+        });
+        isOnline = Boolean(p.isOnline);
+        lastSeenAt = p.lastSeenAt ?? null;
+      } catch {
+        /* optional */
+      }
 
-    let isOnline: boolean = profileUser.isOnline;
-    let lastSeenAt: string | null = null;
-    try {
-      const { resolvePresence } = await import('../services/presence.js');
-      const p = resolvePresence({
-        id: profileUser.id,
-        isOnline: profileUser.isOnline,
-        lastSeenAt: profileUser.lastSeenAt ?? null,
-        updatedAt: profileUser.updatedAt ?? profileUser.createdAt,
-      });
-      isOnline = Boolean(p.isOnline);
-      lastSeenAt = p.lastSeenAt ?? null;
-    } catch {
-      /* optional */
-    }
+      // ─── VK-style privacy gate ───
+      // Closed profile hides stats, watch history and friends from strangers.
+      // Identity (name, avatar, cover, status) and presence stay public — as in VK.
+      const viewerId: string = request.user.id;
+      const isSelf = viewerId === profileUser.id;
+      const isFriend = isSelf ? false : await areFriends(viewerId, profileUser.id);
+      const closed = Boolean((raw as any).profileClosed) && !isSelf && !isFriend;
 
-    // ─── VK-style privacy gate ───
-    // Closed profile hides stats, watch history and friends from strangers.
-    // Identity (name, avatar, cover, status) and presence stay public — as in VK.
-    const viewerId: string = request.user.id;
-    const isSelf = viewerId === profileUser.id;
-    const isFriend = isSelf ? false : await areFriends(viewerId, profileUser.id);
-    const closed = Boolean((raw as any).profileClosed) && !isSelf && !isFriend;
+      if (closed) {
+        return reply.send({
+          id: profileUser.id,
+          username: profileUser.username,
+          displayName: profileUser.displayName ?? profileUser.username,
+          avatarURL: profileUser.avatarURL,
+          coverURL: profileUser.coverURL,
+          statusText: profileUser.statusText,
+          isOnline,
+          lastSeenAt,
+          isPremium: profileUser.isPremium,
+          isDeleted: false,
+          isClosed: true,
+          isSelf: false,
+          isFriend,
+          friendsCount: 0,
+          roomsCreated: 0,
+          filmsWatched: 0,
+          watchTimeMinutes: 0,
+          watchHistory: [],
+          friends: [],
+          badges: [],
+          joinedAt: profileUser.createdAt,
+        });
+      }
 
-    if (closed) {
-      return reply.send({
-        id: profileUser.id,
-        username: profileUser.username,
-        displayName: profileUser.displayName ?? profileUser.username,
-        avatarURL: profileUser.avatarURL,
-        coverURL: profileUser.coverURL,
-        statusText: profileUser.statusText,
-        isOnline,
-        lastSeenAt,
-        isPremium: profileUser.isPremium,
-        isDeleted: false,
-        isClosed: true,
-        isSelf: false,
-        isFriend,
-        friendsCount: 0,
-        roomsCreated: 0,
-        filmsWatched: 0,
-        watchTimeMinutes: 0,
-        watchHistory: [],
-        friends: [],
-        badges: [],
-        joinedAt: profileUser.createdAt,
-      });
-    }
-
-    // Explicit tuple types — never let Promise.all collapse into a giant union
-    const friendsCount: number = await prisma.friendship.count({ where: { userID: id } });
-    const roomsCreated: number = await prisma.room.count({ where: { hostID: id } });
-    const watchHistory: Array<{
-      id: string;
-      mediaTitle: string | null;
-      mediaThumb: string | null;
-      mediaKind: string | null;
-      watchedAt: Date;
-      roomID: string | null;
-      room: { mediaItem: string | null } | null;
-    }> = await prisma.watchHistory.findMany({
-      where: { userID: id },
-      orderBy: { watchedAt: 'desc' },
-      take: 20,
-      select: {
-        id: true,
-        mediaTitle: true,
-        mediaThumb: true,
-        mediaKind: true,
-        watchedAt: true,
-        roomID: true,
-        room: { select: { mediaItem: true } },
-      },
-    }) as any;
-    const totalHistory: number = await prisma.watchHistory.count({ where: { userID: id } });
-    const watchTimeMinutes = totalHistory * 90;
-    const friends = await friendsPreview(id, 12);
-
-    const badges: string[] = [];
-    if (totalHistory >= 100) badges.push('cinemaniac');
-    if (friendsCount >= 50) badges.push('social');
-    if (roomsCreated >= 100) badges.push('host');
-    if (roomsCreated >= 10) badges.push('host_rising');
-    if (totalHistory >= 10) badges.push('regular');
-    if (profileUser.isPremium) badges.push('plink_plus');
-
-    return reply.send({
-      id: profileUser.id,
-      username: profileUser.username,
-      displayName: profileUser.displayName ?? profileUser.username,
-      avatarURL: profileUser.avatarURL,
-      coverURL: profileUser.coverURL,
-      statusText: profileUser.statusText,
-      isOnline,
-      lastSeenAt,
-      isPremium: profileUser.isPremium,
-      isDeleted: false,
-      isClosed: false,
-      isSelf,
-      isFriend,
-      friendsCount,
-      roomsCreated,
-      filmsWatched: totalHistory,
-      watchTimeMinutes,
-      watchHistory: watchHistory.map((h) => {
-        const media = historyMedia(h);
-        return {
-          id: h.id,
-          title: h.mediaTitle ?? 'Без названия',
-          thumb: media.thumb,
-          kind: media.kind,
-          watchedAt: h.watchedAt,
-          roomId: h.roomID,
-        };
-      }),
-      friends,
-      badges,
-      joinedAt: profileUser.createdAt,
-    });
-  });
-
-  // GET /api/users/:id/friends — full friend list (VK-style friend browsing).
-  // 403 {error:'closed'} when the owner closed the profile and the viewer
-  // is neither the owner nor a friend.
-  fastify.get('/users/:id/friends', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-
-    let target: any = null;
-    try {
-      target = await prisma.user.findUnique({
-        where: { id },
-        select: { id: true, username: true, profileClosed: true, deletedAt: true } as any,
-      });
-    } catch {
-      target = await prisma.user.findUnique({
-        where: { id },
-        select: { id: true, username: true },
-      });
-    }
-    if (!target) return reply.status(404).send({ error: 'User not found' });
-
-    const { isDeletedUser } = await import('../services/accountTombstone.js');
-    if (isDeletedUser(target)) return reply.status(404).send({ error: 'User not found' });
-
-    const viewerId: string = request.user.id;
-    const isSelf = viewerId === id;
-    if (Boolean(target.profileClosed) && !isSelf && !(await areFriends(viewerId, id))) {
-      return reply.status(403).send({ error: 'closed' });
-    }
-
-    const friends = await friendsPreview(id, 200);
-    reply.send({ friends });
-  });
-
-  // GET /api/users/me/profile — self profile (same shape)
-  fastify.get('/users/me/profile', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const id = request.user.id;
-    // Reuse logic by internal call shape
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        avatarURL: true,
-        coverURL: true,
-        statusText: true,
-        profileClosed: true,
-        isOnline: true,
-        isPremium: true,
-        createdAt: true,
-      },
-    });
-    if (!user) return reply.status(404).send({ error: 'User not found' });
-
-    const [friendsCount, roomsCreated, watchHistory, totalHistory, friends] = await Promise.all([
-      prisma.friendship.count({ where: { userID: id } }),
-      prisma.room.count({ where: { hostID: id } }),
-      prisma.watchHistory.findMany({
+      // Explicit tuple types — never let Promise.all collapse into a giant union
+      const friendsCount: number = await prisma.friendship.count({ where: { userID: id } });
+      const roomsCreated: number = await prisma.room.count({ where: { hostID: id } });
+      const watchHistory: Array<{
+        id: string;
+        mediaTitle: string | null;
+        mediaThumb: string | null;
+        mediaKind: string | null;
+        watchedAt: Date;
+        roomID: string | null;
+        room: { mediaItem: string | null } | null;
+      }> = (await prisma.watchHistory.findMany({
         where: { userID: id },
         orderBy: { watchedAt: 'desc' },
         take: 20,
@@ -842,74 +791,209 @@ export default async function profileRoutes(fastify) {
           roomID: true,
           room: { select: { mediaItem: true } },
         },
-      }),
-      prisma.watchHistory.count({ where: { userID: id } }),
-      friendsPreview(id, 12),
-    ]);
+      })) as any;
+      const totalHistory: number = await prisma.watchHistory.count({ where: { userID: id } });
+      const watchTimeMinutes = totalHistory * 90;
+      const friends = await friendsPreview(id, 12);
 
-    const badges: string[] = [];
-    if (totalHistory >= 100) badges.push('cinemaniac');
-    if (friendsCount >= 50) badges.push('social');
-    if (roomsCreated >= 100) badges.push('host');
-    if (roomsCreated >= 10) badges.push('host_rising');
-    if (totalHistory >= 10) badges.push('regular');
-    if (user.isPremium) badges.push('plink_plus');
+      const badges: string[] = [];
+      if (totalHistory >= 100) badges.push('cinemaniac');
+      if (friendsCount >= 50) badges.push('social');
+      if (roomsCreated >= 100) badges.push('host');
+      if (roomsCreated >= 10) badges.push('host_rising');
+      if (totalHistory >= 10) badges.push('regular');
+      if (profileUser.isPremium) badges.push('plink_plus');
 
-    reply.send({
-      id: user.id,
-      username: user.username,
-      displayName: user.displayName ?? user.username,
-      avatarURL: user.avatarURL,
-      coverURL: user.coverURL,
-      statusText: user.statusText,
-      isOnline: user.isOnline,
-      isPremium: user.isPremium,
-      // Own profile is never gated, but the flag drives the settings toggle.
-      isClosed: Boolean((user as any).profileClosed),
-      isSelf: true,
-      isFriend: false,
-      friendsCount,
-      roomsCreated,
-      filmsWatched: totalHistory,
-      watchTimeMinutes: totalHistory * 90,
-      watchHistory: watchHistory.map((h: any) => {
-        const media = historyMedia(h);
-        return {
-          id: h.id,
-          title: h.mediaTitle ?? 'Без названия',
-          thumb: media.thumb,
-          kind: media.kind,
-          watchedAt: h.watchedAt,
-          roomId: h.roomID,
-        };
-      }),
-      friends,
-      badges,
-      joinedAt: user.createdAt,
-    });
-  });
+      return reply.send({
+        id: profileUser.id,
+        username: profileUser.username,
+        displayName: profileUser.displayName ?? profileUser.username,
+        avatarURL: profileUser.avatarURL,
+        coverURL: profileUser.coverURL,
+        statusText: profileUser.statusText,
+        isOnline,
+        lastSeenAt,
+        isPremium: profileUser.isPremium,
+        isDeleted: false,
+        isClosed: false,
+        isSelf,
+        isFriend,
+        friendsCount,
+        roomsCreated,
+        filmsWatched: totalHistory,
+        watchTimeMinutes,
+        watchHistory: watchHistory.map((h) => {
+          const media = historyMedia(h);
+          return {
+            id: h.id,
+            title: h.mediaTitle ?? 'Без названия',
+            thumb: media.thumb,
+            kind: media.kind,
+            watchedAt: h.watchedAt,
+            roomId: h.roomID,
+          };
+        }),
+        friends,
+        badges,
+        joinedAt: profileUser.createdAt,
+      });
+    },
+  );
 
-  fastify.post('/users/me/create-subscription', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { plan } = request.body;
-    const expiresAt = new Date();
-    expiresAt.setMonth(expiresAt.getMonth() + 1);
+  // GET /api/users/:id/friends — full friend list (VK-style friend browsing).
+  // 403 {error:'closed'} when the owner closed the profile and the viewer
+  // is neither the owner nor a friend.
+  fastify.get(
+    '/users/:id/friends',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
 
-    await prisma.user.update({
-      where: { id: request.user.id },
-      data: { isPremium: true, premiumUntil: expiresAt }
-    });
-    await prisma.subscription.create({
-      data: { userID: request.user.id, plan: plan || 'monthly', expiresAt }
-    });
-    reply.send({ success: true, expiresAt });
-  });
+      let target: any = null;
+      try {
+        target = await prisma.user.findUnique({
+          where: { id },
+          select: { id: true, username: true, profileClosed: true, deletedAt: true } as any,
+        });
+      } catch {
+        target = await prisma.user.findUnique({
+          where: { id },
+          select: { id: true, username: true },
+        });
+      }
+      if (!target) return reply.status(404).send({ error: 'User not found' });
 
-  fastify.get('/users/me/history', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const history = await prisma.watchHistory.findMany({
-      where: { userID: request.user.id },
-      orderBy: { watchedAt: 'desc' },
-      take: 50,
-    });
-    reply.send(history);
-  });
+      const { isDeletedUser } = await import('../services/accountTombstone.js');
+      if (isDeletedUser(target)) return reply.status(404).send({ error: 'User not found' });
+
+      const viewerId: string = request.user.id;
+      const isSelf = viewerId === id;
+      if (Boolean(target.profileClosed) && !isSelf && !(await areFriends(viewerId, id))) {
+        return reply.status(403).send({ error: 'closed' });
+      }
+
+      const friends = await friendsPreview(id, 200);
+      reply.send({ friends });
+    },
+  );
+
+  // GET /api/users/me/profile — self profile (same shape)
+  fastify.get(
+    '/users/me/profile',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const id = request.user.id;
+      // Reuse logic by internal call shape
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          avatarURL: true,
+          coverURL: true,
+          statusText: true,
+          profileClosed: true,
+          isOnline: true,
+          isPremium: true,
+          createdAt: true,
+        },
+      });
+      if (!user) return reply.status(404).send({ error: 'User not found' });
+
+      const [friendsCount, roomsCreated, watchHistory, totalHistory, friends] = await Promise.all([
+        prisma.friendship.count({ where: { userID: id } }),
+        prisma.room.count({ where: { hostID: id } }),
+        prisma.watchHistory.findMany({
+          where: { userID: id },
+          orderBy: { watchedAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            mediaTitle: true,
+            mediaThumb: true,
+            mediaKind: true,
+            watchedAt: true,
+            roomID: true,
+            room: { select: { mediaItem: true } },
+          },
+        }),
+        prisma.watchHistory.count({ where: { userID: id } }),
+        friendsPreview(id, 12),
+      ]);
+
+      const badges: string[] = [];
+      if (totalHistory >= 100) badges.push('cinemaniac');
+      if (friendsCount >= 50) badges.push('social');
+      if (roomsCreated >= 100) badges.push('host');
+      if (roomsCreated >= 10) badges.push('host_rising');
+      if (totalHistory >= 10) badges.push('regular');
+      if (user.isPremium) badges.push('plink_plus');
+
+      reply.send({
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName ?? user.username,
+        avatarURL: user.avatarURL,
+        coverURL: user.coverURL,
+        statusText: user.statusText,
+        isOnline: user.isOnline,
+        isPremium: user.isPremium,
+        // Own profile is never gated, but the flag drives the settings toggle.
+        isClosed: Boolean((user as any).profileClosed),
+        isSelf: true,
+        isFriend: false,
+        friendsCount,
+        roomsCreated,
+        filmsWatched: totalHistory,
+        watchTimeMinutes: totalHistory * 90,
+        watchHistory: watchHistory.map((h: any) => {
+          const media = historyMedia(h);
+          return {
+            id: h.id,
+            title: h.mediaTitle ?? 'Без названия',
+            thumb: media.thumb,
+            kind: media.kind,
+            watchedAt: h.watchedAt,
+            roomId: h.roomID,
+          };
+        }),
+        friends,
+        badges,
+        joinedAt: user.createdAt,
+      });
+    },
+  );
+
+  fastify.post(
+    '/users/me/create-subscription',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { plan } = request.body;
+      const expiresAt = new Date();
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+
+      await prisma.user.update({
+        where: { id: request.user.id },
+        data: { isPremium: true, premiumUntil: expiresAt },
+      });
+      await prisma.subscription.create({
+        data: { userID: request.user.id, plan: plan || 'monthly', expiresAt },
+      });
+      reply.send({ success: true, expiresAt });
+    },
+  );
+
+  fastify.get(
+    '/users/me/history',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const history = await prisma.watchHistory.findMany({
+        where: { userID: request.user.id },
+        orderBy: { watchedAt: 'desc' },
+        take: 50,
+      });
+      reply.send(history);
+    },
+  );
 }

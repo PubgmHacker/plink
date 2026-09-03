@@ -83,13 +83,13 @@ export const config = {
   APNS_PRODUCTION: process.env.APNS_PRODUCTION !== 'false',
 
   /// Bundle ID / Services ID for Sign in with Apple (JWT `aud`).
-  APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID || process.env.APNS_BUNDLE_ID || 'com.syncwatch.plink',
+  APPLE_CLIENT_ID:
+    process.env.APPLE_CLIENT_ID || process.env.APNS_BUNDLE_ID || 'com.syncwatch.plink',
 
   NODE_ENV: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
 
-  PUBLIC_BASE_URL:
-    process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app',
+  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app',
 
   // Dev-only emergency DB wipe (POST /api/dev/wipe-db)
   DEV_WIPE_SECRET: process.env.DEV_WIPE_SECRET || '',
@@ -109,11 +109,12 @@ export function resolveCorsOrigin():
   | ((origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => void) {
   if (!config.isProduction) return true;
 
-  const configured = config.CORS_ORIGIN === '*'
-    ? []
-    : Array.isArray(config.CORS_ORIGIN)
-      ? config.CORS_ORIGIN
-      : [config.CORS_ORIGIN];
+  const configured =
+    config.CORS_ORIGIN === '*'
+      ? []
+      : Array.isArray(config.CORS_ORIGIN)
+        ? config.CORS_ORIGIN
+        : [config.CORS_ORIGIN];
 
   const allowed = [...configured, ...NATIVE_CLIENT_ORIGINS];
 

@@ -106,8 +106,14 @@ export async function adminRoutes(fastify: any) {
     const users = await prisma.user.findMany({
       where,
       select: {
-        id: true, username: true, email: true, isPremium: true, role: true,
-        bannedUntil: true, createdAt: true, isOnline: true,
+        id: true,
+        username: true,
+        email: true,
+        isPremium: true,
+        role: true,
+        bannedUntil: true,
+        createdAt: true,
+        isOnline: true,
       },
       take: Math.min(parseInt(limit), 200),
       skip: parseInt(offset),
@@ -140,9 +146,7 @@ export async function adminRoutes(fastify: any) {
     }
 
     const isPermanent = !durationHours;
-    const bannedUntil = durationHours
-      ? new Date(Date.now() + durationHours * 3600 * 1000)
-      : null;
+    const bannedUntil = durationHours ? new Date(Date.now() + durationHours * 3600 * 1000) : null;
     const banStatus = isPermanent ? 'PERMANENT' : 'TEMPORARY';
 
     // Wrap mutation + audit in one transaction.
@@ -438,7 +442,11 @@ export async function adminRoutes(fastify: any) {
     }
 
     // APNs broadcast to every user with a registered device token.
-    const pushed = await pushBroadcast({ title, body, data: { kind: 'broadcast', topic: topic ?? 'all' } });
+    const pushed = await pushBroadcast({
+      title,
+      body,
+      data: { kind: 'broadcast', topic: topic ?? 'all' },
+    });
     await logAudit({
       userId: request.user.id,
       action: 'admin.broadcast.send',

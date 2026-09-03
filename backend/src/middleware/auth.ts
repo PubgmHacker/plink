@@ -93,7 +93,11 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     // utils/tokens.ts. It used to not be set at all, which made them permanent.
     payload = request.server.jwt.verify(token) as any;
   } catch (err: any) {
-    if (err.message === 'Unauthorized' || err.code?.includes('JWT') || err.name === 'TokenExpiredError') {
+    if (
+      err.message === 'Unauthorized' ||
+      err.code?.includes('JWT') ||
+      err.name === 'TokenExpiredError'
+    ) {
       return reply.status(401).send({
         error: 'Сессия истекла. Войдите заново.',
         code: 'TOKEN_EXPIRED',
@@ -115,7 +119,9 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     // not answer 401 either, or the client signs the user out over an infrastructure
     // problem. 503 tells it to retry.
     request.log.error({ err }, '[auth] could not verify user against the database');
-    return reply.status(503).send({ error: 'Сервис временно недоступен', code: 'AUTH_BACKEND_DOWN' });
+    return reply
+      .status(503)
+      .send({ error: 'Сервис временно недоступен', code: 'AUTH_BACKEND_DOWN' });
   }
 
   if (!snapshot || snapshot.deletedAt) {

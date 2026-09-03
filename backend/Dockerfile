@@ -72,5 +72,10 @@ USER node
 
 EXPOSE 8080
 
+# Container-level liveness for docker/compose hosts. Railway ignores this and gates
+# promotion with railway.json (healthcheckPath /health/ready) instead.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT:-8080}/health/live" || exit 1
+
 # start.sh runs the pinned migration CLI and then node dist/server.js
 CMD ["./start.sh"]

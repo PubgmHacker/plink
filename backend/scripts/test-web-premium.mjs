@@ -23,18 +23,28 @@ let user = await prisma.user.findUnique({ where: { id: u.id } });
 const now = Date.now();
 const days = (ms) => Math.round((ms - now) / 86400000);
 check('Первый платёж выдал премиум', r1 === 'granted' && user.isPremium === true);
-check('Срок ≈ 30 дней', days(user.premiumUntil.getTime()) === 30, `${days(user.premiumUntil.getTime())} дн`);
+check(
+  'Срок ≈ 30 дней',
+  days(user.premiumUntil.getTime()) === 30,
+  `${days(user.premiumUntil.getTime())} дн`,
+);
 
 // 2. Повторный вебхук того же платежа — не должен продлить.
 const r2 = await grantWebPremium(u.id, '1m', 'pay-test-1');
 user = await prisma.user.findUnique({ where: { id: u.id } });
-check('Дубликат вебхука проигнорирован', r2 === 'duplicate' && days(user.premiumUntil.getTime()) === 30);
+check(
+  'Дубликат вебхука проигнорирован',
+  r2 === 'duplicate' && days(user.premiumUntil.getTime()) === 30,
+);
 
 // 3. Второй платёж: продление копится (30 + 90 = 120 дней).
 const r3 = await grantWebPremium(u.id, '3m', 'pay-test-2');
 user = await prisma.user.findUnique({ where: { id: u.id } });
-check('Продление считается от конца подписки', r3 === 'granted' && days(user.premiumUntil.getTime()) === 120,
-  `${days(user.premiumUntil.getTime())} дн`);
+check(
+  'Продление считается от конца подписки',
+  r3 === 'granted' && days(user.premiumUntil.getTime()) === 120,
+  `${days(user.premiumUntil.getTime())} дн`,
+);
 
 // 4. Семантика entitlements (та же формула, что в billing.ts / приложении).
 const active = user.isPremium && (!user.premiumUntil || user.premiumUntil > new Date());

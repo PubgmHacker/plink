@@ -33,14 +33,20 @@ import featureFlagRoutes from './routes/featureFlags.js';
 import aiRoutes from './routes/ai.js';
 import moderationRoutes from './routes/moderation.js';
 import { webRoutes } from './routes/web.js';
-import assetsRoutes from './routes/assets.js';  // self-hosted landing fonts/screenshots (the strict CSP forbids a CDN)
-import groupRoutes from './routes/groups.js';  // group chats
-import { livekitRoutes } from "./routes/livekit.js";
+import assetsRoutes from './routes/assets.js'; // self-hosted landing fonts/screenshots (the strict CSP forbids a CDN)
+import groupRoutes from './routes/groups.js'; // group chats
+import { livekitRoutes } from './routes/livekit.js';
 import telemetryRoutes from './routes/telemetry.js';
-import { roomJoinDuration, syncDrift, syncHardCorrections, wsReconnectCount, presenceLeaseCount } from "./observability/slo-metrics.js";
+import {
+  roomJoinDuration,
+  syncDrift,
+  syncHardCorrections,
+  wsReconnectCount,
+  presenceLeaseCount,
+} from './observability/slo-metrics.js';
 import { realtimeTicketRoutes } from './routes/realtime.js';
 import devRoutes from './routes/dev.js';
-import webpayRoutes from './routes/webpay.js';  // Plink+ purchase from the web, via YooKassa
+import webpayRoutes from './routes/webpay.js'; // Plink+ purchase from the web, via YooKassa
 import { startGuestTombstoneLoop } from './services/accountTombstone.js';
 
 export async function buildApp(): Promise<{
@@ -222,22 +228,18 @@ export async function buildApp(): Promise<{
   // Empty application/json body → {} (leave room, wipe-db probes, etc.)
   // Default Fastify JSON parser throws FST_ERR_CTP_EMPTY_JSON_BODY otherwise.
   fastify.removeContentTypeParser('application/json');
-  fastify.addContentTypeParser(
-    'application/json',
-    { parseAs: 'string' },
-    (req, body, done) => {
-      try {
-        const raw = typeof body === 'string' ? body : String(body ?? '');
-        if (!raw || raw.trim() === '') {
-          done(null, {});
-          return;
-        }
-        done(null, JSON.parse(raw));
-      } catch (err) {
-        done(err as Error, undefined);
+  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    try {
+      const raw = typeof body === 'string' ? body : String(body ?? '');
+      if (!raw || raw.trim() === '') {
+        done(null, {});
+        return;
       }
-    },
-  );
+      done(null, JSON.parse(raw));
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
 
   fastify.decorate('authenticate', authenticate);
   fastify.addHook('onRequest', securityHeaders);
@@ -265,7 +267,9 @@ export async function buildApp(): Promise<{
   // reading. It still has to be said out loud, because purchase signatures genuinely
   // are not being checked.
   if (JoseConfig.unverifiedBypassActive()) {
-    fastify.log.warn('[iap] ALLOW_UNVERIFIED_IAP=true — purchase signatures are NOT verified (development only)');
+    fastify.log.warn(
+      '[iap] ALLOW_UNVERIFIED_IAP=true — purchase signatures are NOT verified (development only)',
+    );
   }
 
   // ── API routes ────────────────────────────────────────────────────────
@@ -282,8 +286,8 @@ export async function buildApp(): Promise<{
   await fastify.register(featureFlagRoutes, { prefix: '/api' });
   await fastify.register(aiRoutes, { prefix: '/api' });
   await fastify.register(moderationRoutes, { prefix: '/api' });
-  await fastify.register(groupRoutes, { prefix: '/api' });  // group chats
-  await fastify.register(livekitRoutes, { prefix: '/api' });  // voice; stubbed, see docs/architecture/README.md
+  await fastify.register(groupRoutes, { prefix: '/api' }); // group chats
+  await fastify.register(livekitRoutes, { prefix: '/api' }); // voice; stubbed, see docs/architecture/README.md
   await fastify.register(realtimeTicketRoutes, { prefix: '/api' });
 
   // Public pages, deliberately WITHOUT the /api prefix.
@@ -297,8 +301,8 @@ export async function buildApp(): Promise<{
   // before webRoutes, or `/assets/*` is swallowed by the landing 404 page.
   await fastify.register(assetsRoutes);
   await fastify.register(webRoutes);
-  await fastify.register(webpayRoutes, { prefix: '/api' });  // Plink+ web subscription
-  await fastify.register(telemetryRoutes, { prefix: '/api' });  // sync-drift telemetry
+  await fastify.register(webpayRoutes, { prefix: '/api' }); // Plink+ web subscription
+  await fastify.register(telemetryRoutes, { prefix: '/api' }); // sync-drift telemetry
   // The development routes — which include a full database wipe — were once registered
   // unconditionally and guarded only by an environment variable. One typo in the
   // production config would have meant total data loss. They now do not exist in
@@ -458,7 +462,7 @@ export async function buildApp(): Promise<{
     startGuestTombstoneLoop();
   }
 
-  return { app: fastify, gateway: gateway };  // Gateway is RealtimeGateway | null
+  return { app: fastify, gateway: gateway }; // Gateway is RealtimeGateway | null
 }
 
 async function checkDatabase(): Promise<boolean> {

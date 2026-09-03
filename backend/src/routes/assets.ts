@@ -14,7 +14,12 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets');
+const ASSETS_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'assets',
+);
 
 /// Белый список: имя файла → (подкаталог, content-type).
 /// Всё, чего здесь нет, отдаёт 404 — обхода каталога не существует в принципе.

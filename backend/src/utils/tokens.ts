@@ -25,17 +25,17 @@ export async function issueTokenPair(
   fastify: any,
   userId: string,
   username?: string,
-  options?: { mfaVerified?: boolean; role?: string }
+  options?: { mfaVerified?: boolean; role?: string },
 ): Promise<TokenPair> {
   const now = Math.floor(Date.now() / 1000);
   const accessTtlMs = parseTtlToMs(config.ACCESS_TOKEN_TTL);
 
   const payload: any = {
     id: userId,
-    sub: userId,       // Standard JWT subject claim
-    iat: now,          // issued at (seconds)
-    auth_time: now,    // Authentication timestamp
-    mfa: options?.mfaVerified ?? false,  // 2FA completed
+    sub: userId, // Standard JWT subject claim
+    iat: now, // issued at (seconds)
+    auth_time: now, // Authentication timestamp
+    mfa: options?.mfaVerified ?? false, // 2FA completed
     // ⚠️ АУДИТ 26.07.2026 (P0): срок жизни задаётся ЯВНО.
     //
     // Было: `sign(payload, { expiresIn: config.ACCESS_TOKEN_TTL as any })`,
@@ -60,9 +60,7 @@ export async function issueTokenPair(
   // Refresh token (по умолчанию 90 дней)
   const refreshPayload = crypto.randomBytes(48).toString('hex');
   const refreshHash = await bcrypt.hash(refreshPayload, 10);
-  const refreshExpiresAt = new Date(
-    Date.now() + config.REFRESH_TOKEN_TTL_DAYS * 24 * 3600 * 1000
-  );
+  const refreshExpiresAt = new Date(Date.now() + config.REFRESH_TOKEN_TTL_DAYS * 24 * 3600 * 1000);
 
   await prisma.refreshToken.create({
     data: {
@@ -88,11 +86,16 @@ function parseTtlToMs(ttl: string): number {
   const num = parseInt(match[1]);
   const unit = match[2];
   switch (unit) {
-    case 's': return num * 1000;
-    case 'm': return num * 60 * 1000;
-    case 'h': return num * 3600 * 1000;
-    case 'd': return num * 24 * 3600 * 1000;
-    default: return 7 * 24 * 3600 * 1000;
+    case 's':
+      return num * 1000;
+    case 'm':
+      return num * 60 * 1000;
+    case 'h':
+      return num * 3600 * 1000;
+    case 'd':
+      return num * 24 * 3600 * 1000;
+    default:
+      return 7 * 24 * 3600 * 1000;
   }
 }
 

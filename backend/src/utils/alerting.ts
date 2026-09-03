@@ -3,13 +3,17 @@ import { config } from '../config/index.js';
 
 export async function alertSlack(
   message: string,
-  severity: 'info' | 'warning' | 'critical' = 'warning'
+  severity: 'info' | 'warning' | 'critical' = 'warning',
 ) {
   if (!config.SLACK_WEBHOOK_URL) return;
-  
-  const emoji = severity === 'critical' ? ':rotating_light:' :
-                severity === 'warning' ? ':warning:' : ':information_source:';
-  
+
+  const emoji =
+    severity === 'critical'
+      ? ':rotating_light:'
+      : severity === 'warning'
+        ? ':warning:'
+        : ':information_source:';
+
   try {
     await fetch(config.SLACK_WEBHOOK_URL, {
       method: 'POST',

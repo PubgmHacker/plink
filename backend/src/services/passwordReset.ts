@@ -16,7 +16,9 @@ type Slot = { hash: string; attempts: number };
 const memory = new Map<string, { slot: Slot; expiresAt: number }>();
 
 function normalizeEmail(email: string): string {
-  return String(email ?? '').trim().toLowerCase();
+  return String(email ?? '')
+    .trim()
+    .toLowerCase();
 }
 
 function keyFor(email: string): string {

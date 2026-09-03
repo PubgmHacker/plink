@@ -23,9 +23,13 @@ function loadKey() {
   const raw = process.env.TWOFA_ENC_KEY;
   if (!raw) return null;
   try {
-    const buf = /^[0-9a-fA-F]{64}$/.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
+    const buf = /^[0-9a-fA-F]{64}$/.test(raw)
+      ? Buffer.from(raw, 'hex')
+      : Buffer.from(raw, 'base64');
     return buf.length === 32 ? buf : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function encryptSecret(key, plain) {
@@ -46,10 +50,7 @@ const prisma = new PrismaClient();
 
 const users = await prisma.user.findMany({
   where: {
-    OR: [
-      { twofaSecret: { not: null } },
-      { twofaBackupCodes: { not: null } },
-    ],
+    OR: [{ twofaSecret: { not: null } }, { twofaBackupCodes: { not: null } }],
   },
   select: { id: true, twofaSecret: true, twofaBackupCodes: true },
 });
@@ -72,5 +73,7 @@ for (const u of users) {
   updated++;
 }
 
-console.log(`${DRY ? '[dry-run] ' : ''}Готово: строк с секретами ${users.length}, перешифровано ${updated}.`);
+console.log(
+  `${DRY ? '[dry-run] ' : ''}Готово: строк с секретами ${users.length}, перешифровано ${updated}.`,
+);
 await prisma.$disconnect();

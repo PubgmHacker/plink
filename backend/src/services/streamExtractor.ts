@@ -28,7 +28,8 @@ export interface StreamFormat {
   tbr: number;
 }
 
-export const UPSTREAM_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+export const UPSTREAM_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
 
 const PIPED_INSTANCES = [
   'https://api.piped.private.coffee',
@@ -55,8 +56,10 @@ async function extractWithYtDlp(videoId: string): Promise<StreamInfo> {
       '-j',
       '--no-playlist',
       '--no-warnings',
-      '--socket-timeout', '8',
-      '--extractor-args', 'youtube:player_client=android,web',
+      '--socket-timeout',
+      '8',
+      '--extractor-args',
+      'youtube:player_client=android,web',
       `https://www.youtube.com/watch?v=${videoId}`,
     ],
     { timeout: 12_000, maxBuffer: 64 * 1024 * 1024 },
@@ -66,17 +69,25 @@ async function extractWithYtDlp(videoId: string): Promise<StreamInfo> {
   const formats: any[] = Array.isArray(data.formats) ? data.formats : [];
 
   const muxed = formats
-    .filter((f) =>
-      f.vcodec && f.vcodec !== 'none' &&
-      f.acodec && f.acodec !== 'none' &&
-      (f.ext === 'mp4' || String(f.container ?? '').startsWith('mp4')))
+    .filter(
+      (f) =>
+        f.vcodec &&
+        f.vcodec !== 'none' &&
+        f.acodec &&
+        f.acodec !== 'none' &&
+        (f.ext === 'mp4' || String(f.container ?? '').startsWith('mp4')),
+    )
     .sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
 
-  const hlsFormat = formats.find((f) => String(f.protocol ?? '').includes('m3u8') && f.manifest_url)
-    ?? (data.is_live ? formats.find((f) => String(f.protocol ?? '').includes('m3u8')) : undefined);
+  const hlsFormat =
+    formats.find((f) => String(f.protocol ?? '').includes('m3u8') && f.manifest_url) ??
+    (data.is_live ? formats.find((f) => String(f.protocol ?? '').includes('m3u8')) : undefined);
 
   const best = muxed[0];
-  const hlsURL: string | null = (hlsFormat?.manifest_url as string | undefined) ?? (hlsFormat?.url as string | undefined) ?? null;
+  const hlsURL: string | null =
+    (hlsFormat?.manifest_url as string | undefined) ??
+    (hlsFormat?.url as string | undefined) ??
+    null;
 
   if (!best && !hlsURL) {
     throw new Error('yt-dlp: no muxed MP4 or HLS format');
@@ -165,7 +176,9 @@ async function extractWithInnertube(videoId: string): Promise<StreamInfo> {
   const data: any = await response.json();
   const sd = data.streamingData;
   if (!sd) {
-    throw new Error(`innertube: ${data.playabilityStatus?.status ?? 'no streamingData'} (${data.playabilityStatus?.reason ?? 'unknown'})`);
+    throw new Error(
+      `innertube: ${data.playabilityStatus?.status ?? 'no streamingData'} (${data.playabilityStatus?.reason ?? 'unknown'})`,
+    );
   }
 
   const muxed: any[] = (sd.formats ?? [])
@@ -176,9 +189,10 @@ async function extractWithInnertube(videoId: string): Promise<StreamInfo> {
 
   const details = data.videoDetails ?? {};
   const thumbs: any[] = details.thumbnail?.thumbnails ?? [];
-  const thumbnail = thumbs.length > 0
-    ? thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url
-    : null;
+  const thumbnail =
+    thumbs.length > 0
+      ? thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url
+      : null;
 
   return {
     id: videoId,
@@ -204,14 +218,16 @@ async function extractWithInnertube(videoId: string): Promise<StreamInfo> {
 
 function aggregateErrorMessage(error: unknown): string {
   if (error instanceof AggregateError) {
-    return error.errors
-      .map((e) => e instanceof Error ? e.message : String(e))
-      .join(' | ');
+    return error.errors.map((e) => (e instanceof Error ? e.message : String(e))).join(' | ');
   }
   return error instanceof Error ? error.message : String(error);
 }
 
-async function runExtractor(name: string, videoId: string, fn: (videoId: string) => Promise<StreamInfo>): Promise<StreamInfo> {
+async function runExtractor(
+  name: string,
+  videoId: string,
+  fn: (videoId: string) => Promise<StreamInfo>,
+): Promise<StreamInfo> {
   const started = Date.now();
   try {
     const result = await fn(videoId);
@@ -219,7 +235,9 @@ async function runExtractor(name: string, videoId: string, fn: (videoId: string)
     console.log(`[streamExtractor] ${name} won in ${Date.now() - started}ms (${playable})`);
     return result;
   } catch (error) {
-    console.warn(`[streamExtractor] ${name} failed in ${Date.now() - started}ms: ${aggregateErrorMessage(error)}`);
+    console.warn(
+      `[streamExtractor] ${name} failed in ${Date.now() - started}ms: ${aggregateErrorMessage(error)}`,
+    );
     throw error;
   }
 }

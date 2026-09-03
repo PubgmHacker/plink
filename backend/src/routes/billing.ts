@@ -92,17 +92,16 @@ function extractAppAccountToken(jws: string): string | null {
 // com.syncwatch.plink.premium.* entries are legacy aliases, kept so transactions
 // issued under the old naming still resolve.
 const PLANS: Record<string, { tier: 'premium' | 'lifetime'; durationDays: number }> = {
-  'plink.plus.1m':  { tier: 'premium', durationDays: 30 },
-  'plink.plus.3m':  { tier: 'premium', durationDays: 90 },
+  'plink.plus.1m': { tier: 'premium', durationDays: 30 },
+  'plink.plus.3m': { tier: 'premium', durationDays: 90 },
   'plink.plus.12m': { tier: 'premium', durationDays: 365 },
   // Легаси-алиасы (не продаются клиентом, но зачитываются, если встретятся):
-  'com.syncwatch.plink.premium.monthly':  { tier: 'premium',  durationDays: 30 },
-  'com.syncwatch.plink.premium.yearly':   { tier: 'premium',  durationDays: 365 },
+  'com.syncwatch.plink.premium.monthly': { tier: 'premium', durationDays: 30 },
+  'com.syncwatch.plink.premium.yearly': { tier: 'premium', durationDays: 365 },
   'com.syncwatch.plink.premium.lifetime': { tier: 'lifetime', durationDays: 36500 },
 };
 
 export default async function billingRoutes(fastify: any) {
-
   // ─── POST /api/billing/verify ───────────────────────────────────────
   //
   // iOS sends a signed JWS transaction from StoreKit 2. Backend verifies
@@ -134,412 +133,451 @@ export default async function billingRoutes(fastify: any) {
   // восстановления. Считаем по пользователю: `hook: 'preHandler'` ставит хук
   // лимита ПОСЛЕ authenticate (он дописывается в конец массива preHandler),
   // поэтому request.user уже заполнен; бан для этой ручки снят (ban < 0).
-  fastify.post('/billing/verify', {
-    preHandler: [fastify.authenticate, validateBody(billingVerifyBody)],
-    config: {
-      rateLimit: {
-        max: 30,
-        timeWindow: '1 minute',
-        ban: -1,
-        hook: 'preHandler',
-        keyGenerator: (request: any) => request.user?.id ?? request.ip,
+  fastify.post(
+    '/billing/verify',
+    {
+      preHandler: [fastify.authenticate, validateBody(billingVerifyBody)],
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+          ban: -1,
+          hook: 'preHandler',
+          keyGenerator: (request: any) => request.user?.id ?? request.ip,
+        },
       },
     },
-  }, async (request: any, reply: any) => {
-    const { jws, productId, transactionId } = request.body || {};
+    async (request: any, reply: any) => {
+      const { jws, productId, transactionId } = request.body || {};
 
-    if (!jws || typeof jws !== 'string') {
-      return reply.status(400).send({ error: 'jws required' });
-    }
-    // Verify productId is in allowlist.
-    if (!productId || !ALLOWED_PRODUCT_IDS.has(productId)) {
-      return reply.status(400).send({ error: 'Invalid productId' });
-    }
-
-    try {
-      // Verify JWS signature against Apple root cert.
-      const verified = await JoseConfig.verifySignedTransaction(jws);
-      if (!verified) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: { productId, reason: 'jws_signature_invalid' },
-        });
-        return reply.status(400).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'JWS signature verification failed',
-        });
+      if (!jws || typeof jws !== 'string') {
+        return reply.status(400).send({ error: 'jws required' });
+      }
+      // Verify productId is in allowlist.
+      if (!productId || !ALLOWED_PRODUCT_IDS.has(productId)) {
+        return reply.status(400).send({ error: 'Invalid productId' });
       }
 
-      // Verify bundleId matches configured value.
-      const bundleId = (verified as any).bundleId;
-      if (bundleId && bundleId !== APPLE_BUNDLE_ID) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: { productId, reason: 'bundle_id_mismatch', expected: APPLE_BUNDLE_ID, got: bundleId },
-        });
-        return reply.status(403).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Bundle ID mismatch',
-        });
-      }
-
-      // Verify productId in JWS matches body productId.
-      const jwsProductId = (verified as any).productId;
-      if (jwsProductId && jwsProductId !== productId) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: { productId, reason: 'product_id_mismatch', bodyProductId: productId, jwsProductId },
-        });
-        return reply.status(400).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Product ID mismatch between body and JWS',
-        });
-      }
-
-      // Мягкая привязка appAccountToken к аккаунту.
-      // Если токен присутствует в верифицированном JWS — он обязан совпадать
-      // с UUIDv5(userId) (см. PLINK_APP_ACCOUNT_NAMESPACE выше). Иначе любой
-      // валидный чужой JWS засчитывался первому приславшему (first-submit-wins).
-      const appAccountToken = extractAppAccountToken(jws);
-      if (appAccountToken) {
-        const expectedToken = uuidV5(String(request.user.id).toLowerCase(), PLINK_APP_ACCOUNT_NAMESPACE);
-        if (appAccountToken.toLowerCase() !== expectedToken) {
+      try {
+        // Verify JWS signature against Apple root cert.
+        const verified = await JoseConfig.verifySignedTransaction(jws);
+        if (!verified) {
           await logAudit({
             userId: request.user.id,
             action: 'billing.verify_failed',
             ip: request.ip,
-            metadata: { productId, reason: 'app_account_token_mismatch', appAccountToken },
+            metadata: { productId, reason: 'jws_signature_invalid' },
           });
-          return reply.status(403).send({
+          return reply.status(400).send({
             entitlement: { active: false, tier: 'free', expiryDate: null },
-            error: 'appAccountToken does not match authenticated user',
+            error: 'JWS signature verification failed',
           });
         }
-      } else {
-        // Старый клиент без appAccountToken — пропускаем как раньше, но
-        // фиксируем в логе, чтобы видеть долю непривязанных покупок.
-        request.log?.warn(
-          { userId: request.user.id, productId },
-          '[billing] JWS без appAccountToken — привязка покупки к аккаунту не проверена (старый клиент)',
-        );
-      }
 
-      // Extract transaction info from verified payload.
-      const { originalTransactionId, environment, expiresAt, revocationDate } = verified;
-
-      // Ревью 26.07.2026: verifySignedTransaction отдаёт ПУСТУЮ строку, если в
-      // payload нет ни originalTransactionId, ни transactionId. После появления
-      // @unique пустая строка стала глобально уникальным ключом: первая такая
-      // подписка занимала бы строку originalTransactionId='' навсегда, а все
-      // следующие пользователи получали бы 403 ownership_mismatch (и вебхук по
-      // этой строке применял бы эффект к чужому аккаунту). Такой JWS
-      // непригоден как ключ идемпотентности — отвергаем.
-      if (!originalTransactionId) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: { productId, reason: 'missing_original_transaction_id' },
-        });
-        return reply.status(400).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Transaction has no originalTransactionId',
-        });
-      }
-
-      // Идемпотентность и проверка владения ключуются
-      // ТОЛЬКО идентификатором из подписанного payload. Раньше ключом было
-      // body.transactionId — один валидный JWS можно было переиграть под
-      // произвольным transactionId и наплодить записей в обход проверки.
-      const verifiedTransactionId = verified.transactionId || originalTransactionId;
-      if (transactionId && verified.transactionId && String(transactionId) !== verified.transactionId) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: {
-            productId,
-            reason: 'transaction_id_mismatch',
-            bodyTransactionId: String(transactionId),
-            jwsTransactionId: verified.transactionId,
-          },
-        });
-        return reply.status(400).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Transaction ID mismatch between body and JWS',
-        });
-      }
-
-      // Ownership check — verify this transaction belongs to the authenticated user.
-      // Check if originalTransactionId is already linked to a DIFFERENT user.
-      const existingTx = await prisma.transactionRecord.findUnique({
-        where: { transactionId: verifiedTransactionId },
-      });
-      if (existingTx && existingTx.userId !== request.user.id) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: { productId, reason: 'ownership_mismatch', originalTransactionId, ownerUserId: existingTx.userId },
-        });
-        return reply.status(403).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Transaction belongs to a different user',
-        });
-      }
-
-      // Ревью 26.07.2026: проверка «чек устарел после отзыва» привязана к
-      // КОНКРЕТНОЙ транзакции, а не к подписке. Раньше серверный
-      // Subscription.revokedAt сравнивался с signedDate чека, поэтому после
-      // возврата за один период ЛЮБАЯ переверификация текущего (валидного)
-      // чека получала 400 → iOS трактует 4xx как авторитетный отказ и гасил
-      // премиум платящему пользователю без пути восстановления. Новая
-      // транзакция продления своей записи ещё не имеет и проходит нормально.
-      if (existingTx?.revocationDate) {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: {
-            productId,
-            reason: 'transaction_already_revoked',
-            originalTransactionId,
-            revocationDate: existingTx.revocationDate.toISOString(),
-          },
-        });
-        return reply.status(400).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Transaction revoked',
-        });
-      }
-
-      // If revoked, fail closed.
-      if (revocationDate) {
-        // Отозвана именно присланная транзакция — помечаем её запись, а не все
-        // транзакции подписки (иначе валидный текущий период тоже блокируется).
-        await revokeEntitlement(request.user.id, originalTransactionId, new Date(revocationDate), verifiedTransactionId);
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.revoked',
-          ip: request.ip,
-          metadata: { productId, originalTransactionId, revocationDate },
-        });
-        return reply.status(400).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Transaction revoked',
-        });
-      }
-
-      // Compute expiry.
-      const plan = PLANS[productId];
-      const expiryDate = expiresAt
-        ? new Date(expiresAt)
-        : new Date(Date.now() + plan.durationDays * 24 * 3600 * 1000);
-
-      // Wrap transaction record + subscription update in one tx.
-      // Store the transaction record (idempotent on transactionId).
-      // Ревью 26.07.2026: гонку двух параллельных verify разрешает уникальный
-      // индекс, но раньше проигравшая сторона получала P2002 → общий catch →
-      // 500 «Verification failed». Повторяем транзакцию один раз: на втором
-      // заходе строка уже есть и upsert уходит в ветку update.
-      await withUniqueConflictRetry(() => prisma.$transaction(async (tx) => {
-        await tx.transactionRecord.upsert({
-          where: { transactionId: verifiedTransactionId },
-          create: {
+        // Verify bundleId matches configured value.
+        const bundleId = (verified as any).bundleId;
+        if (bundleId && bundleId !== APPLE_BUNDLE_ID) {
+          await logAudit({
             userId: request.user.id,
-            transactionId: verifiedTransactionId,
-            originalTransactionId,
-            productId,
-            environment,
-            jws,
-            expiresAt: expiryDate,
-            revocationDate: null,
-          },
-          update: {
-            // On re-verify (e.g. renewal), update expiry + clear revocation.
-            expiresAt: expiryDate,
-            revocationDate: null,
-            verifiedAt: new Date(),
-          },
-        });
-
-        // Ревью 26.07.2026: ветка update ниже могла МОЛЧА переписать подписку
-        // ДРУГОГО аккаунта (у продлений transactionId каждый раз новый, и
-        // проверка владения по TransactionRecord выше не срабатывает). Владение
-        // проверяем по самой строке подписки — и ищем её по тому же ключу, по
-        // которому ниже идёт upsert (originalTransactionId, @unique).
-        const existingSub = await tx.subscription.findUnique({
-          where: { originalTransactionId },
-          select: { userID: true },
-        });
-        if (existingSub && existingSub.userID !== request.user.id) {
-          const err: any = new Error('Transaction belongs to a different user');
-          err.plinkCode = 'subscription_ownership_mismatch';
-          err.originalTransactionId = originalTransactionId;
-          throw err;
-        }
-
-        // Upsert subscription.
-        // Ветка update была мёртвой — Subscription.id это
-        // @default(uuid()), create его не задавал, поэтому where { id:
-        // originalTransactionId } не совпадал НИКОГДА и каждый verify/renew
-        // плодил новую активную подписку. После миграции
-        // 20260726120500_billing_idempotency у originalTransactionId есть
-        // @unique, поэтому ключуем upsert по нему — по единственному реально
-        // уникальному признаку подписки Apple (он стабилен между продлениями).
-        // Уникальный индекс же закрывает гонку двух параллельных verify:
-        // проигравшая вставка падает на ограничении БД (P2002), а не создаёт
-        // дубль — повтор транзакции выше сводит её на ветку update.
-        // Ревью 26.07.2026: `id: originalTransactionId` из ветки create убран.
-        // upsert компилируется в ON CONFLICT ("originalTransactionId"), который
-        // конфликт по ПЕРВИЧНОМУ ключу не поглощает: чужая строка с таким id
-        // (или гонка) давала вечный 500 на verify. id — обычный uuid, ничего от
-        // его значения не зависит. Ветка create заполняет ВСЕ поля ветки
-        // update, включая revokedAt.
-        await tx.subscription.upsert({
-          where: { originalTransactionId },
-          create: {
-            userID: request.user.id,
-            plan: productId,
-            isActive: true,
-            expiresAt: expiryDate,
-            originalTransactionId,
-            environment,
-            lastVerifiedAt: new Date(),
-            revokedAt: null,
-          },
-          update: {
-            isActive: true,
-            expiresAt: expiryDate,
-            originalTransactionId,
-            environment,
-            lastVerifiedAt: new Date(),
-            revokedAt: null,
-          },
-        });
-
-        // Mark previous subscriptions for this user as inactive (only one active).
-        // Исключаем каноническую строку по originalTransactionId — тому же
-        // ключу, что и upsert выше (id у легаси-строк мог остаться случайным
-        // uuid). `originalTransactionId: { not: null }` обязателен — иначе
-        // гасились бы и комплиментарные подписки без originalTransactionId,
-        // выданные админом.
-        await tx.subscription.updateMany({
-          where: {
-            userID: request.user.id,
-            isActive: true,
-            originalTransactionId: { not: null },
-            NOT: { originalTransactionId },
-          },
-          data: { isActive: false },
-        });
-
-        // Update user.isPremium + premiumUntil.
-        const isLifetime = plan.tier === 'lifetime';
-        await tx.user.update({
-          where: { id: request.user.id },
-          data: {
-            isPremium: true,
-            premiumUntil: isLifetime ? null : expiryDate,
-          },
-        });
-
-        // Audit log inside the same transaction.
-        // Ревью 26.07.2026: в модели AuditLog НЕТ полей actorId/targetType/
-        // targetId/requestId (только userId/action/ip/userAgent/metadata).
-        // Каст `as any` глушил tsc, а Prisma отвергала неизвестные аргументы
-        // на рантайме — вся транзакция откатывалась и КАЖДЫЙ verify отдавал
-        // 500. Пишем реальные поля и без каста, чтобы tsc ловил расхождения.
-        await tx.auditLog.create({
-          data: {
-            userId: request.user.id,
-            action: 'billing.verify_success',
+            action: 'billing.verify_failed',
             ip: request.ip,
             metadata: {
               productId,
-              originalTransactionId,
-              transactionId: verifiedTransactionId,
-              requestId: String(request.id ?? ''),
-              expiresAt: expiryDate.toISOString(),
+              reason: 'bundle_id_mismatch',
+              expected: APPLE_BUNDLE_ID,
+              got: bundleId,
             },
+          });
+          return reply.status(403).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Bundle ID mismatch',
+          });
+        }
+
+        // Verify productId in JWS matches body productId.
+        const jwsProductId = (verified as any).productId;
+        if (jwsProductId && jwsProductId !== productId) {
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.verify_failed',
+            ip: request.ip,
+            metadata: {
+              productId,
+              reason: 'product_id_mismatch',
+              bodyProductId: productId,
+              jwsProductId,
+            },
+          });
+          return reply.status(400).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Product ID mismatch between body and JWS',
+          });
+        }
+
+        // Мягкая привязка appAccountToken к аккаунту.
+        // Если токен присутствует в верифицированном JWS — он обязан совпадать
+        // с UUIDv5(userId) (см. PLINK_APP_ACCOUNT_NAMESPACE выше). Иначе любой
+        // валидный чужой JWS засчитывался первому приславшему (first-submit-wins).
+        const appAccountToken = extractAppAccountToken(jws);
+        if (appAccountToken) {
+          const expectedToken = uuidV5(
+            String(request.user.id).toLowerCase(),
+            PLINK_APP_ACCOUNT_NAMESPACE,
+          );
+          if (appAccountToken.toLowerCase() !== expectedToken) {
+            await logAudit({
+              userId: request.user.id,
+              action: 'billing.verify_failed',
+              ip: request.ip,
+              metadata: { productId, reason: 'app_account_token_mismatch', appAccountToken },
+            });
+            return reply.status(403).send({
+              entitlement: { active: false, tier: 'free', expiryDate: null },
+              error: 'appAccountToken does not match authenticated user',
+            });
+          }
+        } else {
+          // Старый клиент без appAccountToken — пропускаем как раньше, но
+          // фиксируем в логе, чтобы видеть долю непривязанных покупок.
+          request.log?.warn(
+            { userId: request.user.id, productId },
+            '[billing] JWS без appAccountToken — привязка покупки к аккаунту не проверена (старый клиент)',
+          );
+        }
+
+        // Extract transaction info from verified payload.
+        const { originalTransactionId, environment, expiresAt, revocationDate } = verified;
+
+        // Ревью 26.07.2026: verifySignedTransaction отдаёт ПУСТУЮ строку, если в
+        // payload нет ни originalTransactionId, ни transactionId. После появления
+        // @unique пустая строка стала глобально уникальным ключом: первая такая
+        // подписка занимала бы строку originalTransactionId='' навсегда, а все
+        // следующие пользователи получали бы 403 ownership_mismatch (и вебхук по
+        // этой строке применял бы эффект к чужому аккаунту). Такой JWS
+        // непригоден как ключ идемпотентности — отвергаем.
+        if (!originalTransactionId) {
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.verify_failed',
+            ip: request.ip,
+            metadata: { productId, reason: 'missing_original_transaction_id' },
+          });
+          return reply.status(400).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Transaction has no originalTransactionId',
+          });
+        }
+
+        // Идемпотентность и проверка владения ключуются
+        // ТОЛЬКО идентификатором из подписанного payload. Раньше ключом было
+        // body.transactionId — один валидный JWS можно было переиграть под
+        // произвольным transactionId и наплодить записей в обход проверки.
+        const verifiedTransactionId = verified.transactionId || originalTransactionId;
+        if (
+          transactionId &&
+          verified.transactionId &&
+          String(transactionId) !== verified.transactionId
+        ) {
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.verify_failed',
+            ip: request.ip,
+            metadata: {
+              productId,
+              reason: 'transaction_id_mismatch',
+              bodyTransactionId: String(transactionId),
+              jwsTransactionId: verified.transactionId,
+            },
+          });
+          return reply.status(400).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Transaction ID mismatch between body and JWS',
+          });
+        }
+
+        // Ownership check — verify this transaction belongs to the authenticated user.
+        // Check if originalTransactionId is already linked to a DIFFERENT user.
+        const existingTx = await prisma.transactionRecord.findUnique({
+          where: { transactionId: verifiedTransactionId },
+        });
+        if (existingTx && existingTx.userId !== request.user.id) {
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.verify_failed',
+            ip: request.ip,
+            metadata: {
+              productId,
+              reason: 'ownership_mismatch',
+              originalTransactionId,
+              ownerUserId: existingTx.userId,
+            },
+          });
+          return reply.status(403).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Transaction belongs to a different user',
+          });
+        }
+
+        // Ревью 26.07.2026: проверка «чек устарел после отзыва» привязана к
+        // КОНКРЕТНОЙ транзакции, а не к подписке. Раньше серверный
+        // Subscription.revokedAt сравнивался с signedDate чека, поэтому после
+        // возврата за один период ЛЮБАЯ переверификация текущего (валидного)
+        // чека получала 400 → iOS трактует 4xx как авторитетный отказ и гасил
+        // премиум платящему пользователю без пути восстановления. Новая
+        // транзакция продления своей записи ещё не имеет и проходит нормально.
+        if (existingTx?.revocationDate) {
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.verify_failed',
+            ip: request.ip,
+            metadata: {
+              productId,
+              reason: 'transaction_already_revoked',
+              originalTransactionId,
+              revocationDate: existingTx.revocationDate.toISOString(),
+            },
+          });
+          return reply.status(400).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Transaction revoked',
+          });
+        }
+
+        // If revoked, fail closed.
+        if (revocationDate) {
+          // Отозвана именно присланная транзакция — помечаем её запись, а не все
+          // транзакции подписки (иначе валидный текущий период тоже блокируется).
+          await revokeEntitlement(
+            request.user.id,
+            originalTransactionId,
+            new Date(revocationDate),
+            verifiedTransactionId,
+          );
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.revoked',
+            ip: request.ip,
+            metadata: { productId, originalTransactionId, revocationDate },
+          });
+          return reply.status(400).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Transaction revoked',
+          });
+        }
+
+        // Compute expiry.
+        const plan = PLANS[productId];
+        const expiryDate = expiresAt
+          ? new Date(expiresAt)
+          : new Date(Date.now() + plan.durationDays * 24 * 3600 * 1000);
+
+        // Wrap transaction record + subscription update in one tx.
+        // Store the transaction record (idempotent on transactionId).
+        // Ревью 26.07.2026: гонку двух параллельных verify разрешает уникальный
+        // индекс, но раньше проигравшая сторона получала P2002 → общий catch →
+        // 500 «Verification failed». Повторяем транзакцию один раз: на втором
+        // заходе строка уже есть и upsert уходит в ветку update.
+        await withUniqueConflictRetry(() =>
+          prisma.$transaction(async (tx) => {
+            await tx.transactionRecord.upsert({
+              where: { transactionId: verifiedTransactionId },
+              create: {
+                userId: request.user.id,
+                transactionId: verifiedTransactionId,
+                originalTransactionId,
+                productId,
+                environment,
+                jws,
+                expiresAt: expiryDate,
+                revocationDate: null,
+              },
+              update: {
+                // On re-verify (e.g. renewal), update expiry + clear revocation.
+                expiresAt: expiryDate,
+                revocationDate: null,
+                verifiedAt: new Date(),
+              },
+            });
+
+            // Ревью 26.07.2026: ветка update ниже могла МОЛЧА переписать подписку
+            // ДРУГОГО аккаунта (у продлений transactionId каждый раз новый, и
+            // проверка владения по TransactionRecord выше не срабатывает). Владение
+            // проверяем по самой строке подписки — и ищем её по тому же ключу, по
+            // которому ниже идёт upsert (originalTransactionId, @unique).
+            const existingSub = await tx.subscription.findUnique({
+              where: { originalTransactionId },
+              select: { userID: true },
+            });
+            if (existingSub && existingSub.userID !== request.user.id) {
+              const err: any = new Error('Transaction belongs to a different user');
+              err.plinkCode = 'subscription_ownership_mismatch';
+              err.originalTransactionId = originalTransactionId;
+              throw err;
+            }
+
+            // Upsert subscription.
+            // Ветка update была мёртвой — Subscription.id это
+            // @default(uuid()), create его не задавал, поэтому where { id:
+            // originalTransactionId } не совпадал НИКОГДА и каждый verify/renew
+            // плодил новую активную подписку. После миграции
+            // 20260726120500_billing_idempotency у originalTransactionId есть
+            // @unique, поэтому ключуем upsert по нему — по единственному реально
+            // уникальному признаку подписки Apple (он стабилен между продлениями).
+            // Уникальный индекс же закрывает гонку двух параллельных verify:
+            // проигравшая вставка падает на ограничении БД (P2002), а не создаёт
+            // дубль — повтор транзакции выше сводит её на ветку update.
+            // Ревью 26.07.2026: `id: originalTransactionId` из ветки create убран.
+            // upsert компилируется в ON CONFLICT ("originalTransactionId"), который
+            // конфликт по ПЕРВИЧНОМУ ключу не поглощает: чужая строка с таким id
+            // (или гонка) давала вечный 500 на verify. id — обычный uuid, ничего от
+            // его значения не зависит. Ветка create заполняет ВСЕ поля ветки
+            // update, включая revokedAt.
+            await tx.subscription.upsert({
+              where: { originalTransactionId },
+              create: {
+                userID: request.user.id,
+                plan: productId,
+                isActive: true,
+                expiresAt: expiryDate,
+                originalTransactionId,
+                environment,
+                lastVerifiedAt: new Date(),
+                revokedAt: null,
+              },
+              update: {
+                isActive: true,
+                expiresAt: expiryDate,
+                originalTransactionId,
+                environment,
+                lastVerifiedAt: new Date(),
+                revokedAt: null,
+              },
+            });
+
+            // Mark previous subscriptions for this user as inactive (only one active).
+            // Исключаем каноническую строку по originalTransactionId — тому же
+            // ключу, что и upsert выше (id у легаси-строк мог остаться случайным
+            // uuid). `originalTransactionId: { not: null }` обязателен — иначе
+            // гасились бы и комплиментарные подписки без originalTransactionId,
+            // выданные админом.
+            await tx.subscription.updateMany({
+              where: {
+                userID: request.user.id,
+                isActive: true,
+                originalTransactionId: { not: null },
+                NOT: { originalTransactionId },
+              },
+              data: { isActive: false },
+            });
+
+            // Update user.isPremium + premiumUntil.
+            const isLifetime = plan.tier === 'lifetime';
+            await tx.user.update({
+              where: { id: request.user.id },
+              data: {
+                isPremium: true,
+                premiumUntil: isLifetime ? null : expiryDate,
+              },
+            });
+
+            // Audit log inside the same transaction.
+            // Ревью 26.07.2026: в модели AuditLog НЕТ полей actorId/targetType/
+            // targetId/requestId (только userId/action/ip/userAgent/metadata).
+            // Каст `as any` глушил tsc, а Prisma отвергала неизвестные аргументы
+            // на рантайме — вся транзакция откатывалась и КАЖДЫЙ verify отдавал
+            // 500. Пишем реальные поля и без каста, чтобы tsc ловил расхождения.
+            await tx.auditLog.create({
+              data: {
+                userId: request.user.id,
+                action: 'billing.verify_success',
+                ip: request.ip,
+                metadata: {
+                  productId,
+                  originalTransactionId,
+                  transactionId: verifiedTransactionId,
+                  requestId: String(request.id ?? ''),
+                  expiresAt: expiryDate.toISOString(),
+                },
+              },
+            });
+          }),
+        ); // end prisma.$transaction
+
+        // Audit already written inside transaction above.
+        // Compute lifetime flag for response.
+        const isLifetime = plan.tier === 'lifetime';
+
+        reply.send({
+          entitlement: {
+            active: true,
+            tier: plan.tier,
+            expiryDate: isLifetime ? null : expiryDate.toISOString(),
           },
         });
-      })); // end prisma.$transaction
-
-      // Audit already written inside transaction above.
-      // Compute lifetime flag for response.
-      const isLifetime = plan.tier === 'lifetime';
-
-      reply.send({
-        entitlement: {
-          active: true,
-          tier: plan.tier,
-          expiryDate: isLifetime ? null : expiryDate.toISOString(),
-        },
-      });
-    } catch (e: any) {
-      // Ревью 26.07.2026: конфликт владения подпиской — это 403, а не 500,
-      // иначе iOS уходил в офлайн-грейс и включал премиум локально.
-      if (e?.plinkCode === 'subscription_ownership_mismatch') {
-        await logAudit({
-          userId: request.user.id,
-          action: 'billing.verify_failed',
-          ip: request.ip,
-          metadata: {
-            productId,
-            reason: 'subscription_ownership_mismatch',
-            originalTransactionId: e.originalTransactionId ?? null,
-          },
-        });
-        return reply.status(403).send({
-          entitlement: { active: false, tier: 'free', expiryDate: null },
-          error: 'Transaction belongs to a different user',
-        });
+      } catch (e: any) {
+        // Ревью 26.07.2026: конфликт владения подпиской — это 403, а не 500,
+        // иначе iOS уходил в офлайн-грейс и включал премиум локально.
+        if (e?.plinkCode === 'subscription_ownership_mismatch') {
+          await logAudit({
+            userId: request.user.id,
+            action: 'billing.verify_failed',
+            ip: request.ip,
+            metadata: {
+              productId,
+              reason: 'subscription_ownership_mismatch',
+              originalTransactionId: e.originalTransactionId ?? null,
+            },
+          });
+          return reply.status(403).send({
+            entitlement: { active: false, tier: 'free', expiryDate: null },
+            error: 'Transaction belongs to a different user',
+          });
+        }
+        console.error('[billing] verify error', e);
+        reply.status(500).send({ error: 'Verification failed: ' + e.message });
       }
-      console.error('[billing] verify error', e);
-      reply.status(500).send({ error: 'Verification failed: ' + e.message });
-    }
-  });
+    },
+  );
 
   // ─── GET /api/billing/entitlements ─────────────────────────────────
   //
   // iOS calls this on app launch to fetch the authoritative entitlement.
   // Returns the current DB state — iOS must NOT trust local StoreKit state.
-  fastify.get('/billing/entitlements', {
-    preHandler: [fastify.authenticate],
-  }, async (request: any, reply: any) => {
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.id },
-      select: { isPremium: true, premiumUntil: true },
-    });
+  fastify.get(
+    '/billing/entitlements',
+    {
+      preHandler: [fastify.authenticate],
+    },
+    async (request: any, reply: any) => {
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { isPremium: true, premiumUntil: true },
+      });
 
-    if (!user) {
-      return reply.status(404).send({ error: 'User not found' });
-    }
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
 
-    const now = new Date();
-    const isActive = user.isPremium && (!user.premiumUntil || user.premiumUntil > now);
+      const now = new Date();
+      const isActive = user.isPremium && (!user.premiumUntil || user.premiumUntil > now);
 
-    // Determine tier: if premiumUntil is null and isPremium is true → lifetime.
-    // Otherwise premium (will expire).
-    const tier: 'free' | 'premium' | 'lifetime' = !isActive
-      ? 'free'
-      : (user.premiumUntil === null ? 'lifetime' : 'premium');
+      // Determine tier: if premiumUntil is null and isPremium is true → lifetime.
+      // Otherwise premium (will expire).
+      const tier: 'free' | 'premium' | 'lifetime' = !isActive
+        ? 'free'
+        : user.premiumUntil === null
+          ? 'lifetime'
+          : 'premium';
 
-    reply.send({
-      entitlement: {
-        active: isActive,
-        tier,
-        expiryDate: user.premiumUntil?.toISOString() ?? null,
-      },
-    });
-  });
+      reply.send({
+        entitlement: {
+          active: isActive,
+          tier,
+          expiryDate: user.premiumUntil?.toISOString() ?? null,
+        },
+      });
+    },
+  );
 
   // ─── POST /api/billing/webhooks/apple ──────────────────────────────
   //
@@ -553,182 +591,223 @@ export default async function billingRoutes(fastify: any) {
   //
   // No authentication — Apple calls this directly. We verify via JWS
   // signature instead.
-  fastify.post('/billing/webhooks/apple', {
-    config: { rateLimit: { max: 100, timeWindow: '1 minute' } },
-  }, async (request: any, reply: any) => {
-    const body = request.body;
+  fastify.post(
+    '/billing/webhooks/apple',
+    {
+      config: { rateLimit: { max: 100, timeWindow: '1 minute' } },
+    },
+    async (request: any, reply: any) => {
+      const body = request.body;
 
-    // V2 notifications are signed JWS in the body.
-    const signedPayload = body?.signedPayload;
-    if (!signedPayload || typeof signedPayload !== 'string') {
-      return reply.status(400).send({ error: 'signedPayload required' });
-    }
-
-    try {
-      const notification = await JoseConfig.verifyNotificationV2(signedPayload);
-      if (!notification) {
-        console.warn('[billing] webhook JWS verification failed');
-        return reply.status(400).send({ error: 'JWS verification failed' });
-      }
-
-      const { notificationType, notificationUUID, data } = notification;
-      const { signedTransactionInfo, signedRenewalInfo } = data || {};
-
-      // Decode transaction info (also JWS-signed).
-      let transactionInfo: any = null;
-      if (signedTransactionInfo) {
-        transactionInfo = await JoseConfig.verifySignedTransaction(signedTransactionInfo);
-      }
-
-      if (!transactionInfo) {
-        return reply.status(400).send({ error: 'Could not decode transaction info' });
-      }
-
-      // Every idempotency key comes ONLY from verified signatures:
-      // notificationUUID from the verified notification, originalTransactionId
-      // from the verified signedTransactionInfo. Nothing but signedPayload
-      // itself is ever read out of the request body.
-      const { originalTransactionId, productId, environment } = transactionInfo;
-
-      // Ревью 26.07.2026: verifySignedTransaction отдаёт пустую строку, если в
-      // payload нет идентификаторов. Искать по ней подписку нельзя — с @unique
-      // строка originalTransactionId='' может принадлежать кому угодно, и
-      // эффект уведомления применился бы к чужому аккаунту. 200, чтобы Apple не
-      // ретраил вечно заведомо непригодное уведомление.
-      if (!originalTransactionId) {
-        console.warn('[billing] webhook: transaction info без originalTransactionId', notificationType);
-        return reply.status(200).send({ processed: false, reason: 'missing_original_transaction_id' });
-      }
-
-      // Find user by originalTransactionId (stored in Subscription).
-      // После миграции 20260726120500_billing_idempotency поле @unique.
-      const sub = await prisma.subscription.findUnique({
-        where: { originalTransactionId },
-        select: { userID: true, id: true },
-      });
-
-      if (!sub) {
-        console.warn('[billing] webhook: no subscription for', originalTransactionId);
-        // Apple may send notifications for transactions we haven't seen yet.
-        // Log and return 200 so Apple doesn't retry.
-        return reply.status(200).send({ processed: false, reason: 'no_local_subscription' });
-      }
-
-      // Порядок событий у Apple — по signedDate уведомления/транзакции.
-      const eventAtMs = notification.signedDate ?? transactionInfo.signedDate ?? null;
-      const eventDate = eventAtMs !== null && Number.isFinite(eventAtMs) ? new Date(eventAtMs) : null;
-
-      // Дедупликация доставок по notificationUUID через
-      // таблицу AppleNotification. Apple повторяет уведомление при любом не-2xx
-      // и иногда дублирует доставку сама. Заявка пишется ДО обработки, поэтому
-      // гонку двух одновременных доставок разрешает первичный ключ (P2002 у
-      // проигравшей), а не «проверил-и-сделал». Повтор — короткое замыкание с
-      // 200, чтобы Apple не ретраил вечно.
-      if (notificationUUID) {
-        const claimed = await claimNotification({
-          notificationUUID,
-          notificationType: String(notificationType ?? 'UNKNOWN'),
-          originalTransactionId,
-          signedDate: eventDate,
-        });
-        if (!claimed) {
-          return reply.status(200).send({ processed: false, reason: 'duplicate_notification' });
-        }
+      // V2 notifications are signed JWS in the body.
+      const signedPayload = body?.signedPayload;
+      if (!signedPayload || typeof signedPayload !== 'string') {
+        return reply.status(400).send({ error: 'signedPayload required' });
       }
 
       try {
-        switch (notificationType) {
-          case 'SUBSCRIPTION_PURCHASED':
-          case 'SUBSCRIPTION_RENEWED':
-          case 'SUBSCRIPTION_RENEWAL':  // legacy alias
-          case 'DID_RENEW':             // legacy alias
-            await handleRenewal(sub.userID, originalTransactionId, transactionInfo, eventDate, notificationUUID ?? null);
-            break;
-
-          case 'SUBSCRIPTION_EXPIRED':
-          case 'GRACE_PERIOD_EXPIRED':
-            await handleExpiry(sub.userID, originalTransactionId, eventDate, notificationUUID ?? null);
-            break;
-
-          case 'REFUND':
-            await handleRefund(sub.userID, originalTransactionId, transactionInfo, eventDate, notificationUUID ?? null);
-            break;
-
-          case 'REVOKE':
-            await handleRevoke(sub.userID, originalTransactionId, transactionInfo, eventDate, notificationUUID ?? null);
-            break;
-
-          default:
-            console.log('[billing] webhook: unhandled notificationType', notificationType);
+        const notification = await JoseConfig.verifyNotificationV2(signedPayload);
+        if (!notification) {
+          console.warn('[billing] webhook JWS verification failed');
+          return reply.status(400).send({ error: 'JWS verification failed' });
         }
 
-        await logAudit({
-          userId: sub.userID,
-          action: `billing.webhook.${notificationType}`,
-          ip: request.ip,
-          metadata: { originalTransactionId, productId, environment },
+        const { notificationType, notificationUUID, data } = notification;
+        const { signedTransactionInfo, signedRenewalInfo } = data || {};
+
+        // Decode transaction info (also JWS-signed).
+        let transactionInfo: any = null;
+        if (signedTransactionInfo) {
+          transactionInfo = await JoseConfig.verifySignedTransaction(signedTransactionInfo);
+        }
+
+        if (!transactionInfo) {
+          return reply.status(400).send({ error: 'Could not decode transaction info' });
+        }
+
+        // Every idempotency key comes ONLY from verified signatures:
+        // notificationUUID from the verified notification, originalTransactionId
+        // from the verified signedTransactionInfo. Nothing but signedPayload
+        // itself is ever read out of the request body.
+        const { originalTransactionId, productId, environment } = transactionInfo;
+
+        // Ревью 26.07.2026: verifySignedTransaction отдаёт пустую строку, если в
+        // payload нет идентификаторов. Искать по ней подписку нельзя — с @unique
+        // строка originalTransactionId='' может принадлежать кому угодно, и
+        // эффект уведомления применился бы к чужому аккаунту. 200, чтобы Apple не
+        // ретраил вечно заведомо непригодное уведомление.
+        if (!originalTransactionId) {
+          console.warn(
+            '[billing] webhook: transaction info без originalTransactionId',
+            notificationType,
+          );
+          return reply
+            .status(200)
+            .send({ processed: false, reason: 'missing_original_transaction_id' });
+        }
+
+        // Find user by originalTransactionId (stored in Subscription).
+        // После миграции 20260726120500_billing_idempotency поле @unique.
+        const sub = await prisma.subscription.findUnique({
+          where: { originalTransactionId },
+          select: { userID: true, id: true },
         });
-      } catch (e) {
-        // Ревью 26.07.2026: обработка не дошла до конца — снимаем заявку, иначе
-        // ретрай Apple был бы отброшен как дубликат и REFUND/REVOKE потерялся
-        // бы навсегда. Ответ 5xx (общий catch ниже) заставит Apple повторить.
-        if (notificationUUID) await releaseNotification(notificationUUID);
-        throw e;
+
+        if (!sub) {
+          console.warn('[billing] webhook: no subscription for', originalTransactionId);
+          // Apple may send notifications for transactions we haven't seen yet.
+          // Log and return 200 so Apple doesn't retry.
+          return reply.status(200).send({ processed: false, reason: 'no_local_subscription' });
+        }
+
+        // Порядок событий у Apple — по signedDate уведомления/транзакции.
+        const eventAtMs = notification.signedDate ?? transactionInfo.signedDate ?? null;
+        const eventDate =
+          eventAtMs !== null && Number.isFinite(eventAtMs) ? new Date(eventAtMs) : null;
+
+        // Дедупликация доставок по notificationUUID через
+        // таблицу AppleNotification. Apple повторяет уведомление при любом не-2xx
+        // и иногда дублирует доставку сама. Заявка пишется ДО обработки, поэтому
+        // гонку двух одновременных доставок разрешает первичный ключ (P2002 у
+        // проигравшей), а не «проверил-и-сделал». Повтор — короткое замыкание с
+        // 200, чтобы Apple не ретраил вечно.
+        if (notificationUUID) {
+          const claimed = await claimNotification({
+            notificationUUID,
+            notificationType: String(notificationType ?? 'UNKNOWN'),
+            originalTransactionId,
+            signedDate: eventDate,
+          });
+          if (!claimed) {
+            return reply.status(200).send({ processed: false, reason: 'duplicate_notification' });
+          }
+        }
+
+        try {
+          switch (notificationType) {
+            case 'SUBSCRIPTION_PURCHASED':
+            case 'SUBSCRIPTION_RENEWED':
+            case 'SUBSCRIPTION_RENEWAL': // legacy alias
+            case 'DID_RENEW': // legacy alias
+              await handleRenewal(
+                sub.userID,
+                originalTransactionId,
+                transactionInfo,
+                eventDate,
+                notificationUUID ?? null,
+              );
+              break;
+
+            case 'SUBSCRIPTION_EXPIRED':
+            case 'GRACE_PERIOD_EXPIRED':
+              await handleExpiry(
+                sub.userID,
+                originalTransactionId,
+                eventDate,
+                notificationUUID ?? null,
+              );
+              break;
+
+            case 'REFUND':
+              await handleRefund(
+                sub.userID,
+                originalTransactionId,
+                transactionInfo,
+                eventDate,
+                notificationUUID ?? null,
+              );
+              break;
+
+            case 'REVOKE':
+              await handleRevoke(
+                sub.userID,
+                originalTransactionId,
+                transactionInfo,
+                eventDate,
+                notificationUUID ?? null,
+              );
+              break;
+
+            default:
+              console.log('[billing] webhook: unhandled notificationType', notificationType);
+          }
+
+          await logAudit({
+            userId: sub.userID,
+            action: `billing.webhook.${notificationType}`,
+            ip: request.ip,
+            metadata: { originalTransactionId, productId, environment },
+          });
+        } catch (e) {
+          // Ревью 26.07.2026: обработка не дошла до конца — снимаем заявку, иначе
+          // ретрай Apple был бы отброшен как дубликат и REFUND/REVOKE потерялся
+          // бы навсегда. Ответ 5xx (общий catch ниже) заставит Apple повторить.
+          if (notificationUUID) await releaseNotification(notificationUUID);
+          throw e;
+        }
+
+        // Обработка дошла до конца — фиксируем время применения.
+        if (notificationUUID) await markNotificationProcessed(notificationUUID);
+
+        reply.status(200).send({ processed: true });
+      } catch (e: any) {
+        console.error('[billing] webhook error', e);
+        // Ревью 26.07.2026: на внутреннюю ошибку отвечаем 5xx, чтобы Apple
+        // повторил доставку — прежний 200 навсегда терял REFUND/REVOKE.
+        // Отметка «обработано» ставится только после успеха, поэтому ретрай
+        // не будет отброшен как дубликат.
+        reply.status(500).send({ processed: false, error: e.message });
       }
-
-      // Обработка дошла до конца — фиксируем время применения.
-      if (notificationUUID) await markNotificationProcessed(notificationUUID);
-
-      reply.status(200).send({ processed: true });
-    } catch (e: any) {
-      console.error('[billing] webhook error', e);
-      // Ревью 26.07.2026: на внутреннюю ошибку отвечаем 5xx, чтобы Apple
-      // повторил доставку — прежний 200 навсегда терял REFUND/REVOKE.
-      // Отметка «обработано» ставится только после успеха, поэтому ретрай
-      // не будет отброшен как дубликат.
-      reply.status(500).send({ processed: false, error: e.message });
-    }
-  });
+    },
+  );
 
   // ─── GET /api/billing/status (legacy alias) ────────────────────────
-  fastify.get('/billing/status', {
-    preHandler: [fastify.authenticate],
-  }, async (request: any, reply: any) => {
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.id },
-      select: { isPremium: true, premiumUntil: true },
-    });
+  fastify.get(
+    '/billing/status',
+    {
+      preHandler: [fastify.authenticate],
+    },
+    async (request: any, reply: any) => {
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { isPremium: true, premiumUntil: true },
+      });
 
-    if (!user) return reply.status(404).send({ error: 'User not found' });
+      if (!user) return reply.status(404).send({ error: 'User not found' });
 
-    const isActive = user.isPremium && (!user.premiumUntil || user.premiumUntil > new Date());
+      const isActive = user.isPremium && (!user.premiumUntil || user.premiumUntil > new Date());
 
-    reply.send({
-      isPremium: isActive,
-      premiumUntil: user.premiumUntil,
-    });
-  });
+      reply.send({
+        isPremium: isActive,
+        premiumUntil: user.premiumUntil,
+      });
+    },
+  );
 
   // ─── POST /api/billing/cancel ──────────────────────────────────────
-  fastify.post('/billing/cancel', {
-    preHandler: [fastify.authenticate],
-  }, async (request: any, reply: any) => {
-    await prisma.subscription.updateMany({
-      where: {
-        userID: request.user.id,
-        isActive: true,
-      },
-      data: { isActive: false },
-    });
+  fastify.post(
+    '/billing/cancel',
+    {
+      preHandler: [fastify.authenticate],
+    },
+    async (request: any, reply: any) => {
+      await prisma.subscription.updateMany({
+        where: {
+          userID: request.user.id,
+          isActive: true,
+        },
+        data: { isActive: false },
+      });
 
-    await logAudit({
-      userId: request.user.id,
-      action: 'billing.cancel',
-      ip: request.ip,
-    });
+      await logAudit({
+        userId: request.user.id,
+        action: 'billing.cancel',
+        ip: request.ip,
+      });
 
-    reply.send({ success: true });
-  });
+      reply.send({ success: true });
+    },
+  );
 }
 
 // ─── Дедупликация Server Notifications V2 ────────────────────────────
@@ -906,9 +985,10 @@ async function handleRenewal(
   // Раньше читалось несуществующее поле expiresDateMs —
   // verifySignedTransaction возвращает `expiresAt` (мс с эпохи), поэтому
   // вебхук продления был вечным no-op и premiumUntil никогда не продлевался.
-  const expiresAt = typeof txInfo.expiresAt === 'number' && Number.isFinite(txInfo.expiresAt)
-    ? new Date(txInfo.expiresAt)
-    : null;
+  const expiresAt =
+    typeof txInfo.expiresAt === 'number' && Number.isFinite(txInfo.expiresAt)
+      ? new Date(txInfo.expiresAt)
+      : null;
   if (!expiresAt) return;
 
   // Приоритет по времени. Раньше продление безусловно
@@ -927,9 +1007,10 @@ async function handleRenewal(
     select: { revocationDate: true },
     orderBy: { revocationDate: 'desc' },
   });
-  const revokedAt = [current?.revokedAt ?? null, revokedTx?.revocationDate ?? null]
-    .filter((d): d is Date => d instanceof Date)
-    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+  const revokedAt =
+    [current?.revokedAt ?? null, revokedTx?.revocationDate ?? null]
+      .filter((d): d is Date => d instanceof Date)
+      .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
   // Ревью 26.07.2026: eventDate — это signedDate Apple, а revokedAt раньше
   // сравнивался с ним, будучи временем ПРИЁМА вебхука на сервере (теперь для
@@ -1004,7 +1085,12 @@ async function findNewerRenewal(
   eventDate: Date | null,
   notificationUUID: string | null,
 ): Promise<NotificationMarker | null> {
-  return findNewerNotification(originalTransactionId, ENTITLEMENT_GRANTING_TYPES, eventDate, notificationUUID);
+  return findNewerNotification(
+    originalTransactionId,
+    ENTITLEMENT_GRANTING_TYPES,
+    eventDate,
+    notificationUUID,
+  );
 }
 
 async function logRevocationSkipped(

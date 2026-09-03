@@ -2,7 +2,13 @@ import { z } from 'zod';
 
 export const roomAppearanceSchema = z.object({
   version: z.literal(1),
-  themeId: z.enum(['electric-blue', 'cinema-ember', 'violet-horizon', 'plink-teal', 'magenta-bloom']),
+  themeId: z.enum([
+    'electric-blue',
+    'cinema-ember',
+    'violet-horizon',
+    'plink-teal',
+    'magenta-bloom',
+  ]),
   motion: z.enum(['system', 'static']).default('system'),
 });
 

@@ -21,7 +21,10 @@ function rejectInvalid(
 ) {
   if (error instanceof ZodError) {
     return reply.status(400).send({
-      error: where === 'body' ? 'Validation failed' : `${where === 'query' ? 'Query' : 'Params'} validation failed`,
+      error:
+        where === 'body'
+          ? 'Validation failed'
+          : `${where === 'query' ? 'Query' : 'Params'} validation failed`,
       details: error.errors.map((err) => ({
         field: err.path.join('.'),
         message: err.message,

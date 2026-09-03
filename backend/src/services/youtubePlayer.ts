@@ -13,7 +13,9 @@
 // Плюс расширенный JS-API: скорость, качество, громкость и буферизация —
 // без них своя панель управления невозможна.
 export function youtubePlayerHTML(videoId: string, chrome: 'plink' | 'youtube' = 'plink'): string {
-  const safeId = String(videoId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20);
+  const safeId = String(videoId)
+    .replace(/[^A-Za-z0-9_-]/g, '')
+    .slice(0, 20);
   const showNativeControls = chrome === 'youtube' ? 1 : 0;
 
   return `<!DOCTYPE html>

@@ -86,10 +86,14 @@ export function youtubeIdFromMediaItem(raw: string | null | undefined): string |
       const vid = typeof m.videoId === 'string' ? m.videoId : '';
       if (/^[\w-]{11}$/.test(vid)) return vid;
       const id = typeof m.id === 'string' ? m.id : '';
-      if (/^[\w-]{11}$/.test(id) && (m.source === 'youtube' || m.source == null || m.source === '')) {
+      if (
+        /^[\w-]{11}$/.test(id) &&
+        (m.source === 'youtube' || m.source == null || m.source === '')
+      ) {
         return id;
       }
-      const stream = typeof m.streamURL === 'string' ? m.streamURL : typeof m.url === 'string' ? m.url : '';
+      const stream =
+        typeof m.streamURL === 'string' ? m.streamURL : typeof m.url === 'string' ? m.url : '';
       if (stream) {
         const fromUrl = extractYouTubeId(stream);
         if (fromUrl) return fromUrl;
@@ -185,9 +189,11 @@ export function webWatchPageHTML(opts: WatchPageOpts): string {
         <a class="btn btn-primary" href="${esc(appLink)}">Открыть в приложении</a>
         <a class="btn btn-ghost" href="${esc(installLink)}">Установка / код</a>
       </div>
-      <p class="hint">${kind === 'youtube'
-        ? 'Гость в браузере следует за хостом. Пауза и перемотка — у ведущего. Кинотеатры — в приложении («ваш экран»).'
-        : 'VK и Rutube в браузере открываются официальным плеером. Точный синхрон — в приложении Plink.'}</p>
+      <p class="hint">${
+        kind === 'youtube'
+          ? 'Гость в браузере следует за хостом. Пауза и перемотка — у ведущего. Кинотеатры — в приложении («ваш экран»).'
+          : 'VK и Rutube в браузере открываются официальным плеером. Точный синхрон — в приложении Plink.'
+      }</p>
     </div>
   </div>
   <script nonce="${opts.nonce}">

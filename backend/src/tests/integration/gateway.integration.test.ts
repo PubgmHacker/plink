@@ -32,7 +32,11 @@ let redis: Redis;
 // скипались ВСЕГДА, даже с живым Redis (подтверждено запуском).
 let redisOk = false;
 try {
-  redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true, connectTimeout: 2000 });
+  redis = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    lazyConnect: true,
+    connectTimeout: 2000,
+  });
   await redis.connect();
   await redis.ping();
   redisOk = true;
@@ -73,22 +77,19 @@ async function getTicket(token: string, roomId: string): Promise<string> {
   const res = await fetch(`${API_BASE}/api/realtime/ticket`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ roomId }),
   });
   if (!res.ok) throw new Error(`ticket fetch failed: ${res.status}`);
-  const data = await res.json() as any;
+  const data = (await res.json()) as any;
   return data.ticket;
 }
 
 // Helper: open a WebSocket connection with ticket
 function openWS(roomId: string, ticket: string): WebSocket {
-  return new WebSocket(`${WS_BASE}/ws/room/${roomId}`, [
-    'plink.v2',
-    `plink.ticket.${ticket}`,
-  ]);
+  return new WebSocket(`${WS_BASE}/ws/room/${roomId}`, ['plink.v2', `plink.ticket.${ticket}`]);
 }
 
 describe.skipIf(!redisOk || !backendOk)('Gateway WebSocket integration', () => {
@@ -167,7 +168,7 @@ describe.skipIf(!redisOk || !backendOk)('Gateway WebSocket integration', () => {
     const id2 = '00000000-0000-4000-8000-000000000002';
     const cursor1 = Buffer.from(`${ts}:${id1}`).toString('base64');
     const cursor2 = Buffer.from(`${ts}:${id2}`).toString('base64');
-    expect(cursor1).not.toBe(cursor2);  // Different IDs → different cursors
+    expect(cursor1).not.toBe(cursor2); // Different IDs → different cursors
   });
 
   it('room index is maintained when bumpRoomPresence is called', async () => {
@@ -211,7 +212,7 @@ describe.skipIf(!redisOk || !backendOk)('Gateway WebSocket integration', () => {
     const count = await redis.zcount(userKey, now, '+inf');
     if (count === 0) {
       await redis.del(userKey);
-      await redis.zrem(roomIndexKey, userId);  // Remove from room index
+      await redis.zrem(roomIndexKey, userId); // Remove from room index
     }
 
     // Verify room index no longer has the user

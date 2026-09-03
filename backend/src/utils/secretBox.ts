@@ -37,7 +37,9 @@ export function secretBoxReady(): boolean {
 export function encryptSecret(plain: string): string {
   const key = loadKey();
   if (!key) {
-    throw new Error('TWOFA_ENC_KEY не задан или не 32 байта (base64/hex) — шифрование 2FA невозможно');
+    throw new Error(
+      'TWOFA_ENC_KEY не задан или не 32 байта (base64/hex) — шифрование 2FA невозможно',
+    );
   }
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);

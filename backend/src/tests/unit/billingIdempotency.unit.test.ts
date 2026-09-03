@@ -20,8 +20,20 @@ const { prismaMock, logAuditMock, joseMock } = vi.hoisted(() => ({
   prismaMock: {
     $transaction: vi.fn(),
     user: { findUnique: vi.fn(), update: vi.fn() },
-    subscription: { findUnique: vi.fn(), findFirst: vi.fn(), upsert: vi.fn(), create: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
-    transactionRecord: { findUnique: vi.fn(), findFirst: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
+    subscription: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      upsert: vi.fn(),
+      create: vi.fn(),
+      updateMany: vi.fn(),
+      count: vi.fn(),
+    },
+    transactionRecord: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      upsert: vi.fn(),
+      updateMany: vi.fn(),
+    },
     appleNotification: { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -48,7 +60,9 @@ const FAKE_JWS = 'header.payload.signature';
 
 async function buildApp() {
   const app = Fastify();
-  app.decorate('authenticate', async (request: any) => { request.user = { id: USER_ID }; });
+  app.decorate('authenticate', async (request: any) => {
+    request.user = { id: USER_ID };
+  });
   await app.register(billingRoutes);
   await app.ready();
   return app;
@@ -57,7 +71,10 @@ async function buildApp() {
 /// Все методы prisma возвращают «пусто», $transaction прокидывает тот же клиент.
 function resetPrisma() {
   for (const model of Object.values(prismaMock) as any[]) {
-    if (typeof model === 'function') { model.mockReset(); continue; }
+    if (typeof model === 'function') {
+      model.mockReset();
+      continue;
+    }
     for (const fn of Object.values(model) as any[]) {
       fn.mockReset();
       fn.mockResolvedValue(null);
@@ -190,7 +207,9 @@ describe('POST /billing/verify — идемпотентность подписк
     mockVerifiedTransaction();
     // Первая попытка проигрывает уникальному индексу, вторая уходит в update.
     prismaMock.$transaction
-      .mockRejectedValueOnce(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }))
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }),
+      )
       .mockImplementationOnce(async (fn: any) => fn(prismaMock));
     const app = await buildApp();
 
@@ -229,7 +248,12 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
       revocationDate: opts.revocationDate,
       signedDate: opts.signedDate ?? Date.now(),
     });
-    prismaMock.subscription.findUnique.mockResolvedValue({ userID: USER_ID, id: ORIG_TX, revokedAt: null, expiresAt: new Date(0) });
+    prismaMock.subscription.findUnique.mockResolvedValue({
+      userID: USER_ID,
+      id: ORIG_TX,
+      revokedAt: null,
+      expiresAt: new Date(0),
+    });
   }
 
   /// Мок appleNotification.findFirst, повторяющий семантику БД: фильтры
@@ -244,10 +268,12 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
       const types: string[] | null = args?.where?.notificationType?.in ?? null;
       const after: Date | undefined = args?.where?.signedDate?.gt;
       const excluded: string | undefined = args?.where?.NOT?.notificationUUID;
-      const found = rows.find((r) =>
-        (types === null || types.includes(r.notificationType))
-        && (!after || r.signedDate.getTime() > after.getTime())
-        && r.notificationUUID !== excluded);
+      const found = rows.find(
+        (r) =>
+          (types === null || types.includes(r.notificationType)) &&
+          (!after || r.signedDate.getTime() > after.getTime()) &&
+          r.notificationUUID !== excluded,
+      );
       return found ?? null;
     });
   }
@@ -258,17 +284,23 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const app = await buildApp();
 
     const first = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
     expect(first.statusCode).toBe(200);
     expect(first.json()).toEqual({ processed: true });
     expect(prismaMock.subscription.updateMany).toHaveBeenCalledTimes(1);
-    expect(prismaMock.appleNotification.create.mock.calls[0][0].data.notificationUUID).toBe(NOTIF_UUID);
+    expect(prismaMock.appleNotification.create.mock.calls[0][0].data.notificationUUID).toBe(
+      NOTIF_UUID,
+    );
 
     // Повторная доставка: заявку отбивает первичный ключ.
     prismaMock.appleNotification.create.mockRejectedValueOnce(P2002());
     const second = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(second.statusCode).toBe(200);
@@ -286,13 +318,20 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     prismaMock.appleNotification.create.mockResolvedValue({});
     // Возврат подписан ПОЗЖЕ продления (Apple прислал события не по порядку).
     prismaMock.subscription.findUnique.mockResolvedValue({
-      userID: USER_ID, id: ORIG_TX, revokedAt: new Date(Date.now() - 3600 * 1000), expiresAt: new Date(0),
+      userID: USER_ID,
+      id: ORIG_TX,
+      revokedAt: new Date(Date.now() - 3600 * 1000),
+      expiresAt: new Date(0),
     });
-    prismaMock.transactionRecord.findFirst.mockResolvedValue({ revocationDate: new Date(Date.now() - 3600 * 1000) });
+    prismaMock.transactionRecord.findFirst.mockResolvedValue({
+      revocationDate: new Date(Date.now() - 3600 * 1000),
+    });
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(200);
@@ -301,7 +340,11 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const data = prismaMock.subscription.updateMany.mock.calls[0][0].data;
     expect(data.isActive).toBeUndefined();
     expect(data.revokedAt).toBeUndefined();
-    expect(logAuditMock.mock.calls.some((c: any[]) => c[0].action === 'billing.webhook.renewal_after_revocation')).toBe(true);
+    expect(
+      logAuditMock.mock.calls.some(
+        (c: any[]) => c[0].action === 'billing.webhook.renewal_after_revocation',
+      ),
+    ).toBe(true);
 
     await app.close();
   });
@@ -311,15 +354,19 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     mockNotification('DID_RENEW', { signedDate: renewSignedAt });
     prismaMock.appleNotification.create.mockResolvedValue({});
     // По этой же подписке уже обработано истечение, подписанное позже.
-    mockKnownNotifications([{
-      notificationUUID: 'notif-uuid-2',
-      notificationType: 'SUBSCRIPTION_EXPIRED',
-      signedDate: new Date(Date.now() - 3600 * 1000),
-    }]);
+    mockKnownNotifications([
+      {
+        notificationUUID: 'notif-uuid-2',
+        notificationType: 'SUBSCRIPTION_EXPIRED',
+        signedDate: new Date(Date.now() - 3600 * 1000),
+      },
+    ]);
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(200);
@@ -340,7 +387,9 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(200);
@@ -361,15 +410,19 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const expiresAt = Date.now() + 30 * 24 * 3600 * 1000;
     mockNotification('DID_RENEW', { signedDate: renewSignedAt, expiresAt });
     prismaMock.appleNotification.create.mockResolvedValue({});
-    mockKnownNotifications([{
-      notificationUUID: 'notif-uuid-3',
-      notificationType: 'DID_CHANGE_RENEWAL_PREF',
-      signedDate: new Date(renewSignedAt + 1000),
-    }]);
+    mockKnownNotifications([
+      {
+        notificationUUID: 'notif-uuid-3',
+        notificationType: 'DID_CHANGE_RENEWAL_PREF',
+        signedDate: new Date(renewSignedAt + 1000),
+      },
+    ]);
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(200);
@@ -389,15 +442,19 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const refundSignedAt = Date.now() - 3 * 3600 * 1000;
     mockNotification('REFUND', { signedDate: refundSignedAt, revocationDate: refundSignedAt });
     prismaMock.appleNotification.create.mockResolvedValue({});
-    mockKnownNotifications([{
-      notificationUUID: 'notif-uuid-4',
-      notificationType: 'DID_RENEW',
-      signedDate: new Date(refundSignedAt + 3600 * 1000),
-    }]);
+    mockKnownNotifications([
+      {
+        notificationUUID: 'notif-uuid-4',
+        notificationType: 'DID_RENEW',
+        signedDate: new Date(refundSignedAt + 3600 * 1000),
+      },
+    ]);
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(200);
@@ -409,7 +466,11 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
       where: { transactionId: 'tx-1' },
       data: { revocationDate: new Date(refundSignedAt) },
     });
-    expect(logAuditMock.mock.calls.some((c: any[]) => c[0].action === 'billing.webhook.revocation_skipped')).toBe(true);
+    expect(
+      logAuditMock.mock.calls.some(
+        (c: any[]) => c[0].action === 'billing.webhook.revocation_skipped',
+      ),
+    ).toBe(true);
 
     await app.close();
   });
@@ -422,12 +483,15 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(200);
     expect(prismaMock.subscription.updateMany.mock.calls[0][0].data).toEqual({
-      isActive: false, revokedAt: new Date(refundSignedAt),
+      isActive: false,
+      revokedAt: new Date(refundSignedAt),
     });
     expect(prismaMock.user.update).toHaveBeenCalledWith({
       where: { id: USER_ID },
@@ -444,11 +508,15 @@ describe('POST /billing/webhooks/apple — дедупликация и прио�
     const app = await buildApp();
 
     const res = await app.inject({
-      method: 'POST', url: '/billing/webhooks/apple', payload: { signedPayload: 'notif.jws.sig' },
+      method: 'POST',
+      url: '/billing/webhooks/apple',
+      payload: { signedPayload: 'notif.jws.sig' },
     });
 
     expect(res.statusCode).toBe(500);
-    expect(prismaMock.appleNotification.delete).toHaveBeenCalledWith({ where: { notificationUUID: NOTIF_UUID } });
+    expect(prismaMock.appleNotification.delete).toHaveBeenCalledWith({
+      where: { notificationUUID: NOTIF_UUID },
+    });
 
     await app.close();
   });

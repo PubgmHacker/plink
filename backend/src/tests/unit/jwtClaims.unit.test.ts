@@ -45,7 +45,9 @@ describe('JWT aud/iss allowlist', () => {
       sign: { algorithm: 'HS256', iss: 'plink', aud: AUDS[0] },
       verify: { allowedAud: AUDS, allowedIss: 'plink' },
     });
-    const foreignAud = await makeApp({ sign: { algorithm: 'HS256', iss: 'plink', aud: 'evil-service' } });
+    const foreignAud = await makeApp({
+      sign: { algorithm: 'HS256', iss: 'plink', aud: 'evil-service' },
+    });
     const foreignIss = await makeApp({ sign: { algorithm: 'HS256', iss: 'other', aud: AUDS[0] } });
 
     expect(() => app.jwt.verify(foreignAud.jwt.sign(claims()))).toThrow();
@@ -66,7 +68,9 @@ describe('JWT aud/iss allowlist', () => {
       sign: { algorithm: 'HS256', iss: 'plink' },
       verify: { audience: AUDS, issuer: 'plink' },
     });
-    const foreign = await makeApp({ sign: { algorithm: 'HS256', iss: 'other', aud: 'evil-service' } });
+    const foreign = await makeApp({
+      sign: { algorithm: 'HS256', iss: 'other', aud: 'evil-service' },
+    });
     // Именно поэтому дефект и не был виден: чужой токен проходил насквозь.
     expect(() => app.jwt.verify(foreign.jwt.sign(claims()))).not.toThrow();
   });
