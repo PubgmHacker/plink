@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { SUPPORT_EMAIL } from '@/lib/constants';
+import PlinkMark from './PlinkMark';
 
 const links = [
   { href: '/terms', label: 'Условия использования' },
@@ -36,13 +38,14 @@ export default function Footer() {
         <div className="grid gap-12 md:grid-cols-12">
           {/* Brand */}
           <div className="md:col-span-5">
-            <a
-              href="#"
-              className="text-display text-2xl font-bold text-text-primary"
+            <Link
+              href="/"
+              className="text-display inline-flex items-center gap-2.5 text-2xl font-bold text-text-primary"
               aria-label="Plink"
             >
-              Plink
-            </a>
+              <PlinkMark size={30} id="foot" />
+              <span className="tracking-[0.18em]">PLINK</span>
+            </Link>
             <p className="mt-4 max-w-xs text-sm text-text-secondary">
               Совместный просмотр видео с друзьями. Один кадр, одна пауза, одни эмоции.
             </p>
@@ -88,7 +91,7 @@ export default function Footer() {
             >
               {SUPPORT_EMAIL}
             </a>
-            <p className="mt-4 text-xs text-[#B0B7B3]">
+            <p className="mt-4 text-xs text-text-muted">
               Отвечаем в течение 24 часов.
               <br />
               По-русски и по-английски.
@@ -97,10 +100,10 @@ export default function Footer() {
         </div>
 
         <div className="mt-16 flex flex-col items-center justify-between gap-4 border-t border-surface-2 pt-8 sm:flex-row">
-          <p className="text-xs text-[#B0B7B3]">
+          <p className="text-xs text-text-muted">
             © {new Date().getFullYear()} Plink. Все права защищены.
           </p>
-          <p className="text-xs text-[#B0B7B3]">Сделано с любовью к совместным просмотрам</p>
+          <p className="text-xs text-text-muted">Сделано с любовью к совместным просмотрам</p>
         </div>
       </div>
     </footer>

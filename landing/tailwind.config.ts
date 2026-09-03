@@ -8,24 +8,27 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // Единственный источник палитры — :root в app/globals.css (каналы R G B).
+      // Здесь только ссылки на переменные: смена цвета бренда — одна правка в CSS,
+      // а модификаторы прозрачности (bg-accent/10) продолжают работать.
       colors: {
-        bg: '#0A0C0D',
-        surface: '#161B1E',
-        'surface-2': '#2A3233',
-        accent: '#FFB800',
-        'accent-dim': '#D99A00',
+        bg: 'rgb(var(--bg) / <alpha-value>)',
+        surface: 'rgb(var(--surface) / <alpha-value>)',
+        'surface-2': 'rgb(var(--surface-2) / <alpha-value>)',
+        accent: 'rgb(var(--accent) / <alpha-value>)',
+        'accent-dim': 'rgb(var(--accent-dim) / <alpha-value>)',
         text: {
-          primary: '#F0F2F1',
-          secondary: '#9A9E9C',
-          muted: '#B0B7B3',
+          primary: 'rgb(var(--text-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--text-secondary) / <alpha-value>)',
+          muted: 'rgb(var(--text-muted) / <alpha-value>)',
         },
-        sync: '#FFB800',
+        sync: 'rgb(var(--sync) / <alpha-value>)',
+        border: 'rgb(255 255 255 / <alpha-value>)',
       },
       fontFamily: {
         display: ['var(--font-unbounded)', 'sans-serif'],
         body: ['var(--font-body)', 'sans-serif'],
         mono: ['var(--font-mono)', 'monospace'],
-        serif: ['var(--font-serif-accent)', 'Georgia', 'serif'],
       },
       fontSize: {
         xs: ['0.75rem', { lineHeight: '1rem' }],

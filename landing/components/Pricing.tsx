@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PRICING, APP_STORE_URL } from '@/lib/constants';
+import { PRICING } from '@/lib/constants';
+import StoreCta from './StoreCta';
 
 type Period = 'monthly' | 'yearly';
 
@@ -106,14 +107,10 @@ export default function Pricing() {
               ))}
             </ul>
 
-            <a
-              href={APP_STORE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+            <StoreCta
+              label="Скачать бесплатно"
               className="liquid-glass liquid-glass-interactive mt-10 block w-full rounded-full py-4 text-center text-base font-semibold text-text-primary transition-all duration-300 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              Скачать бесплатно
-            </a>
+            />
           </motion.div>
 
           {/* Paid plan */}
@@ -122,7 +119,7 @@ export default function Pricing() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.1, ease: [0.32, 0.72, 0, 1] }}
-            className="liquid-glass liquid-glass-strong relative rounded-3xl p-8 shadow-[0_28px_80px_-32px_rgba(255,184,0,0.32)] ring-1 ring-accent/25 lg:p-10"
+            className="liquid-glass liquid-glass-strong relative rounded-3xl p-8 shadow-[0_28px_80px_-32px_rgb(var(--accent)_/_0.32)] ring-1 ring-accent/25 lg:p-10"
           >
             {/* Тёплая подсветка снизу — платный тариф должен читаться как
                 другой уровень, а не как копия бесплатного с другим текстом. */}
@@ -167,7 +164,7 @@ export default function Pricing() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="text-sm text-[#B0B7B3]"
+                  className="text-sm text-text-muted"
                 >
                   {period === 'yearly' ? (
                     <>
@@ -207,16 +204,12 @@ export default function Pricing() {
               ))}
             </ul>
 
-            <a
-              href={APP_STORE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-10 block w-full rounded-full bg-accent py-4 text-center text-base font-semibold text-bg shadow-[0_12px_38px_-10px_rgba(255,184,0,0.6)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-accent-dim focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg"
-            >
-              Оформить Plink+
-            </a>
+            <StoreCta
+              label="Оформить Plink+"
+              className="mt-10 block w-full rounded-full bg-accent py-4 text-center text-base font-semibold text-bg shadow-[0_12px_38px_-10px_rgb(var(--accent)_/_0.6)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-accent-dim focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg"
+            />
 
-            <p className="mt-4 text-center text-xs text-[#B0B7B3]">
+            <p className="mt-4 text-center text-xs text-text-muted">
               Подписка оформляется в приложении через App Store. Автопродление. Отмена — Настройки →
               Apple ID → Подписки.
             </p>

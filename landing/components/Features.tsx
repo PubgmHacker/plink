@@ -65,12 +65,7 @@ export default function Features() {
           {features.map((feature, i) => {
             const reversed = i % 2 === 1;
             return (
-              <div
-                key={feature.id}
-                className={`grid items-center gap-10 lg:grid-cols-12 lg:gap-16 ${
-                  reversed ? '' : ''
-                }`}
-              >
+              <div key={feature.id} className="grid items-center gap-10 lg:grid-cols-12 lg:gap-16">
                 {/* Screenshot */}
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
@@ -115,7 +110,7 @@ export default function Features() {
                     reversed ? 'lg:order-1 lg:col-start-1' : 'lg:col-start-7'
                   }`}
                 >
-                  <span className="font-mono text-xs text-[#B0B7B3]">
+                  <span className="font-mono text-xs text-text-muted">
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   <h3 className="text-display mt-3 text-2xl text-text-primary lg:text-3xl">

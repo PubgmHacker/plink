@@ -37,7 +37,7 @@ export default function Platforms() {
             </h2>
           </div>
           <div className="lg:col-span-4 lg:col-start-9">
-            <p className="max-w-md text-sm leading-relaxed text-[#B0B7B3]">
+            <p className="max-w-md text-sm leading-relaxed text-text-muted">
               Найдите контент встроенным поиском или вставьте ссылку — плеер подхватит сам.
             </p>
           </div>
@@ -52,7 +52,7 @@ export default function Platforms() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.4, delay: i * 0.03, ease: [0.32, 0.72, 0, 1] }}
-              className="group cursor-default text-[17px] font-normal text-[#B0B7B3] transition-colors duration-200 hover:text-text-primary"
+              className="group cursor-default text-[17px] font-normal text-text-muted transition-colors duration-200 hover:text-text-primary"
             >
               {platform}
               <span className="mx-2 inline-block h-2 w-2 rounded-full bg-surface-2 opacity-0 transition-opacity group-hover:opacity-100" />

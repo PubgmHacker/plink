@@ -69,7 +69,7 @@ export const metadata: Metadata = {
         url: '/og-image.png',
         width: 1200,
         height: 630,
-        alt: 'Plink — четыре устройства, один кадр',
+        alt: 'Plink — Watch together. Anywhere.',
       },
     ],
   },
@@ -94,14 +94,17 @@ export const metadata: Metadata = {
     icon: [
       { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
       { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-48x48.png', sizes: '48x48', type: 'image/png' },
     ],
+    shortcut: ['/favicon.ico'],
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+    other: [{ rel: 'mask-icon', url: '/safari-pinned-tab.svg', color: '#8F44F0' }],
   },
   manifest: '/site.webmanifest',
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0B0F10',
+  themeColor: '#010008',
   width: 'device-width',
   initialScale: 1,
 };

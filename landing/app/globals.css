@@ -3,17 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0a0c0d; /* фон приложения */
-  --surface: #161b1e;
-  --surface-2: #2a3233;
-  --accent: #ffb800; /* emerald из приложения (raveGreen/bioEmerald) */
-  --accent-dim: #d99a00; /* приглушённый ховер */
-  --text-primary: #f0f2f1;
-  --text-secondary: #9a9e9c;
-  --text-muted: #b0b7b3;
-  --sync: #ffb800;
+  /* Палитра бренда. Единственный источник цветов сайта: tailwind.config.ts
+     ссылается на эти переменные, hex-значений в коде компонентов нет.
+     Каналы R G B записаны без rgb(), чтобы Tailwind мог добавлять прозрачность
+     (bg-accent/10). Hex в комментарии — для сверки с brand/README.md. */
+  --bg: 1 0 8; /* #010008 — фон бренда */
+  --surface: 11 9 22; /* #0B0916 — карточки */
+  --surface-2: 22 18 38; /* #161226 — рамки, разделители */
+  --accent: 143 68 240; /* #8F44F0 — акцент */
+  --accent-dim: 64 22 234; /* #4016EA — глубокий акцент, ховер */
+  --text-primary: 244 242 250; /* #F4F2FA */
+  --text-secondary: 182 178 201; /* #B6B2C9 — основной текст абзацев */
+  --text-muted: 169 165 189; /* #A9A5BD — подписи и метки */
+  --sync: 143 68 240; /* #8F44F0 */
   --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
-  --font-serif-accent: 'Instrument Serif', Georgia, serif;
 }
 
 html {
@@ -23,20 +26,20 @@ html {
 }
 
 body {
-  background-color: var(--bg);
-  color: var(--text-primary);
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text-primary));
   font-family: var(--font-body), sans-serif;
   overflow-x: hidden;
 }
 
 ::selection {
-  background-color: var(--accent);
-  color: var(--bg);
+  background-color: rgb(var(--accent));
+  color: rgb(var(--bg));
 }
 
 /* Focus styles */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid rgb(var(--accent));
   outline-offset: 4px;
   border-radius: 4px;
 }
@@ -47,16 +50,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg);
+  background: rgb(var(--bg));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-2);
+  background: rgb(var(--surface-2));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: rgb(var(--text-muted));
 }
 
 /* Reduced motion */
@@ -86,9 +89,9 @@ body {
   display: inline-block;
   background: linear-gradient(
     90deg,
-    var(--text-primary) 40%,
-    var(--accent) 50%,
-    var(--text-primary) 60%
+    rgb(var(--text-primary)) 40%,
+    rgb(var(--accent)) 50%,
+    rgb(var(--text-primary)) 60%
   );
   background-size: 200% auto;
   -webkit-background-clip: text;
@@ -188,7 +191,7 @@ body {
   }
 
   .section-label {
-    @apply text-xs font-medium uppercase tracking-[0.2em] text-[#B0B7B3];
+    @apply text-xs font-medium uppercase tracking-[0.2em] text-text-muted;
   }
 
   .container-main {
@@ -207,7 +210,7 @@ body {
   }
 
   .text-gradient {
-    background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+    background: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-dim)));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

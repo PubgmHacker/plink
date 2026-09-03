@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { APP_STORE_URL } from '@/lib/constants';
+import PlinkMark from './PlinkMark';
+import StoreCta from './StoreCta';
 
 const links = [
   { href: '#how-it-works', label: 'Как работает' },
@@ -35,13 +37,14 @@ export default function Navigation() {
         }`}
       >
         {/* Logo */}
-        <a
-          href="#"
-          className="text-display text-2xl font-bold tracking-tight text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+        <Link
+          href="/"
+          className="text-display flex items-center gap-2.5 text-2xl font-bold tracking-tight text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
           aria-label="Plink — на главную"
         >
-          Plink
-        </a>
+          <PlinkMark size={30} id="nav" />
+          <span className="tracking-[0.18em]">PLINK</span>
+        </Link>
 
         {/* Desktop nav */}
         <ul className="hidden items-center gap-8 lg:flex">
@@ -58,14 +61,10 @@ export default function Navigation() {
         </ul>
 
         <div className="flex items-center gap-4">
-          <a
-            href={APP_STORE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
+          <StoreCta
+            label="Скачать"
             className="liquid-glass liquid-glass-interactive hidden rounded-full px-5 py-2.5 text-sm font-semibold text-text-primary transition-all duration-300 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-accent sm:inline-block"
-          >
-            Скачать
-          </a>
+          />
 
           {/* Mobile menu button */}
           <button
@@ -115,14 +114,7 @@ export default function Navigation() {
                 </li>
               ))}
               <li className="pt-2">
-                <a
-                  href={APP_STORE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block rounded-lg bg-accent px-4 py-3 text-center text-base font-semibold text-bg"
-                >
-                  Скачать в App Store
-                </a>
+                <StoreCta className="block rounded-lg bg-accent px-4 py-3 text-center text-base font-semibold text-bg" />
               </li>
             </ul>
           </motion.div>

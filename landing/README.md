@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Plink — лендинг
 
-## Getting Started
+Маркетинговый сайт Plink (совместный просмотр видео) на Next.js 16 (App Router),
+Tailwind CSS и TypeScript. Язык сайта — русский. Шрифты — Unbounded, Manrope и
+JetBrains Mono через `next/font`, загружаются при сборке.
 
-First, run the development server:
+## Запуск
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev     # http://localhost:3000
+npm run build   # production-сборка
+npm run start   # запуск собранного сайта
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Проверки перед коммитом
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run typecheck     # tsc --noEmit
+npm run lint          # eslint
+npm run format:check  # prettier (правит: npm run format)
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+## Переменные окружения
 
-## Learn More
+| Переменная                   | Что делает                            |
+| ---------------------------- | ------------------------------------- |
+| `NEXT_PUBLIC_APP_STORE_URL`  | Ссылка на приложение в App Store      |
+| `NEXT_PUBLIC_TESTFLIGHT_URL` | Ссылка на публичную бету в TestFlight |
 
-To learn more about Next.js, take a look at the following resources:
+Кнопки «Скачать» и статус iOS считаются в `lib/constants.ts` (`getStoreCta()`):
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- задана ссылка App Store — кнопки ведут в App Store, подпись «Скачать в App Store»,
+  бейдж в hero «Уже в App Store»;
+- иначе задана ссылка TestFlight — кнопки ведут в TestFlight, подпись «Открыть в
+  TestFlight», бейдж «Бета в TestFlight»;
+- ничего не задано — кнопки неактивны (`<span aria-disabled>`) с подписью «Скоро в
+  App Store», бейдж и раздел «Экосистема» говорят «Скоро в App Store».
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+Заглушек-ссылок нет: без переменных сайт честно показывает, что приложения в
+магазине ещё нет.
 
-## Deploy on Vercel
+## Бренд
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Цвета сайта заданы в одном месте — `:root` в `app/globals.css`; `tailwind.config.ts`
+ссылается на эти переменные. Иконки, манифест и og-картинка в `public/` копируются из
+`brand/platforms/web/`; знак Plink в вёрстке — `components/PlinkMark.tsx` (цвета
+бренда описаны в `brand/README.md`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+## Юридические страницы
+
+Тексты `/terms` и `/privacy` (`app/terms/page.tsx`, `app/privacy/page.tsx`) дублируют
+страницы, которые бэкенд отдаёт приложению (`backend/src/web/legal.ts`). Меняя
+формулировку, правьте оба места.

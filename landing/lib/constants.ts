@@ -1,7 +1,46 @@
-/** Replace id0000000000 when the App Store listing is live (set via env in deploy). */
-export const APP_STORE_URL =
-  process.env.NEXT_PUBLIC_APP_STORE_URL ?? 'https://apps.apple.com/app/plink/id0000000000';
-export const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_TESTFLIGHT_URL ?? '';
+// Ссылки на магазин берутся только из окружения. Заглушки вроде id0000000000
+// здесь нет намеренно: кнопка, ведущая на несуществующую страницу, хуже
+// честной надписи «скоро».
+function envUrl(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export const APP_STORE_URL: string | null = envUrl(process.env.NEXT_PUBLIC_APP_STORE_URL);
+export const TESTFLIGHT_URL: string | null = envUrl(process.env.NEXT_PUBLIC_TESTFLIGHT_URL);
+
+export type StoreCta = {
+  /** Куда ведёт кнопка; null — приложение ещё недоступно, кнопка неактивна. */
+  href: string | null;
+  /** Подпись кнопки для текущего состояния. */
+  label: string;
+  /** true только когда приложение опубликовано в App Store. */
+  live: boolean;
+};
+
+/**
+ * Единая точка правды для всех кнопок «Скачать»: App Store → TestFlight → «скоро».
+ * Все CTA на сайте рендерятся через components/StoreCta.tsx и этот помощник.
+ */
+export function getStoreCta(): StoreCta {
+  if (APP_STORE_URL) {
+    return { href: APP_STORE_URL, label: 'Скачать в App Store', live: true };
+  }
+  if (TESTFLIGHT_URL) {
+    return { href: TESTFLIGHT_URL, label: 'Открыть в TestFlight', live: false };
+  }
+  return { href: null, label: 'Скоро в App Store', live: false };
+}
+
+export const STORE_CTA = getStoreCta();
+
+/** Статус iOS-клиента для бейджа в hero. */
+export const STORE_STATUS_LABEL = STORE_CTA.live
+  ? 'Уже в App Store'
+  : STORE_CTA.href
+    ? 'Бета в TestFlight'
+    : 'Скоро в App Store';
+
 // Where users are told to write. Import this rather than typing the address into
 // a page: it appears on /terms, /privacy and in the FAQ, and it is wrong today —
 // plink.app publishes a null MX record (`0 .`, RFC 7505), so the domain declares
@@ -11,13 +50,27 @@ export const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_TESTFLIGHT_URL ?? '';
 // pages the iOS app links to (backend/src/web/legal.ts).
 export const SUPPORT_EMAIL = 'support@plink.app';
 
-// Честный статус платформ — iOS готов, остальные в разработке.
-// Никаких фейковых скриншотов под несуществующие клиенты.
-export const ECOSYSTEM_STATUS = [
-  { platform: 'iOS', status: 'available' as const, note: 'В App Store' },
-  { platform: 'macOS', status: 'development' as const, note: 'В разработке' },
-  { platform: 'Windows', status: 'development' as const, note: 'В разработке' },
-  { platform: 'Android', status: 'development' as const, note: 'В разработке' },
+export type PlatformStatus = 'available' | 'beta' | 'soon' | 'development';
+
+// Честный статус платформ — iOS зависит от того, опубликовано ли приложение,
+// остальные в разработке. Никаких фейковых скриншотов под несуществующие клиенты.
+export const ECOSYSTEM_STATUS: ReadonlyArray<{
+  platform: string;
+  status: PlatformStatus;
+  note: string;
+}> = [
+  {
+    platform: 'iOS',
+    status: STORE_CTA.live ? 'available' : STORE_CTA.href ? 'beta' : 'soon',
+    note: STORE_CTA.live
+      ? 'В App Store'
+      : STORE_CTA.href
+        ? 'Бета в TestFlight'
+        : 'Скоро в App Store',
+  },
+  { platform: 'macOS', status: 'development', note: 'В разработке' },
+  { platform: 'Windows', status: 'development', note: 'В разработке' },
+  { platform: 'Android', status: 'development', note: 'В разработке' },
 ];
 
 export const FAQ_DATA = [
@@ -27,7 +80,7 @@ export const FAQ_DATA = [
   },
   {
     q: 'Какие сервисы поддерживаются?',
-    a: 'Сразу в синхроне: YouTube, VK Видео, Rutube и прямые ссылки. Netflix, Disney+, Кинопоиск и другие кинотеатры остаются в выборе — режим «ваш экран»: хост входит в свой аккаунт и шарит экран. Plink не обходит DRM и не хранит чужие пароли.',
+    a: 'В синхроне: YouTube, VK Видео, Rutube и прямые ссылки на видео. Netflix, Disney+, Кинопоиск и другие кинотеатры с DRM синхронно не проигрываются: Plink не обходит DRM и не хранит чужие пароли.',
   },
   {
     q: 'Что будет, если кто-то нажмёт на паузу?',
