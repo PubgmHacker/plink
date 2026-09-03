@@ -79,7 +79,9 @@ struct Room: Codable, Identifiable, Sendable, Hashable {
         code = try c.decode(String.self, forKey: .code)
         // Pack v3: participants может отсутствовать (бэкенд не всегда отдаёт массив)
         participants = try c.decodeIfPresent([UserPreview].self, forKey: .participants) ?? []
-        mediaItem = try c.decodeIfPresent(MediaItem.self, forKey: .mediaItem)
+        // A media item this client cannot decode (e.g. written by a newer client or an
+        // admin tool) must not hide the whole room: the room still lists, as "no video yet".
+        mediaItem = (try? c.decodeIfPresent(MediaItem.self, forKey: .mediaItem)) ?? nil
         isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         maxParticipants = try c.decodeIfPresent(Int.self, forKey: .maxParticipants) ?? 10
         hostIsPremium = try c.decodeIfPresent(Bool.self, forKey: .hostIsPremium) ?? false

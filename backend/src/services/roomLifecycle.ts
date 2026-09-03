@@ -196,14 +196,34 @@ export async function maybeEndAfterLeave(
   return { roomEnded: false };
 }
 
+/** Hooks the sweeper uses to tell live clients about changes it made. */
+export type SweepHooks = {
+  /** A ghost host was pruned and the role moved to a live participant. */
+  onHostMigrated?: (roomId: string, newHostId: string, newHostName: string) => Promise<unknown>;
+};
+
+/**
+ * A participant row is a ghost when its owner has had no presence lease for
+ * this long. Longer than the 60 s lease TTL plus a reconnect, so a network
+ * blip never evicts anyone; short enough that a force-quit stops advertising
+ * the room on the leaver's other screens within a few minutes.
+ */
+export const GHOST_PARTICIPANT_GRACE_MS = 3 * 60 * 1000;
+
 /**
  * Sweep active rooms:
  * 1) 0 DB participants → end immediately
  * 2) optional Redis: 0 presence leases for long-idle rooms → end (ghost after app kill)
+ * 3) optional Redis: participant rows whose owner has no presence lease (app
+ *    force-quit, REST leave never sent) are removed; a ghost host hands the
+ *    role to the longest-present live participant. Without this a killed app
+ *    kept the room in /rooms/mine?status=active for its owner — the "return
+ *    to room" capsule above the tab bar advertised a room they had left.
  */
 export async function sweepOrphanRooms(
   prisma: PrismaLike,
   redis: any | null | undefined,
+  hooks: SweepHooks = {},
 ): Promise<number> {
   // Лидер-лок на цикл: без него каждая реплика гоняет свип каждые 60с —
   // одинаковые запросы × N и гонки двух endRoom по одной комнате. TTL 55с
@@ -256,11 +276,13 @@ export async function sweepOrphanRooms(
     try {
       const roomIndexKey = `plink:room:${room.id}:activeUsers`;
       await redis.zremrangebyscore(roomIndexKey, '-inf', now);
-      const activeCount = await redis.zcount(roomIndexKey, now, '+inf');
-      if (activeCount === 0) {
+      const liveUserIds: string[] = await redis.zrangebyscore(roomIndexKey, now, '+inf');
+      if (liveUserIds.length === 0) {
         // No live WS presence — abandoned with stale RoomParticipant rows
         orphanIds.push(room.id);
+        continue;
       }
+      await pruneGhostParticipants(prisma, room, new Set(liveUserIds), now, hooks);
     } catch {
       /* redis blip — skip this room this cycle */
     }
@@ -272,4 +294,61 @@ export async function sweepOrphanRooms(
     await endRoom(prisma, id);
   }
   return orphanIds.length;
+}
+
+/**
+ * Remove participant rows whose owners have no presence lease and have been
+ * in the room longer than the grace period. Somebody live is still watching
+ * (the caller checked), so the room stays; if the ghost was the host, the
+ * role moves to the longest-present live participant and the hook tells the
+ * room — otherwise nobody controls the player until a reconnect.
+ */
+async function pruneGhostParticipants(
+  prisma: PrismaLike,
+  room: { id: string; hostID: string; name?: string; mediaItem?: string | null },
+  liveUserIds: Set<string>,
+  now: number,
+  hooks: SweepHooks,
+): Promise<void> {
+  const rows: Array<{ userID: string; joinedAt: Date | string | number }> =
+    await prisma.roomParticipant.findMany({
+      where: { roomID: room.id },
+      select: { userID: true, joinedAt: true },
+    });
+  const ghosts = rows.filter(
+    (r) =>
+      !liveUserIds.has(r.userID) &&
+      now - new Date(r.joinedAt).getTime() >= GHOST_PARTICIPANT_GRACE_MS,
+  );
+  if (ghosts.length === 0) return;
+
+  const ghostIds = ghosts.map((g) => g.userID);
+  await prisma.roomParticipant.deleteMany({
+    where: { roomID: room.id, userID: { in: ghostIds } },
+  });
+  for (const uid of ghostIds) {
+    await recordWatchHistory(prisma, uid, room);
+  }
+
+  if (!ghostIds.includes(room.hostID)) return;
+
+  const successor = await prisma.roomParticipant.findFirst({
+    where: { roomID: room.id, userID: { in: [...liveUserIds] } },
+    orderBy: { joinedAt: 'asc' },
+    select: { userID: true, user: { select: { username: true } } },
+  });
+  if (!successor) return; // live sockets but no rows: nothing to hand over to
+
+  await prisma.room.update({
+    where: { id: room.id },
+    data: { hostID: successor.userID },
+  });
+  const newHostName = successor.user?.username ?? 'Хост';
+  if (hooks.onHostMigrated) {
+    try {
+      await hooks.onHostMigrated(room.id, successor.userID, newHostName);
+    } catch (e: any) {
+      console.warn('[roomLifecycle] role.changed publish failed:', e?.message || e);
+    }
+  }
 }

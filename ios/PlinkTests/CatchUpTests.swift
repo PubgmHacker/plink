@@ -1,7 +1,7 @@
 // PlinkTests/CatchUpTests.swift
 //
-// M28 — «что я пропустил»: карточка появляется в момент опоздания,
-// LLM-запрос — только по явному тапу.
+// M28 — "what did I miss": the card appears the moment you arrive late,
+// the LLM request happens only on an explicit tap.
 
 import XCTest
 @testable import Plink
@@ -35,6 +35,15 @@ final class CatchUpTests: XCTestCase {
             },
             roomRecapClient: recap
         )
+    }
+
+    /// Polls until `condition` holds or `timeout` elapses; the model finishes its work in a detached Task.
+    private func waitUntil(timeout: Duration = .seconds(2), _ condition: @escaping @MainActor () -> Bool) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() && clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private func state(positionMs: Int64) -> RealtimeRoomState {
@@ -93,8 +102,8 @@ final class CatchUpTests: XCTestCase {
         XCTAssertNotNil(model.catchUpPrompt)
 
         model.requestCatchUp()
-        // Дождаться Task внутри requestCatchUp.
-        try? await Task.sleep(for: .milliseconds(80))
+        // Wait for the Task inside requestCatchUp — bounded poll, not a fixed sleep.
+        await waitUntil { model.catchUpPrompt == nil && !model.catchUpLoading }
 
         XCTAssertNil(model.catchUpPrompt)
         XCTAssertFalse(model.catchUpLoading)

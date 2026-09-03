@@ -1549,12 +1549,21 @@ export default async function roomRoutes(fastify, _options) {
     },
   );
 
-  // AUTO-CLEANUP: empty rooms (0 participants) + abandoned (no WS presence).
+  // AUTO-CLEANUP: empty rooms (0 participants) + abandoned (no WS presence)
+  // + ghost participants (rows without a presence lease) inside live rooms.
   // Soft-end only — room row + WatchHistory remain for UI history.
-  // Every 60s so ghost rooms don't linger on Home/Friends.
+  // Every 60s so ghost rooms don't linger on Home/Friends or in the
+  // "return to room" capsule of someone who force-quit the app.
+  const sweepHooks = {
+    onHostMigrated: async (roomId: string, newHostId: string, newHostName: string) => {
+      const gateway = (fastify as any).gateway;
+      if (!gateway) return;
+      await gateway.publishHostMigration(roomId, newHostId, newHostName);
+    },
+  };
   setInterval(async () => {
     try {
-      const n = await sweepOrphanRooms(prisma, redis);
+      const n = await sweepOrphanRooms(prisma, redis, sweepHooks);
       if (n > 0) {
         await cacheDel(ROOMS_CACHE_KEY);
         console.log(`[cleanup] Soft-ended ${n} empty/abandoned room(s)`);
@@ -1567,7 +1576,7 @@ export default async function roomRoutes(fastify, _options) {
   // One-shot sweep shortly after boot (clear stale from previous deploys)
   setTimeout(async () => {
     try {
-      const n = await sweepOrphanRooms(prisma, redis);
+      const n = await sweepOrphanRooms(prisma, redis, sweepHooks);
       if (n > 0) {
         await cacheDel(ROOMS_CACHE_KEY);
         console.log(`[cleanup] Boot sweep: soft-ended ${n} room(s)`);

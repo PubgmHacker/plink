@@ -64,6 +64,12 @@ final class V4RoomsStore {
         } catch {}
     }
 
+    /// Drops a room the user just left so the capsule above the tab bar
+    /// reacts at once; the next `load()` reconciles with the server.
+    func removeMyRoom(id: String) {
+        myRooms.removeAll { $0.id == id }
+    }
+
     func loadHistory() async -> [Room] {
         (try? await roomService.fetchMyRoomHistory()) ?? []
     }

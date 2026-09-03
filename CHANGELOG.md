@@ -83,6 +83,15 @@ versioned sections and git tags begin there.
 
 ### Fixed
 
+- **The "return to room" capsule no longer sticks around after you left.** It
+  disappears the moment you leave, refreshes when the app comes back to the
+  foreground and every 45 seconds while it is showing, and can be swiped down
+  to leave the room. On the server, participants whose app was force-quit are
+  removed from live rooms after a three-minute grace period, and a vanished
+  host hands the role to the longest-present viewer.
+- **One room the app cannot fully read no longer hides your whole rooms list.**
+  If a room's video entry was written by a newer client, that room now lists as
+  "no video yet" instead of blanking every room and the "return to room" capsule.
 - **Choosing a video no longer ends in a black screen.** The YouTube, RuTube and
   VK Video catalogue opens full screen and fills the display on every iPhone; a
   pasted link from any of the three works on any of their steps. VK Video joins

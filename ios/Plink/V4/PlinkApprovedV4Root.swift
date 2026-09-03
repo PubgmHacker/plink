@@ -164,6 +164,8 @@ struct PlinkApprovedV4Root: View {
                 if let ongoing = ongoingRoom, roomToPresent == nil {
                     PlinkOngoingRoomCapsule(room: ongoing, theme: theme) {
                         openRoom(ongoing)
+                    } onDismiss: {
+                        dismissOngoingRoom(ongoing)
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -204,6 +206,9 @@ struct PlinkApprovedV4Root: View {
                 PresenceHeartbeat.start()
                 DMChatService.shared.startUnreadPolling()
                 Task { await DMChatService.shared.refreshUnread() }
+                // The capsule must not advertise a room that ended while the
+                // app was in the background.
+                Task { await roomsStore?.loadMyRooms() }
             case .background:
                 DMChatService.shared.stopUnreadPolling()
                 PresenceHeartbeat.stop()
@@ -316,8 +321,23 @@ struct PlinkApprovedV4Root: View {
             roomToPresent = room
             Task { await roomsStore?.load() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .plinkRoomsDidChange)) { note in
+            // Posted after leave/end with the room id: that room is gone for
+            // this user, so the capsule drops it now instead of waiting for
+            // the round trip that races the cover dismissal.
+            if let roomID = note.object as? String { roomsStore?.removeMyRoom(id: roomID) }
             Task { await roomsStore?.load() }
+        }
+        // While the capsule is showing, re-check the room every 45 s so a
+        // session that ended without us (host closed it, the server reaped a
+        // ghost) does not leave a dead pill above the tab bar.
+        .task(id: ongoingRoom?.id) {
+            guard ongoingRoom != nil else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(45))
+                guard !Task.isCancelled else { return }
+                await roomsStore?.loadMyRooms()
+            }
         }
         // Deep links — комната открывается, заявка в друзья
         // подтверждается алертом. @Published отдаёт текущее значение при подписке,
@@ -428,6 +448,16 @@ struct PlinkApprovedV4Root: View {
     /// а капсула зовёт вернуться только в свою сессию.
     private var ongoingRoom: Room? {
         roomsStore?.myRooms.first(where: { $0.isActive && $0.participantCount > 0 })
+    }
+
+    /// Swipe-down on the capsule leaves the room for real instead of hiding
+    /// the pill: the row disappears immediately, the server confirms, and the
+    /// reload triggered by the leave keeps the rest of the list honest.
+    private func dismissOngoingRoom(_ room: Room) {
+        roomsStore?.removeMyRoom(id: room.id)
+        Task {
+            try? await RoomService(api: APIClient.shared).leaveRoom(roomID: room.id)
+        }
     }
 
     /// Комната создана — общий финал для обоих входов в мастер.
@@ -541,6 +571,11 @@ struct PlinkOngoingRoomCapsule: View {
     let room: Room
     var theme: V4Theme = .electric
     let action: () -> Void
+    /// Swipe-down handler (mini-player convention): leave the room. When nil
+    /// the pill is tap-only.
+    var onDismiss: (() -> Void)?
+
+    @State private var dragOffset: CGFloat = 0
 
     var body: some View {
         Button {
@@ -571,9 +606,31 @@ struct PlinkOngoingRoomCapsule: View {
             .plinkGlass(.navigation, in: Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .offset(y: dragOffset)
+        .opacity(1 - Double(min(dragOffset, 60)) / 120)
+        .simultaneousGesture(dismissGesture)
         .padding(.horizontal, 26)
         .accessibilityLabel("Вернуться в комнату \(room.name)")
         .accessibilityHint(subtitle)
+        .accessibilityAction(named: Text("Покинуть комнату")) { onDismiss?() }
+    }
+
+    /// Pull the pill down past the threshold to leave; a short pull springs back.
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: 14, coordinateSpace: .local)
+            .onChanged { value in
+                guard onDismiss != nil else { return }
+                dragOffset = max(0, value.translation.height) * 0.6
+            }
+            .onEnded { value in
+                guard onDismiss != nil else { return }
+                if value.translation.height > 44 || value.predictedEndTranslation.height > 120 {
+                    HapticManager.impact(.rigid)
+                    onDismiss?()
+                } else {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragOffset = 0 }
+                }
+            }
     }
 
     private var subtitle: String {
