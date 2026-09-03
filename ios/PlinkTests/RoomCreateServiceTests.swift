@@ -211,6 +211,63 @@ final class RoomCreateServiceTests: XCTestCase {
         XCTAssertEqual(item.streamURL, href)
         XCTAssertEqual(item.source, .url)
     }
+
+    // MARK: - VK Video (beta service #3)
+
+    /// Links copied from vkvideo.ru / m.vkvideo.ru / vk.com must all resolve
+    /// to the same `oid_id` token the embed player understands.
+    func testVKVideoIdFromEveryPublicDomain() {
+        XCTAssertEqual(RoomCreateMedia.extractVKVideoId(from: "https://vkvideo.ru/video-123456_789"), "-123456_789")
+        XCTAssertEqual(RoomCreateMedia.extractVKVideoId(from: "https://m.vkvideo.ru/video-1_2?t=10s"), "-1_2")
+        XCTAssertEqual(RoomCreateMedia.extractVKVideoId(from: "https://vkvideo.ru/clip-55_66"), "-55_66")
+        XCTAssertEqual(RoomCreateMedia.extractVKVideoId(from: "https://vk.com/video-77_88"), "-77_88")
+        XCTAssertEqual(
+            RoomCreateMedia.extractVKVideoId(from: "https://vk.com/video_ext.php?oid=-1&id=2&hd=2"),
+            "oid=-1&id=2&hd=2"
+        )
+    }
+
+    /// The catalogue root, channel pages and VK's autologin redirect chain are
+    /// not videos — detecting them would create a room with nothing to play.
+    func testVKCatalogueAndAutologinAreNotVideos() {
+        let notVideos = [
+            "https://vkvideo.ru/",
+            "https://m.vkvideo.ru/",
+            "https://vkvideo.ru/@somechannel",
+            "https://login.vk.ru/?act=autologin&redirect_uri=https://vkvideo.ru&state=abc",
+            "https://vkvideo.ru/?errorCode=11300&errorText=invalid+user",
+        ]
+        for raw in notVideos {
+            XCTAssertNil(RoomCreateMedia.extractVKVideoId(from: raw), raw)
+            let url = URL(string: raw)!
+            XCTAssertNil(VideoService.detectVideoURL(url, for: .vk, title: nil), raw)
+        }
+    }
+
+    /// A detected VK video carries the video_ext embed the room player needs.
+    func testVKDetectedVideoBuildsEmbed() throws {
+        let url = URL(string: "https://m.vkvideo.ru/video-123_456")!
+        let detected = try XCTUnwrap(VideoService.detectVideoURL(url, for: .vk, title: "Клип"))
+        XCTAssertEqual(detected.service, .vk)
+        XCTAssertEqual(detected.title, "Клип")
+        XCTAssertEqual(detected.originalURL, url.absoluteString)
+        XCTAssertEqual(detected.embedURL, "https://vk.com/video_ext.php?oid=-123&id=456&hd=2&js_api=1")
+    }
+
+    /// RuTube: the watch page becomes the /play/embed URL, the root page is nothing.
+    func testRutubeDetectedVideoBuildsEmbed() throws {
+        let id = "0123456789abcdef0123456789abcdef"
+        let url = URL(string: "https://rutube.ru/video/\(id)/")!
+        let detected = try XCTUnwrap(VideoService.detectVideoURL(url, for: .rutube, title: nil))
+        XCTAssertEqual(detected.embedURL, "https://rutube.ru/play/embed/\(id)")
+        XCTAssertNil(VideoService.detectVideoURL(URL(string: "https://rutube.ru/")!, for: .rutube, title: nil))
+    }
+
+    /// First release ships exactly three watchable services; the rest are "soon".
+    func testBetaServicesAreYouTubeRutubeAndVK() {
+        let beta = Set(VideoService.allCases.filter(\.isAvailableInBeta))
+        XCTAssertEqual(beta, [.youtube, .rutube, .vk])
+    }
 }
 
 private extension MediaItem {

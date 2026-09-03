@@ -21,6 +21,19 @@ import WebKit
 struct ServiceBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     let service: VideoService
+
+    #if DEBUG
+    /// Simulator QA hook: `SIMCTL_CHILD_PLINK_SIM_BROWSE_URL=<url>` replaces the
+    /// catalogue URL so the picker can be exercised on a host the simulator can
+    /// resolve (Happ-VPN leaves the simulator without DNS for most hosts).
+    static let debugBrowseURLOverride: String? = {
+        guard let raw = ProcessInfo.processInfo.environment["PLINK_SIM_BROWSE_URL"],
+              let url = URL(string: raw), url.scheme != nil else { return nil }
+        return raw
+    }()
+    #else
+    static let debugBrowseURLOverride: String? = nil
+    #endif
     /// Passes content URL + title to parent for RoomSetupView
     var onCreateRoom: (String, String) -> Void
 
@@ -50,7 +63,7 @@ struct ServiceBrowserView: View {
 
                 VStack(spacing: 0) {
                     // WebView
-                    if let initialURL = URL(string: service.browseURL) {
+                    if let initialURL = URL(string: Self.debugBrowseURLOverride ?? service.browseURL) {
                         ServiceWebView(
                             initialURL: initialURL,
                             currentURL: $currentURL,
@@ -72,6 +85,7 @@ struct ServiceBrowserView: View {
                             persistCookies: service.requiresAuth
                         )
                         .id(reloadToken)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         failureOverlay
                     }
@@ -603,6 +617,10 @@ struct ServiceWebView: UIViewRepresentable {
         // get to real Safari — YouTube accepts it for m.youtube.com without
         // throwing the consent interstitial.
 
+        if PlinkHost.isVK(initialURL) {
+            webView.customUserAgent = Self.safariMobileUserAgent
+        }
+
         webView.load(URLRequest(url: initialURL))
 
         webView.isOpaque = false
@@ -618,6 +636,30 @@ struct ServiceWebView: UIViewRepresentable {
             self.canGoForward = webView.canGoForward
         }
     }
+
+    /// WKWebView has no intrinsic size. When a parent proposed nothing (a
+    /// ScrollView proposes a nil height) SwiftUI collapsed the web view to a
+    /// zero-height strip and the picker showed as a black screen on device.
+    /// Fill the proposal and fall back to the window when it is missing.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
+        let fallback = uiView.window?.bounds.size
+            ?? uiView.superview?.bounds.size
+            ?? UIScreen.main.bounds.size
+        func pick(_ proposed: CGFloat?, _ fallbackValue: CGFloat) -> CGFloat {
+            guard let proposed, proposed.isFinite, proposed > 1 else { return fallbackValue }
+            return proposed
+        }
+        return CGSize(
+            width: pick(proposal.width, fallback.width),
+            height: pick(proposal.height, fallback.height)
+        )
+    }
+
+    /// Bare WKWebView UA trips VK's robot check; mobile Safari passes as a
+    /// regular browser. Same string as VKPlaybackController uses in the room.
+    private static let safariMobileUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+        + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.stopLoading()

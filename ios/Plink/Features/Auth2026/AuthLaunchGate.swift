@@ -157,6 +157,18 @@ struct AuthLaunchGate: View {
                             DeepLinkRouter.shared.handle(url)
                         }
                     }
+                    // `-plink.designcreate <service>` — open the room creation
+                    // wizard right after autologin (RoomCreationView.debugStart
+                    // reads the step and service). Same delay as the deep link.
+                    if args.contains("-plink.designcreate") {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(2500))
+                            NotificationCenter.default.post(
+                                name: Notification.Name("plinkOpenCreateRoom"),
+                                object: nil
+                            )
+                        }
+                    }
                     return
                 }
                 // Не вышло (нет сети, занят username) — обычный путь на экран входа.

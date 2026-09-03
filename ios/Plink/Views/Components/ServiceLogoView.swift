@@ -155,7 +155,7 @@ extension VideoService {
     var browseURL: String {
         switch self {
         case .youtube:      return "https://www.youtube.com/feed/trending"
-        case .vk:           return "https://vk.com/video"
+        case .vk:           return "https://vkvideo.ru/"
         case .rutube:       return "https://rutube.ru/"
         case .netflix:      return "https://www.netflix.com/browse"
         case .disney:       return "https://www.disneyplus.com/"
@@ -168,7 +168,7 @@ extension VideoService {
         case .smotrim:      return "https://smotrim.ru/"
         case .kion:         return "https://kion.ru/"
         case .browser:      return "https://www.google.com/"
-        case .customURL:    return "https://www.google.com/" // Pack v3: был "" → URL(string: "")! crash
+        case .customURL:    return "https://www.google.com/" // An empty string made URL(string:)! crash.
         }
     }
 }

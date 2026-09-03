@@ -54,7 +54,33 @@ struct RoomCreationView: View {
         self.onCreate = nil
         self.onRoomCreated = onRoomCreated
         self.startedFromLink = false
+        #if DEBUG
+        if let debug = Self.debugStart {
+            _step = State(initialValue: .content)
+            _selectedService = State(initialValue: debug.service)
+        }
+        #endif
     }
+
+    #if DEBUG
+    /// Design preview: `-plink.designcreate youtube|rutube|vk[.browse]` opens
+    /// the wizard on the content step of that service; `.browse` also opens
+    /// the catalogue. Simulator screenshots without taps. Debug builds only.
+    struct DebugStart {
+        let service: VideoService
+        let openBrowser: Bool
+    }
+
+    static let debugStart: DebugStart? = {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-plink.designcreate"), args.indices.contains(i + 1) else {
+            return nil
+        }
+        let parts = args[i + 1].split(separator: ".").map(String.init)
+        guard let raw = parts.first, let service = VideoService(rawValue: raw) else { return nil }
+        return DebugStart(service: service, openBrowser: parts.dropFirst().contains("browse"))
+    }()
+    #endif
 
     /// Открыть мастер сразу на шаге настройки с готовой ссылкой.
     ///
@@ -272,7 +298,7 @@ struct RoomCreationView: View {
             ServiceFilterChips(filter: $serviceFilter)
                 .padding(.bottom, 18)
 
-            // Доступно в первой бете: YouTube и RuTube.
+            // First release: YouTube, RuTube and VK Видео (VideoService.isAvailableInBeta).
             if !worksNowFiltered.isEmpty {
                 sectionLabel(
                     "МОЖНО СМОТРЕТЬ СЕЙЧАС",
@@ -420,28 +446,15 @@ struct RoomCreationView: View {
             if selectedService == .customURL {
                 customURLStep
             } else if let svc = selectedService {
-                if svc == .youtube || svc == .rutube {
-                    BetaVideoSearchView(service: svc) { video in
-                        detectedVideo = video
-                        roomName = video.title ?? svc.title
-                        withAnimation { step = .setup }
-                    }
-                } else {
-                    // Subscription services use the official browser flow;
-                    // they remain visible as roadmap entries but are blocked by
-                    // selectService until their room adapter is shipped.
-                    ServiceBrowserView(service: svc) { contentURL, title in
-                        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                        detectedVideo = DetectedVideo(
-                            title: cleanTitle.isEmpty ? nil : cleanTitle,
-                            embedURL: contentURL,
-                            originalURL: contentURL,
-                            service: svc,
-                            thumbnailURL: Self.thumbnailURL(for: contentURL, service: svc)
-                        )
-                        roomName = cleanTitle.isEmpty ? svc.title : cleanTitle
-                        withAnimation { step = .setup }
-                    }
+                // Search (YouTube, RuTube), pasted link, or the service catalogue
+                // opened full screen. The browser used to sit inline in this
+                // ScrollView, where a WKWebView gets no height and rendered as
+                // a black screen on device.
+                BetaVideoSearchView(service: svc) { video in
+                    detectedVideo = video
+                    let cleanTitle = video.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    roomName = cleanTitle.isEmpty ? svc.title : cleanTitle
+                    withAnimation { step = .setup }
                 }
             } else {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 300)
@@ -645,7 +658,7 @@ struct RoomCreationView: View {
 
     /// Постер для превью на шаге «Настройка». Для beta-сервисов восстанавливаем
     /// его из устойчивого публичного URL, если выдача не принесла thumbnail.
-    private static func thumbnailURL(for rawURL: String, service: VideoService) -> String? {
+    fileprivate static func thumbnailURL(for rawURL: String, service: VideoService) -> String? {
         switch service {
         case .youtube:
             guard let vid = RoomCreateMedia.extractYouTubeID(from: rawURL) else { return nil }
@@ -711,12 +724,16 @@ struct RoomCreationView: View {
     }
 }
 
-// MARK: - Beta provider search
-
-/// Search surface for the two providers that are actually enabled in the beta.
-/// It uses their public web search responses (and the backend's cached web
-/// fallback), never a Data API key. A browser escape hatch remains visible so a
-/// provider markup change cannot leave the user without a way to choose a video.
+// MARK: - Beta Video Search
+/// Content step for the services shipping in the first release.
+///
+///   • YouTube, RuTube — keyless search through the backend, plus a pasted link
+///     and the service catalogue as fallback.
+///   • VK Видео — there is no keyless search API, so the step opens the
+///     vkvideo.ru catalogue full screen right away; a pasted link works too.
+///
+/// The catalogue browser is always a full-screen cover: inline in a ScrollView
+/// a WKWebView received no height and rendered as a black strip.
 struct BetaVideoSearchView: View {
     let service: VideoService
     let onSelect: (DetectedVideo) -> Void
@@ -726,126 +743,268 @@ struct BetaVideoSearchView: View {
     @State private var isSearching = false
     @State private var didSearch = false
     @State private var showBrowser = false
+    @State private var linkDraft = ""
+    @State private var linkRejected = false
+    @State private var didAutoOpenBrowser = false
 
-    private var provider: V4ClipSearch.Provider {
-        service == .rutube ? .rutube : .youtube
+    /// Keyless search exists for YouTube and RuTube only (backend
+    /// /search/videos). VK needs a service token the product does not ship.
+    private var provider: V4ClipSearch.Provider? {
+        switch service {
+        case .youtube: return .youtube
+        case .rutube: return .rutube
+        default: return nil
+        }
     }
+
+    private var supportsSearch: Bool { provider != nil }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Выберите видео")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(V4.ink)
-                    HStack(spacing: 7) {
-                        ServiceLogoView(service: service, size: 18)
-                        Text(service.brandName)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(V4.muted)
-                        Text("·")
-                            .foregroundStyle(V4.muted.opacity(0.6))
-                        Text("без ключа API")
-                            .font(.system(size: 13))
-                            .foregroundStyle(V4.muted)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 16)
+                header
 
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(V4.muted)
-                    TextField("Название фильма или сериала", text: $query)
-                        .font(.system(size: 16))
-                        .foregroundStyle(V4.ink)
-                        .textInputAutocapitalization(.sentences)
-                        .autocorrectionDisabled(false)
-                        .submitLabel(.search)
-                    if isSearching {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else if !query.isEmpty {
-                        Button {
-                            query = ""
-                            results = []
-                            didSearch = false
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 17))
-                                .foregroundStyle(V4.muted)
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 44, height: 44)
-                        .accessibilityLabel("Очистить поиск")
+                if supportsSearch {
+                    searchField
+                    if !results.isEmpty {
+                        resultsList
+                    } else if didSearch && !isSearching {
+                        emptySearchState
+                    } else if !isSearching {
+                        hintState
                     }
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 52)
-                .plinkGlass(.control, cornerRadius: 18, interactive: true)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 14)
-
-                if !results.isEmpty {
-                    Text("Результаты")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(V4.muted)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
-
-                    LazyVStack(spacing: 8) {
-                        ForEach(results) { item in
-                            resultRow(item)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                } else if didSearch && !isSearching {
-                    emptySearchState
-                } else if !isSearching {
-                    hintState
+                } else {
+                    catalogueHero
                 }
 
-                Button {
-                    showBrowser = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "safari")
-                        Text("Открыть каталог \(service.brandName)")
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(V4.ink)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 50)
-                    .plinkGlass(.control, cornerRadius: 16, interactive: true)
+                linkField
+
+                if supportsSearch {
+                    catalogueButton
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 36)
-                .accessibilityHint("Выбрать видео на сайте сервиса")
             }
+            .padding(.bottom, 36)
         }
         .background(V4.canvas)
+        .scrollDismissesKeyboard(.interactively)
         .task(id: query) { await runSearch() }
-        .sheet(isPresented: $showBrowser) {
+        .task { await autoOpenBrowserIfNeeded() }
+        .fullScreenCover(isPresented: $showBrowser) {
             ServiceBrowserView(service: service) { url, title in
                 showBrowser = false
-                guard let selectedURL = URL(string: url) ?? URL(string: service.browseURL),
-                      let detected = VideoService.detectVideoURL(
-                    selectedURL,
-                    for: service,
-                    title: title
-                ) else { return }
-                onSelect(detected)
+                let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let picked: DetectedVideo
+                if let selectedURL = URL(string: url),
+                   let detected = VideoService.detectVideoURL(
+                        selectedURL,
+                        for: service,
+                        title: cleanTitle.isEmpty ? nil : cleanTitle
+                   ) {
+                    picked = detected
+                } else {
+                    // Catalogue pages without an id (cinema services) are the
+                    // content themselves — the room player opens the page.
+                    picked = DetectedVideo(
+                        title: cleanTitle.isEmpty ? nil : cleanTitle,
+                        embedURL: url,
+                        originalURL: url,
+                        service: service
+                    )
+                }
+                onSelect(withThumbnail(picked))
             }
             .preferredColorScheme(.dark)
         }
         .accessibilityIdentifier("room.videoSearch.\(service.rawValue)")
+    }
+
+    // MARK: Sections
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Выберите видео")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(V4.ink)
+            HStack(spacing: 7) {
+                ServiceLogoView(service: service, size: 18)
+                Text(service.brandName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(V4.muted)
+                Text("·")
+                    .foregroundStyle(V4.muted.opacity(0.6))
+                Text(supportsSearch ? "поиск без входа" : "каталог без входа")
+                    .font(.system(size: 13))
+                    .foregroundStyle(V4.muted)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(V4.muted)
+            TextField("Название фильма или сериала", text: $query)
+                .font(.system(size: 16))
+                .foregroundStyle(V4.ink)
+                .textInputAutocapitalization(.sentences)
+                .autocorrectionDisabled(false)
+                .submitLabel(.search)
+            if isSearching {
+                ProgressView()
+                    .controlSize(.small)
+            } else if !query.isEmpty {
+                Button {
+                    query = ""
+                    results = []
+                    didSearch = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(V4.muted)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .accessibilityLabel("Очистить поиск")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 52)
+        .plinkGlass(.control, cornerRadius: 18, interactive: true)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
+    }
+
+    private var resultsList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Результаты")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(V4.muted)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+
+            LazyVStack(spacing: 8) {
+                ForEach(results) { item in
+                    resultRow(item)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    /// VK: the catalogue is the only way to pick — say so and give one big
+    /// button. The browser also opens by itself on the first appearance.
+    private var catalogueHero: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(service.accentColor.opacity(0.18))
+                        .frame(width: 52, height: 52)
+                    ServiceLogoView(service: service, size: 30)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ролик выбирается в каталоге")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                    Text("Найдите видео на сайте и откройте его — Plink подхватит ссылку и вернёт вас сюда.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(V4.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Button {
+                HapticManager.impact(.light)
+                showBrowser = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "safari.fill")
+                    Text("Открыть \(service.brandName)")
+                }
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(V4.accentInk)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Cinema2026.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Выбрать видео на сайте сервиса")
+        }
+        .padding(16)
+        .background(V4.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 20)
+    }
+
+    private var linkField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(supportsSearch ? "Или вставьте ссылку" : "Уже есть ссылка?")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(V4.muted)
+            HStack(spacing: 10) {
+                Image(systemName: "link")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(V4.muted)
+                TextField("https://…", text: $linkDraft)
+                    .font(.system(size: 15))
+                    .foregroundStyle(V4.ink)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .onSubmit(useLink)
+                    .onChange(of: linkDraft) { linkRejected = false }
+                if !linkDraft.isEmpty {
+                    Button {
+                        useLink()
+                    } label: {
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(Cinema2026.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 44, height: 44)
+                    .accessibilityLabel("Открыть ссылку")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+            .plinkGlass(.control, cornerRadius: 16, interactive: true)
+            if linkRejected {
+                Text("Это не ссылка на видео YouTube, RuTube или VK Видео.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red.opacity(0.9))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+    }
+
+    private var catalogueButton: some View {
+        Button {
+            HapticManager.impact(.light)
+            showBrowser = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "safari")
+                Text("Открыть каталог \(service.brandName)")
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(V4.ink)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+            .plinkGlass(.control, cornerRadius: 16, interactive: true)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .accessibilityHint("Выбрать видео на сайте сервиса")
     }
 
     private var hintState: some View {
@@ -940,6 +1099,53 @@ struct BetaVideoSearchView: View {
         .accessibilityHint("Выбрать видео для новой комнаты")
     }
 
+    // MARK: Actions
+
+    /// A pasted link may belong to another first-release service (a RuTube
+    /// link on the YouTube step) — accept whichever it is, if it ships now.
+    private func useLink() {
+        let raw = linkDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        let target = VideoService.detect(fromURL: raw) ?? service
+        guard raw.hasPrefix("http"),
+              let url = URL(string: raw),
+              target.isAvailableInBeta,
+              let detected = VideoService.detectVideoURL(url, for: target, title: nil) else {
+            linkRejected = true
+            HapticManager.notification(.warning)
+            return
+        }
+        linkRejected = false
+        HapticManager.impact(.light)
+        onSelect(withThumbnail(detected))
+    }
+
+    /// VK has no in-app search: jump straight into the catalogue. The wizard
+    /// sheet needs a beat to settle or SwiftUI drops the nested presentation.
+    private func autoOpenBrowserIfNeeded() async {
+        guard !didAutoOpenBrowser else { return }
+        didAutoOpenBrowser = true
+        var shouldOpen = !supportsSearch
+        #if DEBUG
+        if RoomCreationView.debugStart?.openBrowser == true { shouldOpen = true }
+        #endif
+        guard shouldOpen else { return }
+        try? await Task.sleep(for: .milliseconds(450))
+        guard !Task.isCancelled else { return }
+        showBrowser = true
+    }
+
+    private func withThumbnail(_ video: DetectedVideo) -> DetectedVideo {
+        guard video.thumbnailURL == nil else { return video }
+        return DetectedVideo(
+            title: video.title,
+            embedURL: video.embedURL,
+            originalURL: video.originalURL,
+            service: video.service,
+            thumbnailURL: RoomCreationView.thumbnailURL(for: video.originalURL, service: video.service)
+        )
+    }
+
     private func detectedVideo(for item: V4SearchResult) -> DetectedVideo? {
         switch service {
         case .youtube:
@@ -966,6 +1172,7 @@ struct BetaVideoSearchView: View {
     }
 
     private func runSearch() async {
+        guard let provider else { return }
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.count >= 2 else {
             results = []
@@ -1092,9 +1299,9 @@ struct ServiceAuthSheet: View {
             .toolbar {
                 V4SheetCloseToolbarItem { dismiss() }
             }
-            .sheet(isPresented: $webShown) {
-                // Каталог сервиса — он же страница входа. Выбранный тайтл
-                // передаём дальше: раньше он терялся и фильм искали заново.
+            .fullScreenCover(isPresented: $webShown) {
+                // The catalogue doubles as the sign-in page. The selected title
+                // travels with the URL so the film is not searched for twice.
                 ServiceBrowserView(service: service) { contentURL, title in
                     webShown = false
                     onAuthorized(contentURL, title)

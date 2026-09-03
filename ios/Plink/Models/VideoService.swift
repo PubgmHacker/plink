@@ -199,7 +199,7 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
     /// Other services stay visible as a roadmap, never as a button that silently
     /// creates a room whose player cannot start.
     var isAvailableInBeta: Bool {
-        self == .youtube || self == .rutube
+        self == .youtube || self == .rutube || self == .vk
     }
 
     var betaAvailabilityLabel: String {

@@ -83,6 +83,11 @@ versioned sections and git tags begin there.
 
 ### Fixed
 
+- **Choosing a video no longer ends in a black screen.** The YouTube, RuTube and
+  VK Video catalogue opens full screen and fills the display on every iPhone; a
+  pasted link from any of the three works on any of their steps. VK Video joins
+  the first release as the third playable service; the remaining services are
+  labelled as coming soon instead of opening an empty page.
 - **A host losing connection no longer ends the room.** The role moves to another
   participant and playback continues.
 - **Commands from a superseded host are rejected.** A host that reconnects after a
