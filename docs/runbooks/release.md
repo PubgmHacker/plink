@@ -17,11 +17,11 @@ in as many words. The first tag will be `v1.0.0`.
 
 The four surfaces do **not** share a version number, and today they disagree:
 
-| Surface | Where the version lives | Today |
-| ------- | ----------------------- | ----- |
-| iOS | `ios/project.yml` → `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` | `1.0`, build `1` |
-| Backend | `backend/package.json` → `version` | `1.5.2` |
-| Landing | `landing/package.json` → `version` | `0.1.0` |
+| Surface | Where the version lives                                                  | Today             |
+| ------- | ------------------------------------------------------------------------ | ----------------- |
+| iOS     | `ios/project.yml` → `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`       | `1.0`, build `1`  |
+| Backend | `backend/package.json` → `version`                                       | `1.5.2`           |
+| Landing | `landing/package.json` → `version`                                       | `0.1.0`           |
 | Android | `ios/android-client/app/build.gradle.kts` → `versionName`, `versionCode` | `1.0.0`, code `1` |
 
 That spread is not a scheme, it is drift from before there was a process. **The release
@@ -162,6 +162,14 @@ inert.
 
 1. Follow [deployment.md §1](deployment.md#1-a-normal-deploy).
 2. Wait for `/health/ready` to return 200 with both services `up`.
+3. Run the end-to-end happy path against the deployed host. It signs up two throwaway
+   accounts (`e2e_*@plink.lab`), creates a room, connects both over WebSocket and
+   checks that a host play command and a chat message reach the viewer:
+
+   ```bash
+   cd backend && E2E=1 API_BASE=https://<host> \
+     npx vitest run src/tests/integration/happyPath.e2e.test.ts
+   ```
 
 **Check:**
 
@@ -169,7 +177,8 @@ inert.
 curl -s https://<host>/health | python3 -m json.tool | head -20
 ```
 
-`status` is `ok`, and `services.database` and `services.redis` are both `up`.
+`status` is `ok`, `services.database` and `services.redis` are both `up`, and the
+happy path reports `1 passed`.
 
 Two traps in that response. `status: "degraded"` with a 503 is what you get when Redis
 reports `not_configured` — that is a missing `REDIS_URL`, not a dead Redis, and it means
@@ -231,11 +240,11 @@ The tag points at the commit that contains the changelog roll and the version bu
 
 What you can actually undo, in the order you will want it:
 
-| Shipped | Can you roll it back? |
-| ------- | --------------------- |
-| Backend | Yes — [deployment.md §6](deployment.md#6-rollback). |
-| Landing | Yes, same mechanism. |
-| Tag | Yes: `git tag -d v1.0.0 && git push origin :refs/tags/v1.0.0`. Only worth doing within minutes; after that, tag the fix instead. |
+| Shipped         | Can you roll it back?                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend         | Yes — [deployment.md §6](deployment.md#6-rollback).                                                                                   |
+| Landing         | Yes, same mechanism.                                                                                                                  |
+| Tag             | Yes: `git tag -d v1.0.0 && git push origin :refs/tags/v1.0.0`. Only worth doing within minutes; after that, tag the fix instead.      |
 | App Store build | **No.** You can pull it from review or halt a phased release, but a build that shipped is shipped. The only forward is another build. |
 
 Because the last row cannot be undone, the iOS submission is deliberately the last thing

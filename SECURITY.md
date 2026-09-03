@@ -73,7 +73,8 @@ so a reviewer can see the intent, and so nobody removes one by accident.
 - **Roles come from the database, not the token.** Privilege checks re-read the
   user's role on each request; a stale token cannot carry stale privilege.
 - **Secrets never enter the repository.** Private keys are blocked by CI, request
-  logs redact credentials, and `Secrets.xcconfig` is ignored by git.
+  logs redact credentials, and the iOS client carries no provider keys at all: every
+  third-party secret lives on the backend and reaches the app only as a result.
 - **Dependencies are gated.** `npm audit` fails the build at `high` for the
   backend and `critical` for the landing site; Dependabot opens weekly updates.
 

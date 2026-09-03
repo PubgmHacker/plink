@@ -40,6 +40,9 @@ versioned sections and git tags begin there.
   from the paywall, the settings screen and the web player. The subscription screen's
   legal links now resolve to something readable instead of dead-ending, and the
   support page states where to write and what to include.
+- Voice input reports its failures inline. A denied microphone or speech permission,
+  or an audio-session error, shows a small banner with the action to take instead of
+  terminating the app or leaving the microphone button stuck in the recording state.
 
 ### Changed
 
@@ -55,8 +58,28 @@ versioned sections and git tags begin there.
   generated from the same mark. All remaining assets from the previous visual
   identity were removed.
 - Landing shipped 135 MB lighter after removing 240 unused background frames.
-- Health checking split so the platform probes liveness (`/health/live`) separately
-  from dependency readiness (`/health/ready`).
+- Health checking split into liveness (`/health/live`, used by the container
+  runtime) and dependency readiness (`/health/ready`, which gates Railway
+  promotion so a build that cannot reach Postgres or Redis is never promoted).
+- **Sign-in, session and onboarding screens follow the app language** (Russian,
+  English, Chinese) instead of always Russian, and a first launch starts in the
+  device language.
+- The login screen offers email and Sign in with Apple only; the inert Yandex
+  button that opened a "coming soon" panel is gone.
+- **Video search no longer spends YouTube Data API quota on every keystroke.**
+  Results come from the public YouTube results page (the API key is only a
+  provider-local fallback when YouTube serves a consent page), live streams and
+  scheduled premieres are filtered out because they have no shared timeline, and
+  Rutube results hide hidden, deleted, adult, live and paid cards. The backend caches
+  web-search results under a new cache version.
+- Room creation in this beta is limited to YouTube and RuTube, the two sources with a
+  verified official embed player. Other catalog entries open the service's own page
+  instead of an empty room with a website inside it.
+- RuTube plays through the official embed inside its own web view, driven by the
+  player's `postMessage` bridge (play, pause, seek); Plink never extracts a media URL
+  or relays a stream.
+- On iPad, settings are no longer a separate sidebar section; the sidebar carries the
+  same five sections as the iPhone tab bar.
 
 ### Fixed
 
@@ -74,6 +97,29 @@ versioned sections and git tags begin there.
 - The service browser has real loading and error states.
 - `402` (payment required) and `503` (unavailable) are handled distinctly by the
   API client, so a paywall no longer looks like an outage.
+- **Face ID and Touch ID prompts work.** The app declared no Face ID usage
+  description, so iOS would have terminated it on the first biometric prompt.
+- **Release builds always talk to the production backend.** The launch-argument
+  backend override, the simulator proxy and the design-review hooks now compile only
+  into Debug builds.
+- A fatal signal is reported once and then handed back to the system, so the OS
+  crash log is no longer lost behind the in-app crash reporter.
+- The landing site's download buttons no longer point at a placeholder App Store id.
+  Without a configured store or TestFlight URL they read "coming soon", and the
+  platform status says the same.
+- **Creating a group conversation is idempotent across backend replicas.** The
+  request id is reserved with `SET NX` and released with compare-and-set scripts, so a
+  double tap, a retry, or two replicas racing no longer create two conversations, and
+  members already in the conversation are not notified again.
+- Group chat no longer flickers: a slower, older list response cannot erase a group
+  that just arrived through the realtime hint, and one history request per group at a
+  time stops realtime and the two-second poll from showing the same message twice.
+- Reactions are not queued while offline. After a reconnect, stale taps no longer
+  arrive in the room as a burst that tripped the rate limiter.
+- In search results the "watch later" bookmark is its own control, so tapping it no
+  longer creates a room (it used to be nested inside the result button).
+- The onboarding poster wall loads the Ivi shelf only, so it appears within seconds on
+  a cold install instead of waiting for the PREMIER pool to build.
 
 ### Security
 
@@ -121,6 +167,32 @@ Not user-visible, but part of this release:
 - Every URL the iOS client opens or shares comes from one place
   (`Networking/PlinkURLs.swift`), so the legal pages follow whichever backend the
   build points at while share links keep the brand host.
+- iOS signing is split by configuration: Debug signs with an empty entitlements file
+  (the current team is a Personal Team), Release carries Sign in with Apple and the
+  widget App Group. The widget gained its privacy manifest; the app declares export
+  compliance, iPad orientations, and version keys driven by `MARKETING_VERSION` and
+  `CURRENT_PROJECT_VERSION`.
+- Auth and onboarding strings live in `LocalizationAuthStrings.swift`, read through
+  a nonisolated `L10n.text(_:)` accessor, which keeps the main strings table inside
+  the SwiftLint budget.
+- Backend housekeeping: `.env.example` lists the mail, VK search and RTC paywall
+  variables the code reads; the duplicate `backend/railway.json` is gone (the root
+  file is the one Railway uses); the Dockerfile has a `HEALTHCHECK`; a dead test
+  bootstrap was removed and the QA strategy counts re-measured.
+- Landing: store buttons are driven by `NEXT_PUBLIC_APP_STORE_URL` and
+  `NEXT_PUBLIC_TESTFLIGHT_URL`, every route sends security headers, unused animation
+  dependencies and the leftover i18n table were removed, and the icons, manifest and
+  Open Graph image are copied from `brand/platforms/web`.
+- The user event bus logs through the Fastify logger instead of `console`, and the
+  rate-limiter warnings say what actually happens when Redis is unreachable: the
+  affected request is allowed through uncounted.
+- The web player page and the link-preview poster draw the brand mark as vectors, so
+  the backend ships no raster brand assets.
+- The avatar picker and the push-style cover presentation were extracted from the
+  profile and direct-message screens into their own files.
+- `backend/.prettierignore` mirrors the root ignore list so `npm run format:check`
+  inside `backend/` no longer scans `dist/`, and the backend sources were formatted
+  with Prettier in one pass.
 
 ## Before 1.0.0
 

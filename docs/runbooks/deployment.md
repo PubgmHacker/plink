@@ -55,19 +55,25 @@ If that line is absent, or reports a failure, purchase verification is not trust
 on this deploy. Treat it as a production incident — see
 [incident-response.md](incident-response.md#in-app-purchase-verification-self-check-failed).
 
-### Why the Railway health check is `/health/live` and not `/health/ready`
+### Why the Railway health check is `/health/ready` and not `/health/live`
 
-`railway.json` points the platform health check at `/health/live`, which only proves
-the process is up.
+`railway.json` points the platform health check at `/health/ready`, which returns 200
+only when the process is up **and** Postgres and Redis answer.
 
-That is deliberate. Railway's health check gates _promotion of a new deploy_. Pointing
-it at `/health/ready` would mean a transient Redis blip during rollout fails the
-deploy and rolls back a perfectly good build. `/health/ready` is for load balancers
-and monitoring — things that should stop sending traffic — and it is what you check by
-hand after a deploy.
+That is deliberate. Railway's health check gates _promotion of a new deploy_: the old
+deploy keeps serving until the new one passes. A build that boots but cannot reach its
+database or Redis — a wrong `DATABASE_URL`, a rotated Redis password — would pass
+`/health/live` and be promoted straight into an outage. With `/health/ready` it is never
+promoted, and the previous deploy stays live while you fix the variable.
 
-`/health` still exists and behaves like `/health/ready`, for monitors configured before
-the split.
+The trade-off is a transient dependency blip during rollout. `healthcheckTimeout` is
+300 seconds and Railway keeps polling until the check passes, so a blip that clears
+within five minutes delays promotion rather than failing it. Only a sustained outage
+fails the deploy, and in that case promoting would not have helped.
+
+`/health/live` is for the container runtime (the Dockerfile `HEALTHCHECK`) and for
+"is the process alive" monitors. `/health` still exists and behaves like
+`/health/ready`, for monitors configured before the split.
 
 ---
 
@@ -195,14 +201,22 @@ operationally required, not optional.
 `APNS_PRIVATE_KEY` must keep its line breaks, or carry `\n` escapes — the loader
 accepts both.
 
+**Password-reset mail (Resend)**
+
+| Variable         | Notes                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `RESEND_API_KEY` | Resend → API Keys. Unset means the reset code is written to the server log, not sent.                 |
+| `MAIL_FROM`      | Sender shown to the user; the domain must be verified in Resend. Default `Plink <noreply@plink.app>`. |
+
 **AI features**
 
-| Variable             | Where it comes from                                           |
-| -------------------- | ------------------------------------------------------------- |
-| `OPENROUTER_API_KEY` | OpenRouter → Keys. Server-side only, never in the app bundle. |
-| `AI_MODEL`           | OpenRouter model catalogue                                    |
-| `AI_NSFW_MODEL`      | Optional; falls back to `AI_MODEL`                            |
-| `YOUTUBE_API_KEY`    | Google Cloud Console → YouTube Data API v3                    |
+| Variable             | Where it comes from                                                  |
+| -------------------- | -------------------------------------------------------------------- |
+| `OPENROUTER_API_KEY` | OpenRouter → Keys. Server-side only, never in the app bundle.        |
+| `AI_MODEL`           | OpenRouter model catalogue                                           |
+| `AI_NSFW_MODEL`      | Optional; falls back to `AI_MODEL`                                   |
+| `YOUTUBE_API_KEY`    | Google Cloud Console → YouTube Data API v3                           |
+| `VK_SERVICE_TOKEN`   | VK → service token. Unset means the VK video-search provider is off. |
 
 **Web billing (YooKassa)**
 
@@ -217,7 +231,12 @@ accepts both.
 
 `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` — all three from a single
 LiveKit Cloud project. The API secret never goes near the iOS client. `LIVEKIT_SFU`
-is a separate flag: the credentials make voice *possible*, the flag makes it *on*.
+is a separate flag: the credentials make voice _possible_, the flag makes it _on_.
+
+`RTC_PAYWALL_BEFORE_AVAILABILITY` stays unset (or `false`) unless LiveKit is configured
+on that deployment: by default the availability check runs before the Plink+ paywall,
+so a server without media credentials answers 503 instead of asking for money for a
+feature it cannot deliver.
 
 Confirm what the server thinks it has, since a typo in a secret looks identical to a
 missing feature from the client side:
@@ -252,7 +271,8 @@ operator's check, not the mechanism the app uses to show or hide the microphone.
 Prefer omitting a variable to setting it empty:
 
 `LIVEKIT_*`, `YOOKASSA_*`, `PLUS_PRICE_*`, `APNS_*`, `OPENROUTER_API_KEY`,
-`YOUTUBE_API_KEY`, `SENTRY_DSN`, `OTEL_ENDPOINT`, `SLACK_WEBHOOK_URL`,
+`YOUTUBE_API_KEY`, `VK_SERVICE_TOKEN`, `RESEND_API_KEY`, `SENTRY_DSN`, `OTEL_ENDPOINT`,
+`SLACK_WEBHOOK_URL`,
 `APP_STORE_URL`, `TESTFLIGHT_URL`, `ANDROID_STORE_URL`, `ANDROID_CERT_SHA256`,
 `PRIVILEGED_*`, `ADMIN_STEPUP_CODE`, `DEV_WIPE_SECRET`.
 

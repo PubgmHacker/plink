@@ -49,11 +49,11 @@ That is intentional: a visible key gets reported, and a blank label does not.
 
 ## Languages
 
-| Language | `AppLanguage` | Code | Status                     |
-| -------- | ------------- | ---- | -------------------------- |
-| Russian  | `.russian`    | `ru` | Default, and the fallback  |
-| English  | `.english`    | `en` | Complete in the catalog    |
-| Chinese  | `.chinese`    | `zh` | Complete in the catalog    |
+| Language | `AppLanguage` | Code | Status                    |
+| -------- | ------------- | ---- | ------------------------- |
+| Russian  | `.russian`    | `ru` | Default, and the fallback |
+| English  | `.english`    | `en` | Complete in the catalog   |
+| Chinese  | `.chinese`    | `zh` | Complete in the catalog   |
 
 "Complete in the catalog" means every one of the 441 keys has all three
 translations — there are no partial rows. It does **not** mean the app is fully
@@ -64,12 +64,12 @@ translated, which is the next section.
 These numbers are the point of this page. Measure them again before trusting them;
 the commands are below.
 
-| Measure                                                | Count |
-| ------------------------------------------------------ | ----: |
-| Keys in the catalog, each with all three languages      |   441 |
-| Keys actually referenced by UI code                     |   184 |
-| Keys translated but referenced nowhere                  |   257 |
-| Call sites through the catalog, across 26 files         |   198 |
+| Measure                                                         |     Count |
+| --------------------------------------------------------------- | --------: |
+| Keys in the catalog, each with all three languages              |       441 |
+| Keys actually referenced by UI code                             |       184 |
+| Keys translated but referenced nowhere                          |       257 |
+| Call sites through the catalog, across 26 files                 |       198 |
 | **Russian string literals hardcoded in views, across 97 files** | **1,204** |
 
 So the catalog is complete and correct, and roughly 42% of it is wired up. The
@@ -105,7 +105,7 @@ grep -rhoE '\.string\(\.[A-Za-z0-9_]+' ios/Plink --include='*.swift' \
 log line. Do not count it as coverage.
 
 The SwiftLint rule `russian_comment` in
-[`ios/.swiftlint.yml`](../../ios/.swiftlint.yml) covers Russian *comments*, which
+[`ios/.swiftlint.yml`](../../ios/.swiftlint.yml) covers Russian _comments_, which
 are a different problem — it deliberately does not fire on string literals, because
 Russian literals are correct product copy in the wrong place, not wrong code.
 
@@ -151,7 +151,7 @@ friend online" question goes through that function.
   an exclusion in `project.yml` to keep the build working. All of them are gone. To add
   a language, add it to `L10n.table` — do not create a `.lproj`, which will reintroduce
   the collision and still not be read.
-- **Emoji pack names** (`Базовые`, `Кино`) — Russian, and *wire format*. They are the
+- **Emoji pack names** (`Базовые`, `Кино`) — Russian, and _wire format_. They are the
   `pack` half of the `:pack/name:` token in `PlinkEmojiCatalog.encodeToken`, so
   messages already sent carry them. They cannot be translated or renamed without a
   migration, and they must not be treated as display copy.

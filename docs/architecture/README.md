@@ -129,7 +129,7 @@ files); the drift samples land at `POST /api/telemetry/sync-sample`.
 │   └── prisma/              schema and applied migrations
 ├── landing/                 Next.js marketing site and /plus
 ├── docs/                    this tree
-├── brand/                   logo system; explorations/ holds superseded rounds
+├── brand/                   logo system: masters, platforms/ icon sets, source/ + tools/ to regenerate
 └── Makefile                 the entry point for build, lint and format targets
 ```
 

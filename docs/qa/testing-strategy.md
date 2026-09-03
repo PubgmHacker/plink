@@ -1,13 +1,13 @@
 # Testing strategy
 
 What is tested, where, what actually gates a merge, and what does not. Every number
-here was measured on 2026-08-20; the commands to re-measure are in each section.
+here was measured on 2026-09-02; the commands to re-measure are in each section.
 
 ## The shape of it
 
 | Where             | Framework | Files | Tests | Runs in CI                                                                                |
 | ----------------- | --------- | ----: | ----: | ----------------------------------------------------------------------------------------- |
-| `backend/`        | vitest 4  |    21 |   202 | Yes — gates every PR                                                                      |
+| `backend/`        | vitest 4  |    22 |   221 | Yes — gates every PR                                                                      |
 | `ios/`            | XCTest    |    38 |   458 | Yes, on changes under `ios/` — [why it is filtered](#why-the-ios-job-is-its-own-workflow) |
 | `android-client/` | JUnit     |     1 |     1 | Yes — `testDebugUnitTest`                                                                 |
 | `landing/`        | none      |     0 |     0 | Typecheck, lint, format, build only                                                       |
@@ -26,10 +26,9 @@ job deliberately does not run.
 
 ```
 backend/src/tests/
-├── unit/          9 files,  59 tests   pure functions, no I/O
+├── unit/         10 files,  78 tests   pure functions, no I/O
 ├── contract/      7 files, 121 tests   shapes and invariants, no I/O
 ├── integration/   5 files,  22 tests   real Redis, real Postgres
-├── setup.ts                            shared bootstrap
 └── redisSkipReporter.ts                makes a skipped suite loud
 ```
 
@@ -51,7 +50,7 @@ Extract the pure part into its own module rather than reaching for `vi.mock` on
 `config` — a mock hides the coupling, an extraction removes it.
 
 **Contract** — the shapes both sides of the wire agree on, verified without I/O. This
-is the largest tier (121 of 202 tests) and deliberately so: the realtime protocol is
+is the largest tier (121 of 221 tests) and deliberately so: the realtime protocol is
 where a client and a server drift apart silently.
 
 `protocol-parity.contract.test.ts` is worth reading as the pattern. It does not
@@ -79,11 +78,11 @@ A skipped test that says nothing is indistinguishable from a passing one. Runnin
 full suite without Redis prints:
 
 ```
- Test Files  20 passed | 1 skipped (21)
-      Tests  201 passed | 1 skipped (202)
+ Test Files  20 passed | 2 skipped (22)
+      Tests  213 passed | 8 skipped (221)
 
 ──────────────────────────────────────────────────────────────
-⚠ 1 integration test(s) skipped: REDIS_URL is not set
+⚠ 8 integration test(s) skipped: REDIS_URL is not set
   Start Redis and run: npm run test:integration
 ──────────────────────────────────────────────────────────────
 ```
@@ -108,7 +107,7 @@ a silent runtime miss.
 Measured by running them:
 
 ```
-Executed 458 tests, with 32 tests skipped and 0 failures (0 unexpected) in 1.809 seconds
+Executed 458 tests, with 16 tests skipped and 0 failures (0 unexpected) in 34.068 seconds
 Test Suite 'All tests' passed
 ```
 

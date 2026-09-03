@@ -22,16 +22,15 @@ touches `project.yml`, and after adding or removing files outside Xcode.
 
 ```bash
 cd ios
-cp Secrets.xcconfig.template Secrets.xcconfig   # first time only
 xcodegen generate
 open Plink.xcodeproj
 ```
 
 Or from the repository root: `make xcode`.
 
-`Secrets.xcconfig` holds `PLINK_AI_API_KEY` and `YANDEX_CLIENT_ID`. It is gitignored.
-The app builds and runs without real values; the AI features and Yandex sign-in are
-the only things that will not work.
+The client needs no local secrets: every third-party key lives on the backend, and the
+app only talks to the production origin (a DEBUG-only UserDefaults override exists for
+local development).
 
 Targets:
 
@@ -53,7 +52,7 @@ xcodebuild test -project Plink.xcodeproj -scheme Plink \
 ```
 
 No `-only-testing` is needed: the `Plink` scheme's test action names `PlinkTests` and
-nothing else (`project.yml` → `schemes:`). Expect **458 tests, 32 skipped, 0 failures**.
+nothing else (`project.yml` → `schemes:`). Expect **458 tests, 16 skipped, 0 failures**.
 The same run happens in CI on every change under `ios/` —
 [`.github/workflows/ios.yml`](../../.github/workflows/ios.yml).
 
@@ -68,17 +67,31 @@ the backend suite.
 
 ### Known capability limit
 
-Associated Domains — and therefore universal links — are **not** enabled, because a
-Personal Team cannot provision that capability: provisioning fails with _"Personal
-development teams do not support the Associated Domains capability."_
+Two entitlement files exist per target, chosen by build configuration in `project.yml`:
 
+- **Debug** signs with `Plink/Resources/Plink.entitlements` and
+  `PlinkWidget/PlinkWidget.entitlements`, both empty. The development team is a
+  Personal Team, and a Personal Team cannot provision Sign in with Apple, App Groups or
+  Associated Domains: Xcode fails with _"Personal development teams do not support the
+  … capability."_ In a Debug build Sign in with Apple therefore returns an
+  authorization error and the widget cannot read the shared container. Test both on a
+  Release build.
+- **Release** signs with `Plink/Resources/Plink.release.entitlements` (Sign in with
+  Apple plus the `group.com.syncwatch.plink` App Group) and
+  `PlinkWidget/PlinkWidget.release.entitlements` (the same App Group). Archiving a
+  Release build needs the Apple Developer Program.
+
+Associated Domains — and therefore universal links — are not enabled in either file.
 Custom-scheme deep links (`plink://r/<code>`, `plink://u/<userId>`) work regardless and
 are what `DeepLinkRouter` handles today. Once the account is on the Apple Developer
-Program, re-add to the `Plink` target's entitlements in `project.yml`:
+Program, add to `Plink.release.entitlements`:
 
-```yaml
-com.apple.developer.associated-domains:
-  - applinks:plink.app
+```xml
+<key>com.apple.developer.associated-domains</key>
+<array>
+  <string>applinks:plink.app</string>
+  <string>applinks:plink-production.up.railway.app</string>
+</array>
 ```
 
 The backend already serves `/.well-known/apple-app-site-association`, so nothing else

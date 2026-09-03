@@ -73,6 +73,25 @@ nothing left in the source that needs to be Russian.
 - The one-time conversion touched roughly a thousand comment sites. Every one of them
   was an opportunity to change meaning by accident.
 
+### Where this stands
+
+The conversion is not finished, and this document should not read as if it were.
+Measured on 2026-09-02 with the same pattern the SwiftLint `russian_comment` rule uses
+(a comment marker followed by four or more Cyrillic letters within sixty characters):
+
+| Area                          | Comment sites | Files |
+| ----------------------------- | ------------- | ----- |
+| `backend/src`                 | ~1,750        | 56    |
+| `ios/` (excluding the tables) | ~5,500        | 166   |
+| `landing/`                    | ~36           | 8     |
+
+The rule stays a warning, not an error, so that a Russian comment in a file nobody is
+otherwise touching does not block a release. The ratchet is the rule's own message:
+translate the comments of a file while you are in it, and do not add new ones in
+Russian. A bulk pass over five thousand sites was considered and rejected for the same
+reason the one-time conversion is listed above as a cost: every site is a chance to
+change meaning by accident, and comments do not ship to users.
+
 ### What has to be true for this to keep working
 
 That the team's shared language stays English. If Plink becomes a Russian-only company
