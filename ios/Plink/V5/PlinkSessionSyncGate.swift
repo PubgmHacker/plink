@@ -210,7 +210,7 @@ final class SessionSyncGate {
             }
             ctx.evaluatePolicy(
                 .deviceOwnerAuthenticationWithBiometrics,
-                localizedReason: "Подтвердите вход для этого действия"
+                localizedReason: L10n.text(.biometricReason)
             ) { success, _ in
                 cont.resume(returning: success)
             }

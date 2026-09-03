@@ -155,6 +155,45 @@ enum PlinkEmojiCatalog {
         [freeUnicodePack, cinemaUnicodePack] + allPacks
     }
 
+    /// Converts an internal catalog key into the value accepted by the room
+    /// realtime protocol. Asset names such as `emoji_laugh` are implementation
+    /// details and must never be sent as a reaction or inserted as visible
+    /// plain text. Artwork packs intentionally stay rich-message tokens.
+    static func reactionGlyph(pack: String, name: String) -> String? {
+        guard pack == "Reactions" else { return nil }
+        var key = name
+        if key.hasPrefix("emoji_") {
+            key = String(key.dropFirst("emoji_".count))
+        }
+        switch key {
+        case "laugh": return "😂"
+        case "fire": return "🔥"
+        case "heart", "love": return "❤️"
+        case "thumbs_up": return "👍"
+        case "thumbs_down": return "👎"
+        case "scream": return "😱"
+        case "cry", "sad": return "😢"
+        case "think": return "🤔"
+        case "cool": return "😎"
+        case "party": return "🎉"
+        case "angry": return "😡"
+        case "wow": return "😮"
+        case "sleepy": return "😴"
+        case "clap": return "👏"
+        case "pray": return "🙏"
+        case "ok": return "👍"
+        case "poop": return "💩"
+        case "flex": return "💪"
+        default: return nil
+        }
+    }
+
+    /// Value inserted into the composer. Standard reactions use Unicode;
+    /// custom artwork uses the existing rich-message token format.
+    static func composerInsertion(pack: String, name: String) -> String {
+        reactionGlyph(pack: pack, name: name) ?? encodeToken(pack: pack, name: name)
+    }
+
     // Token format in messages: :pack/name:
     // Example: :Plink+/emoji_neon_laugh:  or  :Pepe/830563-pepe:
     static func encodeToken(pack: String, name: String) -> String {

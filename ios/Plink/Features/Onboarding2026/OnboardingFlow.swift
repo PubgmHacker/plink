@@ -1,25 +1,20 @@
 // Plink/Features/Onboarding2026/OnboardingFlow.swift
 //
-// Первый запуск: три экрана, каждый продаёт одну мысль — смотрим синхронно,
-// лента трейлеров, ИИ собирает комнату. Четвёртого («все экраны») больше нет:
-// кросс-платформенность — не причина установить приложение, а сноска.
+// Первый запуск: три живых экрана на палитре шелла (PlinkShell) — те же цвета,
+// что у иконки, сплэша и экрана входа, поэтому онбординг читается как
+// продолжение входа, а не как отдельный «туториал».
 //
-// Что изменено против прошлой версии и почему:
+//   1. «Смотрим вместе» — стена реальных постеров: полка Иви, которую
+//      показывает Главная, три дрейфующие колонки. Без сети — тайлы фирменного
+//      градиента. Границы использования — ios/ART_ASSET_LICENSES.md.
+//   2. «Комнаты» — реальный скриншот раздела в рамке устройства.
+//   3. «Общение» — реальный скриншот «Чатов» и честное объяснение, зачем
+//      уведомления. Системный диалог — только по кнопке «Разрешить и начать»;
+//      «Не сейчас» заходит в приложение без диалога.
 //
-//   • Было четыре статичных экрана с иконкой SF Symbols и кнопкой «Далее» —
-//     ровно тот устаревший паттерн, от которого отказываемся. Теперь историю
-//     несёт движение: на каждом экране живёт своя сцена.
-//
-//   • «Пропустить» уехало из правого верхнего угла вниз, к основной кнопке.
-//     Верхний правый угол недосягаем большим пальцем (решение из брифа #1), а
-//     выход должен быть под рукой, а не в самом неудобном месте экрана.
-//
-//   • Разрешение на уведомления раньше запрашивалось молча в конце — системный
-//     диалог без объяснения. Теперь последний экран сам объясняет, зачем оно:
-//     «друг позвал смотреть» — и пользователь нажимает «Разрешить» осознанно.
-//     Кто не хочет, нажимает «Не сейчас» и системного диалога не видит вовсе.
-//
-//   • Свайп между экранами остаётся (TabView), стрелок нет — как в ленте.
+// Сохранено из прошлой версии: свайп (TabView), обе кнопки внизу в зоне
+// большого пальца, запрос уведомлений осознанно на последнем экране.
+// Всё движение гейтится Reduce Motion / plinkFreezeAnimations.
 
 import SwiftUI
 import UserNotifications
@@ -30,24 +25,34 @@ struct OnboardingFlow: View {
 
     @State private var page = 0
     @State private var isAskingPermission = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.plinkFreezeAnimations) private var frozen
+    @Environment(\.plinkAccessibilityOverride) private var override
 
-    private static let pageCount = 3
+    private static let pageCount = OnboardingPage.allCases.count
 
     private var isLast: Bool { page >= Self.pageCount - 1 }
+    private var reduceMotion: Bool { systemReduceMotion || override.reduceMotion || frozen }
 
     var body: some View {
         ZStack {
-            PlinkTheatre.velvetDeep.ignoresSafeArea()
-            ProjectorBeamBackground()
+            PlinkShell.background.ignoresSafeArea()
+
+            // Сияние чуть уезжает за активной страницей: слева — комнаты,
+            // справа — общение. Фон увеличен, чтобы сдвиг не открывал край.
+            PlinkShellBackground(glowCenter: UnitPoint(x: 0.5, y: 0.3))
+                .scaleEffect(1.12)
+                .offset(x: reduceMotion ? 0 : CGFloat(page - 1) * -26)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.7), value: page)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
                 TabView(selection: $page) {
-                    OnboardingSyncScene().tag(0)
-                    OnboardingReelsScene().tag(1)
-                    OnboardingAIScene().tag(2)
+                    ForEach(OnboardingPage.allCases) { item in
+                        OnboardingScene(page: item)
+                            .tag(item.rawValue)
+                    }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,13 +74,13 @@ struct OnboardingFlow: View {
         HStack(spacing: 7) {
             ForEach(0..<Self.pageCount, id: \.self) { index in
                 Capsule()
-                    .fill(index == page ? PlinkTheatre.screen : PlinkTheatre.hairline)
+                    .fill(index == page ? PlinkShell.text : PlinkShell.hairline)
                     .frame(width: index == page ? 22 : 7, height: 7)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: page)
             }
         }
         .accessibilityElement()
-        .accessibilityLabel("Шаг \(page + 1) из \(Self.pageCount)")
+        .accessibilityLabel(L10n.text(.onbStepA11y, page + 1, Self.pageCount))
     }
 
     // MARK: Кнопки
@@ -94,18 +99,18 @@ struct OnboardingFlow: View {
                 }
             } label: {
                 ZStack {
-                    Text(isLast ? "Разрешить и начать" : "Далее")
+                    Text(isLast ? L10n.text(.onbAllowStart) : L10n.text(.onbNext))
                         .opacity(isAskingPermission ? 0 : 1)
                     if isAskingPermission {
                         ProgressView()
                             .progressViewStyle(.circular)
-                            .tint(PlinkTheatre.velvetDeep)
+                            .tint(PlinkShell.text)
                     }
                 }
             }
             .buttonStyle(AuthPrimaryButtonStyle())
             .disabled(isAskingPermission)
-            .accessibilityLabel(isLast ? "Разрешить уведомления и начать" : "Далее")
+            .accessibilityLabel(isLast ? L10n.text(.onbAllowStartA11y) : L10n.text(.onbNext))
 
             Button {
                 HapticManager.impact(.light)
@@ -113,9 +118,9 @@ struct OnboardingFlow: View {
                 // приложения без запроса разрешения.
                 (onSkip ?? onFinish)()
             } label: {
-                Text(isLast ? "Не сейчас" : "Пропустить")
+                Text(isLast ? L10n.text(.onbNotNow) : L10n.text(.onbSkip))
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(PlinkTheatre.muted)
+                    .foregroundStyle(PlinkShell.muted)
                     .frame(maxWidth: .infinity)
                     // 44 pt — минимальный хит-таргет, даже у второстепенной кнопки.
                     .frame(minHeight: 44)
@@ -123,7 +128,7 @@ struct OnboardingFlow: View {
             }
             .buttonStyle(.plain)
             .disabled(isAskingPermission)
-            .accessibilityLabel(isLast ? "Начать без уведомлений" : "Пропустить знакомство")
+            .accessibilityLabel(isLast ? L10n.text(.onbStartWithout) : L10n.text(.onbSkipTourA11y))
         }
     }
 
@@ -152,256 +157,107 @@ struct OnboardingFlow: View {
     }
 }
 
-// MARK: - Отдельная сцена для рендера кадров
-//
-// Свайп между экранами в офскрин-рендере не воспроизвести, а судить о
-// редизайне надо по всем трём. Точка входа отдаёт одну сцену по номеру.
+// MARK: - Страницы
 
-// MARK: - Общая рамка экрана
+/// Три страницы онбординга. Сцена и текст одной страницы живут вместе, чтобы
+/// DesignAuditShots мог снять любую из них без свайпа: `OnboardingScene(page:)`.
+enum OnboardingPage: Int, CaseIterable, Identifiable {
+    case catalog
+    case rooms
+    case chats
 
-/// Сцена сверху, текст снизу — одинаково на всех экранах, чтобы при свайпе
-/// заголовки не прыгали по вертикали.
-struct OnboardingScaffold<Scene: View>: View {
-    let title: String
-    let body_: String
-    @ViewBuilder var scene: Scene
+    var id: Int { rawValue }
+
+    var eyebrow: String {
+        switch self {
+        case .catalog: return L10n.text(.onbEyebrowCatalog)
+        case .rooms: return L10n.text(.onbEyebrowRooms)
+        case .chats: return L10n.text(.onbEyebrowChats)
+        }
+    }
+
+    var glyph: V4Glyph {
+        switch self {
+        case .catalog: return .watchTogether
+        case .rooms: return .play
+        case .chats: return .chat
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .catalog: return L10n.text(.onbTitleCatalog)
+        case .rooms: return L10n.text(.onbTitleRooms)
+        case .chats: return L10n.text(.onbTitleChats)
+        }
+    }
+
+    var body: String {
+        switch self {
+        case .catalog:
+            return L10n.text(.onbBodyCatalog)
+        case .rooms:
+            return L10n.text(.onbBodyRooms)
+        case .chats:
+            return L10n.text(.onbBodyChats)
+        }
+    }
+}
+
+/// Одна страница: сцена сверху, текст снизу. Текстовый блок одной высоты на
+/// всех страницах, чтобы при свайпе заголовки не прыгали по вертикали.
+struct OnboardingScene: View {
+    let page: OnboardingPage
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 12)
-
             scene
-                .frame(height: 240)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(true)
 
-            Spacer(minLength: 24)
-
-            Text(title)
-                .font(.system(size: 27, weight: .heavy))
-                .tracking(-0.6)
-                .foregroundStyle(PlinkTheatre.screen)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, 10)
-
-            Text(body_)
-                .font(.system(size: 15))
-                .foregroundStyle(PlinkTheatre.muted)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 16)
-        }
-        .padding(.horizontal, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title). \(body_)")
-    }
-}
-
-// MARK: - Экран 1: синхронный просмотр
-
-/// Два телефона с одним таймкодом. Смысл — не «две картинки», а то, что
-/// полоса прогресса и время на них идут ОДИНАКОВО: это и есть продукт.
-struct OnboardingSyncScene: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var animated: Bool {
-        !reduceMotion && scenePhase == .active
-    }
-
-    var body: some View {
-        OnboardingScaffold(
-            title: "Смотрите вместе — кадр в кадр",
-            body_: "YouTube, VK, Rutube. Один таймкод у всех: поставил на паузу — пауза у друга."
-        ) {
-            if animated {
-                TimelineView(.animation(minimumInterval: 1 / 20)) { context in
-                    phones(at: context.date.timeIntervalSinceReferenceDate)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) {
+                    V4GlyphIcon(glyph: page.glyph, size: 13, weight: .regular)
+                    Text(page.eyebrow.uppercased())
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .tracking(1.6)
                 }
-            } else {
-                // Статичный кадр: Reduce Motion и фон приложения.
-                phones(at: 8)
+                .foregroundStyle(PlinkShell.accentSoft)
+
+                Text(page.title)
+                    .font(.system(size: 30, weight: .bold))
+                    .tracking(-0.4)
+                    .foregroundStyle(PlinkShell.text)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(page.body)
+                    .font(.system(size: 16))
+                    .lineSpacing(3)
+                    .foregroundStyle(PlinkShell.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+            .padding(.horizontal, 26)
+            .padding(.top, 22)
+            .padding(.bottom, 10)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(page.title). \(page.body)")
         }
     }
 
-    private func phones(at t: TimeInterval) -> some View {
-        let loop = t.truncatingRemainder(dividingBy: 20) / 20
-        let seconds = Int(loop * 143)
-        // Подпись «синхронно» — под парой, а не между картами: в середине она
-        // налезала на оба телефона и читалась обрезанной.
-        return VStack(spacing: 14) {
-            HStack(spacing: 18) {
-                phone(progress: loop, seconds: seconds, tilt: -4)
-                phone(progress: loop, seconds: seconds, tilt: 4)
-            }
-            HStack(spacing: 7) {
-                V4GlyphIcon(glyph: .watchTogether, size: 14, weight: .regular)
-                Text("один таймкод")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .tracking(0.7)
-            }
-            .foregroundStyle(PlinkTheatre.muted)
-        }
-    }
-
-    private func phone(progress: Double, seconds: Int, tilt: Double) -> some View {
-        VStack(spacing: 9) {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(PlinkTheatre.velvet)
-                .frame(width: 96, height: 56)
-                .overlay {
-                    // Свет экрана — то, что делает картинку «кино», а не схемой.
-                    RadialGradient(
-                        colors: [PlinkTheatre.warm.opacity(0.55), .clear],
-                        center: .center, startRadius: 2, endRadius: 62
-                    )
-                }
-                .overlay {
-                    V4GlyphIcon(glyph: .play, size: 15, filled: true, weight: .regular)
-                        .foregroundStyle(PlinkTheatre.screen)
-                }
-
-            ZStack(alignment: .leading) {
-                Capsule().fill(PlinkTheatre.screen.opacity(0.14))
-                Capsule().fill(PlinkTheatre.screen)
-                    .frame(width: max(5, 96 * progress))
-            }
-            .frame(width: 96, height: 4)
-
-            Text(String(format: "%02d:%02d", seconds / 60, seconds % 60))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(PlinkTheatre.muted)
-                .monospacedDigit()
-        }
-        .padding(11)
-        .plinkGlass(.control, cornerRadius: 20)
-        .rotationEffect(.degrees(tilt))
-    }
-}
-
-// MARK: - Экран 2: лента трейлеров
-
-/// Колода карточек, верхняя чуть отъезжает — намёк на пролистывание лентой.
-/// Стрелок нет: жест показывается движением, а не иконкой (решение брифа #1).
-struct OnboardingReelsScene: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var lift = false
-
-    var body: some View {
-        OnboardingScaffold(
-            title: "Лента трейлеров",
-            body_: "Свайп вверх — следующий трейлер. Понравился — комната собирается одним касанием."
-        ) {
-            ZStack {
-                // Веером и с поворотом, а не строго друг за другом: при
-                // одинаковом центре колода читалась как одна карточка.
-                card(x: -30, y: 20, angle: -8, scale: 0.88, opacity: 0.40)
-                card(x: 30, y: 20, angle: 8, scale: 0.88, opacity: 0.40)
-                card(x: 0, y: lift ? -14 : 0, angle: 0, scale: 1, opacity: 1)
-            }
-            .onAppear {
-                guard !reduceMotion, scenePhase == .active else { return }
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    lift = true
-                }
-            }
-        }
-    }
-
-    private func card(
-        x: CGFloat,
-        y: CGFloat,
-        angle: Double,
-        scale: CGFloat,
-        opacity: Double
-    ) -> some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(PlinkTheatre.velvet)
-            .frame(width: 128, height: 190)
-            .overlay {
-                RadialGradient(
-                    colors: [PlinkTheatre.warm.opacity(0.42), .clear],
-                    center: UnitPoint(x: 0.5, y: 0.32), startRadius: 4, endRadius: 150
-                )
-            }
-            .overlay(alignment: .bottomLeading) {
-                // Строки-заглушки вместо реального текста: это иллюстрация, а
-                // не превью конкретного фильма.
-                VStack(alignment: .leading, spacing: 5) {
-                    Capsule().fill(PlinkTheatre.screen.opacity(0.85)).frame(width: 70, height: 7)
-                    Capsule().fill(PlinkTheatre.muted.opacity(0.55)).frame(width: 46, height: 5)
-                }
-                .padding(14)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .scaleEffect(scale)
-            .rotationEffect(.degrees(angle))
-            .offset(x: x, y: y)
-            .opacity(opacity)
-    }
-}
-
-// MARK: - Экран 3: ИИ собирает комнату + разрешение на уведомления
-
-/// Здесь же объясняем, зачем нужны уведомления — экран, на котором стоит
-/// главная кнопка «Разрешить и начать».
-struct OnboardingAIScene: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var pulse = false
-
-    var body: some View {
-        OnboardingScaffold(
-            title: "ИИ соберёт комнату",
-            body_: "Скажите, что хочется посмотреть — Plink найдёт видео, создаст комнату и позовёт друзей. Уведомления нужны, чтобы вы не пропустили приглашение."
-        ) {
-            ZStack {
-                ForEach(0..<3, id: \.self) { ring in
-                    Circle()
-                        .strokeBorder(
-                            PlinkTheatre.warm.opacity(0.30 - Double(ring) * 0.08),
-                            lineWidth: 1
-                        )
-                        .frame(width: 108 + CGFloat(ring) * 46)
-                        .scaleEffect(pulse ? 1.06 : 0.98)
-                        .animation(
-                            reduceMotion
-                                ? nil
-                                : .easeInOut(duration: 2.2)
-                                    .repeatForever(autoreverses: true)
-                                    .delay(Double(ring) * 0.28),
-                            value: pulse
-                        )
-                }
-
-                Circle()
-                    .fill(PlinkTheatre.velvet)
-                    .frame(width: 96)
-                    .overlay {
-                        RadialGradient(
-                            colors: [PlinkTheatre.warm.opacity(0.6), .clear],
-                            center: .center, startRadius: 2, endRadius: 70
-                        )
-                    }
-                    .overlay {
-                        V4GlyphIcon(glyph: .sparkle, size: 34, weight: .regular)
-                            .foregroundStyle(PlinkTheatre.screen)
-                    }
-                    .overlay {
-                        Circle().strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
-                    }
-            }
-            .onAppear {
-                guard !reduceMotion, scenePhase == .active else { return }
-                pulse = true
-            }
+    @ViewBuilder
+    private var scene: some View {
+        switch page {
+        case .catalog:
+            OnboardingCatalogWall()
+                .padding(.horizontal, 22)
+                .padding(.top, 8)
+        case .rooms:
+            OnboardingDeviceFrame(imageName: "OnboardingShotRooms", tilt: -2)
+                .padding(.top, 14)
+        case .chats:
+            OnboardingDeviceFrame(imageName: "OnboardingShotChats", tilt: 2, showsInviteToast: true)
+                .padding(.top, 14)
         }
     }
 }

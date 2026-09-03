@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="brand/plink-horizontal-1024.png" alt="Plink" width="380">
+<img src="brand/plink-logo-horizontal-dark@2x.png" alt="Plink" width="380">
 
 **Watch together, in sync — from anywhere.**
 
@@ -133,7 +133,6 @@ The REST surface is documented in [`docs/architecture/api.md`](docs/architecture
 
 ```bash
 cd ios
-cp Secrets.xcconfig.template Secrets.xcconfig   # optional; AI and Yandex features stay off without it
 xcodegen generate
 open Plink.xcodeproj
 ```
@@ -196,7 +195,7 @@ side and not the other fails CI instead of production.
 ## Deployment
 
 `backend/` deploys to Railway from `backend/Dockerfile`; configuration lives in
-[`backend/railway.json`](backend/railway.json). The landing site and web join flow
+[`railway.json`](railway.json) at the repository root. The landing site and web join flow
 are served by the same service. Release steps, rollback procedure, and the
 post-deploy checklist are in the
 [deployment runbook](docs/runbooks/deployment.md).

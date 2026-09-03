@@ -1310,8 +1310,8 @@ internal struct HelpView: View {
                             .padding(14)
                         }
                     }
-                    linkRow("Условия использования", url: PlinkURLs.terms, icon: "doc.plaintext")
-                    linkRow("Конфиденциальность", url: PlinkURLs.privacy, icon: "hand.raised.fill")
+                    linkRow(LocalizationManager.shared.string(.profileTerms), url: PlinkURLs.terms, icon: "doc.plaintext")
+                    linkRow(LocalizationManager.shared.string(.profilePrivacy), url: PlinkURLs.privacy, icon: "hand.raised.fill")
                 }
             }
 

@@ -183,7 +183,10 @@ enum V4CinemaCatalog {
     }
 
     /// Полка Иви: несколько запросов каталога параллельно, потом интерлив.
-    private static func fetchIviShelf(_ chip: String) async -> [V4SearchResult] {
+    /// Только Иви, без пула PREMIER — для мест, где полка нужна за секунды
+    /// (стена постеров онбординга): пул PREMIER на холодной установке
+    /// строится десятками страниц и не успевает к первому экрану.
+    static func fetchIviShelf(_ chip: String) async -> [V4SearchResult] {
         let queries = queries(for: chip)
         guard !queries.isEmpty else { return [] }
 
@@ -1063,14 +1066,37 @@ enum V4TrendsCatalog {
 // поменяться. Поэтому парсер ничего не требует — не нашёл ролики, вернул
 // пустой список, полку несёт второй источник и каталоги кинотеатров.
 enum V4ClipSearch {
+    /// Providers used by the beta picker. The public web pages are used for
+    /// discovery; no Data API key is required.
+    enum Provider: String, Sendable {
+        case youtube
+        case rutube
+    }
+
     /// Ролики под запрос: два видеохостинга параллельно, чередуются на ряду.
     /// Ошибки не всплывают — половина выдачи лучше экрана ошибки.
-    static func search(_ query: String, limit: Int = 14) async -> [V4SearchResult] {
+    static func search(
+        _ query: String,
+        limit: Int = 14,
+        provider: Provider? = nil
+    ) async -> [V4SearchResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
-        async let youtube = V4YouTubeWebSearch.search(trimmed, limit: limit)
-        async let rutube = V4RutubeSearch.search(trimmed, limit: limit)
-        return interleave([await youtube, await rutube], limit: limit)
+
+        let wantsYouTube = provider == nil || provider == .youtube
+        let wantsRutube = provider == nil || provider == .rutube
+        async let youtube = wantsYouTube ? V4YouTubeWebSearch.search(trimmed, limit: limit) : []
+        async let rutube = wantsRutube ? V4RutubeSearch.search(trimmed, limit: limit) : []
+        let direct = interleave([await youtube, await rutube], limit: limit)
+
+        // A phone can reach only one of the two public hosts (DNS filters,
+        // captive portals and regional routing are common). The backend route
+        // is a keyless, cached web-search fallback; it is deliberately queried
+        // only when the direct path did not provide a useful result, so local
+        // users still get the provider native to their network.
+        guard direct.count < min(3, limit) else { return direct }
+        let fallback = await backendSearch(trimmed, limit: limit, provider: provider)
+        return interleave([direct, fallback], limit: limit)
     }
 
     /// Круговой интерлив с дедупликацией по id — как у кинотеатров.
@@ -1083,7 +1109,8 @@ enum V4ClipSearch {
             for bucket in buckets where row < bucket.count {
                 advanced = true
                 let item = bucket[row]
-                guard seen.insert(item.id).inserted else { continue }
+                let key = "\(item.origin.service.rawValue):\(item.id)"
+                guard seen.insert(key).inserted else { continue }
                 merged.append(item)
                 if merged.count >= limit { break }
             }
@@ -1109,6 +1136,110 @@ enum V4ClipSearch {
         req.setValue("ru-RU,ru;q=0.9", forHTTPHeaderField: "Accept-Language")
         return req
     }
+
+    private struct BackendResponse: Decodable {
+        let results: [BackendItem]
+    }
+
+    private struct BackendItem: Decodable {
+        let id: String?
+        let title: String?
+        let channel: String?
+        let thumbnailURL: String?
+        let duration: Double?
+        let url: String?
+        let provider: String?
+        let embedURL: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, title, channel, duration, url, provider
+            case thumbnailURL, embedURL
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try? c.decodeIfPresent(String.self, forKey: .id)
+            title = try? c.decodeIfPresent(String.self, forKey: .title)
+            channel = try? c.decodeIfPresent(String.self, forKey: .channel)
+            thumbnailURL = try? c.decodeIfPresent(String.self, forKey: .thumbnailURL)
+            duration = try? c.decodeIfPresent(Double.self, forKey: .duration)
+            url = try? c.decodeIfPresent(String.self, forKey: .url)
+            provider = try? c.decodeIfPresent(String.self, forKey: .provider)
+            embedURL = try? c.decodeIfPresent(String.self, forKey: .embedURL)
+        }
+    }
+
+    private static func backendSearch(
+        _ query: String,
+        limit: Int,
+        provider: Provider?
+    ) async -> [V4SearchResult] {
+        guard var components = URLComponents(string: "\(PlinkConfig.apiURLString)/media/search") else {
+            return []
+        }
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "limit", value: String(min(limit, 20))),
+        ]
+        guard let url = components.url else { return [] }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request(url))
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+            let payload = try JSONDecoder().decode(BackendResponse.self, from: data)
+            return payload.results.compactMap { item in
+                guard let id = item.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !id.isEmpty,
+                      let title = item.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !title.isEmpty,
+                      let rawProvider = item.provider?.lowercased(),
+                      let providerValue = Provider(rawValue: rawProvider),
+                      provider == nil || provider == providerValue else { return nil }
+
+                let watchURL: String
+                let origin: V4ContentOrigin
+                switch providerValue {
+                case .youtube:
+                    guard id.count == 11 else { return nil }
+                    watchURL = item.url ?? "https://www.youtube.com/watch?v=\(id)"
+                    origin = .youtube
+                case .rutube:
+                    watchURL = item.url ?? "https://rutube.ru/video/\(id)/"
+                    origin = .video(.rutube)
+                }
+                return V4SearchResult(
+                    id: id,
+                    title: title,
+                    subtitle: item.channel ?? providerValue.rawValue,
+                    artworkURL: item.thumbnailURL.flatMap(URL.init(string:)),
+                    posterURL: nil,
+                    duration: item.duration.flatMap(Self.clock),
+                    isSelectable: true,
+                    origin: origin,
+                    watchURL: watchURL,
+                    year: nil,
+                    kindLabel: nil,
+                    ratingText: nil,
+                    isFreeOnService: false,
+                    isSeries: false
+                )
+            }
+        } catch is CancellationError {
+            return []
+        } catch {
+            return []
+        }
+    }
+
+    private static func clock(_ seconds: Double) -> String? {
+        guard seconds > 0, seconds.isFinite else { return nil }
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
+    }
 }
 
 // MARK: Поиск YouTube по публичной странице
@@ -1116,43 +1247,83 @@ enum V4ClipSearch {
 /// Та же выдача, что видит человек на youtube.com/results. Ключ не нужен,
 /// квоты нет: страница публичная, отдаётся без входа.
 enum V4YouTubeWebSearch {
-    /// `sp=EgIQAQ%3D%3D` — фильтр «только видео»: без него в выдачу лезут
-    /// каналы и плейлисты, из которых комнату не собрать.
-    private static let videosOnly = "EgIQAQ%3D%3D"
-
     static func search(_ query: String, limit: Int) async -> [V4SearchResult] {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://www.youtube.com/results?search_query=\(encoded)&sp=\(videosOnly)")
-        else { return [] }
-        do {
-            let (data, response) = try await URLSession.shared.data(for: V4ClipSearch.request(url))
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let html = String(data: data, encoding: .utf8),
-                  let root = initialData(in: html) else {
-                #if DEBUG
-                print("[V4YouTubeWebSearch] «\(query)»: страница без ytInitialData")
-                #endif
+        let hosts = ["www.youtube.com", "m.youtube.com"]
+        for host in hosts {
+            var components = URLComponents(string: "https://\(host)/results")
+            components?.queryItems = [
+                URLQueryItem(name: "search_query", value: query),
+                URLQueryItem(name: "sp", value: "EgIQAQ=="),
+            ]
+            guard let url = components?.url else { continue }
+            do {
+                let (data, response) = try await URLSession.shared.data(for: V4ClipSearch.request(url))
+                guard (response as? HTTPURLResponse)?.statusCode == 200,
+                      let html = String(data: data, encoding: .utf8) else { continue }
+                let results = parseSearchHTML(html, limit: limit)
+                if !results.isEmpty { return results }
+            } catch is CancellationError {
                 return []
+            } catch {
+                continue
             }
-            return renderers(in: root).prefix(limit).compactMap(card(from:))
-        } catch is CancellationError {
-            return []
-        } catch {
-            #if DEBUG
-            print("[V4YouTubeWebSearch] «\(query)» не загрузился: \(error)")
-            #endif
-            return []
         }
+        #if DEBUG
+        print("[V4YouTubeWebSearch] «\(query)»: выдача недоступна или не распознана")
+        #endif
+        return []
+    }
+
+    /// Exposed for deterministic fixture tests; network code calls the same
+    /// parser so a markup change cannot silently break the picker.
+    static func parseSearchHTML(_ html: String, limit: Int) -> [V4SearchResult] {
+        guard let root = initialData(in: html) else { return [] }
+        return renderers(in: root).prefix(limit).compactMap(card(from:))
     }
 
     /// Выдача лежит в странице одним JSON-блоком `var ytInitialData = {…};`.
     /// Границы ищутся по тексту, а не регуляркой: блок больше мегабайта, и
     /// «ленивый» поиск подстроки по нему заметно дешевле.
     private static func initialData(in html: String) -> Any? {
-        guard let start = html.range(of: "var ytInitialData = ") else { return nil }
-        let rest = html[start.upperBound...]
-        guard let end = rest.range(of: ";</script>") else { return nil }
-        return try? JSONSerialization.jsonObject(with: Data(rest[..<end.lowerBound].utf8))
+        let markers = ["var ytInitialData =", "ytInitialData =", "window[\"ytInitialData\"] ="]
+        for marker in markers {
+            guard let start = html.range(of: marker) else { continue }
+            let rest = html[start.upperBound...]
+            guard let open = rest.firstIndex(of: "{") else { continue }
+
+            var depth = 0
+            var inString = false
+            var escaped = false
+            var index = open
+            while index < rest.endIndex {
+                let character = rest[index]
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if character == "\\" {
+                        escaped = true
+                    } else if character == "\"" {
+                        inString = false
+                    }
+                } else if character == "\"" {
+                    inString = true
+                } else if character == "{" {
+                    depth += 1
+                } else if character == "}" {
+                    depth -= 1
+                    if depth == 0 {
+                        let json = String(rest[open...index])
+                        if let data = json.data(using: .utf8),
+                           let object = try? JSONSerialization.jsonObject(with: data) {
+                            return object
+                        }
+                        break
+                    }
+                }
+                index = rest.index(after: index)
+            }
+        }
+        return nil
     }
 
     /// Ролики разбросаны по дереву разделов выдачи, поэтому оно обходится
@@ -1177,7 +1348,8 @@ enum V4YouTubeWebSearch {
               let title = runs(renderer["title"]), !title.isEmpty,
               // Нет длительности — это эфир или премьера. Синхронно смотреть
               // такое нельзя: у участников разные точки входа в поток.
-              let duration = (renderer["lengthText"] as? [String: Any])?["simpleText"] as? String
+              let duration = runs(renderer["lengthText"]),
+              !duration.isEmpty
         else { return nil }
         let thumbnails = (renderer["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
         return V4SearchResult(
@@ -1226,6 +1398,10 @@ enum V4RutubeSearch {
         let thumbnailURL: String?
         let isAdult: Bool?
         let isLivestream: Bool?
+        let isDeleted: Bool?
+        let isHidden: Bool?
+        let isLocked: Bool?
+        let isOnAir: Bool?
         let author: Author?
 
         struct Author: Decodable { let name: String? }
@@ -1236,26 +1412,47 @@ enum V4RutubeSearch {
             case thumbnailURL = "thumbnail_url"
             case isAdult = "is_adult"
             case isLivestream = "is_livestream"
+            case isDeleted = "is_deleted"
+            case isHidden = "is_hidden"
+            case isLocked = "is_locked"
+            case isOnAir = "is_on_air"
         }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             // id и название обязательны: без них карточка не собирается.
-            id = try c.decode(String.self, forKey: .id)
+            if let stringID = try? c.decode(String.self, forKey: .id) {
+                id = stringID
+            } else {
+                id = String(try c.decode(Int.self, forKey: .id))
+            }
             title = (try? c.decode(String.self, forKey: .title)) ?? ""
-            duration = try? c.decodeIfPresent(Int.self, forKey: .duration)
+            if let value = try? c.decode(Int.self, forKey: .duration) {
+                duration = value
+            } else if let raw = try? c.decode(String.self, forKey: .duration) {
+                duration = Int(raw)
+            } else {
+                duration = nil
+            }
             videoURL = try? c.decodeIfPresent(String.self, forKey: .videoURL)
             thumbnailURL = try? c.decodeIfPresent(String.self, forKey: .thumbnailURL)
             isAdult = try? c.decodeIfPresent(Bool.self, forKey: .isAdult)
             isLivestream = try? c.decodeIfPresent(Bool.self, forKey: .isLivestream)
+            isDeleted = try? c.decodeIfPresent(Bool.self, forKey: .isDeleted)
+            isHidden = try? c.decodeIfPresent(Bool.self, forKey: .isHidden)
+            isLocked = try? c.decodeIfPresent(Bool.self, forKey: .isLocked)
+            isOnAir = try? c.decodeIfPresent(Bool.self, forKey: .isOnAir)
             author = try? c.decodeIfPresent(Author.self, forKey: .author)
         }
     }
 
     static func search(_ query: String, limit: Int) async -> [V4SearchResult] {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://rutube.ru/api/search/video/?query=\(encoded)&limit=\(limit)")
-        else { return [] }
+        var components = URLComponents(string: "https://rutube.ru/api/search/video/")
+        components?.queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "limit", value: String(min(limit, 20))),
+        ]
+        guard let url = components?.url else { return [] }
         do {
             let (data, response) = try await URLSession.shared.data(for: V4ClipSearch.request(url))
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
@@ -1274,7 +1471,13 @@ enum V4RutubeSearch {
     private static func card(from item: Item) -> V4SearchResult? {
         // Взрослое — мимо витрины: комнату видят все участники.
         // Эфир — мимо по той же причине, что и у YouTube: он не синхронизируется.
-        guard !item.title.isEmpty, item.isAdult != true, item.isLivestream != true else { return nil }
+        guard !item.title.isEmpty,
+              item.isAdult != true,
+              item.isLivestream != true,
+              item.isOnAir != true,
+              item.isDeleted != true,
+              item.isHidden != true,
+              item.isLocked != true else { return nil }
         let link = item.videoURL ?? "https://rutube.ru/video/\(item.id)/"
         return V4SearchResult(
             id: "rutube-\(item.id)",

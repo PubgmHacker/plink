@@ -160,6 +160,7 @@ struct V4HomeViewLive: View {
         return V4HomeViewLive.genres[0]
     }()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
 
     /// Автообновление витрины (22.08.2026): раз в 15 минут полки старше TTL
     /// перезапрашиваются — подборки следят за трендами сами, пока экран жив.
@@ -1030,6 +1031,22 @@ struct V4HomeViewLive: View {
     private func createRoomFromTrending(
         _ item: V4SearchResult, target: V4WatchTarget = .native
     ) async {
+        // A bridge chip carries a normal HTTPS search URL, not a playable
+        // source. Open it in the provider instead of creating a room whose
+        // WebView only shows a catalogue page. The same guard protects us from
+        // future/unsupported catalogue entries that may arrive from cache.
+        if case .cinema(_, let externalURL) = target {
+            if let url = URL(string: externalURL) {
+                await MainActor.run { openURL(url) }
+            }
+            return
+        }
+        guard item.origin.isClip, item.origin.service.isAvailableInBeta else {
+            if let url = URL(string: item.watchURL) {
+                await MainActor.run { openURL(url) }
+            }
+            return
+        }
         if APIClient.shared.authToken == nil {
             APIClient.shared.authToken = AuthTokenStore.shared.token
         }
@@ -1038,15 +1055,13 @@ struct V4HomeViewLive: View {
             return
         }
 
-        // Кинотеатры в приоритете (22.08.2026): у карточки три пути в комнату.
-        // Ролик YouTube — прежний прямой синх; тайтл из каталога — страница
-        // просмотра кинотеатра; чип «Где ещё смотреть» — страница поиска
-        // выбранного кинотеатра по названию. Кино открывается в WebView,
-        // хост входит в свой аккаунт — Plink не обходит защиту.
+        // В beta в комнату попадают только ролики YouTube/RuTube с
+        // официальным embed-плеером. Каталоги кинотеатров открываются
+        // напрямую в самом сервисе (см. guard выше).
         let mediaItem: MediaItem
         let analyticsSource: String
-        switch (target, item.origin) {
-        case (.native, .youtube):
+        switch item.origin {
+        case .youtube:
             let videoId = item.id
             mediaItem = MediaItem(
                 id: videoId,
@@ -1060,9 +1075,9 @@ struct V4HomeViewLive: View {
                 videoId: videoId
             )
             analyticsSource = "youtube"
-        case (.native, .video(let service)):
-            // Ролик стороннего хостинга: комната сама разберёт ссылку
-            // (RuTube и VK идут через свои embed-контроллеры).
+        case .video(let service):
+            // RuTube: комната разберёт официальный URL и подключит свой
+            // embed-контроллер. Другие video-провайдеры отсечены guard-ом.
             mediaItem = MediaItem(
                 id: item.id,
                 title: item.title,
@@ -1075,32 +1090,13 @@ struct V4HomeViewLive: View {
                 videoId: nil
             )
             analyticsSource = service.rawValue
-        case (.native, .cinema(let service)):
-            mediaItem = MediaItem(
-                id: item.id,
-                title: item.title,
-                artist: nil,
-                thumbnailURL: (item.artworkURL ?? item.posterURL)?.absoluteString,
-                streamURL: item.watchURL,
-                duration: nil,
-                mediaType: item.isSeries ? .series : .movie,
-                source: .url,
-                videoId: nil
-            )
-            analyticsSource = service.rawValue
-        case (.cinema(let service, let url), _):
-            mediaItem = MediaItem(
-                id: "\(service.rawValue)-\(item.id)",
-                title: item.title,
-                artist: nil,
-                thumbnailURL: (item.artworkURL ?? item.posterURL)?.absoluteString,
-                streamURL: url,
-                duration: nil,
-                mediaType: item.isSeries ? .series : .movie,
-                source: .url,
-                videoId: nil
-            )
-            analyticsSource = "bridge_\(service.rawValue)"
+        case .cinema:
+            // Defensive branch for stale callers/cached UI. Never turn a
+            // non-playable catalogue page into a fake synchronized room.
+            if let url = URL(string: item.watchURL) {
+                await MainActor.run { openURL(url) }
+            }
+            return
         }
         AnalyticsService.shared.track(
             "room_create_from_trending",

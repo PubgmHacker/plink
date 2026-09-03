@@ -94,8 +94,29 @@ final class DesignAuditShots: XCTestCase {
     /// offscreen render, so the scenes are captured directly.
     func testOnboardingScenesShot() throws {
         try requireEnabled()
-        try shoot(OnboardingScenePreview(page: 1), named: "04b-onboarding-reels")
-        try shoot(OnboardingScenePreview(page: 2), named: "04c-onboarding-ai")
+        try shoot(OnboardingScene(page: .rooms), named: "04b-onboarding-rooms")
+        try shoot(OnboardingScene(page: .chats), named: "04c-onboarding-chats")
+    }
+
+    /// Стена первого экрана с настоящими постерами. В симуляторе под VPN без
+    /// DNS URLSession не резолвит api.ivi.ru, поэтому постеры для кадра
+    /// скачивает хост в каталог из DESIGN_AUDIT_POSTERS (по умолчанию
+    /// /tmp/plink-posters), а стена получает их как file://-ссылки через
+    /// `OnboardingCatalogWall.posterSource`. Вёрстка и AsyncImage — те же, что
+    /// в проде; отличается только транспорт.
+    func testOnboardingWallPostersShot() throws {
+        try requireEnabled()
+        let env = ProcessInfo.processInfo.environment["DESIGN_AUDIT_POSTERS"] ?? ""
+        let directory = URL(fileURLWithPath: env.isEmpty ? "/tmp/plink-posters" : env, isDirectory: true)
+        let files = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
+            .filter { ["jpg", "jpeg", "png"].contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        try XCTSkipIf(files.isEmpty, "No posters in \(directory.path): download them on the host first.")
+
+        let live = OnboardingCatalogWall.posterSource
+        OnboardingCatalogWall.posterSource = { files }
+        defer { OnboardingCatalogWall.posterSource = live }
+        try shoot(OnboardingScene(page: .catalog), named: "04a-onboarding-wall-posters")
     }
 
     func testAppearanceShot() throws {

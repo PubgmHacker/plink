@@ -231,7 +231,9 @@ struct PlinkApp: App {
     init() {
         // Обход DNS симулятора через локальный прокси — активен только
         // при заданной PLINK_PROXY, до создания сетевых сервисов.
+        #if DEBUG
         PlinkSimProxy.activateIfNeeded()
+        #endif
 
         // Configure AVAudioSession at app launch.
         // Tells iOS: "we are a media player, don't kill WebKit/AVPlayer

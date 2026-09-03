@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Plink
+Comment=Watch together. Anywhere.
+Exec=plink %U
+Icon=plink
+Categories=AudioVideo;Video;Network;
+StartupWMClass=Plink

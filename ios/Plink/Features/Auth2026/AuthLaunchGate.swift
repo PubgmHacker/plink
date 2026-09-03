@@ -1,5 +1,5 @@
 // Plink/Features/Auth2026/AuthLaunchGate.swift — MVP: skip + notifications + deferred deep links
-// Splash redesign: кинозал — луч проектора + слоёный play-кадр (CinematicSplashView ниже).
+// Сплэш — лок-ап бренда на фоне шелла (PlinkSplashView ниже); палитра PlinkShell.
 
 import SwiftUI
 import UserNotifications
@@ -32,7 +32,7 @@ struct AuthLaunchGate: View {
         ZStack {
             switch destination {
             case .restoringSession:
-                CinematicSplashView()
+                PlinkSplashView()
                     .transition(.opacity)
 
             case .authentication:
@@ -75,7 +75,7 @@ struct AuthLaunchGate: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .plinkSessionExpired)) { _ in
             AuthService.shared.signOutLocally(postNotification: false)
-            authNotice = "Сессия истекла. Войдите заново — это защищает ваш аккаунт."
+            authNotice = L10n.text(.sessionExpiredSecure)
             withAnimation(.easeOut(duration: 0.3)) {
                 destination = .authentication
             }
@@ -143,6 +143,20 @@ struct AuthLaunchGate: View {
                 if AuthService.shared.authToken != nil {
                     onboardingStore.markCompleted(version: OnboardingVersion.current)
                     handleAuthenticated()
+                    // `-plink.designurl plink://r/CODE` — открыть диплинк сразу после
+                    // автологина. `simctl openurl` вешает на SpringBoard системный
+                    // диалог «Открыть в приложении „Плинк“?», который без тапа не
+                    // закрыть, а тапов у симулятора на чужом Space нет. Пауза даёт
+                    // оболочке смонтироваться и подписаться на pendingLink.
+                    let args = ProcessInfo.processInfo.arguments
+                    if let i = args.firstIndex(of: "-plink.designurl"),
+                       args.indices.contains(i + 1),
+                       let url = URL(string: args[i + 1]) {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(2500))
+                            DeepLinkRouter.shared.handle(url)
+                        }
+                    }
                     return
                 }
                 // Не вышло (нет сети, занят username) — обычный путь на экран входа.
@@ -165,7 +179,7 @@ struct AuthLaunchGate: View {
             authNotice = nil
             destination = onboardingStore.needsCurrentOnboarding ? .onboarding : .app
         case .expired:
-            authNotice = "Сессия истекла. Войдите заново — мы сохранили ваши локальные настройки."
+            authNotice = L10n.text(.sessionExpiredKept)
             destination = .authentication
         case .unauthenticated:
             authNotice = nil
@@ -339,157 +353,69 @@ struct AuthLaunchGate: View {
     #endif
 }
 
-// MARK: - Cinematic splash («restoring session»)
+// MARK: - Сплэш («restoring session»)
 
-/// Сплэш берёт цвета ИЗ ШЕЛЛА (PlinkTheatre), а не держит свою копию.
+/// Сплэш — тот же лок-ап, что на иконке и на экране входа: знак, вордмарк и
+/// теглайн эталона на фоне шелла. Сплэш и вход показываются друг за другом,
+/// поэтому фон и палитра у них одни (PlinkShellBackground / PlinkShell), и
+/// переход между ними — только появление формы, а не смена сцены.
 ///
-/// Здесь лежала третья палитра проекта со своими значениями
-/// (#060d0f вместо #0B0B0D и т.д.) и с мёртвыми teal-токенами от палитры,
-/// которой в продукте уже нет. Сплэш и вход показываются друг за другом, и
-/// расхождение читалось как смена фона при переходе.
-private enum SplashPalette {
-    static let velvetDeep = PlinkTheatre.velvetDeep
-    static let velvet = PlinkTheatre.velvet
-    static let screenLight = PlinkTheatre.screen
-    static let muted = PlinkTheatre.muted
-    /// Акцент сплэша — тёплый свет, тот же, что у знака и у входа.
-    static let accent = PlinkTheatre.warm
-}
-
-/// Луч проектора: трапеция от узкой «апертуры» сверху к широкому основанию.
-private struct ProjectorBeamShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let apertureWidth = rect.width * 0.14
-        path.move(to: CGPoint(x: rect.midX - apertureWidth / 2, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.midX + apertureWidth / 2, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.closeSubpath()
-        return path
-    }
-}
-
-struct CinematicSplashView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+/// Здесь стояла третья палитра проекта — «бархат кинозала» с лучом
+/// проектора и teal-акцентом. Ушла вместе с AnimatedPosterMosaic.swift.
+struct PlinkSplashView: View {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.plinkFreezeAnimations) private var frozen
+    @Environment(\.plinkAccessibilityOverride) private var override
     @State private var appeared = false
     @State private var pulsing = false
 
+    private var reduceMotion: Bool { systemReduceMotion || override.reduceMotion || frozen }
+
     var body: some View {
         ZStack {
-            // Бархат кинозала: чуть светлее у «экрана» сверху, глубже к полу.
-            LinearGradient(
-                colors: [SplashPalette.velvet, SplashPalette.velvetDeep],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Сияние чуть ниже, чем на входе: там оно стоит над формой, здесь
+            // — ровно за знаком, который висит по центру.
+            PlinkShellBackground(glowCenter: UnitPoint(x: 0.5, y: 0.42))
+                .ignoresSafeArea()
 
-            projectorBeam
-                .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                Spacer()
 
-            content
+                // Дышит только знак: вордмарк и теглайн под ним стоят на
+                // месте, иначе весь блок «плывёт» и читается как лаг.
+                PlinkBrandMark(size: 96)
+                    .scaleEffect(pulsing ? 1.03 : 1.0)
+
+                PlinkWordmark(size: 36)
+                    .padding(.top, 22)
+
+                PlinkTagline(size: 12)
+                    .padding(.top, 12)
+
+                Spacer()
+
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(PlinkShell.accentSoft)
+                    .scaleEffect(0.9)
+                    .opacity(0.85)
+                    .padding(.bottom, 48)
+            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: (appeared || reduceMotion) ? 0 : 10)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(L10n.text(.launchA11y))
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             withAnimation(.easeOut(duration: reduceMotion ? 0.25 : 0.6)) {
                 appeared = true
             }
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) {
                 pulsing = true
             }
         }
-    }
-
-    // MARK: Слои
-
-    /// Мягкий луч проектора сверху — как на лендинге.
-    private var projectorBeam: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .top) {
-                if reduceTransparency {
-                    // Без blur: плоская световая вуаль сверху.
-                    LinearGradient(
-                        colors: [SplashPalette.screenLight.opacity(0.06), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: proxy.size.height * 0.5)
-                } else {
-                    ProjectorBeamShape()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    SplashPalette.screenLight.opacity(0.10),
-                                    SplashPalette.screenLight.opacity(0.03),
-                                    .clear
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: proxy.size.width, height: proxy.size.height * 0.58)
-                        .blur(radius: 26)
-                        .blendMode(.screen)
-
-                    // «Апертура»: точка света в самом верху луча.
-                    Circle()
-                        .fill(SplashPalette.screenLight.opacity(0.35))
-                        .frame(width: 10, height: 10)
-                        .blur(radius: 10)
-                        .frame(maxWidth: .infinity)
-                        .offset(y: -2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .ignoresSafeArea()
-        .opacity(appeared ? 1 : 0)
-    }
-
-    private var content: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            logoMark
-                .scaleEffect(pulsing ? 1.04 : 1.0)
-
-            // Ровно тот же компонент, что на экране входа, — со светящейся
-            // щелью на месте «I». Раньше здесь стоял свой Text("PLINK"), и
-            // сплэш с входом показывали разные написания одного слова.
-            PlinkWordmark(size: 34)
-                .padding(.top, 22)
-
-            Text("СМОТРИМ ВМЕСТЕ")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .tracking(3.5)
-                .padding(.leading, 3.5) // компенсация tracking после последнего символа
-                .foregroundStyle(SplashPalette.muted)
-                .padding(.top, 10)
-
-            Spacer()
-
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(SplashPalette.accent)
-                .scaleEffect(0.9)
-                .opacity(0.85)
-                .padding(.bottom, 48)
-        }
-        .opacity(appeared ? 1 : 0)
-        .offset(y: (appeared || reduceMotion) ? 0 : 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Plink. Смотрим вместе. Загрузка")
-    }
-
-    /// Логотип сплэша — тот же знак, что на иконке и на экране входа.
-    ///
-    /// Здесь был свой «слоёный play-кадр» в teal-градиенте: третья версия
-    /// логотипа в одном продукте (иконка, вход, сплэш — все разные). Знак
-    /// теперь один.
-    private var logoMark: some View {
-        PlinkBrandMark(size: 82)
     }
 }
 

@@ -67,6 +67,7 @@ final class V4VoiceCapture: ObservableObject {
     @Published private(set) var isLocked = false
     @Published private(set) var cancelArmed = false
     @Published private(set) var heard = ""
+    @Published private(set) var errorMessage: String?
 
     private let speech = V4SpeechRecognizer()
     private var bag = Set<AnyCancellable>()
@@ -81,12 +82,19 @@ final class V4VoiceCapture: ObservableObject {
         speech.$transcript
             .sink { [weak self] text in self?.heard = text }
             .store(in: &bag)
+        speech.$errorMessage
+            .sink { [weak self] message in
+                guard let message, !message.isEmpty else { return }
+                self?.fail(message)
+            }
+            .store(in: &bag)
     }
 
     func pressBegan(surface: String) {
         guard !isCapturing else { return }
         pressStartedAt = Date()
         heard = ""
+        errorMessage = nil
         cancelArmed = false
         isLocked = false
         isCapturing = true
@@ -131,6 +139,19 @@ final class V4VoiceCapture: ObservableObject {
         cancelArmed = false
         heard = ""
         HapticManager.impact(.medium)
+    }
+
+    func dismissError() {
+        errorMessage = nil
+    }
+
+    private func fail(_ message: String) {
+        isCapturing = false
+        isLocked = false
+        cancelArmed = false
+        heard = ""
+        errorMessage = message
+        HapticManager.errorOccurred()
     }
 
     private func finish(complete: @escaping (String) -> Void) {
@@ -315,6 +336,47 @@ struct V4VoiceDock: View {
         if capture.cancelArmed { return "Отпустите — запрос отменится" }
         if capture.isLocked { return "Запись идёт. Отправьте или отмените." }
         return "Отпустите — отправлю. Вверх — отмена."
+    }
+}
+
+/// Inline failure state for microphone/speech permissions. A voice feature is
+/// optional; refusing access must leave the room/chat usable.
+struct V4VoiceErrorBanner: View {
+    @ObservedObject var capture: V4VoiceCapture
+    var body: some View {
+        if let message = capture.errorMessage {
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: "mic.slash.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 12, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Настройки") {
+                    PlinkPermissions.openAppSettings()
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.plain)
+                Button {
+                    capture.dismissError()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Закрыть уведомление")
+            }
+            .foregroundStyle(V4.ink)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(V4.surface.opacity(0.94), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(V4.danger.opacity(0.35), lineWidth: 0.8)
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 
@@ -520,6 +582,8 @@ struct V4AIViewLive: View {
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+
+            V4VoiceErrorBanner(capture: capture)
 
             HStack(spacing: 10) {
                 Button {

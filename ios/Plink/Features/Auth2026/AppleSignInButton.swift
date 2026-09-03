@@ -40,7 +40,7 @@ struct AppleSignInButton: View {
             HStack(spacing: 10) {
                 Image(systemName: "apple.logo")
                     .font(.system(size: 17, weight: .medium))
-                Text(isLoading ? "Входим…" : "Войти через Apple")
+                Text(isLoading ? L10n.text(.authAppleSigningIn) : L10n.text(.authAppleButton))
                     .font(.system(size: 15, weight: .semibold))
             }
             .foregroundStyle(Color(hex: 0x101013))
@@ -51,7 +51,7 @@ struct AppleSignInButton: View {
         .buttonStyle(.plain)
         .disabled(isLoading)
         .accessibilityIdentifier("auth.signInWithApple")
-        .accessibilityLabel("Войти через Apple")
+        .accessibilityLabel(L10n.text(.authAppleButton))
     }
 }
 
@@ -105,7 +105,7 @@ final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
             Task { @MainActor in
                 continuation?.resume(returning: .failure(
                     NSError(domain: "PlinkApple", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "Apple не вернул identity token",
+                        NSLocalizedDescriptionKey: L10n.text(.authAppleNoToken),
                     ])
                 ))
                 continuation = nil

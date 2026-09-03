@@ -8,6 +8,7 @@ import Foundation
 enum PlinkConfig {
     /// Base host, no trailing slash, no /api suffix.
     static var baseURLString: String {
+        #if DEBUG
         if let override = UserDefaults.standard.string(forKey: "plink.backend_base_url"),
            !override.isEmpty {
             return override
@@ -15,6 +16,7 @@ enum PlinkConfig {
         if ProcessInfo.processInfo.arguments.contains("-plink.uitest") {
             return "http://localhost:8080"
         }
+        #endif
         return "https://plink-production.up.railway.app"
     }
 

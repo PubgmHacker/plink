@@ -9,6 +9,16 @@ enum AppLanguage: String, CaseIterable, Identifiable, Codable {
     case english = "en"
     case chinese = "zh"
 
+    /// Language for a first launch: the first preferred device language we ship,
+    /// otherwise English (the international fallback).
+    static var systemDefault: AppLanguage {
+        for tag in Locale.preferredLanguages {
+            let code = tag.lowercased().split(separator: "-").first.map(String.init) ?? tag.lowercased()
+            if let match = AppLanguage(rawValue: code) { return match }
+        }
+        return .english
+    }
+
     var id: String { rawValue }
 
     /// Название языка на самом языке (для переключателя).
@@ -57,13 +67,21 @@ final class LocalizationManager: ObservableObject {
     private static let storageKey = "plink_app_language"
 
     private init() {
-        let raw = UserDefaults.standard.string(forKey: Self.storageKey) ?? AppLanguage.russian.rawValue
-        currentLanguage = AppLanguage(rawValue: raw) ?? .russian
+        if let raw = UserDefaults.standard.string(forKey: Self.storageKey),
+           let stored = AppLanguage(rawValue: raw) {
+            currentLanguage = stored
+        } else {
+            // First launch: follow the device language, then remember the choice so
+            // every reader (including LanguageReader) agrees from now on.
+            let resolved = AppLanguage.systemDefault
+            currentLanguage = resolved
+            UserDefaults.standard.set(resolved.rawValue, forKey: Self.storageKey)
+        }
     }
 
     /// Nonisolated доступ к текущему языку для use-case'ов вне MainActor
     /// (например, вычисляемые свойства enum'ов). Читает напрямую из UserDefaults.
-    static var sharedSafe: LanguageReader { LanguageReader() }
+    nonisolated static var sharedSafe: LanguageReader { LanguageReader() }
 
     /// Локализованная строка по ключу.
     func string(_ key: L10n.Key) -> String {
@@ -74,8 +92,9 @@ final class LocalizationManager: ObservableObject {
 /// Thread-safe read-only доступ к выбранному языку.
 struct LanguageReader {
     var currentLanguage: AppLanguage {
-        let raw = UserDefaults.standard.string(forKey: "plink_app_language") ?? AppLanguage.russian.rawValue
-        return AppLanguage(rawValue: raw) ?? .russian
+        guard let raw = UserDefaults.standard.string(forKey: "plink_app_language"),
+              let stored = AppLanguage(rawValue: raw) else { return AppLanguage.systemDefault }
+        return stored
     }
 }
 
@@ -344,6 +363,74 @@ enum L10n {
         case loginContinueWith = "login.continueWith"
         case loginConnecting = "login.connecting"
         case loginTerms = "login.terms"
+
+        // Auth 2026 / onboarding v4 / shared error copy
+        case authModeSignIn = "auth.mode.signIn"
+        case authModeSignUp = "auth.mode.signUp"
+        case authActionSignIn = "auth.action.signIn"
+        case authMethodEmail = "auth.method.email"
+        case authHeroA11y = "auth.hero.a11y"
+        case authMethodPickerA11y = "auth.methodPicker.a11y"
+        case authEmailTypo = "auth.email.typo"
+        case authUsernameTitle = "auth.username.title"
+        case authUsernameHint = "auth.username.hint"
+        case authPasswordTitle = "auth.password.title"
+        case authPasswordMin = "auth.password.min"
+        case authHidePassword = "auth.password.hide"
+        case authShowPassword = "auth.password.show"
+        case authForgotPassword = "auth.forgot"
+        case authForgotPasswordA11y = "auth.forgot.a11y"
+        case authInProgress = "auth.inProgress"
+        case authErrEmail = "auth.err.email"
+        case authErrUsername = "auth.err.username"
+        case authErrPassword = "auth.err.password"
+        case resetIntroEmail = "reset.intro.email"
+        case resetIntroCode = "reset.intro.code"
+        case resetCodeTitle = "reset.code.title"
+        case resetNewPassword = "reset.newPassword"
+        case resetSendCode = "reset.sendCode"
+        case resetChangePassword = "reset.changePassword"
+        case resetResend = "reset.resend"
+        case resetSent = "reset.sent"
+        case authAppleSigningIn = "auth.apple.signingIn"
+        case authAppleButton = "auth.apple.button"
+        case authAppleNoToken = "auth.apple.noToken"
+        case authConsentPrefix = "auth.consent.prefix"
+        case sessionExpiredSecure = "session.expired.secure"
+        case sessionExpiredKept = "session.expired.kept"
+        case launchA11y = "launch.a11y"
+        case errBadCredentials = "err.badCredentials"
+        case errAccountExists = "err.accountExists"
+        case errSessionEnded = "err.sessionEnded"
+        case errNotFound = "err.notFound"
+        case errPlusOnly = "err.plusOnly"
+        case errComingSoon = "err.comingSoon"
+        case errUnavailable = "err.unavailable"
+        case errOffline = "err.offline"
+        case errTimeout = "err.timeout"
+        case errConnect = "err.connect"
+        case errGeneric = "err.generic"
+        case onbNow = "onb.now"
+        case onbInvitePreview = "onb.invitePreview"
+        case onbStepA11y = "onb.step.a11y"
+        case onbAllowStart = "onb.allowStart"
+        case onbNext = "onb.next"
+        case onbAllowStartA11y = "onb.allowStart.a11y"
+        case onbNotNow = "onb.notNow"
+        case onbSkip = "onb.skip"
+        case onbStartWithout = "onb.startWithout"
+        case onbSkipTourA11y = "onb.skipTour.a11y"
+        case onbEyebrowCatalog = "onb.eyebrow.catalog"
+        case onbEyebrowRooms = "onb.eyebrow.rooms"
+        case onbEyebrowChats = "onb.eyebrow.chats"
+        case onbTitleCatalog = "onb.title.catalog"
+        case onbTitleRooms = "onb.title.rooms"
+        case onbTitleChats = "onb.title.chats"
+        case onbBodyCatalog = "onb.body.catalog"
+        case onbBodyRooms = "onb.body.rooms"
+        case onbBodyChats = "onb.body.chats"
+        case profileTerms = "profile.terms"
+        case biometricReason = "biometric.reason"
         case loginCreateAccount = "login.createAccount"
         case loginJoinParty = "login.joinParty"
 
@@ -447,7 +534,6 @@ enum L10n {
         case createInviteHint = "create.inviteHint"
         case createBack = "create.back"
         case createNext = "create.next"
-        case createLaunch = "create.launch"
         case createExtractError = "create.extractError"
 
         // Chat
@@ -507,7 +593,6 @@ enum L10n {
         case privacyInfo = "privacy.info"
 
         // Paywall
-        case paywallTitle = "paywall.title"
         case paywallTagline = "paywall.tagline"
         case paywallRestore = "paywall.restore"
         case paywallSelectPlan = "paywall.selectPlan"
@@ -629,7 +714,7 @@ enum L10n {
     }
 
     /// Главная таблица переводов: [ключ: [язык: перевод]].
-    static let table: [Key: [AppLanguage: String]] = [
+    private static let baseTable: [Key: [AppLanguage: String]] = [
         // Tab bar (M25)
         .tabHome: [.russian: "Главная", .english: "Home", .chinese: "首页"],
         // 26.08.2026: снова «Комнаты». «Вечера» привязывали вкладку ко
@@ -1519,11 +1604,6 @@ enum L10n {
             .english: "Next",
             .chinese: "下一步"
         ],
-        .createLaunch: [
-            .russian: "🚀 Запустить вечеринку",
-            .english: "🚀 Launch party",
-            .chinese: "🚀 启动派对"
-        ],
         .createExtractError: [
             .russian: "Не удалось извлечь видео. Возможно, оно приватное или недоступно в вашем регионе.",
             .english: "Failed to extract video. It may be private or unavailable in your region.",
@@ -1763,11 +1843,6 @@ enum L10n {
         ],
 
         // Paywall
-        .paywallTitle: [
-            .russian: "SyncWatch Premium",
-            .english: "SyncWatch Premium",
-            .chinese: "SyncWatch Premium"
-        ],
         .paywallTagline: [
             .russian: "Без рекламы. Без ограничений. Полный контроль.",
             .english: "No ads. No limits. Full control.",
@@ -2277,10 +2352,28 @@ enum L10n {
             .chinese: "恢复购买失败,请重试。"
         ]
     ]
+
+    /// Every string the app can show: the core table plus the auth/onboarding
+    /// table from LocalizationAuthStrings.swift. Keys are disjoint; the closure
+    /// only documents which side wins if that ever changes.
+    static let table: [Key: [AppLanguage: String]] = baseTable.merging(authTable) { _, extra in extra }
 }
 
 // MARK: - View Helper
 extension View {
     /// Доступ к локализации из любого View.
     var L: LocalizationManager { LocalizationManager.shared }
+}
+
+extension L10n {
+    /// Nonisolated lookup for contexts outside the main actor (enum computed
+    /// properties, error mappers). Same table, same stored language.
+    static func text(_ key: Key) -> String {
+        table[key]?[LocalizationManager.sharedSafe.currentLanguage] ?? key.rawValue
+    }
+
+    /// Formatted variant of `text(_:)` for keys that carry printf placeholders.
+    static func text(_ key: Key, _ args: CVarArg...) -> String {
+        String(format: text(key), arguments: args)
+    }
 }

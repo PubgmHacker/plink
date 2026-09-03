@@ -1,9 +1,6 @@
 // Admin system tests
 //
-// Tests AdminModule enum contract (V5/PlinkAdminRoot.swift).
-// Тест был написан под мёртвую версию AdminModule
-// (blocklists/apiPrefix/owner/AdminModuleView) и не компилировался.
-// Переписан под живой enum.
+    // Tests the current AdminModule contract (V5/PlinkAdminRoot.swift).
 
 import XCTest
 @testable import Plink
@@ -13,13 +10,13 @@ final class AdminTests: XCTestCase {
 
     // MARK: - AdminModule enum
 
-    func testAdminModule_allTenCases() {
-        XCTAssertEqual(AdminModule.allCases.count, 10)
+    func testAdminModule_hasCurrentCases() {
+        XCTAssertEqual(AdminModule.allCases.count, 9)
     }
 
     func testAdminModule_cases() {
         let expected: Set<String> = [
-            "overview", "users", "rooms", "moderation", "flags",
+            "overview", "users", "rooms", "moderation",
             "analytics", "system", "audit", "broadcasts", "premium"
         ]
         let actual = Set(AdminModule.allCases.map(\.rawValue))
@@ -41,16 +38,15 @@ final class AdminTests: XCTestCase {
     }
 
     func testAdminModule_titles() {
-        XCTAssertEqual(AdminModule.overview.title, "Overview")
-        XCTAssertEqual(AdminModule.users.title, "Users")
-        XCTAssertEqual(AdminModule.rooms.title, "Rooms")
-        XCTAssertEqual(AdminModule.moderation.title, "Moderation")
-        XCTAssertEqual(AdminModule.flags.title, "Feature Flags")
-        XCTAssertEqual(AdminModule.analytics.title, "Analytics")
-        XCTAssertEqual(AdminModule.system.title, "System")
-        XCTAssertEqual(AdminModule.audit.title, "Audit Log")
-        XCTAssertEqual(AdminModule.broadcasts.title, "Broadcasts")
-        XCTAssertEqual(AdminModule.premium.title, "Premium")
+        XCTAssertEqual(AdminModule.overview.title, "Сводка")
+        XCTAssertEqual(AdminModule.users.title, "Пользователи")
+        XCTAssertEqual(AdminModule.rooms.title, "Комнаты")
+        XCTAssertEqual(AdminModule.moderation.title, "Жалобы")
+        XCTAssertEqual(AdminModule.analytics.title, "Аналитика")
+        XCTAssertEqual(AdminModule.system.title, "Система")
+        XCTAssertEqual(AdminModule.audit.title, "Журнал")
+        XCTAssertEqual(AdminModule.broadcasts.title, "Рассылки")
+        XCTAssertEqual(AdminModule.premium.title, "Plink+")
     }
 
     // MARK: - Icons

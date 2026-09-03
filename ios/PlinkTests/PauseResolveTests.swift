@@ -190,14 +190,14 @@ final class PauseResolveTests: XCTestCase {
         let model = makeModel(hostId: meId)
         model.sessionDidConnect(role: .host)
 
-        // Хост сам только что нажал кнопку — эхо не должно дублировать чат.
+        // The host just pressed the button themselves; the echo must not duplicate the chat line.
         model.handleOtherMessage(try decodePauseResolved(pauseResolvedJSON(hostId: meId)))
         XCTAssertTrue(model.chatMessages.isEmpty)
     }
 
     func testHandlePauseResolved_clearsPendingPromptEverywhere() throws {
-        // Сценарий: хост с ДВУХ устройств. Первое показывает подсказку,
-        // второе отвечает. Первое обязано убрать баннер — вопрос закрыт.
+        // Scenario: the host is on TWO devices. The first shows the prompt,
+        // the second answers. The first must drop the banner: the question is closed.
         let model = makeModel(hostId: meId)
         model.sessionDidConnect(role: .host)
         model.handleOtherMessage(try JSONDecoder().decode(
@@ -225,7 +225,7 @@ final class PauseResolveTests: XCTestCase {
         )
     }
 
-    // MARK: - 5. Модель: исходящий вердикт
+    // MARK: - 5. Model: outgoing verdict
 
     func testResolvePauseRequest_declineStillClearsPromptAndDoesNotPause() throws {
         let model = makeModel(hostId: meId)
@@ -243,7 +243,7 @@ final class PauseResolveTests: XCTestCase {
     func testResolvePauseRequest_withoutPendingSendsNothing() {
         let model = makeModel(hostId: meId)
         model.sessionDidConnect(role: .host)
-        // Нет висящей просьбы — нет и вердикта (см. guard в resolvePauseRequest).
+        // No pending request means no verdict (see the guard in resolvePauseRequest).
         model.resolvePauseRequest(pause: true)
         XCTAssertNil(model.pendingPauseRequest)
         XCTAssertTrue(model.chatMessages.isEmpty)

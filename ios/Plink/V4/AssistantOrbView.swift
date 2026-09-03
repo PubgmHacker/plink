@@ -319,11 +319,11 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         current.colA = mix(current.colA, target.colA, k)
         current.colB = mix(current.colB, target.colB, k)
         current.colC = mix(current.colC, target.colC, k)
-        current.speed = current.speed + (target.speed - current.speed) * k
-        current.distort = current.distort + (target.distort - current.distort) * k
+        current.speed += (target.speed - current.speed) * k
+        current.distort += (target.distort - current.distort) * k
         let pulseTarget = min(1.0, target.pulse + audioLevel * 0.6)
-        current.pulse = current.pulse + (pulseTarget - current.pulse) * k
-        current.sway = current.sway + (target.sway - current.sway) * k
+        current.pulse += (pulseTarget - current.pulse) * k
+        current.sway += (target.sway - current.sway) * k
         flash *= exp(-dt * 2.6) // затухание вспышки
         phase += dt * current.speed // фаза идёт вперёд без скачков
 

@@ -14,9 +14,11 @@ struct UnifiedSearchView: View {
     let openRoom: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var query = ""
     @State private var selectedChip: SearchChip = .all
     @State private var showRoomCreation = false
+    @State private var actionError: String?
     // «Посмотреть позже»
     @ObservedObject private var watchlist = WatchlistService.shared
     private let theme = V4Theme.saved
@@ -80,6 +82,14 @@ struct UnifiedSearchView: View {
             }
             .toolbar {
                 V4SheetCloseToolbarItem { dismiss() }
+            }
+            .alert("Не удалось открыть видео", isPresented: Binding(
+                get: { actionError != nil },
+                set: { if !$0 { actionError = nil } }
+            )) {
+                Button("Понятно", role: .cancel) { actionError = nil }
+            } message: {
+                Text(actionError ?? "Попробуйте ещё раз.")
             }
             .sheet(isPresented: $showRoomCreation) {
                 RoomCreationView(
@@ -220,44 +230,72 @@ struct UnifiedSearchView: View {
         )
     }
 
-    private func videoRow(_ item: V4SearchResult) -> some View {
-        Button {
-            HapticManager.impact(.light)
+    /// В beta комнату создаём только для двух источников с проверенным
+    /// официальным embed-плеером. Карточка кинотеатра/будущего провайдера
+    /// должна открыть его страницу, а не отправлять пользователя в пустую
+    /// комнату с обычным каталогом внутри WebView.
+    private func canCreateRoom(for item: V4SearchResult) -> Bool {
+        item.origin.isClip && item.origin.service.isAvailableInBeta
+    }
+
+    private func openOfficialPage(for item: V4SearchResult) {
+        guard let url = URL(string: item.watchURL) else {
+            actionError = "У этого результата нет корректной ссылки."
+            return
+        }
+        HapticManager.impact(.light)
+        openURL(url)
+        dismiss()
+    }
+
+    @MainActor
+    private func createRoom(for item: V4SearchResult) async {
+        guard canCreateRoom(for: item) else {
+            openOfficialPage(for: item)
+            return
+        }
+        if APIClient.shared.authToken == nil {
+            APIClient.shared.authToken = AuthTokenStore.shared.token
+        }
+        guard APIClient.shared.authToken != nil else {
+            actionError = "Войдите в Plink, чтобы создать комнату."
+            return
+        }
+
+        let mediaItem = watchlistItem(item)
+        let request = CreateRoomRequest(
+            name: String(item.title.prefix(80)),
+            maxParticipants: 10,
+            mediaItem: mediaItem,
+            privacy: .publicRoom,
+            password: nil,
+            hostName: AuthService.shared.currentUserValue?.username
+        )
+        do {
+            let room = try await RoomService(api: APIClient.shared).createRoom(request)
+            HapticManager.roomJoined()
+            UIPasteboard.general.string = "Код комнаты Plink: \(room.code)"
+            NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
             dismiss()
-            // Create room from this video. Карточка кинотеатра (полка
-            // Главной при пустом запросе) открывает страницу просмотра,
-            // ролик YouTube — прежний embed.
-            Task {
-                let mediaItem: MediaItem
-                if item.origin == .youtube {
-                    let videoId = item.id
-                    mediaItem = MediaItem(
-                        id: "https://www.youtube.com/embed/\(videoId)",
-                        title: item.title, artist: nil,
-                        thumbnailURL: item.artworkURL?.absoluteString,
-                        streamURL: "https://www.youtube.com/embed/\(videoId)",
-                        duration: nil, mediaType: .video, source: .youtube, videoId: videoId
-                    )
+        } catch {
+            HapticManager.errorOccurred()
+            actionError = "Не удалось создать комнату. Проверьте соединение и попробуйте ещё раз."
+        }
+    }
+
+    private func videoRow(_ item: V4SearchResult) -> some View {
+        HStack(spacing: 10) {
+            // Отдельная кнопка результата. Раньше закладка была вложена в
+            // эту кнопку: SwiftUI выбирал внешний hit-test, поэтому тап по
+            // bookmark иногда создавал комнату, а на iOS 26 жесты мерцали.
+            Button {
+                if canCreateRoom(for: item) {
+                    Task { await createRoom(for: item) }
                 } else {
-                    mediaItem = watchlistItem(item)
+                    openOfficialPage(for: item)
                 }
-                let request = CreateRoomRequest(
-                    name: item.title, maxParticipants: 4, mediaItem: mediaItem,
-                    privacy: .publicRoom, password: nil,
-                    hostName: AuthService.shared.currentUserValue?.username
-                )
-                do {
-                    let api = APIClient(baseURL: PlinkConfig.apiURLString)
-                    let room = try await RoomService(api: api).createRoom(request)
-                    await MainActor.run {
-                        HapticManager.roomJoined()
-                        UIPasteboard.general.string = "Код комнаты Plink: \(room.code)"
-                        NotificationCenter.default.post(name: .plinkRoomCreated, object: room)
-                    }
-                } catch {}
-            }
-        } label: {
-            HStack(spacing: 12) {
+            } label: {
+                HStack(spacing: 12) {
                 if let url = item.artworkURL {
                     AsyncImage(url: url) { image in
                         image.resizable().aspectRatio(contentMode: .fill)
@@ -281,9 +319,18 @@ struct UnifiedSearchView: View {
                         .foregroundStyle(Cinema2026.text)
                         .lineLimit(2)
                     HStack(spacing: 4) {
-                        Text(item.subtitle)
-                            .font(.system(size: 12))
+                        ServiceLogoView(service: item.origin.service, size: 14)
+                        Text(item.origin.service.brandName)
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Cinema2026.secondary)
+                        if !item.subtitle.isEmpty {
+                            Text("·")
+                                .foregroundStyle(Cinema2026.secondary.opacity(0.6))
+                            Text(item.subtitle)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Cinema2026.secondary)
+                                .lineLimit(1)
+                        }
                         if let dur = item.duration {
                             Text("· \(dur)")
                                 .font(.system(size: 12))
@@ -291,27 +338,37 @@ struct UnifiedSearchView: View {
                         }
                     }
                 }
-                Spacer()
-                // Отложить в «Посмотреть позже»
-                Button {
-                    watchlist.toggle(watchlistItem(item))
-                } label: {
-                    Image(systemName: watchlist.contains(item.id) ? "bookmark.fill" : "bookmark")
-                        .font(.system(size: 17))
-                        .foregroundStyle(watchlist.contains(item.id) ? Cinema2026.accent : Cinema2026.secondary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Посмотреть позже")
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(Cinema2026.accent)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(10)
-            .background(Cinema2026.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(item.title), \(item.origin.service.brandName)")
+            .accessibilityHint(canCreateRoom(for: item)
+                               ? "Создать комнату для совместного просмотра"
+                               : "Открыть официальную страницу сервиса")
+
+            // Отложить в «Посмотреть позже» — самостоятельная hit-area.
+            Button {
+                HapticManager.selection()
+                watchlist.toggle(watchlistItem(item))
+            } label: {
+                Image(systemName: watchlist.contains(item.id) ? "bookmark.fill" : "bookmark")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(watchlist.contains(item.id) ? Cinema2026.accent : Cinema2026.secondary)
+                    .frame(width: 38, height: 38)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(watchlist.contains(item.id) ? "Убрать из списка позже" : "Посмотреть позже")
+
+            Image(systemName: canCreateRoom(for: item) ? "person.2.fill" : "arrow.up.right")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Cinema2026.secondary)
+                .frame(width: 22)
         }
-        .buttonStyle(.plain)
+        .padding(10)
+        .background(Cinema2026.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func serviceRow(_ svc: VideoService) -> some View {

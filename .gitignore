@@ -106,3 +106,6 @@ plink-tap-mock.html
 
 # Redis dump written by a locally-run redis-server. Not an artifact of this project.
 dump.rdb
+
+# brand tool scratch output (regenerate with brand/tools)
+brand/_build/

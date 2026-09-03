@@ -5,7 +5,7 @@
 import Foundation
 
 enum OnboardingVersion {
-    static let current = 3
+    static let current = 4
 }
 
 protocol OnboardingStoring {

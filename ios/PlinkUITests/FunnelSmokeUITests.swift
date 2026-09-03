@@ -159,7 +159,7 @@ final class FunnelSmokeUITests: XCTestCase {
 
         let app = XCUIApplication()
         // -plink.uitest отключает textContentType в полях auth — иначе системный
-        // шит «Надёжный пароль?» блокирует ввод (CinematicAuthContainer.swift).
+        // шит «Надёжный пароль?» блокирует ввод (AuthField в PlinkAuthScreen.swift).
         app.launchArguments = ["-plink.backend_base_url", backend, "-plink.uitest"]
         app.launch()
 

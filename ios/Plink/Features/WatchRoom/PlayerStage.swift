@@ -18,6 +18,7 @@ struct PlayerStage: View {
     // disappears immediately.
     @State private var showBufferingChip = false
     private static let bufferingChipDelayNs: UInt64 = 500_000_000
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -43,6 +44,15 @@ struct PlayerStage: View {
             .padding(.horizontal, 8)
             .padding(.top, 60)
             .padding(.bottom, 80)
+
+            // Reactions belong to the video surface, not to the whole room.
+            // The previous sibling lived in WatchRoomScreen's root ZStack, so
+            // an emoji could float over the chat, composer and even service
+            // notices. Keeping it inside the clipped player stage preserves
+            // the live-room effect while making the scope unambiguous.
+            WatchReactionLayer(events: model.reactions, reduceMotion: reduceMotion)
+                .allowsHitTesting(false)
+                .zIndex(2)
 
             // Loading overlay only when we still have no player surface.
             // Once WKWebView is attached, never cover it with a full-screen spinner

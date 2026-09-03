@@ -69,6 +69,10 @@ struct V4AIChatView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            V4VoiceErrorBanner(capture: capture)
+                .padding(.horizontal, 13)
+                .padding(.bottom, 8)
+
             composer
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: capture.isCapturing)

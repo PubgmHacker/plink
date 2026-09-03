@@ -128,13 +128,13 @@ struct PlinkApprovedV4Root: View {
                         .opacity(tab == 0 ? 1 : 0).allowsHitTesting(tab == 0)
                     V4RoomsViewLive(theme:theme, roomsStore:roomsStore, friendsStore:friendsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
                         .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
-                    V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 2)
-                        .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
                     // Вкладка «ИИ» — раздел целиком: лента трейлеров в
                     // превью-режиме, поверх неё онбординг со сферой и «Скоро»,
                     // и два рабочих входа — чат и голос. Разговор поднимается
                     // отдельным экраном (fullScreenCover ниже).
-                    V4AIViewLive(theme: theme, store: aiStore, searchStore: searchStore, isActive: tab == 3)
+                    V4AIViewLive(theme: theme, store: aiStore, searchStore: searchStore, isActive: tab == 2)
+                        .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
+                    V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 3)
                         .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                     // Настройки — не вкладка: шесть кнопок теснили таббар, а
                     // маршрут не ежедневный. Вход — строка «Общие настройки»
@@ -246,7 +246,7 @@ struct PlinkApprovedV4Root: View {
         // 25.08.2026: карточка «Друзья» на лице профиля ведёт на вкладку
         // «Друзья» (VK-модель: счётчик друзей — это дверь, не цифра).
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenFriendsTab"))) { _ in
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 2 }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { tab = 3 }
         }
         // Разговор с ассистентом — поверхность над вкладками: его зовут и с
         // ленты «ИИ», и из поиска на «Главной».
@@ -327,7 +327,7 @@ struct PlinkApprovedV4Root: View {
         }
         .onReceive(DeepLinkRouter.shared.$pendingChat) { target in
             guard target != nil else { return }
-            tab = 2
+            tab = 3
         }
         .alert(
             "Заявка в друзья",
@@ -637,15 +637,15 @@ struct PlinkLiquidTabBar: View {
 
     // M25 i18n: подписи через LocalizationManager (RU/EN/ZH).
     // 25.08.2026: вкладок пять. «Комнаты» = живые комнаты + история, «ИИ» — раздел
-    // ленты с ассистентом. Друзья остаются на индексе 2:
-    // plinkOpenFriendsTab/pendingChat шлют tab=2; ассистент — 3, профиль — 4.
+    // ленты с ассистентом. Порядок одинаков на всех устройствах:
+    // Главная → Комнаты → ИИ → Друзья → Профиль.
     private var items: [(String, String)] {
         let l = LocalizationManager.shared
         return [
             ("house.fill", l.string(.tabHome)),
             ("play.rectangle.fill", l.string(.tabRooms)),
-            ("person.2.fill", l.string(.tabFriends)),
             ("sparkles", l.string(.tabAI)),
+            ("person.2.fill", l.string(.tabFriends)),
             ("person.crop.circle.fill", l.string(.tabProfile))
         ]
     }
@@ -694,7 +694,7 @@ struct PlinkLiquidTabBar: View {
             // а не matchedGeometryEffect по слотам: только так она может
             // встать между вкладками и непрерывно следовать за пальцем.
             GeometryReader { g in
-                let W = g.size.width
+                let totalWidth = g.size.width
                 Capsule(style: .continuous)
                     .fill(activeSecondary.opacity(dragX == nil ? 0.20 : 0.28))
                     .overlay {
@@ -708,13 +708,13 @@ struct PlinkLiquidTabBar: View {
                         color: activeSecondary.opacity(dragX == nil ? 0 : 0.26),
                         radius: 10, y: 3
                     )
-                    .frame(width: slotWidth(W), height: 50)
+                    .frame(width: slotWidth(totalWidth), height: 50)
                     // «Подъём» при зажатии: чуть крупнее, ярче и с тенью —
                     // палец чувствует, что схватил пилюлю.
                     .scaleEffect(dragX == nil ? 1 : 1.07)
-                    .position(x: pillX(W), y: g.size.height / 2)
-                    .onAppear { barWidth = W }
-                    .onChange(of: W) { _, w in barWidth = w }
+                    .position(x: pillX(totalWidth), y: g.size.height / 2)
+                    .onAppear { barWidth = totalWidth }
+                    .onChange(of: totalWidth) { _, w in barWidth = w }
             }
         }
         // Ведение пальцем по бару (как в Telegram): зажал — пилюля
@@ -751,20 +751,20 @@ struct PlinkLiquidTabBar: View {
 
     private var slotSpacing: CGFloat { 2 }
 
-    private func slotWidth(_ W: CGFloat) -> CGFloat {
-        (W - slotSpacing * CGFloat(items.count - 1)) / CGFloat(items.count)
+    private func slotWidth(_ totalWidth: CGFloat) -> CGFloat {
+        (totalWidth - slotSpacing * CGFloat(items.count - 1)) / CGFloat(items.count)
     }
 
-    private func slotCenter(_ index: Int, in W: CGFloat) -> CGFloat {
-        CGFloat(index) * (slotWidth(W) + slotSpacing) + slotWidth(W) / 2
+    private func slotCenter(_ index: Int, in totalWidth: CGFloat) -> CGFloat {
+        CGFloat(index) * (slotWidth(totalWidth) + slotSpacing) + slotWidth(totalWidth) / 2
     }
 
     /// Центр пилюли: под пальцем (с зажимом до краёв бара), иначе — центр
     /// выбранного слота.
-    private func pillX(_ W: CGFloat) -> CGFloat {
-        let half = slotWidth(W) / 2
-        if let x = dragX { return min(max(x, half), W - half) }
-        return slotCenter(selection, in: W)
+    private func pillX(_ totalWidth: CGFloat) -> CGFloat {
+        let half = slotWidth(totalWidth) / 2
+        if let x = dragX { return min(max(x, half), totalWidth - half) }
+        return slotCenter(selection, in: totalWidth)
     }
 
     /// Индекс из горизонтальной позиции пальца: слоты вкладок равной ширины.
@@ -794,8 +794,8 @@ struct PlinkLiquidTabBar: View {
                     // распределён между размером, цветом и подложкой, а не
                     // держится на одной заливке.
                     .scaleEffect(isSelected ? 1.06 : 1)
-                // Tab 2 = Друзья — unread DM badge
-                if index == 2, friendsBadge > 0 {
+                // Tab 3 = Друзья — unread DM/friend-request badge
+                if index == 3, friendsBadge > 0 {
                     // Тот же V4CountBadge, что в шапках и строках: красный
                     // сигнал в приложении один и не зависит от темы.
                     V4CountBadge(count: friendsBadge, fontSize: 9)

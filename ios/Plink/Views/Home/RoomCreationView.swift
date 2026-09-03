@@ -37,6 +37,7 @@ struct RoomCreationView: View {
     @State private var recentServices: [VideoService] = RecentServicesStore.recents
     @State private var createErrorMessage: String? = nil
     @State private var customURLDraft = ""
+    @State private var unavailableService: VideoService?
 
     /// Мастер открыт сразу на «Настройке» по готовой ссылке (карточка буфера на
     /// «Главной»). Шагов «сервис» и «контент» позади нет, поэтому «Назад» в них
@@ -163,6 +164,18 @@ struct RoomCreationView: View {
                 }
             }
         }
+        .alert(
+            "Сервис пока готовится",
+            isPresented: Binding(
+                get: { unavailableService != nil },
+                set: { if !$0 { unavailableService = nil } }
+            ),
+            presenting: unavailableService
+        ) { _ in
+            Button("Понятно", role: .cancel) { unavailableService = nil }
+        } message: { service in
+            Text("Поиск и просмотр в \(service.brandName) появятся в следующем обновлении.")
+        }
     }
 
     private var stepTitle: String {
@@ -198,10 +211,10 @@ struct RoomCreationView: View {
 
     /// Честная витрина: открытое всем vs то, что живёт по своей подписке.
     private var worksNowFiltered: [VideoService] {
-        filteredServices.filter { $0.deliveryBucket == .worksNow }
+        filteredServices.filter { $0.isAvailableInBeta }
     }
     private var subscriptionFiltered: [VideoService] {
-        filteredServices.filter { $0.deliveryBucket == .bySubscription }
+        filteredServices.filter { !$0.isAvailableInBeta }
     }
 
     private var serviceStep: some View {
@@ -259,11 +272,11 @@ struct RoomCreationView: View {
             ServiceFilterChips(filter: $serviceFilter)
                 .padding(.bottom, 18)
 
-            // Открыто всем: YouTube / VK / Rutube / Смотрим / браузер
+            // Доступно в первой бете: YouTube и RuTube.
             if !worksNowFiltered.isEmpty {
                 sectionLabel(
-                    DeliveryBucket.worksNow.sectionTitle,
-                    subtitle: DeliveryBucket.worksNow.sectionSubtitle
+                    "МОЖНО СМОТРЕТЬ СЕЙЧАС",
+                    subtitle: "Выберите видео — Plink синхронизирует плеер в комнате"
                 )
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
@@ -280,12 +293,13 @@ struct RoomCreationView: View {
                 .padding(.bottom, 24)
             }
 
-            // Netflix / Disney / кино — остаются в выборе, вход по своей подписке
+            // Остальные провайдеры остаются в каталоге как roadmap, но не
+            // обещают создание комнаты до готовности собственного адаптера.
             if !subscriptionFiltered.isEmpty {
                 sectionLabel(
-                    DeliveryBucket.bySubscription.sectionTitle,
-                    subtitle: DeliveryBucket.bySubscription.sectionSubtitle,
-                    accent: true
+                    "СКОРО",
+                    subtitle: "Подключаем официальные плееры сервисов",
+                    accent: false
                 )
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
@@ -366,6 +380,11 @@ struct RoomCreationView: View {
     }
 
     private func selectService(_ svc: VideoService) {
+        guard svc.isAvailableInBeta else {
+            HapticManager.impact(.light)
+            unavailableService = svc
+            return
+        }
         RecentServicesStore.note(svc)
         if svc.serviceType.requiresAuth && !ServiceAuthStore.hasAccess(to: svc.serviceType) {
             pendingAuthService = svc
@@ -401,19 +420,28 @@ struct RoomCreationView: View {
             if selectedService == .customURL {
                 customURLStep
             } else if let svc = selectedService {
-                // FIX: ServiceBrowserView отдаёт ДВА аргумента (contentURL, title),
-                // а не готовый DetectedVideo — собираем модель здесь.
-                ServiceBrowserView(service: svc) { contentURL, title in
-                    let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    detectedVideo = DetectedVideo(
-                        title: cleanTitle.isEmpty ? nil : cleanTitle,
-                        embedURL: contentURL,
-                        originalURL: contentURL,
-                        service: svc,
-                        thumbnailURL: Self.thumbnailURL(for: contentURL, service: svc)
-                    )
-                    roomName = cleanTitle.isEmpty ? svc.title : cleanTitle
-                    withAnimation { step = .setup }
+                if svc == .youtube || svc == .rutube {
+                    BetaVideoSearchView(service: svc) { video in
+                        detectedVideo = video
+                        roomName = video.title ?? svc.title
+                        withAnimation { step = .setup }
+                    }
+                } else {
+                    // Subscription services use the official browser flow;
+                    // they remain visible as roadmap entries but are blocked by
+                    // selectService until their room adapter is shipped.
+                    ServiceBrowserView(service: svc) { contentURL, title in
+                        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        detectedVideo = DetectedVideo(
+                            title: cleanTitle.isEmpty ? nil : cleanTitle,
+                            embedURL: contentURL,
+                            originalURL: contentURL,
+                            service: svc,
+                            thumbnailURL: Self.thumbnailURL(for: contentURL, service: svc)
+                        )
+                        roomName = cleanTitle.isEmpty ? svc.title : cleanTitle
+                        withAnimation { step = .setup }
+                    }
                 }
             } else {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 300)
@@ -531,7 +559,9 @@ struct RoomCreationView: View {
 
                 // Create button
                 Button {
+                    guard !isCreating, detectedVideo != nil else { return }
                     createErrorMessage = nil
+                    isCreating = true
                     withAnimation { step = .creating }
                     Task { await performCreate() }
                 } label: {
@@ -552,6 +582,8 @@ struct RoomCreationView: View {
                     .shadow(color: Cinema2026.accent.opacity(0.4), radius: 12, y: 6)
                 }
                 .buttonStyle(.plain)
+                .disabled(isCreating || detectedVideo == nil)
+                .opacity(isCreating || detectedVideo == nil ? 0.55 : 1)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
@@ -611,32 +643,46 @@ struct RoomCreationView: View {
         .buttonStyle(.plain)
     }
 
-    /// Постер для превью на шаге «Настройка». Сейчас надёжно восстанавливается
-    /// только для YouTube; остальные сервисы — плейсхолдер (nil).
+    /// Постер для превью на шаге «Настройка». Для beta-сервисов восстанавливаем
+    /// его из устойчивого публичного URL, если выдача не принесла thumbnail.
     private static func thumbnailURL(for rawURL: String, service: VideoService) -> String? {
-        guard service == .youtube, let vid = RoomCreateMedia.extractYouTubeID(from: rawURL) else { return nil }
-        return "https://img.youtube.com/vi/\(vid)/hqdefault.jpg"
+        switch service {
+        case .youtube:
+            guard let vid = RoomCreateMedia.extractYouTubeID(from: rawURL) else { return nil }
+            return "https://img.youtube.com/vi/\(vid)/hqdefault.jpg"
+        case .rutube:
+            guard let id = RoomCreateMedia.extractRutubeVideoId(from: rawURL) else { return nil }
+            return "https://pic.rutubelist.ru/video/\(id.prefix(2))/\(id)/poster.jpg"
+        default:
+            return nil
+        }
     }
 
     /// Полный сетевой цикл создания комнаты с приватностью и паролем.
     @MainActor
     private func performCreate() async {
         let svc = selectedService ?? .youtube
+        guard svc.isAvailableInBeta, let video = detectedVideo else {
+            isCreating = false
+            createErrorMessage = "Выберите видео из доступного сервиса."
+            withAnimation { step = .setup }
+            return
+        }
+        // The button sets this before launching the task; this guard also
+        // protects callers that invoke performCreate from a legacy path.
         RecentServicesStore.note(svc)
 
         // Легаси-путь: экран-обёртка сам создаёт комнату
         guard onRoomCreated != nil else {
             try? await Task.sleep(nanoseconds: 800_000_000)
-            onCreate?(roomName, svc, detectedVideo)
+            onCreate?(roomName, svc, video)
+            isCreating = false
             dismiss()
             return
         }
 
         // Собираем MediaItem из выбранного контента
-        var mediaItem: MediaItem? = nil
-        if let video = detectedVideo {
-            mediaItem = RoomCreateMedia.mediaItem(service: svc, video: video, roomName: roomName)
-        }
+        let mediaItem = RoomCreateMedia.mediaItem(service: svc, video: video, roomName: roomName)
 
         let name = roomName.trimmingCharacters(in: .whitespaces).isEmpty
             ? (detectedVideo?.title ?? "Комната \(svc.title)")
@@ -657,10 +703,284 @@ struct RoomCreationView: View {
             onRoomCreated?(room)
             dismiss()
         } catch {
-            createErrorMessage = "Не удалось создать комнату: \(error.localizedDescription)"
+            createErrorMessage = "Не удалось создать комнату. Проверьте соединение и попробуйте ещё раз."
             HapticManager.errorOccurred()
             withAnimation { step = .setup }
         }
+        isCreating = false
+    }
+}
+
+// MARK: - Beta provider search
+
+/// Search surface for the two providers that are actually enabled in the beta.
+/// It uses their public web search responses (and the backend's cached web
+/// fallback), never a Data API key. A browser escape hatch remains visible so a
+/// provider markup change cannot leave the user without a way to choose a video.
+struct BetaVideoSearchView: View {
+    let service: VideoService
+    let onSelect: (DetectedVideo) -> Void
+
+    @State private var query = ""
+    @State private var results: [V4SearchResult] = []
+    @State private var isSearching = false
+    @State private var didSearch = false
+    @State private var showBrowser = false
+
+    private var provider: V4ClipSearch.Provider {
+        service == .rutube ? .rutube : .youtube
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Выберите видео")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(V4.ink)
+                    HStack(spacing: 7) {
+                        ServiceLogoView(service: service, size: 18)
+                        Text(service.brandName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                        Text("·")
+                            .foregroundStyle(V4.muted.opacity(0.6))
+                        Text("без ключа API")
+                            .font(.system(size: 13))
+                            .foregroundStyle(V4.muted)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                    TextField("Название фильма или сериала", text: $query)
+                        .font(.system(size: 16))
+                        .foregroundStyle(V4.ink)
+                        .textInputAutocapitalization(.sentences)
+                        .autocorrectionDisabled(false)
+                        .submitLabel(.search)
+                    if isSearching {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if !query.isEmpty {
+                        Button {
+                            query = ""
+                            results = []
+                            didSearch = false
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 17))
+                                .foregroundStyle(V4.muted)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel("Очистить поиск")
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 52)
+                .plinkGlass(.control, cornerRadius: 18, interactive: true)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
+
+                if !results.isEmpty {
+                    Text("Результаты")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(V4.muted)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
+
+                    LazyVStack(spacing: 8) {
+                        ForEach(results) { item in
+                            resultRow(item)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                } else if didSearch && !isSearching {
+                    emptySearchState
+                } else if !isSearching {
+                    hintState
+                }
+
+                Button {
+                    showBrowser = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "safari")
+                        Text("Открыть каталог \(service.brandName)")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(V4.ink)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 50)
+                    .plinkGlass(.control, cornerRadius: 16, interactive: true)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 36)
+                .accessibilityHint("Выбрать видео на сайте сервиса")
+            }
+        }
+        .background(V4.canvas)
+        .task(id: query) { await runSearch() }
+        .sheet(isPresented: $showBrowser) {
+            ServiceBrowserView(service: service) { url, title in
+                showBrowser = false
+                guard let selectedURL = URL(string: url) ?? URL(string: service.browseURL),
+                      let detected = VideoService.detectVideoURL(
+                    selectedURL,
+                    for: service,
+                    title: title
+                ) else { return }
+                onSelect(detected)
+            }
+            .preferredColorScheme(.dark)
+        }
+        .accessibilityIdentifier("room.videoSearch.\(service.rawValue)")
+    }
+
+    private var hintState: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Начните с названия")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(V4.ink)
+            Text("Или откройте каталог и выберите ролик там.")
+                .font(.system(size: 14))
+                .foregroundStyle(V4.muted)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+    }
+
+    private var emptySearchState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ничего не нашли")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(V4.ink)
+            Text("Проверьте название или откройте каталог \(service.brandName).")
+                .font(.system(size: 14))
+                .foregroundStyle(V4.muted)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+    }
+
+    private func resultRow(_ item: V4SearchResult) -> some View {
+        Button {
+            guard let detected = detectedVideo(for: item) else { return }
+            HapticManager.impact(.light)
+            onSelect(detected)
+        } label: {
+            HStack(spacing: 12) {
+                Group {
+                    if let artworkURL = item.artworkURL {
+                        AsyncImage(url: artworkURL) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.white.opacity(0.06)
+                        }
+                    } else {
+                        Color.white.opacity(0.06)
+                    }
+                }
+                .frame(width: 104, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(V4.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 5) {
+                        Text(service.brandName)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(V4.muted)
+                        if !item.subtitle.isEmpty {
+                            Text("·")
+                                .foregroundStyle(V4.muted.opacity(0.6))
+                            Text(item.subtitle)
+                                .font(.system(size: 11))
+                                .foregroundStyle(V4.muted)
+                                .lineLimit(1)
+                        }
+                        if let duration = item.duration {
+                            Text("· \(duration)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(V4.muted)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(V4.muted)
+            }
+            .padding(10)
+            .background(V4.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 80)
+        .accessibilityLabel("\(item.title), \(service.brandName)")
+        .accessibilityHint("Выбрать видео для новой комнаты")
+    }
+
+    private func detectedVideo(for item: V4SearchResult) -> DetectedVideo? {
+        switch service {
+        case .youtube:
+            guard item.id.count == 11 else { return nil }
+            return DetectedVideo(
+                title: item.title,
+                embedURL: "https://www.youtube.com/embed/\(item.id)",
+                originalURL: item.watchURL,
+                service: .youtube,
+                thumbnailURL: item.artworkURL?.absoluteString
+            )
+        case .rutube:
+            guard let id = RoomCreateMedia.extractRutubeVideoId(from: item.watchURL) else { return nil }
+            return DetectedVideo(
+                title: item.title,
+                embedURL: "https://rutube.ru/play/embed/\(id)",
+                originalURL: item.watchURL,
+                service: .rutube,
+                thumbnailURL: item.artworkURL?.absoluteString
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func runSearch() async {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.count >= 2 else {
+            results = []
+            didSearch = false
+            isSearching = false
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(320))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        let found = await V4ClipSearch.search(value, limit: 20, provider: provider)
+        guard !Task.isCancelled else { return }
+        results = found.filter { $0.isSelectable && detectedVideo(for: $0) != nil }
+        isSearching = false
+        didSearch = true
     }
 }
 

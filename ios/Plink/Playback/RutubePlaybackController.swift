@@ -1,40 +1,9 @@
 // Plink/Playback/RutubePlaybackController.swift
 //
-// Official Rutube embed adapter. Renders rutube.ru/play/embed/<id> inside
-// an isolated WKWebView. NO extraction — only the official embed.
-//
-// Required behaviour:
-//   - Only official permitted embed adapter (no extraction, no Innertube,
-//     no yt-dlp, no raw CDN relay).
-//   - Strict host/video-ID validation.
-//   - Isolated WKContentWorld (page world is isolated from app world).
-//   - Visible Rutube branding (we do NOT hide their logo/chrome).
-//   - No extraction — embed only.
-//   - If documented playback JS control is unavailable, mark synchronized
-//     playback unsupported and open external provider (SFSafariViewController).
-//
-// Rutube embed API:
-//   - Embed URL: https://rutube.ru/play/embed/<videoId>/
-//   - JS API: Rutube Player API (limited — play/pause/seek may or may not
-//     be exposed depending on Rutube's current embed support).
-//   - We attempt to use postMessage API; if unavailable, the controller
-//     sets capabilities.seekable = false and OrderedSyncController treats
-//     this as an unsyncable source (host can still play/pause manually,
-//     but viewers see "sync unavailable" toast).
-//
-// Architecture:
-//   - Implements PlaybackControlling protocol.
-//   - One WKWebView per room session (owned by PlaybackCoordinator).
-//   - WKContentWorld.world(name:) isolates Rutube's JS from app world.
-//   - videoId validation: 32-char hex string (Rutube's ID format).
-//   - Fallback: if isReady is false after 8s, throw loadingFailed.
-//
-// App Store compliance:
-//   - Official Rutube embed inside WKWebView.
-//   - NO server-side extraction.
-//   - NO cookie relay — cookies never leave the device.
-//   - NO raw CDN proxy.
-//   - Rutube branding visible (ToS).
+// Official RuTube embed adapter. The player stays inside its own WKWebView;
+// Plink never extracts a media URL or relays a CDN stream. The current embed
+// exposes external events through window.postMessage: player:play,
+// player:pause and player:setCurrentTime.
 
 import Foundation
 import UIKit
@@ -45,21 +14,23 @@ import SafariServices
 @MainActor
 @Observable
 public final class RutubePlaybackController: PlaybackControlling {
-    // MARK: - Public state
-
     public private(set) var position: TimeInterval = 0
     public private(set) var duration: TimeInterval = 0
-    public private(set) var isPlaying: Bool = false
-    public private(set) var isBuffering: Bool = false
-    public private(set) var isReady: Bool = false
+    public private(set) var isPlaying = false
+    public private(set) var isBuffering = false
+    /// The web surface is ready once the official page has loaded. Sync control
+    /// becomes available when the player sends a ready/snapshot event.
+    public private(set) var isReady = false
     public private(set) var lastError: String?
+    public private(set) var embeddedView: UIView?
+
+    /// Called only for user-originated player changes. WatchRoomModel uses it
+    /// to publish the host timeline to the other participants.
+    public var onUserPlaybackChange: ((Bool, Double) -> Void)?
 
     public var capabilities: PlaybackCapabilities {
-        // Rutube's JS API is limited. We mark seekable as false
-        // until we confirm the API is available (set in handleReady).
-        // supportsRateCorrection is always false — no setPlaybackRate.
         .init(
-            seekable: jsApiConfirmed ? true : false,
+            seekable: jsApiConfirmed,
             supportsPiP: false,
             supportsAirPlay: false,
             supportsRateCorrection: false,
@@ -67,238 +38,412 @@ public final class RutubePlaybackController: PlaybackControlling {
         )
     }
 
-    public private(set) var embeddedView: UIView?
+    /// True when the provider page is visible but its external control bridge
+    /// is not available. The room can still be opened externally instead of
+    /// pretending synchronized controls work.
+    public var requiresExternalFallback: Bool {
+        isReady && !jsApiConfirmed
+    }
+
     private var webView: WKWebView?
     private var videoId: String?
     private var pollTask: Task<Void, Never>?
-    private var jsApiConfirmed = false
-    /// Выставляется навигационным делегатом по завершении загрузки embed-
-    /// страницы (didFinish) — сигнал готовности, которого ждёт prepare().
+    private var navigationDelegateBox: NavigationDelegate?
+    private let messageHandler = MessageHandler()
     private var pageDidFinishLoad = false
-    /// Сильная ссылка на навигационный делегат: WKWebView держит его слабо.
-    private var navigationDelegateBox: RutubeNavigationDelegate?
+    private var jsApiConfirmed = false
+    private var suppressUserBroadcastDepth = 0
+    private var lastBroadcastPlaying: Bool?
+    private var lastBroadcastPosition: Double = 0
 
     public init() {}
 
     // MARK: - Prepare
 
     public func prepare(_ source: PlaybackSource) async throws {
-        guard case .rutube(let id) = source else {
-            throw ProviderError.unsupportedSource
-        }
-        guard Self.isValidVideoId(id) else {
-            throw ProviderError.loadingFailed("Invalid Rutube video ID")
+        guard case .rutube(let id) = source, Self.isValidVideoId(id) else {
+            throw ProviderError.loadingFailed("Некорректная ссылка RuTube")
         }
 
         teardown()
-        self.videoId = id
+        videoId = id
+        pageDidFinishLoad = false
+        jsApiConfirmed = false
         isReady = false
         lastError = nil
-        pageDidFinishLoad = false
 
-        // Isolated WKContentWorld — Rutube's JS cannot touch
-        // app's message handlers.
-        let content = WKUserContentController()
-        let config = WKWebViewConfiguration()
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = [.audio]
-        config.userContentController = content
-        config.websiteDataStore = .default()
-        // defaultWebpagePreferences.allowsContentJavaScript = true (default)
+        let userContentController = WKUserContentController()
+        userContentController.add(messageHandler, name: "plinkRutube")
+        userContentController.addUserScript(
+            WKUserScript(
+                source: Self.bridgeScript(videoId: id),
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+        )
 
-        let web = WKWebView(frame: .zero, configuration: config)
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.userContentController = userContentController
+        configuration.websiteDataStore = .default()
+
+        let web = WKWebView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 220),
+            configuration: configuration
+        )
+        web.customUserAgent = Self.mobileSafariUserAgent
         web.isOpaque = false
-        web.backgroundColor = UIColor(red: 0x0D/255, green: 0x00/255, blue: 0x1A/255, alpha: 1)
+        web.backgroundColor = .black
         web.scrollView.isScrollEnabled = false
+        web.scrollView.bounces = false
         web.translatesAutoresizingMaskIntoConstraints = false
 
-        // Навигационный делегат сообщает о завершении загрузки embed-страницы,
-        // разблокируя ожидание в prepare() (модель — YTWebNavigationDelegate
-        // YouTube-контроллера). Ставится ДО load.
-        let nav = RutubeNavigationDelegate { [weak self] ok, err in
+        messageHandler.onEvent = { [weak self] type, payload in
+            Task { @MainActor in
+                self?.handleEvent(type: type, payload: payload)
+            }
+        }
+
+        let navigation = NavigationDelegate { [weak self] success, message in
             Task { @MainActor in
                 guard let self else { return }
-                if ok {
+                if success {
                     self.pageDidFinishLoad = true
                 } else {
-                    self.lastError = err ?? "Не удалось загрузить страницу Rutube"
+                    self.lastError = message ?? "Не удалось загрузить RuTube"
                 }
             }
         }
-        navigationDelegateBox = nav
-        web.navigationDelegate = nav
+        navigationDelegateBox = navigation
+        web.navigationDelegate = navigation
         webView = web
         embeddedView = web
 
-        // Load official embed URL. Rutube's embed page includes their
-        // branding and chrome — we do NOT inject CSS to hide it.
-        let embedURL = URL(string: "https://rutube.ru/play/embed/\(id)/")!
+        guard let embedURL = URL(string: "https://rutube.ru/play/embed/\(id)/") else {
+            throw ProviderError.loadingFailed("Некорректная ссылка RuTube")
+        }
         web.load(URLRequest(url: embedURL))
 
-        // Мягкое ожидание загрузки embed-страницы (~8с): сигнал — didFinish
-        // навигации (pageDidFinishLoad). По таймауту НЕ бросаем — поверхность
-        // остаётся видимой, как у YouTube-контроллера. Недоступность JS-API
-        // Rutube ловит фолбэк «Открыть в Rutube» (requiresExternalFallback),
-        // а не исключение, гасящее весь экран комнаты.
-        var waited = 0
-        while !pageDidFinishLoad, lastError == nil, waited < 80 {
+        // Do not hold room connection hostage indefinitely. A loaded page is a
+        // valid surface even when the provider's optional JS bridge is delayed;
+        // polling promotes it to sync-capable when it becomes available.
+        let deadline = Date().addingTimeInterval(10)
+        while !pageDidFinishLoad, lastError == nil, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(100))
-            waited += 1
+        }
+        if let lastError, !lastError.isEmpty {
+            throw ProviderError.loadingFailed(lastError)
         }
 
-        // Страница загрузилась (или вышел мягкий таймаут) — пробуем JS-API
-        // Rutube. probeJsApi выставляет jsApiConfirmed и isReady.
-        await probeJsApi()
+        isReady = true
         startPolling()
     }
 
     // MARK: - PlaybackControlling
 
     public func play() async {
-        guard isReady, jsApiConfirmed else { return }
-        await evaluate("window.plinkRutubePlay && window.plinkRutubePlay();")
+        guard isReady else { return }
+        beginSuppressUserBroadcast()
+        _ = await sendCommand(type: "player:play", data: ["videoId": videoId ?? ""])
+        endSuppressUserBroadcast()
     }
 
     public func pause() {
-        guard isReady, jsApiConfirmed else { return }
-        Task { await evaluate("window.plinkRutubePause && window.plinkRutubePause();") }
+        guard isReady else { return }
+        beginSuppressUserBroadcast()
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.sendCommand(type: "player:pause", data: ["videoId": self.videoId ?? ""])
+            self.endSuppressUserBroadcast()
+        }
     }
 
     public func seek(to seconds: TimeInterval, precise: Bool) async -> SeekResult {
-        guard isReady, jsApiConfirmed else { return .unavailable }
+        guard isReady else { return .unavailable }
         let target = max(0, duration > 0 ? min(seconds, duration) : seconds)
-        let result = await evaluate("window.plinkRutubeSeek && window.plinkRutubeSeek(\(target));")
-        guard result != nil else { return .unavailable }
+        beginSuppressUserBroadcast()
+        let sent = await sendCommand(
+            type: "player:setCurrentTime",
+            data: ["videoId": videoId ?? "", "time": target]
+        )
+        endSuppressUserBroadcast()
+        guard sent else { return .unavailable }
         position = target
         return .applied
     }
 
     public func setRate(_ rate: Float) {
-        // Rutube does not support setPlaybackRate — capabilities.supportsRateCorrection = false.
+        // RuTube's public external-events contract does not expose a reliable
+        // playback-rate command. The sync controller uses seeks instead.
     }
 
-    // MARK: - Teardown
+    // MARK: - Teardown / external fallback
 
     public func teardown() {
         pollTask?.cancel()
         pollTask = nil
         webView?.stopLoading()
         webView?.navigationDelegate = nil
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "plinkRutube")
         webView?.removeFromSuperview()
         webView = nil
         navigationDelegateBox = nil
         embeddedView = nil
+        messageHandler.onEvent = nil
         videoId = nil
+        pageDidFinishLoad = false
+        jsApiConfirmed = false
         isReady = false
         isPlaying = false
         isBuffering = false
-        jsApiConfirmed = false
-        pageDidFinishLoad = false
         position = 0
         duration = 0
+        lastError = nil
+        onUserPlaybackChange = nil
+        suppressUserBroadcastDepth = 0
+        lastBroadcastPlaying = nil
+        lastBroadcastPosition = 0
     }
 
-    // MARK: - External fallback
-
-    /// Opens the Rutube video in SFSafariViewController when synchronized
-    /// playback is unavailable (jsApiConfirmed == false). Called by the
-    /// UI when the user taps "Open in Rutube" in the sync-unavailable toast.
     public func openInExternalPlayer(from presentingVC: UIViewController) {
-        guard let videoId else { return }
-        let url = URL(string: "https://rutube.ru/video/\(videoId)/")!
-        let safari = SFSafariViewController(url: url)
-        presentingVC.present(safari, animated: true)
+        guard let videoId, let url = URL(string: "https://rutube.ru/video/\(videoId)/") else { return }
+        presentingVC.present(SFSafariViewController(url: url), animated: true)
     }
 
-    /// Returns true when synchronized playback is NOT available — UI shows
-    /// "Open in Rutube" button instead of sync controls.
-    public var requiresExternalFallback: Bool {
-        isReady && !jsApiConfirmed
-    }
-
-    // MARK: - Internals
-
-    private func probeJsApi() async {
-        // Probe: does the Rutube embed expose a JS API we can call?
-        // We inject a small probe script that checks for the Rutube
-        // Player object. If it's available, we set jsApiConfirmed = true.
-        let probe = """
-        (function() {
-            // Rutube embed may expose player via window.player or similar.
-            // We check for known player APIs.
-            if (window.player && typeof window.player.play === 'function') {
-                window.plinkRutubePlay = function() { window.player.play(); return true; };
-                window.plinkRutubePause = function() { window.player.pause(); return true; };
-                window.plinkRutubeSeek = function(s) { window.player.setCurrentTime(s); return true; };
-                window.plinkRutubeSnapshot = function() {
-                    return {
-                        time: window.player.getCurrentTime ? window.player.getCurrentTime() : 0,
-                        duration: window.player.getDuration ? window.player.getDuration() : 0
-                    };
-                };
-                return true;
-            }
-            return false;
-        })();
-        """
-
-        let result = await evaluate(probe)
-        jsApiConfirmed = (result as? Bool) == true
-        isReady = true
-    }
+    // MARK: - Bridge
 
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if self.jsApiConfirmed {
-                    let snapshot = await self.evaluate("window.plinkRutubeSnapshot && window.plinkRutubeSnapshot();")
-                    if let dict = snapshot as? [String: Any] {
-                        if let t = dict["time"] as? Double, t.isFinite {
-                            self.position = t
-                        }
-                        if let d = dict["duration"] as? Double, d > 0 {
-                            self.duration = d
-                        }
-                    }
+                let snapshot = await self.evaluate("window.__plinkRutubeSnapshot && window.__plinkRutubeSnapshot();")
+                if let snapshot = snapshot as? [String: Any] {
+                    self.applySnapshot(snapshot)
+                }
+                if !self.jsApiConfirmed {
+                    let ready = await self.evaluate("window.__plinkRutubeBridgeReady === true;") as? Bool ?? false
+                    if ready { self.jsApiConfirmed = true }
                 }
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
     }
 
+    private func applySnapshot(_ snapshot: [String: Any]) {
+        if let found = snapshot["found"] as? Bool, found { jsApiConfirmed = true }
+        if let time = Self.doubleValue(snapshot["time"]), time.isFinite { position = max(0, time) }
+        if let length = Self.doubleValue(snapshot["duration"]), length.isFinite, length > 0 {
+            duration = length
+        }
+        if let playing = snapshot["playing"] as? Bool {
+            let changed = isPlaying != playing
+            isPlaying = playing
+            if changed { emitUserPlaybackChangeIfNeeded(playing: playing, position: position) }
+        }
+    }
+
+    private func handleEvent(type: String, payload: [String: Any]) {
+        switch type {
+        case "player:ready", "player:canPlay", "frame:loaded":
+            jsApiConfirmed = true
+            isReady = true
+        case "player:playStart", "player:play":
+            jsApiConfirmed = true
+            isPlaying = true
+            emitUserPlaybackChangeIfNeeded(playing: true, position: position)
+        case "player:pause", "player:playComplete":
+            jsApiConfirmed = true
+            isPlaying = false
+            emitUserPlaybackChangeIfNeeded(playing: false, position: position)
+        case "player:buffering":
+            isBuffering = (payload["buffering"] as? Bool) ?? true
+        case "player:currentTime":
+            if let time = Self.doubleValue(payload["time"] ?? payload["currentTime"]), time.isFinite {
+                position = max(0, time)
+            }
+        case "player:durationChange":
+            if let length = Self.doubleValue(payload["duration"]), length > 0 { duration = length }
+        case "player:error", "player:errorInfo":
+            lastError = "RuTube не смог загрузить это видео"
+            isBuffering = false
+            isPlaying = false
+        case "snapshot":
+            applySnapshot(payload)
+        default:
+            break
+        }
+    }
+
+    private func sendCommand(type: String, data: [String: Any]) async -> Bool {
+        guard let encoded = try? JSONSerialization.data(withJSONObject: ["type": type, "data": data]),
+              let message = String(data: encoded, encoding: .utf8) else { return false }
+        let escaped = message
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        return await evaluate("window.postMessage('\(escaped)', '*'); true;") != nil
+    }
+
     @discardableResult
-    private func evaluate(_ js: String) async -> Any? {
+    private func evaluate(_ script: String) async -> Any? {
         guard let webView else { return nil }
-        return try? await webView.evaluateJavaScript(js)
+        return try? await webView.evaluateJavaScript(script)
     }
 
-    // MARK: - Validation
+    private func beginSuppressUserBroadcast() { suppressUserBroadcastDepth += 1 }
 
-    /// Rutube video IDs are 32-character hex strings.
-    /// Example: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+    private func endSuppressUserBroadcast() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard let self else { return }
+            self.suppressUserBroadcastDepth = max(0, self.suppressUserBroadcastDepth - 1)
+        }
+    }
+
+    private func emitUserPlaybackChangeIfNeeded(playing: Bool, position: Double) {
+        guard suppressUserBroadcastDepth == 0 else { return }
+        let changed = lastBroadcastPlaying.map { $0 != playing } ?? true
+        let jumped = abs(position - lastBroadcastPosition) > 1.25
+        guard changed || jumped else { return }
+        lastBroadcastPlaying = playing
+        lastBroadcastPosition = position
+        onUserPlaybackChange?(playing, position)
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let string = value as? String { return Double(string) }
+        return value as? Double
+    }
+
     private static func isValidVideoId(_ id: String) -> Bool {
-        guard id.count == 32 else { return false }
-        return id.allSatisfy { $0.isHexDigit }
+        guard id.count >= 8, id.count <= 64 else { return false }
+        return id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
     }
 
-    // MARK: - Navigation delegate
+    private static let mobileSafariUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) " +
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 " +
+        "Mobile/15E148 Safari/604.1"
 
-    /// Сообщает о завершении загрузки embed-страницы, чтобы prepare() перестал
-    /// ждать. WKWebView держит navigationDelegate слабо — сильную ссылку
-    /// хранит navigationDelegateBox. Модель — YTWebNavigationDelegate.
-    private final class RutubeNavigationDelegate: NSObject, WKNavigationDelegate {
+    /// The embed's external-events bus serializes messages as
+    /// `{ type: "player:…", data: {...} }` and posts them to its parent. The
+    /// listener also watches the DOM video as a compatibility fallback for
+    /// revisions that delay or omit the external event.
+    private static func bridgeScript(videoId: String) -> String {
+        """
+        (function() {
+          if (window.__plinkRutubeBridgeInstalled) return;
+          window.__plinkRutubeBridgeInstalled = true;
+          window.__plinkRutubeBridgeReady = false;
+          var expectedId = '\(videoId)';
+
+          function send(type, data) {
+            try {
+              if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.plinkRutube) {
+                window.webkit.messageHandlers.plinkRutube.postMessage({ type: type, data: data || {} });
+              }
+            } catch (e) {}
+          }
+
+          function parseMessage(value) {
+            if (typeof value !== 'string') return null;
+            try { return JSON.parse(value); } catch (e) { return null; }
+          }
+
+          window.addEventListener('message', function(event) {
+            var message = parseMessage(event.data);
+            if (!message || typeof message.type !== 'string') return;
+            if (message.type.indexOf('player:') === 0 || message.type === 'frame:loaded') {
+              window.__plinkRutubeBridgeReady = true;
+              send(message.type, message.data || {});
+            }
+          }, true);
+
+          function video() {
+            var candidates = document.querySelectorAll('video');
+            if (!candidates.length) return null;
+            var best = candidates[0];
+            for (var i = 1; i < candidates.length; i++) {
+              if ((candidates[i].clientWidth * candidates[i].clientHeight) >
+                  (best.clientWidth * best.clientHeight)) best = candidates[i];
+            }
+            return best;
+          }
+
+          window.__plinkRutubeSnapshot = function() {
+            var v = video();
+            if (!v) return { found: false, time: 0, duration: 0, playing: false };
+            window.__plinkRutubeBridgeReady = true;
+            return {
+              found: true,
+              time: isFinite(v.currentTime) ? v.currentTime : 0,
+              duration: isFinite(v.duration) ? v.duration : 0,
+              playing: !v.paused && !v.ended
+            };
+          };
+
+          window.__plinkRutubePlay = function() {
+            var v = video();
+            if (v) { v.play().catch(function(){}); return true; }
+            window.postMessage(JSON.stringify({type:'player:play', data:{videoId:expectedId}}), '*');
+            return true;
+          };
+          window.__plinkRutubePause = function() {
+            var v = video();
+            if (v) { v.pause(); return true; }
+            window.postMessage(JSON.stringify({type:'player:pause', data:{videoId:expectedId}}), '*');
+            return true;
+          };
+          window.__plinkRutubeSeek = function(seconds) {
+            var v = video();
+            if (v) { v.currentTime = Math.max(0, Number(seconds) || 0); return true; }
+            window.postMessage(JSON.stringify({type:'player:setCurrentTime', data:{videoId:expectedId,time:Number(seconds)||0}}), '*');
+            return true;
+          };
+
+          setInterval(function() {
+            var snapshot = window.__plinkRutubeSnapshot();
+            if (snapshot.found) send('snapshot', snapshot);
+          }, 500);
+        })();
+        """
+    }
+
+    // MARK: - WK delegates
+
+    private final class NavigationDelegate: NSObject, WKNavigationDelegate {
         private let onFinish: (Bool, String?) -> Void
+
         init(onFinish: @escaping (Bool, String?) -> Void) { self.onFinish = onFinish }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             onFinish(true, nil)
         }
+
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             onFinish(false, error.localizedDescription)
         }
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            onFinish(false, error.localizedDescription)
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            if (error as NSError).code != NSURLErrorCancelled {
+                onFinish(false, error.localizedDescription)
+            }
+        }
+    }
+
+    private final class MessageHandler: NSObject, WKScriptMessageHandler {
+        var onEvent: ((String, [String: Any]) -> Void)?
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? [String: Any],
+                  let type = body["type"] as? String else { return }
+            onEvent?(type, body["data"] as? [String: Any] ?? [:])
         }
     }
 }

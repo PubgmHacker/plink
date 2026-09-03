@@ -23,7 +23,8 @@ enum RoomCreateMedia {
                 id: vid ?? UUID().uuidString,
                 title: title,
                 artist: nil,
-                thumbnailURL: vid.map { "https://img.youtube.com/vi/\($0)/hqdefault.jpg" },
+                thumbnailURL: video.thumbnailURL
+                    ?? vid.map { "https://img.youtube.com/vi/\($0)/hqdefault.jpg" },
                 streamURL: stream,
                 duration: nil,
                 mediaType: .video,
@@ -36,7 +37,7 @@ enum RoomCreateMedia {
                 id: UUID().uuidString,
                 title: title,
                 artist: nil,
-                thumbnailURL: nil,
+                thumbnailURL: video.thumbnailURL,
                 streamURL: video.originalURL.isEmpty ? raw : video.originalURL,
                 duration: nil,
                 mediaType: .video,

@@ -40,8 +40,8 @@ enum PlinkAuthMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .signIn: return "Вход"
-        case .signUp: return "Регистрация"
+        case .signIn: return L10n.text(.authModeSignIn)
+        case .signUp: return L10n.text(.authModeSignUp)
         }
     }
 
@@ -49,8 +49,8 @@ enum PlinkAuthMode: String, CaseIterable, Identifiable {
     /// что произойдёт.
     var action: String {
         switch self {
-        case .signIn: return "Войти"
-        case .signUp: return "Создать аккаунт"
+        case .signIn: return L10n.text(.authActionSignIn)
+        case .signUp: return L10n.text(.loginCreateAccount)
         }
     }
 }
@@ -59,15 +59,13 @@ enum PlinkAuthMode: String, CaseIterable, Identifiable {
 enum AuthLoginMethod: String, CaseIterable, Identifiable {
     case email
     case apple
-    case yandex
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .email: return "Почта"
+        case .email: return L10n.text(.authMethodEmail)
         case .apple: return "Apple"
-        case .yandex: return "Яндекс"
         }
     }
 
@@ -75,7 +73,6 @@ enum AuthLoginMethod: String, CaseIterable, Identifiable {
         switch self {
         case .email: return "envelope.fill"
         case .apple: return "apple.logo"
-        case .yandex: return "y.circle.fill"
         }
     }
 }
@@ -163,7 +160,7 @@ struct PlinkAuthScreen: View {
 
     var body: some View {
         ZStack {
-            ProjectorBeamBackground()
+            PlinkShellBackground()
                 .ignoresSafeArea()
 
             // Форма прижата к низу, а не центрирована: главная кнопка должна
@@ -255,20 +252,13 @@ struct PlinkAuthScreen: View {
 
             PlinkWordmark(size: 42)
 
-            // Обещание продукта, а не описание формы: экран должен говорить
-            // «смотрим вместе», а не «заполните поля».
-            //
-            // Разрядка 0.3 и тёплый серый: подпись под плотным вордмарком
-            // должна быть заметно легче его, иначе два текста спорят.
-            Text("Смотрите вместе — кадр в кадр")
-                .font(.system(size: 15, weight: .medium))
-                .tracking(0.3)
-                .foregroundStyle(PlinkTheatre.muted)
-                .multilineTextAlignment(.center)
+            // Теглайн эталонного лок-апа (brand/source/reference.png): шапка
+            // входа — тот же знак, вордмарк и подпись, что на иконке и сплэше.
+            PlinkTagline(size: 12)
                 .padding(.top, 14)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Plink. Смотрите вместе — кадр в кадр")
+        .accessibilityLabel(L10n.text(.authHeroA11y))
     }
 
     // MARK: Переключатель режима
@@ -303,7 +293,7 @@ struct PlinkAuthScreen: View {
                 } label: {
                     Text(item.title)
                         .font(.system(size: 14.5, weight: isOn ? .bold : .semibold))
-                        .foregroundStyle(isOn ? PlinkTheatre.screen : PlinkTheatre.muted)
+                        .foregroundStyle(isOn ? PlinkShell.text : PlinkShell.muted)
                         .frame(maxWidth: .infinity)
                         // minHeight, а не фиксированная высота: при крупном
                         // Dynamic Type подпись иначе обрезается.
@@ -311,10 +301,10 @@ struct PlinkAuthScreen: View {
                         .background {
                             if isOn {
                                 Capsule(style: .continuous)
-                                    .fill(PlinkTheatre.surfaceLift)
+                                    .fill(PlinkShell.surfaceLift)
                                     .overlay {
                                         Capsule(style: .continuous)
-                                            .strokeBorder(PlinkTheatre.specular, lineWidth: 0.8)
+                                            .strokeBorder(PlinkShell.specular, lineWidth: 0.8)
                                             .mask {
                                                 // Блик только по верхней кромке.
                                                 LinearGradient(
@@ -351,7 +341,7 @@ struct PlinkAuthScreen: View {
         )
         .overlay(
             Capsule(style: .continuous)
-                .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+                .strokeBorder(PlinkShell.hairline, lineWidth: 1)
         )
     }
 
@@ -380,16 +370,16 @@ struct PlinkAuthScreen: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
-                    .foregroundStyle(isOn ? PlinkTheatre.screen : PlinkTheatre.muted)
+                    .foregroundStyle(isOn ? PlinkShell.text : PlinkShell.muted)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .background {
                         if isOn {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(PlinkTheatre.surfaceLift)
+                                .fill(PlinkShell.surfaceLift)
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .strokeBorder(PlinkTheatre.specular, lineWidth: 0.8)
+                                        .strokeBorder(PlinkShell.specular, lineWidth: 0.8)
                                 }
                                 .matchedGeometryEffect(id: "authMethodPill", in: methodNS)
                         }
@@ -409,10 +399,10 @@ struct PlinkAuthScreen: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(PlinkTheatre.hairline, lineWidth: 1)
+                .strokeBorder(PlinkShell.hairline, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Способ входа")
+        .accessibilityLabel(L10n.text(.authMethodPickerA11y))
     }
 
     // MARK: Форма
@@ -435,8 +425,6 @@ struct PlinkAuthScreen: View {
                     onSuccess: onAuthenticated,
                     onError: { errorMessage = $0 }
                 )
-            case .yandex:
-                comingSoonPanel
             }
         }
         .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: loginMethod)
@@ -451,20 +439,20 @@ struct PlinkAuthScreen: View {
                 keyboard: .emailAddress,
                 contentType: .emailAddress,
                 submitLabel: .next,
-                problem: showEmailProblem ? "Похоже, в адресе опечатка" : nil,
+                problem: showEmailProblem ? L10n.text(.authEmailTypo) : nil,
                 onSubmit: { focus = mode == .signUp ? .username : .password }
             )
             .focused($focus, equals: .email)
 
             if mode == .signUp {
                 AuthField(
-                    title: "Имя пользователя",
+                    title: L10n.text(.authUsernameTitle),
                     text: $username,
                     icon: .person,
                     contentType: .username,
                     submitLabel: .next,
                     problem: showUsernameProblem
-                        ? "5–32 символа: латиница, цифры и _, первая — буква"
+                        ? L10n.text(.authUsernameHint)
                         : nil,
                     onSubmit: { focus = .password }
                 )
@@ -476,13 +464,13 @@ struct PlinkAuthScreen: View {
             }
 
             AuthField(
-                title: "Пароль",
+                title: L10n.text(.authPasswordTitle),
                 text: $password,
                 icon: .lock,
                 contentType: mode == .signUp ? .newPassword : .password,
                 secure: !showPassword,
                 submitLabel: .go,
-                problem: showPasswordProblem ? "Не меньше 6 символов" : nil,
+                problem: showPasswordProblem ? L10n.text(.authPasswordMin) : nil,
                 trailing: {
                     Button {
                         showPassword.toggle()
@@ -490,11 +478,11 @@ struct PlinkAuthScreen: View {
                     } label: {
                         Image(systemName: showPassword ? "eye.slash" : "eye")
                             .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(PlinkTheatre.muted)
+                            .foregroundStyle(PlinkShell.muted)
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(showPassword ? "Скрыть пароль" : "Показать пароль")
+                    .accessibilityLabel(showPassword ? L10n.text(.authHidePassword) : L10n.text(.authShowPassword))
                 },
                 onSubmit: { Task { await submit() } }
             )
@@ -505,37 +493,19 @@ struct PlinkAuthScreen: View {
                     HapticManager.selection()
                     showForgotPassword = true
                 } label: {
-                    Text("Забыли пароль?")
+                    Text(L10n.text(.authForgotPassword))
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(PlinkTheatre.warm)
+                        .foregroundStyle(PlinkShell.accentSoft)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .frame(minHeight: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Забыли пароль")
+                .accessibilityLabel(L10n.text(.authForgotPasswordA11y))
             }
 
             submitButton
                 .padding(.top, mode == .signIn ? 0 : 6)
         }
-    }
-
-    private var comingSoonPanel: some View {
-        VStack(spacing: 8) {
-            Image(systemName: loginMethod.symbol)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(PlinkTheatre.muted)
-            Text("Будет доступно скоро")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(PlinkTheatre.screen)
-            Text("Пока войдите почтой или через Apple.")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(PlinkTheatre.muted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 22)
-        .accessibilityLabel("\(loginMethod.title). Будет доступно скоро")
     }
 
     private var showEmailProblem: Bool {
@@ -565,7 +535,7 @@ struct PlinkAuthScreen: View {
                 if isLoading {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(Color(hex: 0x101013))
+                        .tint(PlinkShell.text)
                 }
             }
         }
@@ -573,7 +543,7 @@ struct PlinkAuthScreen: View {
         .disabled(!canSubmit)
         .animation(.easeOut(duration: 0.18), value: isLoading)
         .accessibilityLabel(mode.action)
-        .accessibilityHint(isLoading ? "Выполняется" : "")
+        .accessibilityHint(isLoading ? L10n.text(.authInProgress) : "")
     }
 
     // MARK: Отправка
@@ -586,17 +556,17 @@ struct PlinkAuthScreen: View {
         // узнать про опечатку в адресе.
         guard emailIsValid else {
             focus = .email
-            fail("Проверьте адрес электронной почты")
+            fail(L10n.text(.authErrEmail))
             return
         }
         if mode == .signUp, !usernameIsValid {
             focus = .username
-            fail("Имя пользователя: 5–32 символа, латиница, цифры и _, первая — буква")
+            fail(L10n.text(.authErrUsername))
             return
         }
         guard passwordIsValid else {
             focus = .password
-            fail("Пароль должен содержать не меньше 6 символов")
+            fail(L10n.text(.authErrPassword))
             return
         }
 
@@ -661,7 +631,11 @@ private struct AuthField<Trailing: View>: View {
     /// ввод в симуляторе и делает воронку непроходимой для XCUITest. Флаг
     /// выключает ТОЛЬКО autofill-подсказку, поведение живого приложения то же.
     private var uiTestMode: Bool {
+        #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-plink.uitest")
+        #else
+        false
+        #endif
     }
 
     var body: some View {
@@ -669,7 +643,7 @@ private struct AuthField<Trailing: View>: View {
             HStack(spacing: 10) {
                 if let icon {
                     V4GlyphIcon(glyph: icon, size: 16, weight: .regular)
-                        .foregroundStyle(focused ? PlinkTheatre.warm : PlinkTheatre.muted)
+                        .foregroundStyle(focused ? PlinkShell.accentSoft : PlinkShell.muted)
                         .frame(width: 20)
                 }
 
@@ -687,8 +661,8 @@ private struct AuthField<Trailing: View>: View {
                 .submitLabel(submitLabel)
                 .onSubmit { onSubmit?() }
                 .focused($focused)
-                .foregroundStyle(PlinkTheatre.screen)
-                .tint(PlinkTheatre.warm)
+                .foregroundStyle(PlinkShell.text)
+                .tint(PlinkShell.accentSoft)
 
                 trailing
             }
@@ -708,20 +682,20 @@ private struct AuthField<Trailing: View>: View {
             // добавить «Tinted»-режим, потому что стекло поверх насыщенного
             // фона мешало читать.
             //
-            // И практическая: за формой теперь живая мозаика кадров. Стекло
-            // пропускало бы её внутрь поля, и контраст текста зависел бы от
-            // того, какой тайл под полем проплывает. Плотная подложка
-            // гарантирует 4.5:1 при любом кадре фона.
+            // И практическая: за формой дышит фиолетовое сияние шелла. Стекло
+            // пропускало бы его внутрь поля, и контраст текста зависел бы от
+            // фазы сияния под полем. Плотная подложка гарантирует 4.5:1 в
+            // любой момент.
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(focused ? PlinkTheatre.surfaceLift : PlinkTheatre.surface)
+                    .fill(focused ? PlinkShell.surfaceLift : PlinkShell.surface)
             )
             .overlay {
                 // Блик по верхней кромке — «поверхность поймала свет».
                 // Именно этой детали не хватало, чтобы плотная плашка не
                 // читалась плоским прямоугольником.
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(PlinkTheatre.specular, lineWidth: 0.8)
+                    .strokeBorder(PlinkShell.specular, lineWidth: 0.8)
                     .mask {
                         LinearGradient(
                             colors: [.white, .clear],
@@ -736,7 +710,7 @@ private struct AuthField<Trailing: View>: View {
             )
             // Фокус подсвечен тёплым — акцентом шелла, а не темы.
             .shadow(
-                color: PlinkTheatre.warm.opacity(focused ? 0.14 : 0),
+                color: PlinkShell.accentSoft.opacity(focused ? 0.14 : 0),
                 radius: 14
             )
             .animation(.easeOut(duration: 0.18), value: focused)
@@ -745,7 +719,7 @@ private struct AuthField<Trailing: View>: View {
             if let problem {
                 Text(problem)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(PlinkTheatre.amber)
+                    .foregroundStyle(PlinkShell.warning)
                     .padding(.leading, 4)
                     .transition(.opacity)
             }
@@ -756,12 +730,12 @@ private struct AuthField<Trailing: View>: View {
     }
 
     private var borderColor: Color {
-        if problem != nil { return PlinkTheatre.amber.opacity(0.72) }
-        return focused ? PlinkTheatre.warm.opacity(0.55) : PlinkTheatre.hairline
+        if problem != nil { return PlinkShell.warning.opacity(0.72) }
+        return focused ? PlinkShell.accentSoft.opacity(0.55) : PlinkShell.hairline
     }
 
     private var prompt: Text {
-        Text(title).foregroundStyle(PlinkTheatre.muted.opacity(0.85))
+        Text(title).foregroundStyle(PlinkShell.muted.opacity(0.85))
     }
 }
 
@@ -828,14 +802,14 @@ private struct ForgotPasswordSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                ProjectorBeamBackground().ignoresSafeArea()
+                PlinkShellBackground().ignoresSafeArea()
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
                         Text(step == .email
-                             ? "Пришлём код на почту. Если аккаунта нет — письмо не придёт, так и задумано."
-                             : "Введите код из письма и новый пароль.")
+                             ? L10n.text(.resetIntroEmail)
+                             : L10n.text(.resetIntroCode))
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(PlinkTheatre.muted)
+                            .foregroundStyle(PlinkShell.muted)
                             .padding(.top, 8)
 
                         if let errorMessage {
@@ -858,7 +832,7 @@ private struct ForgotPasswordSheet: View {
                             .focused($focus, equals: .email)
                         } else {
                             AuthField(
-                                title: "Код из письма",
+                                title: L10n.text(.resetCodeTitle),
                                 text: $code,
                                 icon: .lock,
                                 keyboard: .numberPad,
@@ -872,21 +846,21 @@ private struct ForgotPasswordSheet: View {
                             }
 
                             AuthField(
-                                title: "Новый пароль",
+                                title: L10n.text(.resetNewPassword),
                                 text: $newPassword,
                                 icon: .lock,
                                 contentType: .newPassword,
                                 secure: !showPassword,
                                 submitLabel: .go,
                                 problem: newPassword.isEmpty || newPassword.count >= 6
-                                    ? nil : "Не меньше 6 символов",
+                                    ? nil : L10n.text(.authPasswordMin),
                                 trailing: {
                                     Button {
                                         showPassword.toggle()
                                     } label: {
                                         Image(systemName: showPassword ? "eye.slash" : "eye")
                                             .font(.system(size: 15, weight: .regular))
-                                            .foregroundStyle(PlinkTheatre.muted)
+                                            .foregroundStyle(PlinkShell.muted)
                                             .frame(width: 44, height: 44)
                                     }
                                     .buttonStyle(.plain)
@@ -906,28 +880,22 @@ private struct ForgotPasswordSheet: View {
                             }
                         } label: {
                             ZStack {
-                                Text(step == .email ? "Отправить код" : "Сменить пароль")
+                                Text(step == .email ? L10n.text(.resetSendCode) : L10n.text(.resetChangePassword))
                                     .opacity(isLoading ? 0 : 1)
                                 if isLoading {
-                                    ProgressView().tint(Color(hex: 0x101013))
+                                    ProgressView().tint(PlinkShell.text)
                                 }
                             }
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101013))
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 52)
-                            .background(PlinkTheatre.screen, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(AuthPrimaryButtonStyle())
                         .disabled(isLoading || (step == .email ? !emailIsValid : (code.count != 6 || newPassword.count < 6)))
-                        .opacity(isLoading || (step == .email ? !emailIsValid : (code.count != 6 || newPassword.count < 6)) ? 0.45 : 1)
 
                         if step == .code {
-                            Button("Отправить код ещё раз") {
+                            Button(L10n.text(.resetResend)) {
                                 Task { await sendCode() }
                             }
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(PlinkTheatre.warm)
+                            .foregroundStyle(PlinkShell.accentSoft)
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: 44)
                             .disabled(isLoading)
@@ -937,7 +905,7 @@ private struct ForgotPasswordSheet: View {
                     .padding(.bottom, 28)
                 }
             }
-            .navigationTitle("Новый пароль")
+            .navigationTitle(L10n.text(.resetNewPassword))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 V4SheetCloseToolbarItem { dismiss() }
@@ -956,7 +924,7 @@ private struct ForgotPasswordSheet: View {
         defer { isLoading = false }
         do {
             try await AuthService.shared.requestPasswordReset(email: trimmedEmail)
-            infoMessage = "Если аккаунт есть, код уже на почте. Проверьте входящие и спам."
+            infoMessage = L10n.text(.resetSent)
             step = .code
             focus = .code
         } catch {

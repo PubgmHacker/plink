@@ -23,7 +23,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,19 +36,24 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Камера нужна для аватара и видеосообщений, когда вы их включите.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID подтверждает, что это вы, перед защищёнными действиями с аккаунтом.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Микрофон нужен для голосовых сообщений друзьям и голосового общения в комнате.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Плинк может сохранять изображения только по вашему действию.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Плинк использует галерею, чтобы вы могли выбрать и сменить аватар в профиле.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Распознавание речи нужно, чтобы превращать ваш голосовой запрос в текст внутри Plink.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
-		<string>picture-in-picture</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict>
@@ -60,6 +65,13 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>

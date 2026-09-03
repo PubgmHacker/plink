@@ -68,8 +68,6 @@ targets:
         type: folder
       - path: Plink/Resources/Avatars
         type: folder
-      - path: Plink/Resources/Banners
-        type: folder
       - path: Plink/Resources/CinemaBubbles
         type: folder
     # LiveKit dependency disabled — see comment at top of file.
@@ -84,6 +82,9 @@ targets:
         DEVELOPMENT_TEAM: "2QAMUC4Z4P"
         CODE_SIGN_IDENTITY: "Apple Development"
         SUPPORTS_MACCATALYST: NO
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Plink/Resources/Plink.release.entitlements
     frameworks:
       - Metal.framework
       - MetalKit.framework
@@ -101,18 +102,31 @@ targets:
         CFBundleDisplayName: Плинк
         CFBundleDevelopmentRegion: ru
         CFBundleLocalizations: [ru, en, zh]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # HTTPS only (exempt encryption) — answers App Store Connect export compliance up front.
+        ITSAppUsesNonExemptEncryption: false
+        NSFaceIDUsageDescription: Face ID подтверждает, что это вы, перед защищёнными действиями с аккаунтом.
         NSPhotoLibraryUsageDescription: Плинк использует галерею, чтобы вы могли выбрать и сменить аватар в профиле.
         NSPhotoLibraryAddUsageDescription: Плинк может сохранять изображения только по вашему действию.
         NSMicrophoneUsageDescription: Микрофон нужен для голосовых сообщений друзьям и голосового общения в комнате.
+        NSSpeechRecognitionUsageDescription: Распознавание речи нужно, чтобы превращать ваш голосовой запрос в текст внутри Plink.
         NSCameraUsageDescription: Камера нужна для аватара и видеосообщений, когда вы их включите.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIRequiresFullScreen: false
+        # `audio` keeps playback alive in the background. `picture-in-picture` is not a
+        # valid UIBackgroundModes value — AVKit grants PiP on its own.
         UIBackgroundModes:
           - audio
-          - picture-in-picture
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # iPad multitasking (UIRequiresFullScreen=false) requires all four orientations.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         # Custom-scheme deep links: plink://r/<code> and plink://u/<userId>.
@@ -122,16 +136,18 @@ targets:
             CFBundleURLSchemes: [plink]
     entitlements:
       path: Plink/Resources/Plink.entitlements
-      # Do NOT add Associated Domains (universal links) while the signing team is a
-      # Personal Team. Provisioning fails outright with "Personal development teams do
-      # not support the Associated Domains capability" — the build does not compile, so
-      # this is a hard block rather than a degraded feature.
+      # Debug signs with the empty Plink.entitlements: the current team is a Personal
+      # (free) team, and it cannot carry Sign in with Apple, App Groups or Associated
+      # Domains — provisioning fails outright ("Personal development teams do not
+      # support the ... capability"), which blocks the build rather than degrading it.
       #
-      # Once the account is on the Apple Developer Program, restore:
-      #   properties:
-      #     com.apple.developer.associated-domains:
-      #       - applinks:plink.app
-      #       - applinks:plink-production.up.railway.app
+      # Release signs with Plink/Resources/Plink.release.entitlements (Sign in with
+      # Apple + App Groups group.com.syncwatch.plink, see settings.configs.Release).
+      # Archiving therefore requires an Apple Developer Program team. Once enrolled,
+      # also restore universal links there:
+      #   com.apple.developer.associated-domains:
+      #     - applinks:plink.app
+      #     - applinks:plink-production.up.railway.app
       #
       # Until then, invite links open the website instead of the app; the plink://
       # scheme above still works. See docs/runbooks/ios-build-and-release.md.
@@ -186,6 +202,8 @@ targets:
     info:
       path: PlinkWidget/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Плинк
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
@@ -195,6 +213,9 @@ targets:
         DEVELOPMENT_TEAM: "2QAMUC4Z4P"
         CODE_SIGN_STYLE: Automatic
         SKIP_INSTALL: YES
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: PlinkWidget/PlinkWidget.release.entitlements
 
 # Schemes are declared here rather than left to Xcode's autocreation. Autocreation
 # produced exactly two schemes (Plink, PlinkWidget), neither of which referenced a test

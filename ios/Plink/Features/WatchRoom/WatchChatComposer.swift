@@ -145,13 +145,22 @@ struct WatchChatComposer: View {
                 EmojiInlinePanel(
                     pack: currentPack,
                     hasPremium: hasPremium,
-                    onPick: { emoji in
-                        // Empty field + pick → live reaction; otherwise insert into message
-                        if state.trimmedText.isEmpty {
-                            model.sendReaction(emoji: emoji, hasPremium: hasPremium)
+                    onPick: { packName, emojiName in
+                        let insertion = PlinkEmojiCatalog.composerInsertion(
+                            pack: packName,
+                            name: emojiName
+                        )
+                        // A plain reaction on an empty field is broadcast now.
+                        // Sticker/art packs are inserted as rich-message tokens;
+                        // internal asset IDs never become visible text and are
+                        // never sent to the strict reaction allowlist.
+                        if state.trimmedText.isEmpty,
+                           let glyph = PlinkEmojiCatalog.reactionGlyph(pack: packName, name: emojiName),
+                           ReactionPalette.canSend(glyph, hasPremium: hasPremium) {
+                            model.sendReaction(emoji: glyph, hasPremium: hasPremium)
                             HapticManager.impact(.light)
                         } else {
-                            state.insertAtCursor(emoji)
+                            state.insertAtCursor(insertion)
                         }
                     },
                     onPremiumUpsell: {
@@ -188,6 +197,9 @@ struct WatchChatComposer: View {
                 .padding(.bottom, 8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            V4VoiceErrorBanner(capture: voiceCapture)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
 
             // Telegram-style: [ + ] [ field ………………… ] [😊] [↑]
             HStack(alignment: .bottom, spacing: 8) {
@@ -444,7 +456,7 @@ struct PacksPopover: View {
 struct EmojiInlinePanel: View {
     let pack: EmojiPack
     let hasPremium: Bool
-    let onPick: (String) -> Void
+    let onPick: (String, String) -> Void
     let onPremiumUpsell: () -> Void
     let onSwitchPack: (Int) -> Void
     let packs: [EmojiPack]
@@ -490,7 +502,7 @@ struct EmojiInlinePanel: View {
                             if pack.isPremium && !hasPremium {
                                 onPremiumUpsell()
                             } else {
-                                onPick(emojiName)  // pass name; chat will render Image or text
+                                onPick(pack.name, emojiName)
                             }
                         } label: {
                             EmojiAssetImage(name: emojiName, pack: pack.name)

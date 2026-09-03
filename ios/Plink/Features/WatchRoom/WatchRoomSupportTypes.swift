@@ -10,3 +10,22 @@
 // поля `track`.
 
 import SwiftUI
+
+// MARK: - Room input states
+
+/// Presentation state for the optional room microphone control.
+///
+/// Audio/video transport is not a room source of truth; these values are kept
+/// in the UI layer so the room model remains about playback and realtime state.
+enum MicrophoneUIState: Equatable {
+    case off
+    case on
+    case talking
+    case pushToTalk
+}
+
+enum CameraUIState: Equatable {
+    case off
+    case on
+    case loading
+}

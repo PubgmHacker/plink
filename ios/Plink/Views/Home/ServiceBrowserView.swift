@@ -50,27 +50,31 @@ struct ServiceBrowserView: View {
 
                 VStack(spacing: 0) {
                     // WebView
-                    ServiceWebView(
-                        initialURL: URL(string: service.browseURL)!,
-                        currentURL: $currentURL,
-                        pageTitle: $pageTitle,
-                        canGoBack: $canGoBack,
-                        canGoForward: $canGoForward,
-                        onVideoDetected: { video in
-                            detectedVideo = video
-                        },
-                        onLoadingChange: { loading in
-                            withAnimation(.easeOut(duration: 0.2)) { isPageLoading = loading }
-                        },
-                        onLoadFailed: {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                isPageLoading = false
-                                loadFailed = true
-                            }
-                        },
-                        persistCookies: service.requiresAuth
-                    )
-                    .id(reloadToken)
+                    if let initialURL = URL(string: service.browseURL) {
+                        ServiceWebView(
+                            initialURL: initialURL,
+                            currentURL: $currentURL,
+                            pageTitle: $pageTitle,
+                            canGoBack: $canGoBack,
+                            canGoForward: $canGoForward,
+                            onVideoDetected: { video in
+                                detectedVideo = video
+                            },
+                            onLoadingChange: { loading in
+                                withAnimation(.easeOut(duration: 0.2)) { isPageLoading = loading }
+                            },
+                            onLoadFailed: {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    isPageLoading = false
+                                    loadFailed = true
+                                }
+                            },
+                            persistCookies: service.requiresAuth
+                        )
+                        .id(reloadToken)
+                    } else {
+                        failureOverlay
+                    }
 
                     if service.deliveryBucket == .bySubscription || service == .browser {
                         createFromPageBar

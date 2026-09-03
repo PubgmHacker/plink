@@ -71,7 +71,7 @@ enum Logger {
             case .error: return .error
             }
         }()
-        os_log("%{public}@", log: osLog, type: type, formatted)
+        os_log("%{private}@", log: osLog, type: type, formatted)
         #endif
     }
 }

@@ -12,11 +12,15 @@ import AVFoundation
 final class V4SpeechRecognizer: ObservableObject {
     @Published var isRecording = false
     @Published var transcript = ""
+    /// Non-fatal, user-facing failure. TCC and audio-session errors must never
+    /// terminate the app or leave the mic button stuck in the recording state.
+    @Published private(set) var errorMessage: String?
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "ru-RU"))
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var tapInstalled = false
 
     /// Пользователь всё ещё держит кнопку. Разрешение на микрофон приходит
     /// асинхронно, и при коротком нажатии stop() успевал сработать раньше
@@ -26,6 +30,7 @@ final class V4SpeechRecognizer: ObservableObject {
 
     func start() {
         transcript = ""
+        errorMessage = nil
         wantsRecording = true
         // Двухступенчатый запрос: распознавание речи, затем микрофон. Оба ключа
         // обязаны быть в Info.plist — без NSSpeechRecognitionUsageDescription
@@ -33,12 +38,31 @@ final class V4SpeechRecognizer: ObservableObject {
         // (TCC kill), что выглядело как «вылет вместо запроса разрешения».
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             Task { @MainActor in
-                guard status == .authorized else { return }
-                guard self?.wantsRecording == true else { return }
+                guard let self, self.wantsRecording else { return }
+                switch status {
+                case .authorized:
+                    break
+                case .denied:
+                    self.fail("Разрешите распознавание речи в настройках Plink")
+                    return
+                case .restricted:
+                    self.fail("Распознавание речи ограничено на этом устройстве")
+                    return
+                case .notDetermined:
+                    self.fail("Не удалось получить доступ к распознаванию речи")
+                    return
+                @unknown default:
+                    self.fail("Распознавание речи недоступно")
+                    return
+                }
                 AVAudioApplication.requestRecordPermission { granted in
                     Task { @MainActor in
-                        guard granted, self?.wantsRecording == true else { return }
-                        self?.beginSession()
+                        guard self.wantsRecording else { return }
+                        guard granted else {
+                            self.fail("Разрешите доступ к микрофону в настройках Plink")
+                            return
+                        }
+                        self.beginSession()
                     }
                 }
             }
@@ -46,7 +70,11 @@ final class V4SpeechRecognizer: ObservableObject {
     }
 
     private func beginSession() {
-        guard let recognizer, recognizer.isAvailable, !audioEngine.isRunning else { return }
+        guard let recognizer, recognizer.isAvailable else {
+            fail("Распознавание речи сейчас недоступно")
+            return
+        }
+        guard !audioEngine.isRunning else { return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -58,10 +86,18 @@ final class V4SpeechRecognizer: ObservableObject {
 
             let node = audioEngine.inputNode
             let format = node.outputFormat(forBus: 0)
-            node.removeTap(onBus: 0)
+            guard format.channelCount > 0, format.sampleRate > 0 else {
+                fail("Микрофон недоступен на этом устройстве")
+                return
+            }
+            if tapInstalled {
+                node.removeTap(onBus: 0)
+                tapInstalled = false
+            }
             node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
                 request.append(buffer)
             }
+            tapInstalled = true
             audioEngine.prepare()
             try audioEngine.start()
             isRecording = true
@@ -78,7 +114,7 @@ final class V4SpeechRecognizer: ObservableObject {
                 }
             }
         } catch {
-            stop()
+            fail(Self.userMessage(for: error))
         }
     }
 
@@ -101,11 +137,32 @@ final class V4SpeechRecognizer: ObservableObject {
     private func stopEngineOnly() {
         if audioEngine.isRunning {
             audioEngine.stop()
+        }
+        if tapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
         }
         request?.endAudio()
         request = nil
         isRecording = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func fail(_ message: String) {
+        wantsRecording = false
+        stopEngineOnly()
+        task?.cancel()
+        task = nil
+        errorMessage = message
+    }
+
+    private static func userMessage(for error: Error) -> String {
+        let ns = error as NSError
+        // AVAudioEngine's low-level messages vary by OS and are not suitable
+        // for a toast. Keep diagnostics in the console, copy only the action.
+        #if DEBUG
+        print("[Voice] audio session failed: \(ns.domain) / \(ns.code) / \(ns.localizedDescription)")
+        #endif
+        return "Не удалось включить микрофон. Проверьте разрешение и попробуйте ещё раз."
     }
 }

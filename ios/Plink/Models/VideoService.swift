@@ -194,12 +194,26 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
         }
     }
 
+    /// Providers enabled for the first beta. They have a public discovery path
+    /// and an official embedded player that can be controlled by the room.
+    /// Other services stay visible as a roadmap, never as a button that silently
+    /// creates a room whose player cannot start.
+    var isAvailableInBeta: Bool {
+        self == .youtube || self == .rutube
+    }
+
+    var betaAvailabilityLabel: String {
+        isAvailableInBeta ? "Работает сейчас" : "Скоро"
+    }
+
     // MARK: - Playback
 
     var playbackMode: PlaybackMode {
         switch self {
         case .youtube, .customURL:
-            return .directStream
+            // YouTube uses its official embed in the room. Raw extraction is
+            // an opt-in legacy diagnostic path, never the beta default.
+            return .webview
         // VK и Rutube играют официальным эмбедом, кинотеатры — своей страницей.
         case .vk, .rutube, .browser, .smotrim,
              .netflix, .disney, .kinopoisk, .ivi, .okko, .wink, .start, .premier, .kion:

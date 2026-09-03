@@ -483,7 +483,7 @@ final class StoreManager: ObservableObject {
                 expiry = parsed
             } else {
                 expiry = Date().addingTimeInterval(30 * 24 * 3600)
-                print("[StoreManager] entitlement.expiryDate не распарсился: '\(entitlement.expiryDate ?? "nil")' — применяю дефолт 30 дней")
+                Logger.store.warn("entitlement.expiryDate did not parse: '\(entitlement.expiryDate ?? "nil")' — applying the 30-day default")
             }
             PremiumStatusManager.shared.activatePremium(expiryDate: expiry)
             onEntitlementActive?(.premium, expiry)

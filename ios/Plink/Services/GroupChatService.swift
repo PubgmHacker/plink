@@ -149,6 +149,60 @@ final class GroupChatService: ObservableObject {
     @Published var errorMessage: String?
 
     private let api = APIClient.shared
+    private var userEventObserver: NSObjectProtocol?
+    /// Request generations prevent a slower, older list response from erasing
+    /// a group that arrived through the realtime hint while the first request
+    /// was still in flight.
+    private var groupsRequestGeneration = 0
+    /// One history request per group at a time. Realtime + the two-second poll
+    /// otherwise raced and made the same message appear twice during a merge.
+    private var messageRequestsInFlight: Set<String> = []
+    private var messageRevisionByGroup: [String: Int] = [:]
+
+    private func messageRevision(for groupId: String) -> Int {
+        messageRevisionByGroup[groupId] ?? 0
+    }
+
+    private func markMessageMutation(for groupId: String) {
+        messageRevisionByGroup[groupId, default: 0] &+= 1
+    }
+
+    private func normalizedMessages(_ input: [GroupMessageDTO]) -> [GroupMessageDTO] {
+        var byID: [String: GroupMessageDTO] = [:]
+        for message in input where !message.id.isEmpty {
+            byID[message.id] = message
+        }
+        return byID.values.sorted {
+            let left = GroupISODate.parse($0.createdAt) ?? .distantPast
+            let right = GroupISODate.parse($1.createdAt) ?? .distantPast
+            if left != right { return left < right }
+            return $0.id < $1.id
+        }
+    }
+
+    private func mergedMessages(_ current: [GroupMessageDTO], _ incoming: [GroupMessageDTO]) -> [GroupMessageDTO] {
+        normalizedMessages(current + incoming)
+    }
+
+    init() {
+        userEventObserver = NotificationCenter.default.addObserver(
+            forName: .plinkUserEvent,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let type = note.userInfo?["type"] as? String,
+                  type.hasPrefix("group:") else { return }
+            Task { @MainActor in
+                await self?.handleUserEvent(type: type, userInfo: note.userInfo)
+            }
+        }
+    }
+
+    deinit {
+        if let userEventObserver {
+            NotificationCenter.default.removeObserver(userEventObserver)
+        }
+    }
 
     /// Суммарный unread по всем беседам — для бейджей/колокольчика.
     var unreadTotal: Int {
@@ -169,14 +223,44 @@ final class GroupChatService: ObservableObject {
     // MARK: - Список бесед
 
     func loadGroups() async {
+        groupsRequestGeneration &+= 1
+        let generation = groupsRequestGeneration
         isLoading = groups.isEmpty
         // didLoadOnce взводится и после ошибки: попытка была, скелет не вечен.
-        defer { isLoading = false; didLoadOnce = true }
+        defer {
+            if generation == groupsRequestGeneration { isLoading = false; didLoadOnce = true }
+        }
         do {
             let resp: GroupsResp = try await api.request("groups")
+            // A newer request owns the state now. Applying this older response
+            // would make a newly invited member disappear until the next poll.
+            guard generation == groupsRequestGeneration else { return }
             groups = resp.groups
         } catch {
-            errorMessage = error.localizedDescription
+            if generation == groupsRequestGeneration {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Realtime is a freshness hint, not the data source. Always reconcile
+    /// through REST so a dropped event cannot create a partial/invented row.
+    private func handleUserEvent(type: String, userInfo: [AnyHashable: Any]?) async {
+        guard let groupID = userInfo?["groupId"] as? String, !groupID.isEmpty else {
+            await loadGroups()
+            return
+        }
+        switch type {
+        case "group:created", "group:updated", "group:role":
+            await loadGroups()
+        case "group:message":
+            await loadGroups()
+            await refreshMessages(groupId: groupID)
+        case "group:removed":
+            groups.removeAll { $0.id == groupID }
+            messagesByGroup[groupID] = nil
+        default:
+            break
         }
     }
 
@@ -206,9 +290,19 @@ final class GroupChatService: ObservableObject {
     // MARK: - Сообщения
 
     func loadMessages(groupId: String) async {
+        guard messageRequestsInFlight.insert(groupId).inserted else { return }
+        let revision = messageRevision(for: groupId)
+        defer { messageRequestsInFlight.remove(groupId) }
         do {
             let resp: MessagesResp = try await api.request("groups/\(groupId)/messages")
-            messagesByGroup[groupId] = resp.messages
+            if revision == messageRevision(for: groupId) {
+                messagesByGroup[groupId] = normalizedMessages(resp.messages)
+            } else {
+                // A send/delete/reaction landed while the snapshot was in
+                // flight. Keep the local mutation and reconcile the server
+                // rows without introducing duplicate IDs.
+                messagesByGroup[groupId] = mergedMessages(messagesByGroup[groupId] ?? [], resp.messages)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -216,9 +310,18 @@ final class GroupChatService: ObservableObject {
 
     /// Догрузка только новых сообщений (поллинг открытой беседы).
     func refreshMessages(groupId: String) async {
+        guard messageRequestsInFlight.insert(groupId).inserted else { return }
+        defer { messageRequestsInFlight.remove(groupId) }
         let existing = messagesByGroup[groupId] ?? []
         guard let last = existing.last else {
-            await loadMessages(groupId: groupId)
+            // We already hold the per-group request gate, so perform the
+            // initial request inline rather than recursively returning early.
+            do {
+                let resp: MessagesResp = try await api.request("groups/\(groupId)/messages")
+                messagesByGroup[groupId] = normalizedMessages(resp.messages)
+            } catch {
+                // тихий поллинг — не шумим баннером
+            }
             return
         }
         do {
@@ -227,11 +330,7 @@ final class GroupChatService: ObservableObject {
                 query: ["after": last.createdAt]
             )
             guard !resp.messages.isEmpty else { return }
-            let known = Set(existing.map(\.id))
-            let fresh = resp.messages.filter { !known.contains($0.id) }
-            if !fresh.isEmpty {
-                messagesByGroup[groupId] = existing + fresh
-            }
+            messagesByGroup[groupId] = mergedMessages(existing, resp.messages)
         } catch {
             // тихий поллинг — не шумим баннером
         }
@@ -246,11 +345,8 @@ final class GroupChatService: ObservableObject {
                 method: .post,
                 body: Body(content: content, imageData: imageData)
             )
-            var list = messagesByGroup[groupId] ?? []
-            if !list.contains(where: { $0.id == saved.id }) {
-                list.append(saved)
-            }
-            messagesByGroup[groupId] = list
+            messagesByGroup[groupId] = mergedMessages(messagesByGroup[groupId] ?? [], [saved])
+            markMessageMutation(for: groupId)
             return true
         } catch {
             // Ошибки модерации (мут/NSFW) приходят сюда и показываются баннером
@@ -287,6 +383,7 @@ final class GroupChatService: ObservableObject {
                 method: .delete
             )
             messagesByGroup[groupId]?.removeAll { $0.id == messageId }
+            markMessageMutation(for: groupId)
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -307,6 +404,7 @@ final class GroupChatService: ObservableObject {
                let idx = list.firstIndex(where: { $0.id == messageId }) {
                 list[idx].reactions = resp.reactions ?? [:]
                 messagesByGroup[groupId] = list
+                markMessageMutation(for: groupId)
             }
         } catch {
             // тихо — реакция не критична

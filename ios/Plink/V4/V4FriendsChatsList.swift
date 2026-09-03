@@ -235,12 +235,14 @@ extension V4FriendsViewLive {
             GroupInfoView(groupId: target.id, titleHint: "Беседа")
                 .preferredColorScheme(.dark)
         }
+        #if DEBUG
         .task(id: groupService.groups.count) {
             guard ProcessInfo.processInfo.arguments.contains("-plink.designgroupinfo"),
                   designGroupInfo == nil,
                   let first = groupService.groups.first else { return }
             designGroupInfo = first.id
         }
+        #endif
     }
 
     // «Создать беседу»-строки в инбоксе больше нет: создание переехало в

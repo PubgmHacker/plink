@@ -1,3 +1,4 @@
+#if DEBUG
 //
 //  PlinkSimProxy.swift
 //  Plink
@@ -107,3 +108,4 @@ final class PlinkSimProxyURLProtocol: URLProtocol, @unchecked Sendable {
         forwardTask = nil
     }
 }
+#endif

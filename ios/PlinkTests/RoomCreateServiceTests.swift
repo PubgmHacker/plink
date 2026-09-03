@@ -104,9 +104,10 @@ final class RoomCreateServiceTests: XCTestCase {
             let item = RoomCreateMedia.mediaItem(service: svc, video: d!, roomName: svc.rawValue)
             XCTAssertEqual(item.source, .url)
             XCTAssertEqual(item.streamURL, href)
-            XCTAssertEqual(svc.deliveryBucket, .yourScreen, svc.rawValue)
+            let expectedBucket: DeliveryBucket = svc.serviceType.requiresAuth ? .bySubscription : .worksNow
+            XCTAssertEqual(svc.deliveryBucket, expectedBucket, svc.rawValue)
             if svc.requiresSubscription || svc == .browser {
-                XCTAssertEqual(svc.playbackMode, .screenShare, svc.rawValue)
+                XCTAssertEqual(svc.playbackMode, .webview, svc.rawValue)
             } else {
                 XCTAssertEqual(svc.playbackMode, .webview, svc.rawValue)
             }
@@ -134,8 +135,8 @@ final class RoomCreateServiceTests: XCTestCase {
         XCTAssertEqual(item.deliveryIsDirectFile, true)
     }
 
-    func testBrowserPageIsYourScreen() {
-        XCTAssertEqual(VideoService.browser.deliveryBucket, .yourScreen)
+    func testBrowserPageUsesOfficialWebView() {
+        XCTAssertEqual(VideoService.browser.deliveryBucket, .worksNow)
         let video = DetectedVideo(
             title: "Site",
             embedURL: "https://example.com/watch",
@@ -193,9 +194,8 @@ final class RoomCreateServiceTests: XCTestCase {
             let item = RoomCreateMedia.mediaItem(service: svc, video: video, roomName: svc.rawValue)
             XCTAssertFalse(item.streamURL.isEmpty, svc.rawValue)
             XCTAssertEqual(item.title, svc.rawValue, svc.rawValue)
-            if svc.deliveryBucket == .yourScreen {
-                XCTAssertEqual(item.source, .url, svc.rawValue)
-            }
+            let expectedSource: MediaItem.MediaSource = svc == .youtube ? .youtube : .url
+            XCTAssertEqual(item.source, expectedSource, svc.rawValue)
         }
     }
 

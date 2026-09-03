@@ -10,8 +10,8 @@
 // управление рисуются поверх). Слой никогда не перекрывает видео и не ловит
 // касания.
 //
-// Энергия и доступность (образец — ProjectorBeamBackground в
-// Features/Auth2026/AnimatedPosterMosaic.swift):
+// Энергия и доступность (образец — PlinkShellBackground, фон шелла
+// сплэша/входа/онбординга):
 //   - Reduce Motion            → статичный кадр
 //   - Low Power Mode           → статичный кадр
 //   - thermalState != .nominal → статичный кадр

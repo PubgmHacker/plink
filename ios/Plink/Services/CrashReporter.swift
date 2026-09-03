@@ -47,7 +47,10 @@ final class CrashReporter: @unchecked Sendable {
                     reason: "fatal signal \(signalValue)",
                     stack: Thread.callStackSymbols
                 )
-                exit(signalValue)
+                // Restore the default disposition and re-raise so the OS still writes
+                // its own crash log; exit() would swallow it.
+                signal(signalValue, SIG_DFL)
+                raise(signalValue)
             }
         }
     }

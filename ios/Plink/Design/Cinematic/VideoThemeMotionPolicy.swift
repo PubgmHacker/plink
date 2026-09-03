@@ -6,8 +6,9 @@
 // раньше игнорировал ВСЕ энергорежимы: крутил декодер и Metal-рендер при
 // Reduce Motion, Low Power Mode, термотроттлинге и даже в фоне приложения.
 // Эталон корректного поведения — RoomLiveThemeBackdrop
-// (Features/WatchRoom/RoomLiveThemeLayer.swift) и ProjectorBeamBackground:
-// при любом из режимов показывается статичный кадр.
+// (Features/WatchRoom/RoomLiveThemeLayer.swift) и PlinkShellBackground
+// (фон сплэша/входа/онбординга): при любом из режимов показывается
+// статичный кадр.
 //
 // Логика решения «анимировать или нет» вынесена сюда в ЧИСТУЮ функцию —
 // без UIKit/SwiftUI, только Foundation — чтобы тестироваться юнит-тестами

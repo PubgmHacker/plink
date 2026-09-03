@@ -1,100 +1,72 @@
-# Plink — Brand Logo System
+# Plink — фирменный знак
 
-Unified logo system for Plink (Плинк) — watch together, frame in frame.
+Знак PLINK: стрелка «play» из двух фигур — светлая стрелка (A) и тёмный хвост (B),
+вордмарк PLINK, слоган **WATCH TOGETHER. ANYWHERE.** и подвал
+**⊙ PLAYER · 💬 MESSENGER · ▤ REELS**. Всё восстановлено в векторе 1:1 с эталонного
+макета (`source/reference.png`, 1056×1008): контуры знака сняты с растра и
+описаны кривыми, литеры — скруглённые многоугольники, градиенты подогнаны по
+восьми опорным точкам под цвета эталона.
 
-## Files
+Цвета бренда постоянные и от тем приложения не зависят: тема может красить
+фон и гало **вокруг** знака, но не сам знак.
 
-| File                  | Usage                                                             | Size    |
-| --------------------- | ----------------------------------------------------------------- | ------- |
-| `logo-horizontal.svg` | Primary lockup: icon + wordmark (websites, presentations, social) | 400×120 |
-| `logo-stacked.svg`    | Vertical lockup: icon above wordmark (app store, splash)          | 300×360 |
-| `logo-icon-only.svg`  | Standalone icon (favicon, app icon source)                        | 512×512 |
-| `logo-light-bg.svg`   | Horizontal lockup for light/white backgrounds                     | 400×120 |
-| `wordmark.svg`        | Text-only PLINK (watermarks, minimal)                             | 320×80  |
-| `mark-play.svg`       | Simplified play mark (website nav, favicon)                       | 120×120 |
+| Токен | Значение | Где |
+|---|---|---|
+| фон макета | `#010008` | лок-ап, og-афиша, манифест |
+| стрелка, верх → низ | `#8f44f0 → #4016ea` | фигура A |
+| хвост | `#2c0688 → #500e9d` | фигура B |
+| кромка стрелки | `#eadfff` 60 % → 20 % | внутренний штрих A |
+| вордмарк | `#f4f4f5 → #c2bfdb` | сверху вниз |
+| слоган | `#8642d6 → #6a49d1 → #4189d2` | слева направо |
+| акцент/иконки подвала | `#8F44F0` | mask-icon, подвал |
 
-## Brand Colors
+## Мастер-файлы
 
-| Name              | Hex       | Usage                                |
-| ----------------- | --------- | ------------------------------------ |
-| **Graphite Lift** | `#3A3C42` | Icon body top                        |
-| **Graphite Deep** | `#16171B` | Icon body bottom                     |
-| **Ink**           | `#08090B` | Silhouettes, letterbox, couch        |
-| **Warm**          | `#FFD694` | Screen glow — **the** brand constant |
-| **Warm Hot**      | `#FFF0D6` | Screen center, text gradient top     |
-| **Teal**          | `#19E0C0` | Accent (sync, progress, active)      |
-| **Violet**        | `#7C5CFF` | Secondary accent                     |
-| **Amber**         | `#F5C26B` | Stamps, badges, errors               |
+| Файл | Что это |
+|---|---|
+| `plink-lockup.svg`, `plink-lockup@2x.png` | полный лок-ап на фоне, как эталон |
+| `plink-lockup-transparent.svg` | то же без фона |
+| `plink-mark.svg`, `plink-mark-1024.png` | только знак (рамка 350×460 с полями) |
+| `plink-mark-mono-white.svg`, `plink-mark-mono-black.svg` | одноцветный знак, хвост 55 % |
+| `plink-wordmark.svg` | слово PLINK контурами |
+| `plink-logo-horizontal.svg`, `plink-logo-horizontal-dark@2x.png` | знак + слово в строку |
 
-## Typography
+## Иконки по платформам — `platforms/`
 
-- **Display / Wordmark:** Playfair Display, italic, Black (900)
-- **Body:** Inter, 300–700
-- **Mono:** System UI monospace (codes, stamps)
+| Платформа | Содержимое | Куда ставить |
+|---|---|---|
+| `ios/AppIcon.appiconset` | 1024 универсальная + dark (прозрачная) + tinted (серая), `Contents.json` | `ios/Plink/Resources/Assets.xcassets/AppIcon.appiconset/` — уже установлено |
+| `android/` | adaptive: `ic_launcher_{background,foreground,monochrome}` 432, `mipmap-anydpi-v26/*.xml`, legacy `ic_launcher`/`_round` mdpi…xxxhdpi, `play-store-512.png` | `app/src/main/res/` |
+| `windows/` | `plink.ico` (16…256), тайлы MSIX `Square44/71/150/310`, `Wide310x150`, `SplashScreen`, `StoreLogo` ×100/200/400 % | `Assets/` пакета |
+| `macos/` | `Plink.icns` + `Plink.iconset` (скруглённый квадрат macOS, тень) | `Contents/Resources/` |
+| `linux/` | `hicolor/<size>/apps/plink.png` 16…512, `scalable/apps/plink.svg`, `plink.desktop` | `/usr/share/icons/hicolor`, `/usr/share/applications` |
+| `web/` | favicon 16/32/48 + `.ico`, `apple-touch-icon` 180, `android-chrome` 192/512 maskable, `safari-pinned-tab.svg`, `og-image.png` 1200×630, `site.webmanifest` | `landing/public/` — уже установлено |
 
-## Logo Anatomy
+iPad использует тот же `AppIcon.appiconset` (idiom `universal`).
 
-The icon depicts two viewers sitting on a couch, watching a letterboxed film on a glowing screen. The warm screen light is the only color in the brand mark — universal across all themes (Aurora, Cosmos, Magma, Verdant, Ember, Violet).
+## Код
 
-**Key proportions (must match across all representations):**
+* iOS — `ios/Plink/Features/Brand/PlinkBrandGeometry.swift`: те же контуры и
+  градиенты как `Shape`/`LinearGradient` (`PlinkMarkShapeA/B`,
+  `PlinkMarkSilhouette`, `PlinkWordmarkShape`, `PlinkBrandPalette`).
+  Файл **генерируется** (`tools/gen_swift.py`), руками не править.
+* Бэкенд — `backend/src/routes/web.ts`: `appIconSVG()` и `ogSVG()` рисуют знак
+  теми же контурами (`BRAND_MARK_A/B`, `BRAND_WORDMARK`).
+* Лендинг — `landing/components/PlinkMark.tsx`.
 
-- Screen: 54% width × 31% height of icon
-- Letterbox bars: calculated from 2.35:1 aspect ratio
-- Silhouettes: head = circle, shoulders = rounded rectangle
-- Couch: single dense bar, does not reach edges
+## Как пересобрать
 
-## Usage Rules
+Нужны Python 3 с Pillow и numpy, `rsvg-convert` (librsvg) и `iconutil` (macOS).
 
-1. **Minimum size:** 24×24 px (icon), 80×24 px (horizontal)
-2. **Clear space:** 1× icon width on all sides
-3. **Don't:** rotate, stretch, add shadows beyond spec, change colors
-4. **Dark backgrounds:** use `logo-horizontal.svg` or `logo-icon-only.svg`
-5. **Light backgrounds:** use `logo-light-bg.svg`
+```bash
+python3 brand/tools/build_lockup.py            # source/lockup_ref.svg из JSON-источников (+ сравнение с эталоном в _build/)
+python3 brand/tools/gen_icons.py brand/_build   # мастера и все платформенные наборы → _build/
+python3 brand/tools/gen_swift.py                # → ios/Plink/Features/Brand/PlinkBrandGeometry.swift
+```
 
-## Generation
-
-There is no single build step that turns the SVGs in this directory into the shipped
-icon, and it is worth knowing the real chain before editing anything:
-
-1. [`ios/scripts/make_app_icons.py`](../ios/scripts/make_app_icons.py) is the
-   **geometric source of truth.** It draws the mark with PIL rather than reading an
-   SVG, and renders three candidate directions at 1024/180/120/60 px into
-   `/tmp/plink-icons` — it is a design tool, not part of any build, which is why its
-   output goes to a scratch directory. `PlinkBrandMark.swift` (the in-app SwiftUI
-   mark) states outright that its proportions are taken from this script, so the two
-   must be changed together or the icon and the launch screen stop matching.
-2. The chosen direction is copied by hand to
-   `ios/Plink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`. That
-   file, not anything in this directory, is what ships on the home screen.
-3. [`landing/scripts/make_brand_assets.py`](../landing/scripts/make_brand_assets.py)
-   reads that shipped app icon and derives `landing/public/` — favicons, the
-   apple-touch icon, `og-image.png`. Below roughly 32 px it switches to
-   `plink-icon-plain-1024.png` from this directory instead, because the word PLINK on
-   the screen turns to mud at that size and smears the pool of light the mark depends
-   on.
-
-So `plink-icon-1024.png` here is an export for documents and decks; it is **not**
-byte-identical to the shipped app icon and is not the source of it. Change the icon in
-step 1, re-copy in step 2, then re-run step 3.
-
-## Design references
-
-The two owner-supplied layout references this direction was drawn against live in
-[`docs/design/references/`](../docs/design/references/) — the desktop
-(MacBook + Windows) framing and the auth-window banner. `PLINK_DESIGN_DIRECTION.md` at
-the repository root is the written half of the same thing.
-
-## Explorations
-
-[`explorations/`](explorations/) holds two superseded logo rounds, kept because the
-reasoning in them is still useful and the alternatives get re-proposed otherwise:
-
-| Round                               | Concepts                                      | Outcome     |
-| ----------------------------------- | --------------------------------------------- | ----------- |
-| [`round-2/`](explorations/round-2/) | duo-play, sync-rings, film-play               | Not adopted |
-| [`round-3/`](explorations/round-3/) | wave-play (Spotify-like), two-screens, plex-p | Not adopted |
-
-Each round has a `preview.html` — open it in a browser rather than reading the SVGs.
-Round 3's page also lays the concepts against the competitor icons they were judged
-next to. **Nothing under `explorations/` ships.** The live system is the six SVGs
-listed above; if you are looking for an asset to use, it is one of those.
+`source/` — единственная правда: `mark_paths.json` (контуры A/B),
+`glyphs_fit.json` (литеры), `grad_fit.json` (опоры градиентов),
+`tag_med.json`/`foot_semi.json` (глифы слогана и подвала, SF Rounded),
+`mask.png` (маска знака — из неё берётся рамка), `reference.png` (эталон).
+После `gen_icons.py` скопировать нужные наборы из `_build/` в `platforms/` и по
+местам установки.

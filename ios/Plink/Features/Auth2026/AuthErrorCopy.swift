@@ -14,53 +14,53 @@ enum AuthErrorCopy {
         if let apiError = error as? APIError {
             switch apiError {
             case .invalidCredentials:
-                return "Неверная почта или пароль"
+                return L10n.text(.errBadCredentials)
             case .conflict:
-                return "Аккаунт с такими данными уже существует"
+                return L10n.text(.errAccountExists)
             case .unauthorized, .unauthorizedNeedsRefresh:
-                return "Сессия завершена. Войдите снова"
+                return L10n.text(.errSessionEnded)
             case .notFound:
-                return "Не удалось найти нужные данные"
+                return L10n.text(.errNotFound)
             // 402 и 503 на экране входа означают проблему не с подпиской, а с
             // самим сервисом: покупать здесь нечего, поэтому отдаём текст
             // сервера, если он есть, и нейтральную формулировку иначе.
             case .subscriptionRequired(_, _, let message):
-                return message.isEmpty ? "Эта возможность доступна в Плинк+" : message
+                return message.isEmpty ? L10n.text(.errPlusOnly) : message
             case .unavailable(_, let message):
-                return message.isEmpty ? "Функция скоро появится" : message
+                return message.isEmpty ? L10n.text(.errComingSoon) : message
             case .invalidURL, .invalidResponse, .decodingError, .networkError:
-                return "Plink сейчас недоступен. Попробуйте ещё раз чуть позже"
+                return L10n.text(.errUnavailable)
             case .serverError(let status, let message):
                 if (400..<500).contains(status),
                    !message.isEmpty,
                    !message.lowercased().contains("unknown") {
                     return message
                 }
-                return "Plink сейчас недоступен. Попробуйте ещё раз чуть позже"
+                return L10n.text(.errUnavailable)
             }
         }
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet:
-                return "Нет подключения к интернету"
+                return L10n.text(.errOffline)
             case .timedOut:
-                return "Сервис отвечает слишком долго. Попробуйте ещё раз"
+                return L10n.text(.errTimeout)
             case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-                return "Не удалось подключиться к Plink. Проверьте интернет и повторите"
+                return L10n.text(.errConnect)
             default:
-                return "Не удалось выполнить действие. Попробуйте ещё раз"
+                return L10n.text(.errGeneric)
             }
         }
         let text = error.localizedDescription
         if text.localizedCaseInsensitiveContains("invalid credentials") ||
             text.localizedCaseInsensitiveContains("неверный email") {
-            return "Неверная почта или пароль"
+            return L10n.text(.errBadCredentials)
         }
         if text.localizedCaseInsensitiveContains("server") ||
             text.localizedCaseInsensitiveContains("host") ||
             text.localizedCaseInsensitiveContains("сервер") {
-            return "Plink сейчас недоступен. Попробуйте ещё раз чуть позже"
+            return L10n.text(.errUnavailable)
         }
-        return "Не удалось выполнить действие. Попробуйте ещё раз"
+        return L10n.text(.errGeneric)
     }
 }

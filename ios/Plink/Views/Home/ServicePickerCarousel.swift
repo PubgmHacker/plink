@@ -218,6 +218,11 @@ struct ServiceCarouselCard: View {
             .scaleEffect(pressed ? 0.96 : 1)
         }
         .buttonStyle(.plain)
+        .disabled(!service.isAvailableInBeta)
+        .opacity(service.isAvailableInBeta ? 1 : 0.62)
+        .accessibilityHint(service.isAvailableInBeta
+            ? "Открыть поиск видео"
+            : "Сервис будет доступен позже")
         .onLongPressGesture(minimumDuration: .infinity, pressing: { p in
             withAnimation(.easeOut(duration: 0.12)) { pressed = p }
         }, perform: {})
@@ -232,23 +237,24 @@ struct ServiceCarouselCard: View {
         ZStack {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(V4.surface)
-            RadialGradient(
-                colors: [service.accentColor.opacity(0.40), .clear],
-                center: UnitPoint(x: 0.16, y: 0.10),
-                startRadius: 0,
-                endRadius: 186
+            // Provider colour belongs to the logo, not to the whole control.
+            // A full-card tint made every service look like a separate theme
+            // and destroyed the shared product surface.
+            LinearGradient(
+                colors: [.white.opacity(0.06), .clear],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         }
     }
 
     /// Доступность сервиса: подписка или свободный вход.
     private var accessTag: some View {
-        let free = service.isFree
-        let tint = free ? Color(hex: 0x33D17A) : V4.amber
+        let tint = service.isAvailableInBeta ? Color(hex: 0x33D17A) : V4.muted
         return HStack(spacing: 4) {
-            Image(systemName: free ? "bolt.fill" : "lock.fill")
+            Image(systemName: service.isAvailableInBeta ? "checkmark" : "clock")
                 .font(.system(size: 8.5, weight: .heavy))
-            Text(free ? "Без подписки" : "Нужна подписка")
+            Text(service.betaAvailabilityLabel)
                 .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .tracking(0.3)
         }

@@ -152,6 +152,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                 self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
             }
         }
+        if let rutube = coordinator.currentController as? RutubePlaybackController {
+            rutube.onUserPlaybackChange = { [weak self] playing, position in
+                self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
+            }
+        }
         if let player = coordinator.nativePlayer {
             await ambientSampler.attach(player: player)
             await ambientSampler.startSampling()
@@ -178,6 +183,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     // Reactions auto-expire after 3 seconds
     public private(set) var reactions: [WatchReactionEvent] = []
     private var reactionExpiryTask: Task<Void, Never>?
+    /// Реакции — эфемерный UI-сигнал, а не сообщение. Не ставим их в
+    /// офлайн-очередь: после переподключения старые тап‑ы внезапно высыпались
+    /// в комнату пачкой и сервер отвечал RATE_LIMITED.
+    private var nextReactionAt: Date = .distantPast
+    private static let reactionCooldownSec: TimeInterval = 0.45
 
     // MARK: - Просьба о паузе
     //
@@ -498,6 +508,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                         self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
                     }
                 }
+                if let rutube = coordinator.currentController as? RutubePlaybackController {
+                    rutube.onUserPlaybackChange = { [weak self] playing, position in
+                        self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
+                    }
+                }
 
                 if let player = coordinator.nativePlayer {
                     await ambientSampler.attach(player: player)
@@ -526,6 +541,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
                         await syncController.reapplyLastState()
                         if let embedded = coordinator.currentController as? EmbeddedPlaybackController {
                             embedded.onUserPlaybackChange = { [weak self] playing, position in
+                                self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
+                            }
+                        }
+                        if let rutube = coordinator.currentController as? RutubePlaybackController {
+                            rutube.onUserPlaybackChange = { [weak self] playing, position in
                                 self?.publishHostPlaybackState(playing: playing, positionSeconds: position)
                             }
                         }
@@ -559,6 +579,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
 
         guard let source = mediaSource else { return nil }
         guard case .youtube(let ytId) = source else { return source }
+
+        // The official embedded player is the stable, App-Store-safe path. Do
+        // not spend five seconds racing an IP-bound extraction proxy unless a
+        // remote rollout explicitly enables that legacy experiment.
+        guard FeatureFlags.youtubeNativeExtraction else { return source }
 
         // YouTube native extraction (AVPlayer path) — enabled in ALL builds
         // (Debug + Release). Was #if DEBUG which broke Release/App Store builds.
@@ -1770,11 +1795,11 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             // (а его отдают и chat.send, и reaction.send, и pause.request)
             // прогонял handleActionRejection — то есть за третье сообщение в
             // чате хосту дёргало позицию плеера и запрашивало снапшот.
-            // Остаточный случай — чат залимитило ровно в окне ожидания
-            // sync.command; там лишний откат безвреден, состояние всё равно
-            // авторитетное.
+            // RATE_LIMITED intentionally is not included: the same generic
+            // server code is used by chat/reactions, and an unrelated tap must
+            // never rewind the movie while a playback command is in flight.
             if !pendingActions.isEmpty,
-               err.code == "NOT_HOST" || err.code == "STALE_EPOCH" || err.code == "RATE_LIMITED" {
+               err.code == "NOT_HOST" || err.code == "STALE_EPOCH" {
                 handleActionRejection(err.code)
             }
             // Сервер отклонил сообщение из-за мута — синхронизируем таймер локально.
@@ -2339,6 +2364,13 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             lastError = "Реакция \(emoji) доступна с Plink+"
             return
         }
+        // A reaction has no useful meaning once the user has left the room or
+        // while the socket is negotiating. Silently ignore that tap instead of
+        // queuing it for a future session or surfacing a transport error.
+        guard connectionState == .connected else { return }
+        let now = Date()
+        guard now >= nextReactionAt else { return }
+        nextReactionAt = now.addingTimeInterval(Self.reactionCooldownSec)
         let msg = RealtimeClientMessage.reactionSend(
             .init(roomId: _roomId, emoji: emoji)
         )

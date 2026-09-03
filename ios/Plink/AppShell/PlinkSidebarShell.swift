@@ -1,4 +1,4 @@
-// iPad/Mac sidebar shell. Uses AppSection enum (home/rooms/ai/friends/profile/settings).
+// iPad/Mac sidebar shell. Uses the same five product sections as iPhone.
 //
 // Детали .home/.ai/.friends/.profile показывали старое
 // поколение (DiscoveryHomeView с фейковым каталогом, AIAssistantView,
@@ -66,7 +66,6 @@ struct PlinkSidebarShell: View {
 
                 Section {
                     nav(.profile)
-                    nav(.settings)
                 }
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
@@ -159,15 +158,6 @@ struct PlinkSidebarShell: View {
                 theme: theme,
                 store: profileStore,
                 showAppearance: $showAppearance
-            )
-        case .settings:
-            // На iPad настройки остаются секцией сайдбара (он не таббар,
-            // места хватает); оверлей «Оформление» включается сразу —
-            // шита, из-под которого его пришлось бы доставать, здесь нет.
-            V4SettingsView(
-                theme: theme,
-                store: profileStore,
-                openAppearance: { withAnimation { showAppearance = true } }
             )
         }
     }

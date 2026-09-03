@@ -54,10 +54,10 @@ final class FinalArchNavigationTests: XCTestCase {
 
     // MARK: - Onboarding versioning
 
-    func testOnboardingVersion_currentIs3() {
-        // Версия онбординга растёт закономерно; живое значение — 3
+    func testOnboardingVersion_currentIs4() {
+        // Версия онбординга растёт закономерно; живое значение — 4 (онбординг v4, стена постеров)
         // (Plink/Features/Onboarding2026/OnboardingVersion.swift).
-        XCTAssertEqual(OnboardingVersion.current, 3)
+        XCTAssertEqual(OnboardingVersion.current, 4)
     }
 
     func testOnboardingStore_needsOnboarding_whenVersionIsZero() {
@@ -172,8 +172,8 @@ final class FinalArchNavigationTests: XCTestCase {
         XCTAssertEqual(PlinkAuthMode.signUp.title, "Регистрация")
     }
 
-    func testHomeTitleFilter_allChipKeepsItems() {
-        XCTAssertEqual(HomeTitleFilter.chips.first, HomeTitleFilter.allChip)
-        XCTAssertEqual(HomeTitleFilter.apply(chip: HomeTitleFilter.allChip, items: []).count, 0)
+    func testHomeCinemaCatalog_hasAllChipFirst() {
+        XCTAssertEqual(HomeCinemaCatalog.chips.first, HomeCinemaCatalog.allChip)
+        XCTAssertTrue(HomeCinemaCatalog.queries(for: HomeCinemaCatalog.allChip).isEmpty == false)
     }
 }

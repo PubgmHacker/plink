@@ -76,9 +76,6 @@ struct WatchRoomScreen: View {
                     .transition(.opacity)
             }
 
-            WatchReactionLayer(events: model.reactions, reduceMotion: reduceMotion)
-                .allowsHitTesting(false)
-
             if let line = model.serviceNoticeLine {
                 VStack {
                     Button {

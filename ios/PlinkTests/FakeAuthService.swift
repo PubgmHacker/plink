@@ -128,7 +128,7 @@ final class FakeAuthService: AuthServiceProtocol {
         currentUser = user
     }
 
-    func updateProfile(username: String?, avatarURL: String?, displayName: String?, coverURL: String?) async throws -> User {
+    func updateProfile(username: String?, avatarURL: String?, displayName: String?, coverURL: String?, statusText: String? = nil) async throws -> User {
         guard let user = currentUser else {
             throw FakeAuthError.notAuthenticated
         }
@@ -139,6 +139,7 @@ final class FakeAuthService: AuthServiceProtocol {
             avatarURL: avatarURL ?? user.avatarURL,
             displayName: displayName ?? user.displayName,
             coverURL: coverURL ?? user.coverURL,
+            statusText: statusText ?? user.statusText,
             isOnline: user.isOnline,
             isPremium: user.isPremium,
             role: user.role,

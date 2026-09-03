@@ -7,8 +7,11 @@
 ## Бренд-развязка (решение владельца)
 
 - **Сайт (лендинги web.ts)** — ЯРКИЙ и кинематографичный, как приложение внутри.
-- **Иконка приложения + сплэш + экран входа** — чёрный минимализм (как маркетинг
-  Rave/Hearo), единственный цвет — капля teal на play-градиенте (белый → #19E0C0).
+- **Иконка приложения + сплэш + экран входа + онбординг** — бренд-шелл эталона
+  `brand/source/reference.png`: фон `#010008`, фиолетовый знак play
+  (`#8f44f0 → #4016ea`), вордмарк PLINK и теглайн «СМОТРИМ ВМЕСТЕ». Второго
+  акцента нет: teal-капля в духе Rave/Hearo снята 02.09.2026 вместе со старым
+  шеллом.
 - Внутри приложения цвет живёт в живых темах (Aurora/Cosmos/Magma/Verdant) —
   бренд-шелл к ним не привязывается.
 
@@ -26,8 +29,8 @@
 - Палитра: чёрный #050505, ink #f5f7f6, акценты teal #19e0c0 / violet #7c5cff /
   amber #f5c26b (янтарь — точечно: штампы, флаги, ошибки).
 - **Liquid glass** (1-в-1 приём из референса): `.lg`/`.lg-s` — rgba(255,255,255,.012)
-  + luminosity blend + backdrop-blur 8/40px + светящаяся градиентная кромка через
-  `padding:1.4px` + mask-composite:exclude.
+  - luminosity blend + backdrop-blur 8/40px + светящаяся градиентная кромка через
+    `padding:1.4px` + mask-composite:exclude.
 - **Дисплей-типографика**: италик-сериф clamp(46-96px), letter-spacing −0.04em,
   line-height 0.95; градиентный `.accent` (teal→violet) через background-clip:text.
 - **Пословный blur-in** `.bw`: keyframes blur 10px→4px→0, y 46→−5→0,
@@ -59,15 +62,38 @@
 
 ## Иконка приложения
 
-`ios/Plink/Resources/plink-icon-source.svg` (+ AppIcon-1024.png, RGB без
-альфы!). Композиция: чёрный фон, двойной слоёный play-кадр («кадр в кадр»),
-передний — белый→teal градиент. Альтернативы в scratchpad старой сессии
-(icon-a кинозал, icon-b неон-билет) — пересоздаваемы по описанию в журнале.
+Источник — `brand/` (см. `brand/README.md`): знак PLINK восстановлен 1:1 с
+эталонного макета `brand/source/reference.png` — фиолетовая стрелка «play»
+(светлая стрелка A `#8f44f0→#4016ea` + тёмный хвост B `#2c0688→#500e9d`) на
+фоне `#010008`. Наборы иконок для iOS/iPadOS, Android, Windows, macOS, Linux и
+веба лежат в `brand/platforms/`; iOS-набор уже стоит в `AppIcon.appiconset`
+(1024 universal RGB без альфы + dark прозрачная + tinted серая). Цвета знака
+постоянные, тема приложения красит только фон и гало вокруг него. Пересборка —
+`brand/tools/gen_icons.py`, геометрия для SwiftUI — `brand/tools/gen_swift.py`
+→ `Features/Brand/PlinkBrandGeometry.swift`.
 
-## Сплэш и вход (iOS)
+## Сплэш, вход и онбординг (iOS)
 
-`Features/Auth2026/AnimatedPosterMosaic.swift` — `PlinkTheatre` (палитра шелла),
-`ProjectorBeamBackground` (бархат + луч + пыль в Canvas, гейты Reduce
-Motion/Transparency/LowPower/thermal), `PlinkFrameMark` (логотип). Играть
-цветом шелла = менять `PlinkTheatre.tealDeep` (сейчас #19E0C0) и
-`SplashPalette` в AuthLaunchGate.swift.
+- `Features/Brand/PlinkShell.swift` — `enum PlinkShell` (палитра шелла:
+  background `#010008`, surface/surfaceLift, text/muted, accent `#8F44F0`,
+  accentSoft, deep `#4016EA`, warning, hairline/specular) и
+  `PlinkShellBackground(glowCenter:glowStrength:)` — дышащее сияние с гейтами
+  Reduce Motion / Reduce Transparency / `plinkFreezeAnimations`.
+- `Features/Brand/PlinkBrandMark.swift` — `PlinkBrandMark`, `PlinkWordmark`,
+  `PlinkTagline`, `PlinkLockup` (знак + вордмарк + теглайн эталона 1:1),
+  `PlinkAppIconTile`. Геометрия знака — `PlinkBrandGeometry.swift` из
+  `brand/tools/gen_swift.py`.
+- `Features/Auth2026/AuthChrome.swift` — общая хрома входа:
+  `AuthPrimaryButtonStyle` (градиент акцента, спекуляр сверху),
+  `AuthInlineNotice`, `LegalConsentFooter`.
+- `Features/Auth2026/AuthLaunchGate.swift` — `PlinkSplashView` (лок-ап по
+  центру, дышит только знак); `PlinkAuthScreen.swift` — вход, регистрация,
+  сброс пароля на той же палитре, шапка = лок-ап.
+- `Features/Onboarding2026/OnboardingFlow.swift` — три живых экрана: стена
+  реальных постеров полки Иви/PREMIER (по сети, как на Главной), скриншоты
+  разделов «Комнаты» и «Чаты» в рамке устройства, запрос уведомлений.
+  Лицензии и границы — `ios/ART_ASSET_LICENSES.md`.
+
+Играть цветом шелла = менять токены `PlinkShell` и `PlinkBrandPalette`.
+Третьей палитры (`PlinkTheatre`, `SplashPalette`, `ProjectorBeamBackground`)
+больше нет — не заводить заново.

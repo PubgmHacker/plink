@@ -8,6 +8,13 @@
 
 import Foundation
 
+extension Notification.Name {
+    /// Opaque user-level events that are not direct-message envelopes.
+    /// Group membership/updates use the same authenticated socket, so the
+    /// inbox can refresh without waiting for its 20-second fallback poll.
+    static let plinkUserEvent = Notification.Name("plinkUserEvent")
+}
+
 @MainActor
 final class DMRealtimeClient {
 
@@ -77,10 +84,24 @@ final class DMRealtimeClient {
                     case .data(let d): data = d
                     @unknown default: break
                     }
-                    if let data,
-                       let event = try? JSONDecoder().decode(Event.self, from: data),
-                       event.type == "dm.event" {
-                        self.onEvent?(event)
+                    if let data {
+                        if let object = try? JSONSerialization.jsonObject(with: data),
+                           let payload = object as? [String: Any],
+                           let type = payload["type"] as? String {
+                            if type == "dm.event",
+                               let event = try? JSONDecoder().decode(Event.self, from: data) {
+                                self.onEvent?(event)
+                            } else if type != "session.ready" {
+                                // Keep the transport generic. Features opt in
+                                // by filtering the notification type; unknown
+                                // events are harmless and never rendered raw.
+                                NotificationCenter.default.post(
+                                    name: .plinkUserEvent,
+                                    object: nil,
+                                    userInfo: payload
+                                )
+                            }
+                        }
                     }
                     guard self.task === socket else { return }
                     self.receiveLoop(socket)

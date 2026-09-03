@@ -663,6 +663,20 @@ struct TrendingPreviewSheet: View {
     /// Сервис карточки: бейдж и цвет.
     private var service: VideoService { item.origin.service }
 
+    /// Комнату можно создать только для источника, у которого есть и
+    /// публичный поиск, и проверенный официальный плеер в beta. Раньше
+    /// карточка Иви/Okko проходила тем же CTA, что YouTube, и создавала
+    /// комнату с обычной веб-страницей: у пользователя был чёрный кадр и
+    /// ощущение, что функция сломалась. Для таких карточек действие одно —
+    /// открыть официальный тайтл в сервисе.
+    private var canWatchTogether: Bool {
+        item.origin.isClip && service.isAvailableInBeta
+    }
+
+    private var primaryActionTitle: String {
+        canWatchTogether ? "Смотреть вместе" : "Открыть в " + service.brandName
+    }
+
     /// Мета без имени сервиса — оно уже на бейдже.
     private var metaLine: String {
         switch item.origin {
@@ -733,12 +747,19 @@ struct TrendingPreviewSheet: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 8) {
-                            Text(service.title)
-                                .font(.system(size: 10, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(service.accentColor, in: Capsule())
+                            // Источник читается на самой карточке, а не только
+                            // после тапа. Логотип и нейтральное стекло не
+                            // перекрашивают весь экран акцентом темы; особенно
+                            // важно для чёрного фирменного Rutube.
+                            HStack(spacing: 5) {
+                                ServiceLogoView(service: service, size: 16)
+                                Text(service.brandName)
+                                    .font(.system(size: 10, weight: .heavy))
+                                    .foregroundStyle(V4.ink)
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(minHeight: 28)
+                            .plinkGlass(.control, interactive: false)
                             if item.isFreeOnService {
                                 // Тот же изумруд, что на бейджах карточек
                                 // витрины: серая капсула читалась как
@@ -764,12 +785,17 @@ struct TrendingPreviewSheet: View {
 
                         Button {
                             HapticManager.impact(.medium)
-                            onWatch(.native)
+                            if canWatchTogether {
+                                onWatch(.native)
+                            } else if let url = URL(string: item.watchURL) {
+                                openURL(url)
+                                dismiss()
+                            }
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "play.fill")
+                                Image(systemName: canWatchTogether ? "play.fill" : "arrow.up.right")
                                     .font(.system(size: 14, weight: .heavy))
-                                Text("Смотреть вместе")
+                                Text(primaryActionTitle)
                             }
                         }
                         // Белая, как Play у Apple TV и Netflix: главная CTA
@@ -784,54 +810,20 @@ struct TrendingPreviewSheet: View {
                                 cornerRadius: 16
                             )
                         )
-                        // Единственная кнопка, которая реально создаёт
-                        // комнату из Главной. Без идентификатора UI-смоук
-                        // воронки искал «Создать комнату» на самой Главной,
-                        // не находил её (такой кнопки в продукте нет) и падал.
+                        // Единственная основная кнопка карточки. Для beta-
+                        // источника она создаёт комнату, для каталога — сразу
+                        // открывает официальный сервис, без фальшивой комнаты.
                         .accessibilityIdentifier("preview.watchTogether")
                         .padding(.top, 10)
                         // Третьей кнопки закрытия здесь нет намеренно: шит
                         // закрывают крестик и свайп вниз, «Может позже» была
                         // ещё одним способом сделать то же самое.
 
-                        if case .cinema = item.origin {
-                            Text("Комната откроет страницу «\(service.title)». Вы входите в свой аккаунт — Plink не предоставляет контент и не обходит защиту.")
+                        if !canWatchTogether {
+                            Text("Откроется официальная страница сервиса. Войдите в свой аккаунт — Plink не предоставляет контент и не обходит защиту.")
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(V4.muted)
                                 .lineSpacing(2.5)
-
-                            // Запасной путь без комнаты: открыть тайтл в самом
-                            // кинотеатре (universal link поднимет его
-                            // приложение, если стоит). Совместный просмотр —
-                            // выше, это осознанно второстепенная ссылка.
-                            Button {
-                                HapticManager.impact(.light)
-                                AnalyticsService.shared.track(
-                                    "home_preview_open_external",
-                                    parameters: ["service": service.rawValue]
-                                )
-                                if let url = URL(string: item.watchURL) {
-                                    openURL(url)
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Text("Открыть на «\(service.title)»")
-                                        .font(.system(size: 12.5, weight: .bold))
-                                    Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 10.5, weight: .bold))
-                                }
-                                // Стекло вместо голого синего текста: висячая
-                                // акцентная строка читалась как веб-ссылка
-                                // 2010-х и зависела от темы. Тот же контрол,
-                                // что капсулы «Где ещё смотреть» ниже.
-                                .foregroundStyle(V4.ink)
-                                .padding(.horizontal, 13)
-                                .frame(minHeight: 38)
-                                .plinkGlass(.control, interactive: true)
-                                .contentShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("preview.openExternal")
                         }
 
                         if !bridgeServices.isEmpty {
@@ -869,7 +861,12 @@ struct TrendingPreviewSheet: View {
         if let url = V4CinemaCatalog.searchURL(for: bridge, title: item.title) {
             Button {
                 HapticManager.impact(.light)
-                onWatch(.cinema(bridge, url))
+                // Мостик — это навигация, а не источник синхронного плеера.
+                // Не создаём комнату с поисковой страницей кинотеатра.
+                if let destination = URL(string: url) {
+                    openURL(destination)
+                }
+                dismiss()
             } label: {
                 HStack(spacing: 7) {
                     Circle()
