@@ -90,13 +90,13 @@ if (config.REDIS_URL) {
     });
 
     // Logged at warn, not error: skipOnError means this is a degradation
-    // (limits fall back to per-process), not an outage.
+    // (the affected request is allowed without a counter), not an outage.
     rateLimitClient.on('error', (err) =>
-      console.warn('[Redis:rate-limit] error, limits may be per-process:', err.message),
+      console.warn('[Redis:rate-limit] error, affected requests are not counted:', err.message),
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    console.warn('[Redis:rate-limit] init failed, limits will be per-process:', message);
+    console.warn('[Redis:rate-limit] init failed, affected requests are not counted:', message);
     rateLimitClient = null;
   }
 }

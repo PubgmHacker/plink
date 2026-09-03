@@ -4,8 +4,9 @@
 //   WebSocket connect → host play command → viewer receives sync.state →
 //   chat message delivered to the viewer.
 //
-// This is the scenario every release must pass. Opt-in via E2E=1 because it
-// needs live infrastructure (Postgres + Redis + backend):
+// Every release runs this against the freshly deployed backend — release.md §5.
+// It is opt-in via E2E=1 because it needs live infrastructure (Postgres + Redis +
+// backend) and leaves two throwaway `e2e_*@plink.lab` accounts behind. Locally:
 //
 //   docker compose -f tests/integration/docker-compose.yml up -d
 //   DATABASE_URL="postgresql://plink:plink@localhost:5433/plink" \
@@ -29,7 +30,8 @@ async function json(path: string, opts: { method?: string; token?: string; body?
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${opts.method || 'GET'} ${path} → ${res.status} ${JSON.stringify(data)}`);
+  if (!res.ok)
+    throw new Error(`${opts.method || 'GET'} ${path} → ${res.status} ${JSON.stringify(data)}`);
   return data as any;
 }
 
@@ -49,7 +51,9 @@ type AnyMsg = Record<string, any>;
 
 async function openClient(token: string, roomId: string, name: string) {
   const t = await json('/api/realtime/ticket', { method: 'POST', token, body: { roomId } });
-  const protocols: string[] = t.protocol?.length ? t.protocol : ['plink.v2', `plink.ticket.${t.ticket}`];
+  const protocols: string[] = t.protocol?.length
+    ? t.protocol
+    : ['plink.v2', `plink.ticket.${t.ticket}`];
   const ws = new WebSocket(`${WS_BASE}/ws/room/${roomId}`, protocols);
   const inbox: AnyMsg[] = [];
   const waiters = new Set<{ predicate: (m: AnyMsg) => boolean; resolve: (m: AnyMsg) => void }>();
@@ -64,13 +68,21 @@ async function openClient(token: string, roomId: string, name: string) {
           w.resolve(msg);
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${name} WS open timeout`)), 15000);
-    ws.once('open', () => { clearTimeout(timer); resolve(); });
-    ws.once('error', (e) => { clearTimeout(timer); reject(e); });
+    ws.once('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.once('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
   });
   await new Promise((r) => setTimeout(r, 300)); // let session.ready land
 
@@ -84,13 +96,26 @@ async function openClient(token: string, roomId: string, name: string) {
       const existing = inbox.find(predicate);
       if (existing) return Promise.resolve(existing);
       return new Promise((resolve) => {
-        const entry = { predicate, resolve: (m: AnyMsg) => { clearTimeout(timer); resolve(m); } };
-        const timer = setTimeout(() => { waiters.delete(entry); resolve(null); }, timeoutMs);
+        const entry = {
+          predicate,
+          resolve: (m: AnyMsg) => {
+            clearTimeout(timer);
+            resolve(m);
+          },
+        };
+        const timer = setTimeout(() => {
+          waiters.delete(entry);
+          resolve(null);
+        }, timeoutMs);
         waiters.add(entry);
       });
     },
     close() {
-      try { ws.close(1000, 'done'); } catch { /* ignore */ }
+      try {
+        ws.close(1000, 'done');
+      } catch {
+        /* ignore */
+      }
     },
   };
 }
@@ -127,7 +152,11 @@ describe.runIf(process.env.E2E === '1')('E2E happy path (M13)', () => {
 
     // 3. Both join by code
     await json('/api/rooms/join', { method: 'POST', token: host.token, body: { code: room.code } });
-    await json('/api/rooms/join', { method: 'POST', token: viewer.token, body: { code: room.code } });
+    await json('/api/rooms/join', {
+      method: 'POST',
+      token: viewer.token,
+      body: { code: room.code },
+    });
 
     // 4. Realtime connect (sequential — parallel ticket handshakes race under load)
     const hostWS = await openClient(host.token, room.id, 'host');
@@ -146,7 +175,9 @@ describe.runIf(process.env.E2E === '1')('E2E happy path (M13)', () => {
         rate: 1,
       });
       const sync = await viewerWS.waitFor(
-        (m) => (m.type === 'sync.state' || m.type === 'sync.state.snapshot') && (m.state?.playing === true),
+        (m) =>
+          (m.type === 'sync.state' || m.type === 'sync.state.snapshot') &&
+          m.state?.playing === true,
       );
       expect(sync, 'viewer must receive playing sync.state').toBeTruthy();
 
@@ -174,7 +205,9 @@ describe.runIf(process.env.E2E === '1')('E2E happy path (M13)', () => {
         playing: false,
         rate: 1,
       });
-      const pause = await viewerWS.waitFor((m) => m.type === 'sync.state' && m.state?.playing === false);
+      const pause = await viewerWS.waitFor(
+        (m) => m.type === 'sync.state' && m.state?.playing === false,
+      );
       expect(pause, 'viewer must receive paused sync.state').toBeTruthy();
     } finally {
       hostWS.close();

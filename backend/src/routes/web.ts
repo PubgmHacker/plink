@@ -158,16 +158,44 @@ function fontFaces(): string {
 
 // ── Переиспользуемые блоки установщика ─────────────────────────────────
 
-/// Иконка приложения — рисуется кодом, чтобы не тянуть растровые ассеты.
+/// Знак Plink — векторные контуры эталонного лок-апа (brand/plink-mark.svg),
+/// рисуются кодом, чтобы не тянуть растровые ассеты. Координаты контуров —
+/// в системе макета 1056×1008, знак занимает рамку 388…738 × 81…541.
+const BRAND_MARK_A =
+  'M422.7 225.2C401.2 211.2 388.3 183.2 388.3 160.9L388.3 160.9C388.3 93.6 446.2 58.0 507.6 97.9L696.1 220.4C752.9 257.4 751.8 356.9 695.3 389.7L592.0 449.6C576.7 458.4 562.5 448.7 562.5 433.8L562.5 340.8C562.5 328.3 554.8 311.0 540.8 301.9Z';
+const BRAND_MARK_B =
+  'M492.9 338.0C511.1 327.8 527.3 335.7 527.3 360.7L527.3 471.9C527.3 505.4 504.6 541.2 460.6 541.2L460.6 541.2C416.8 541.2 396.1 508.0 396.1 474.2L396.1 422.8C396.1 410.9 407.9 385.9 424.1 376.8Z';
+const BRAND_WORDMARK =
+  'M219.3 721.3 A3.5 3.5 0 0 1 215.7 717.7 L215.7 637.3 A4.4 4.4 0 0 1 220.2 632.8 L236.5 632.8 A3.3 3.3 0 0 1 239.8 636.1 L239.8 656.1 A3.1 3.1 0 0 0 243.0 659.2 L279.6 659.2 A20.7 20.7 0 0 0 300.4 638.5 L300.4 637.7 A20.3 20.3 0 0 0 280.0 617.3 L219.0 617.3 A3.6 3.6 0 0 1 215.3 613.7 L215.3 599.3 A4.7 4.7 0 0 1 220.0 594.6 L283.3 594.6 A42.2 42.2 0 0 1 325.5 636.8 L325.5 640.0 A40.7 40.7 0 0 1 284.8 680.7 L244.0 680.7 A4.4 4.4 0 0 0 239.6 685.1 L239.6 717.7 A3.5 3.5 0 0 1 236.1 721.3 Z M367.6 598.5 A4.1 4.1 0 0 1 371.8 594.3 L388.5 594.3 A4.4 4.4 0 0 1 392.9 598.8 L392.9 694.8 A3.2 3.2 0 0 0 396.2 698.1 L461.8 698.1 A3.7 3.7 0 0 1 465.5 701.8 L465.5 717.1 A4.1 4.1 0 0 1 461.3 721.3 L371.9 721.3 A4.2 4.2 0 0 1 367.6 717.0 Z M529.7 594.5 A3.8 3.8 0 0 1 533.6 598.4 L533.6 717.0 A4.3 4.3 0 0 1 529.2 721.3 L512.3 721.3 A3.3 3.3 0 0 1 509.0 718.0 L509.0 599.0 A4.4 4.4 0 0 1 513.5 594.5 Z M587.1 721.3 A3.7 3.7 0 0 1 583.3 717.5 L583.3 599.2 A4.8 4.8 0 0 1 588.1 594.4 L608.8 594.4 A7.5 7.5 0 0 1 614.8 597.4 L681.0 683.1 A1.9 1.9 0 0 0 684.5 681.9 L684.5 598.9 A4.4 4.4 0 0 1 689.0 594.4 L705.9 594.4 A3.7 3.7 0 0 1 709.6 598.1 L709.6 717.1 A4.1 4.1 0 0 1 705.5 721.3 L683.5 721.3 A5.0 5.0 0 0 1 679.5 719.3 L611.8 631.7 A2.3 2.3 0 0 0 607.6 633.2 L607.6 717.1 A4.2 4.2 0 0 1 603.4 721.3 Z M879.8 718.3 A1.8 1.8 0 0 1 878.4 721.3 L854.8 721.3 A4.7 4.7 0 0 1 851.1 719.5 L809.0 665.2 A2.7 2.7 0 0 0 804.9 664.9 L785.0 684.1 L785.0 717.5 A3.8 3.8 0 0 1 781.2 721.3 L764.4 721.3 A3.7 3.7 0 0 1 760.6 717.5 L760.6 599.2 A4.8 4.8 0 0 1 765.5 594.4 L781.5 594.4 A3.5 3.5 0 0 1 785.1 597.9 L785.1 649.2 A1.7 1.7 0 0 0 788.1 650.4 L844.0 596.4 A6.8 6.8 0 0 1 848.8 594.5 L872.2 594.5 A2.4 2.4 0 0 1 873.9 598.8 L826.4 644.6 A3.3 3.3 0 0 0 826.1 649.2 Z';
+
+/// defs знака: два градиента фигур, светлая кромка стрелки и клип под неё.
+/// `p` — префикс id, чтобы несколько знаков на одной странице не спорили.
+function brandMarkDefs(p: string): string {
+  return `<linearGradient id="${p}gA" gradientUnits="userSpaceOnUse" x1="613.5" y1="138.3" x2="509.5" y2="421.7"><stop offset="0.0625" stop-color="#8f44f0"/><stop offset="0.1875" stop-color="#7a39f0"/><stop offset="0.3125" stop-color="#6931ef"/><stop offset="0.4375" stop-color="#5b29ee"/><stop offset="0.5625" stop-color="#4c21ed"/><stop offset="0.6875" stop-color="#4823ee"/><stop offset="0.8125" stop-color="#421ceb"/><stop offset="0.9375" stop-color="#4016ea"/></linearGradient><linearGradient id="${p}gB" gradientUnits="userSpaceOnUse" x1="547.4" y1="387.6" x2="396.6" y2="489.4"><stop offset="0.0625" stop-color="#2c0688"/><stop offset="0.1875" stop-color="#290684"/><stop offset="0.3125" stop-color="#2e0687"/><stop offset="0.4375" stop-color="#320788"/><stop offset="0.5625" stop-color="#38088e"/><stop offset="0.6875" stop-color="#3c0990"/><stop offset="0.8125" stop-color="#440b97"/><stop offset="0.9375" stop-color="#500e9d"/></linearGradient><linearGradient id="${p}gR" gradientUnits="userSpaceOnUse" x1="613" y1="138" x2="510" y2="422"><stop offset="0" stop-color="#eadfff" stop-opacity=".6"/><stop offset="1" stop-color="#eadfff" stop-opacity=".2"/></linearGradient><clipPath id="${p}cA"><path d="${BRAND_MARK_A}"/></clipPath>`;
+}
+
+/// Тело знака: хвост, стрелка, внутренняя кромка. Ставить внутрь `<g transform>`.
+function brandMarkBody(p: string): string {
+  return `<path d="${BRAND_MARK_B}" fill="url(#${p}gB)"/><path d="${BRAND_MARK_A}" fill="url(#${p}gA)"/><path d="${BRAND_MARK_A}" fill="none" stroke="url(#${p}gR)" stroke-width="3" clip-path="url(#${p}cA)"/>`;
+}
+
+/// Трансформ, вписывающий знак (рамка 350×460 в координатах макета) в
+/// прямоугольник x,y,w,h по центру с сохранением пропорций.
+function brandMarkTransform(x: number, y: number, w: number, h: number): string {
+  const s = Math.min(w / 350, h / 460);
+  const tx = x + (w - 350 * s) / 2 - 388.33 * s;
+  const ty = y + (h - 460 * s) / 2 - 81.2 * s;
+  return `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${s.toFixed(5)})`;
+}
+
+/// Иконка приложения — знак на тёмной плашке, как в AppIcon.
 function appIconSVG(size = 56): string {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true">
-  <defs><linearGradient id="ai" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#15181a"/><stop offset="1" stop-color="#0a0c0d"/>
-  </linearGradient></defs>
-  <rect width="64" height="64" rx="15" fill="url(#ai)"/>
-  <rect width="64" height="64" rx="15" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1"/>
-  <polygon points="26 20 47 32 26 44" fill="#f2f4f3"/>
-  <path d="M17 24v16" stroke="#f2f4f3" stroke-width="4" stroke-linecap="round" opacity=".9"/>
+  const p = `ai${size}`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 1000 1000" aria-hidden="true">
+  <defs>${brandMarkDefs(p)}<radialGradient id="${p}bg" cx=".5" cy=".36" r=".72"><stop offset="0" stop-color="#2b1160"/><stop offset=".55" stop-color="#120735"/><stop offset="1" stop-color="#06031a"/></radialGradient></defs>
+  <rect width="1000" height="1000" rx="225" fill="url(#${p}bg)"/>
+  <rect x="4" y="4" width="992" height="992" rx="221" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="8"/>
+  <g transform="${brandMarkTransform(200, 200, 600, 600)}">${brandMarkBody(p)}</g>
 </svg>`;
 }
 
@@ -350,20 +378,24 @@ function appStoreNumericID(): string {
   return match ? match[1] : '0000000000';
 }
 
-// Афиша для превью в мессенджерах. Генерится на лету, без внешних сервисов.
+// Афиша для превью в мессенджерах. Генерится на лету, без внешних сервисов:
+// знак и вордмарк — векторные контуры эталонного лок-апа.
 function ogSVG(title: string, subtitle: string): string {
+  const p = 'og';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#070809"/>
-      <stop offset="100%" stop-color="#101314"/>
-    </linearGradient>
+    ${brandMarkDefs(p)}
+    <radialGradient id="${p}bg" cx="0.22" cy="0.4" r="0.9"><stop offset="0" stop-color="#1c0b45"/><stop offset="0.5" stop-color="#0a0424"/><stop offset="1" stop-color="#010008"/></radialGradient>
+    <linearGradient id="${p}gW" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f4f5"/><stop offset="1" stop-color="#c2bfdb"/></linearGradient>
+    <linearGradient id="${p}gT" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8642d6"/><stop offset="0.5" stop-color="#6a49d1"/><stop offset="1" stop-color="#4189d2"/></linearGradient>
+    <clipPath id="${p}cW"><path d="${BRAND_WORDMARK}"/></clipPath>
   </defs>
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <circle cx="1010" cy="140" r="210" fill="#eafaf7" opacity="0.10"/>
-  <text x="80" y="270" font-family="-apple-system,Helvetica,Arial" font-size="64" font-weight="700" fill="#eafaf7">${escXML(title)}</text>
-  <text x="80" y="340" font-family="-apple-system,Helvetica,Arial" font-size="32" fill="#8fb3ae">${escXML(subtitle)}</text>
-  <text x="80" y="550" font-family="-apple-system,Helvetica,Arial" font-size="28" font-weight="600" fill="#eafaf7">Plink — смотрите вместе</text>
+  <rect width="1200" height="630" fill="url(#${p}bg)"/>
+  <g transform="${brandMarkTransform(96, 110, 250, 330)}">${brandMarkBody(p)}</g>
+  <g transform="translate(420 118) scale(0.36)"><rect x="215" y="594" width="666" height="128" fill="url(#${p}gW)" clip-path="url(#${p}cW)"/></g>
+  <text x="420" y="205" font-family="-apple-system,'SF Pro Rounded','Helvetica Neue',Arial,sans-serif" font-size="18" font-weight="600" letter-spacing="3.4" fill="url(#${p}gT)">WATCH TOGETHER. ANYWHERE.</text>
+  <text x="96" y="512" font-family="-apple-system,'Helvetica Neue',Arial,sans-serif" font-size="58" font-weight="700" fill="#f4f4f5">${escXML(title)}</text>
+  <text x="96" y="562" font-family="-apple-system,'Helvetica Neue',Arial,sans-serif" font-size="28" fill="#a89fd0">${escXML(subtitle)}</text>
 </svg>`;
 }
 
@@ -683,7 +715,7 @@ function pageHead(opts: {
   /* ── Установщик ───────────────────────────────────────────────────── */
   .app-id { display:flex; align-items:center; gap:14px; justify-content:center;
             margin-bottom:24px; text-align:left }
-  .app-id svg { filter:drop-shadow(0 12px 30px rgba(25,224,192,.25)) }
+  .app-id svg { filter:drop-shadow(0 12px 30px rgba(134,66,214,.38)) }
   .app-id b { display:block; font:italic 500 24px/1 var(--serif); letter-spacing:-.02em }
   .app-id span { display:block; color:var(--mut); font-size:13px; margin-top:3px }
   .badges { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:14px }

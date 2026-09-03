@@ -5,7 +5,8 @@
 // собственными embed-контроллерами — поиск был у́же плеера.
 //
 // Провайдеры:
-//   youtube — Data API v3, нужен YOUTUBE_API_KEY (как и было);
+//   youtube — публичная страница результатов, ключ не нужен для beta-пути;
+//             Data API v3 остаётся резервным адаптером для старых установок;
 //   rutube  — https://rutube.ru/api/search/video/, ключ не нужен;
 //   vk      — api.vk.com/method/video.search, нужен VK_SERVICE_TOKEN
 //             (проверено 26.08.2026: без токена метод отдаёт
@@ -32,7 +33,10 @@ export interface VideoSearchItem {
 }
 
 const TIMEOUT_MS = 10_000;
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+const UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
 
 /** Одна повторная попытка на 503 — заминка у провайдера не должна оставлять
  *  пользователя с пустой лентой. Пауза фиксированная: выдача ждёт синхронно,
@@ -63,15 +67,18 @@ export function parseISODuration(raw: string | undefined | null): number | null 
   if (!raw) return null;
   const m = raw.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!m) return null;
-  const total = parseInt(m[1] || '0', 10) * 3600
-    + parseInt(m[2] || '0', 10) * 60
-    + parseInt(m[3] || '0', 10);
+  const total =
+    parseInt(m[1] || '0', 10) * 3600 + parseInt(m[2] || '0', 10) * 60 + parseInt(m[3] || '0', 10);
   return total > 0 ? total : null;
 }
 
 // ─────────────────────────────────────────────────────────── YouTube
 
-export async function searchYouTube(q: string, limit: number, apiKey: string): Promise<VideoSearchItem[]> {
+export async function searchYouTube(
+  q: string,
+  limit: number,
+  apiKey: string,
+): Promise<VideoSearchItem[]> {
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('q', q);
@@ -100,8 +107,8 @@ export async function searchYouTube(q: string, limit: number, apiKey: string): P
         id: videoId,
         title: item.snippet?.title || '',
         channel: item.snippet?.channelTitle || '',
-        thumbnailURL: item.snippet?.thumbnails?.medium?.url
-          || item.snippet?.thumbnails?.default?.url || null,
+        thumbnailURL:
+          item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null,
         duration: null,
         url: `https://www.youtube.com/watch?v=${videoId}`,
         provider: 'youtube',
@@ -109,6 +116,186 @@ export async function searchYouTube(q: string, limit: number, apiKey: string): P
         embeddable: null,
       };
     });
+}
+
+// ───────────────────────────────────────────────────── YouTube web search
+
+/**
+ * Reads the public YouTube results document instead of the Data API.
+ *
+ * This is intentionally kept separate from `searchYouTube`: the latter is a
+ * compatibility adapter for installations that still opt into a Data API key,
+ * while the product route uses this keyless path so a project quota cannot take
+ * the beta search down. The parser accepts the two shapes YouTube currently
+ * uses for text and duration and fails closed for malformed markup.
+ */
+export function parseYouTubeSearchHTML(html: string, limit: number): VideoSearchItem[] {
+  const root = extractInitialData(html);
+  if (!root) return [];
+
+  const renderers: Record<string, unknown>[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const record = node as Record<string, unknown>;
+    const renderer = record.videoRenderer;
+    if (renderer && typeof renderer === 'object' && !Array.isArray(renderer)) {
+      renderers.push(renderer as Record<string, unknown>);
+    }
+    Object.values(record).forEach(walk);
+  };
+  walk(root);
+
+  const seen = new Set<string>();
+  const out: VideoSearchItem[] = [];
+  for (const renderer of renderers) {
+    if (out.length >= limit) break;
+    const id = typeof renderer.videoId === 'string' ? renderer.videoId : '';
+    const title = textValue(renderer.title);
+    if (!YOUTUBE_ID.test(id) || !title || seen.has(id)) continue;
+
+    // Live streams and scheduled premieres do not have a stable timeline for
+    // all viewers, so they are not offered as a synchronized room source.
+    if (renderer.isLive === true || renderer.upcomingEventData) continue;
+    const durationText = textValue(renderer.lengthText);
+    const duration = durationText ? parseClockDuration(durationText) : null;
+    // Results without a finite timeline are live/upcoming/placeholder rows.
+    // They cannot be started deterministically in a synchronized room.
+    if (!duration) continue;
+
+    const thumbnails = (renderer.thumbnail as Record<string, unknown> | undefined)?.thumbnails;
+    const thumbnailList = Array.isArray(thumbnails) ? thumbnails : [];
+    const thumbnail =
+      thumbnailList
+        .filter((value): value is Record<string, unknown> =>
+          Boolean(value && typeof value === 'object'),
+        )
+        .map((value) => value.url)
+        .filter((value): value is string => typeof value === 'string' && /^https?:\/\//.test(value))
+        .pop() ?? null;
+
+    seen.add(id);
+    out.push({
+      id,
+      title,
+      channel: textValue(renderer.ownerText) || textValue(renderer.longBylineText) || 'YouTube',
+      thumbnailURL: thumbnail,
+      duration,
+      url: `https://www.youtube.com/watch?v=${id}`,
+      provider: 'youtube',
+      embedURL: `https://www.youtube.com/embed/${id}`,
+      embeddable: null,
+    });
+  }
+  return out;
+}
+
+/** Search the public results page, with a mobile-page fallback. */
+export async function searchYouTubeWeb(q: string, limit: number): Promise<VideoSearchItem[]> {
+  // Do not send the old duration filter (`sp=EgIQAQ==`): YouTube occasionally
+  // rejects that encoded value as a malformed request. We filter live rows and
+  // require a real duration in the parser instead.
+  const query = new URLSearchParams({ search_query: q, hl: 'ru', gl: 'RU' });
+  const urls = [
+    `https://www.youtube.com/results?${query.toString()}`,
+    `https://m.youtube.com/results?${query.toString()}`,
+  ];
+  let lastStatus = 0;
+  for (const url of urls) {
+    const resp = await fetchWithRetry(url, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'ru-RU,ru;q=0.9' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    lastStatus = resp.status;
+    if (!resp.ok) continue;
+    const html = await resp.text();
+    const results = parseYouTubeSearchHTML(html, limit);
+    if (results.length > 0) return results;
+  }
+  throw new Error(`youtube web ${lastStatus || 'unavailable'}`);
+}
+
+/** Extract the balanced JSON object assigned to one of YouTube's bootstrap vars. */
+export function extractInitialData(html: string): unknown | null {
+  const markers = ['var ytInitialData =', 'ytInitialData =', 'window["ytInitialData"] ='];
+  let markerEnd = -1;
+  for (const marker of markers) {
+    const markerStart = html.indexOf(marker);
+    if (markerStart >= 0) {
+      markerEnd = Math.max(markerEnd, markerStart + marker.length);
+    }
+  }
+  if (markerEnd < 0) return null;
+  const open = html.indexOf('{', markerEnd);
+  if (open < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = open; i < html.length; i += 1) {
+    const char = html[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') depth += 1;
+    if (char === '}' && --depth === 0) {
+      try {
+        return JSON.parse(html.slice(open, i + 1));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function textValue(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const record = value as Record<string, unknown>;
+  if (typeof record.simpleText === 'string') return record.simpleText;
+  if (!Array.isArray(record.runs)) return '';
+  return record.runs
+    .filter((run): run is Record<string, unknown> => Boolean(run && typeof run === 'object'))
+    .map((run) => (typeof run.text === 'string' ? run.text : ''))
+    .join('');
+}
+
+export function parseClockDuration(raw: string): number | null {
+  const match = raw.trim().match(/^(\d{1,4}):([0-5]?\d)(?::([0-5]?\d))?$/);
+  if (!match) {
+    return null;
+  }
+  const first = Number.parseInt(match[1], 10);
+  const second = Number.parseInt(match[2], 10);
+  const third = match[3] ? Number.parseInt(match[3], 10) : null;
+  const seconds = third === null ? first * 60 + second : first * 3600 + second * 60 + third;
+  return seconds > 0 ? seconds : null;
+}
+
+/** Providers sometimes return duration as a number, clock text, or ISO-8601. */
+export function parseVideoDuration(raw: unknown): number | null {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : null;
+  }
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^PT/i.test(value)) return parseISODuration(value);
+  if (/^\d+$/.test(value)) {
+    const seconds = Number(value);
+    return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
+  }
+  return parseClockDuration(value);
 }
 
 // ──────────────────────────────────────────────────────────── RuTube
@@ -126,34 +313,60 @@ export async function searchRutube(q: string, limit: number): Promise<VideoSearc
     throw new Error(`rutube ${resp.status}`);
   }
   const data: any = await resp.json();
-  // RuTube отвечает 200 и пустым results, когда режет запрос по региону,
-  // — без этой строки «нет роликов» и «нас не пустили» выглядят одинаково.
-  const rawCount = Array.isArray(data.results) ? data.results.length : -1;
-  const items: VideoSearchItem[] = (data.results || [])
-    // Взрослое — мимо витрины: комнату видят все участники.
-    .filter((r: any) => r?.id && !r.is_adult)
-    .map((r: any): VideoSearchItem => ({
-      id: String(r.id),
-      title: r.title || '',
-      channel: r.author?.name || 'RuTube',
-      thumbnailURL: r.thumbnail_url || null,
-      duration: typeof r.duration === 'number' && r.duration > 0 ? r.duration : null,
-      url: r.video_url || `https://rutube.ru/video/${r.id}/`,
-      provider: 'rutube',
-      embedURL: r.embed_url || `https://rutube.ru/play/embed/${r.id}`,
-      embeddable: r.is_hidden === true ? false : null,
-    }));
-  // count — сколько совпадений насчитал сам RuTube. Если count большой,
-  // а results пустой, значит хостинг отдал заглушку по IP, а не «не нашёл».
-  if (items.length !== rawCount || items.length === 0) {
-    console.warn(`rutube: count=${data.count ?? '?'} raw=${rawCount} kept=${items.length} q="${q}"`);
-  }
+  const items: VideoSearchItem[] = (Array.isArray(data?.results) ? data.results : [])
+    // Комнату видят все участники: скрытые, удалённые, adult, live и
+    // платные/заблокированные карточки не должны попадать в beta-плеер.
+    .filter((r: any) => {
+      const id = typeof r?.id === 'string' || typeof r?.id === 'number' ? String(r.id).trim() : '';
+      const title = typeof r?.title === 'string' ? r.title.trim() : '';
+      return (
+        Boolean(id && title) &&
+        !r.is_adult &&
+        !r.is_livestream &&
+        !r.is_on_air &&
+        !r.is_deleted &&
+        !r.is_hidden &&
+        !r.is_locked &&
+        !r.is_paid &&
+        // Missing duration is tolerated (some public rows omit it), while an
+        // explicitly malformed value such as "LIVE" is a placeholder row.
+        (r.duration === undefined || r.duration === null || parseVideoDuration(r.duration) !== null)
+      );
+    })
+    .map((r: any): VideoSearchItem => {
+      const id = String(r.id).trim();
+      const thumbnail =
+        typeof r.thumbnail_url === 'string' && /^https?:\/\//.test(r.thumbnail_url)
+          ? r.thumbnail_url
+          : null;
+      return {
+        id,
+        title: String(r.title).trim(),
+        channel:
+          typeof r.author?.name === 'string' && r.author.name.trim()
+            ? r.author.name.trim()
+            : 'RuTube',
+        thumbnailURL: thumbnail,
+        duration: parseVideoDuration(r.duration),
+        url: `https://rutube.ru/video/${encodeURIComponent(id)}/`,
+        provider: 'rutube',
+        embedURL: `https://rutube.ru/play/embed/${encodeURIComponent(id)}`,
+        embeddable: null,
+      };
+    });
+  // The count is deliberately not logged here: this service is also used by
+  // the client-side search path, where a library function has no request logger.
+  // The route records provider counts through Fastify's structured logger.
   return items;
 }
 
 // ──────────────────────────────────────────────────────────── VK Видео
 
-export async function searchVK(q: string, limit: number, token: string): Promise<VideoSearchItem[]> {
+export async function searchVK(
+  q: string,
+  limit: number,
+  token: string,
+): Promise<VideoSearchItem[]> {
   const url = new URL('https://api.vk.com/method/video.search');
   url.searchParams.set('q', q);
   url.searchParams.set('count', String(Math.min(limit, 50)));
@@ -178,9 +391,8 @@ export async function searchVK(q: string, limit: number, token: string): Promise
       // Плеер несёт только video_ext.php с раздельными oid и id —
       // форма oid_id отдаёт страницу без плеера (проверено на клиенте).
       const embed = `https://vk.com/video_ext.php?oid=${oid}&id=${vid}&hd=2&js_api=1`;
-      const image = Array.isArray(v.image) && v.image.length
-        ? v.image[v.image.length - 1]?.url
-        : null;
+      const image =
+        Array.isArray(v.image) && v.image.length ? v.image[v.image.length - 1]?.url : null;
       return {
         id: `${oid}_${vid}`,
         title: v.title || '',
@@ -231,6 +443,13 @@ export interface MultiSearchResult {
   counts: Record<string, number>;
 }
 
+export interface ProviderSearchOptions {
+  youtubeKey?: string;
+  vkToken?: string;
+  /** Use the public YouTube page instead of the quota-bound Data API. */
+  useYouTubeWeb?: boolean;
+}
+
 /**
  * Опрашивает все настроенные хостинги параллельно. Падение одного не
  * роняет выдачу: пустой ответ вернётся, только если легли все.
@@ -238,12 +457,27 @@ export interface MultiSearchResult {
 export async function searchAllProviders(
   q: string,
   limit: number,
-  env: { youtubeKey?: string; vkToken?: string } = {},
+  env: ProviderSearchOptions = {},
 ): Promise<MultiSearchResult> {
   const perProvider = Math.max(6, Math.ceil(limit / 2));
   const tasks: { provider: string; run: () => Promise<VideoSearchItem[]> }[] = [];
 
-  if (env.youtubeKey) {
+  if (env.useYouTubeWeb) {
+    tasks.push({
+      provider: 'youtube',
+      run: async () => {
+        try {
+          return await searchYouTubeWeb(q, perProvider);
+        } catch (webError) {
+          // Some egress IPs receive a bot/consent page from YouTube. If an
+          // installation has explicitly configured the legacy key, use it as
+          // a provider-local fallback; RuTube must remain independent of this.
+          if (!env.youtubeKey) throw webError;
+          return searchYouTube(q, perProvider, env.youtubeKey);
+        }
+      },
+    });
+  } else if (env.youtubeKey) {
     tasks.push({ provider: 'youtube', run: () => searchYouTube(q, perProvider, env.youtubeKey!) });
   }
   tasks.push({ provider: 'rutube', run: () => searchRutube(q, perProvider) });
@@ -268,7 +502,9 @@ export async function searchAllProviders(
     }
   });
 
-  if (!env.youtubeKey) failed.push({ provider: 'youtube', reason: 'YOUTUBE_API_KEY not configured' });
+  if (!env.useYouTubeWeb && !env.youtubeKey) {
+    failed.push({ provider: 'youtube', reason: 'YOUTUBE_API_KEY not configured' });
+  }
   if (!env.vkToken) failed.push({ provider: 'vk', reason: 'VK_SERVICE_TOKEN not configured' });
 
   return { results: interleave(groups, limit), providers, failed, counts };

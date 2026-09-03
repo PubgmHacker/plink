@@ -31,6 +31,16 @@ type Envelope = { src: string; payload: { type: string } & Record<string, unknow
 
 export type UserEventDeliver = (userId: string, payload: unknown) => void;
 
+export interface UserEventLogger {
+  warn(message: string): void;
+  error(message: string): void;
+}
+
+const silentLogger: UserEventLogger = {
+  warn: () => {},
+  error: () => {},
+};
+
 function isValidPayload(p: unknown): p is Envelope['payload'] {
   return typeof p === 'object' && p !== null && typeof (p as { type?: unknown }).type === 'string';
 }
@@ -44,6 +54,7 @@ export class UserEventBus {
   constructor(
     redisUrl: string,
     private readonly deliver: UserEventDeliver,
+    private readonly logger: UserEventLogger = silentLogger,
   ) {
     // Subscriber must be a dedicated connection — ioredis refuses regular
     // commands on a connection in subscribe mode. It re-subscribes to the
@@ -69,22 +80,22 @@ export class UserEventBus {
       // Own publish — the local sockets were already served directly.
       if (envelope.src === this.instanceId) return;
       if (typeof envelope.src !== 'string' || !isValidPayload(envelope.payload)) {
-        console.warn('[UserEventBus] dropped malformed user event');
+        this.logger.warn('[UserEventBus] dropped malformed user event');
         return;
       }
       try {
         this.deliver(userId, envelope.payload);
       } catch (err) {
         // Delivery failure must not break the subscriber loop.
-        console.error('[UserEventBus] deliver threw:', err);
+        this.logger.error(`[UserEventBus] deliver threw: ${String(err)}`);
       }
     });
 
     this.subscriber.on('error', (err) => {
-      console.warn('[UserEventBus] subscriber error:', err.message);
+      this.logger.warn(`[UserEventBus] subscriber error: ${err.message}`);
     });
     this.publisher.on('error', (err) => {
-      console.warn('[UserEventBus] publisher error:', err.message);
+      this.logger.warn(`[UserEventBus] publisher error: ${err.message}`);
     });
   }
 

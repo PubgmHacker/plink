@@ -63,9 +63,16 @@ export class RealtimeGateway {
     // per-user while this replica holds at least one socket for the user —
     // the registry hooks below track exactly that transition. Delivery from
     // another replica lands on the same local path notifyUser uses.
-    this.userBus = new UserEventBus(config.REDIS_URL, (userId, payload) => {
-      this.registry.sendToUser(userId, payload);
-    });
+    this.userBus = new UserEventBus(
+      config.REDIS_URL,
+      (userId, payload) => {
+        this.registry.sendToUser(userId, payload);
+      },
+      {
+        warn: (message) => deps.fastify.log.warn(message),
+        error: (message) => deps.fastify.log.error(message),
+      },
+    );
     this.registry.onFirstUserSocket = (userId) => {
       void this.userBus.subscribe(userId).catch((err) => {
         console.warn('[Gateway] user channel subscribe failed:', (err as Error).message);
@@ -101,10 +108,11 @@ export class RealtimeGateway {
         // Coalesced refresh — onPong fires every 20s, lease TTL is 60s,
         // so refreshing on every pong keeps lease alive with 3x margin.
         if (socket.activeRoomId && socket.userId && socket.connectionId) {
-          this.refreshPresenceLease(socket.activeRoomId, socket.userId, socket.connectionId)
-            .catch((err) => {
+          this.refreshPresenceLease(socket.activeRoomId, socket.userId, socket.connectionId).catch(
+            (err) => {
               console.warn('[Heartbeat] lease refresh failed:', err);
-            });
+            },
+          );
         }
       },
       onDead: (socket) => {
@@ -131,7 +139,7 @@ export class RealtimeGateway {
     let incrementedMetrics = false;
     let joinedRoomId: string | undefined;
     let retainedRoom = false;
-    let presenceCountBumped = false;  //
+    let presenceCountBumped = false; //
     let presenceBumpedFor: { roomId: string; userId: string; connectionId?: string } | undefined;
     // capturedUser is set after banned check — finalize uses it for username
     let capturedUser: { id: string; username: string } | undefined;
@@ -214,12 +222,13 @@ export class RealtimeGateway {
     // configured web origins via CORS_ORIGIN env.
     const origin = req.headers['origin'] as string | undefined;
     if (origin && origin !== 'null') {
-      const allowedOrigins = (config.CORS_ORIGIN === '*')
-        ? []  // dev mode — allow all
-        : [
-            ...(Array.isArray(config.CORS_ORIGIN) ? config.CORS_ORIGIN : [config.CORS_ORIGIN]),
-            ...NATIVE_CLIENT_ORIGINS,
-          ];
+      const allowedOrigins =
+        config.CORS_ORIGIN === '*'
+          ? [] // dev mode — allow all
+          : [
+              ...(Array.isArray(config.CORS_ORIGIN) ? config.CORS_ORIGIN : [config.CORS_ORIGIN]),
+              ...NATIVE_CLIENT_ORIGINS,
+            ];
       if (allowedOrigins.length > 0 && !allowedOrigins.includes(origin)) {
         socket.close(4003, 'Origin not allowed');
         await finalize();
@@ -228,9 +237,10 @@ export class RealtimeGateway {
     }
 
     // ── Auth via Sec-WebSocket-Protocol ────────────────────
-    const protocols = (req.headers['sec-websocket-protocol'] as string | undefined)
-      ?.split(',')
-      .map((s) => s.trim()) ?? [];
+    const protocols =
+      (req.headers['sec-websocket-protocol'] as string | undefined)
+        ?.split(',')
+        .map((s) => s.trim()) ?? [];
     const ticket = protocols.find((p) => p.startsWith('plink.ticket.'));
 
     if (!ticket) {
@@ -274,7 +284,7 @@ export class RealtimeGateway {
     socket.username = user.username;
     socket.role = user.role;
     socket.isAlive = true;
-    capturedUser = { id: user.id, username: user.username };  // for finalize
+    capturedUser = { id: user.id, username: user.username }; // for finalize
 
     // ── Parse roomId from URL path (NOT query) ──────────────────────────
     const url = new URL(req.url, 'http://localhost');
@@ -303,7 +313,9 @@ export class RealtimeGateway {
         // Inbound messages are not routed on the user channel.
         wsMessages.inc({ type: 'inbound', direction: 'in' });
       });
-      socket.send(JSON.stringify({ type: 'session.ready', roomId: '@me', role: 'viewer', epoch: 0 }));
+      socket.send(
+        JSON.stringify({ type: 'session.ready', roomId: '@me', role: 'viewer', epoch: 0 }),
+      );
       return;
     }
 
@@ -363,7 +375,7 @@ export class RealtimeGateway {
       const presence = await this.bumpRoomPresence(roomId, user.id);
       // Store connectionId on socket so heartbeat can refresh lease
       socket.connectionId = presence.connectionId;
-      presenceCountBumped = true;  // Track for cleanup
+      presenceCountBumped = true; // Track for cleanup
       presenceBumpedFor = { roomId, userId: user.id, connectionId: presence.connectionId };
       if (presence.count === 1) {
         const joinTimestamp = Date.now();
@@ -373,7 +385,7 @@ export class RealtimeGateway {
             roomId,
             userId: user.id,
             username: user.username,
-            timestampMs: joinTimestamp,  // Preserve original timestamp
+            timestampMs: joinTimestamp, // Preserve original timestamp
           });
         } catch (publishErr) {
           // Publish failed — finalize() will decrement presence count
@@ -432,11 +444,14 @@ export class RealtimeGateway {
   // Each connection gets a unique connectionId (UUID). ZSET member is the
   // connectionId; score is leaseExpiresAtMs. Heartbeat refreshes the lease.
   // Atomic Lua: remove expired members + count active.
-  private static readonly PRESENCE_LEASE_TTL_MS = 60_000;  // 60s, refreshed by heartbeat
+  private static readonly PRESENCE_LEASE_TTL_MS = 60_000; // 60s, refreshed by heartbeat
   private static readonly PRESENCE_LEASE_KEY = (roomId: string, userId: string) =>
     `plink:presence:${roomId}:${userId}`;
 
-  private async bumpRoomPresence(roomId: string, userId: string): Promise<{ count: number; connectionId: string }> {
+  private async bumpRoomPresence(
+    roomId: string,
+    userId: string,
+  ): Promise<{ count: number; connectionId: string }> {
     const connectionId = randomUUID();
     const key = RealtimeGateway.PRESENCE_LEASE_KEY(roomId, userId);
     const roomIndexKey = `plink:room:${roomId}:activeUsers`;
@@ -444,10 +459,10 @@ export class RealtimeGateway {
     const expiresAt = now + RealtimeGateway.PRESENCE_LEASE_TTL_MS;
     // Maintain BOTH per-user ZSET and room-level index ZSET
     const pipeline = this.deps.redis.multi();
-    pipeline.zremrangebyscore(key, '-inf', now);  // remove expired from user key
-    pipeline.zadd(key, expiresAt, connectionId);   // add new connection
+    pipeline.zremrangebyscore(key, '-inf', now); // remove expired from user key
+    pipeline.zadd(key, expiresAt, connectionId); // add new connection
     pipeline.pexpire(key, RealtimeGateway.PRESENCE_LEASE_TTL_MS * 2);
-    pipeline.zcount(key, now, '+inf');              // count active connections
+    pipeline.zcount(key, now, '+inf'); // count active connections
     // Update room-level index — userId → latestLeaseExpiresAtMs
     pipeline.zadd(roomIndexKey, expiresAt, userId);
     pipeline.pexpire(roomIndexKey, RealtimeGateway.PRESENCE_LEASE_TTL_MS * 2);
@@ -498,7 +513,11 @@ end
 return count
 `;
 
-  private async decrementRoomPresence(roomId: string, userId: string, connectionId?: string): Promise<number> {
+  private async decrementRoomPresence(
+    roomId: string,
+    userId: string,
+    connectionId?: string,
+  ): Promise<number> {
     const key = RealtimeGateway.PRESENCE_LEASE_KEY(roomId, userId);
     const roomIndexKey = `plink:room:${roomId}:activeUsers`;
     const count = (await this.deps.redis.eval(
@@ -673,7 +692,9 @@ return count
    * каждая реплика с сокетами комнаты сама рассылает room.appearance.updated
    * своим клиентам (публикатор НЕ шлёт локально — иначе двойная доставка).
    */
-  async publishRoomAppearance(event: Extract<RoomEvent, { kind: 'room.appearance.updated' }>): Promise<void> {
+  async publishRoomAppearance(
+    event: Extract<RoomEvent, { kind: 'room.appearance.updated' }>,
+  ): Promise<void> {
     await this.eventBus.publish(event.roomId, event);
   }
 
@@ -690,7 +711,11 @@ return count
    * Возвращает epoch — вызывающий кладёт его в ответ REST-а, чтобы уходящий
    * клиент не пытался досылать команды.
    */
-  async publishHostMigration(roomId: string, newHostId: string, newHostName: string): Promise<number> {
+  async publishHostMigration(
+    roomId: string,
+    newHostId: string,
+    newHostName: string,
+  ): Promise<number> {
     const epoch = await this.store.bumpEpoch(roomId);
     await this.eventBus.publish(roomId, {
       kind: 'role.changed',
@@ -734,7 +759,10 @@ return count
   }
 
   // ── isMemberOrHost returns { allowed, isHost } from single DB check ─
-  private async isMemberOrHost(userId: string, roomId: string): Promise<{ allowed: boolean; isHost: boolean }> {
+  private async isMemberOrHost(
+    userId: string,
+    roomId: string,
+  ): Promise<{ allowed: boolean; isHost: boolean }> {
     const [participant, room] = await Promise.all([
       this.deps.prisma.roomParticipant
         .findUnique({
@@ -838,9 +866,21 @@ export function eventToServerMessage(event: RoomEvent): ServerMessage | null {
   switch (event.kind) {
     case 'participant.joined':
       // Preserve original event timestampMs
-      return makeParticipantEvent('participant.joined', event.roomId, event.userId, event.username, event.timestampMs);
+      return makeParticipantEvent(
+        'participant.joined',
+        event.roomId,
+        event.userId,
+        event.username,
+        event.timestampMs,
+      );
     case 'participant.left':
-      return makeParticipantEvent('participant.left', event.roomId, event.userId, event.username, event.timestampMs);
+      return makeParticipantEvent(
+        'participant.left',
+        event.roomId,
+        event.userId,
+        event.username,
+        event.timestampMs,
+      );
     case 'chat.broadcast':
       return {
         type: 'chat.broadcast',

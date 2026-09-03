@@ -1,7 +1,7 @@
 // Makes a skipped integration suite loud instead of silent.
 //
 // The tests in src/tests/integration/* skip themselves when Redis is not
-// reachable. Without this reporter that turned "100 passed" on a machine with
+// reachable (and two of them when the backend is not running or E2E is unset). Without this reporter that turned "100 passed" on a machine with
 // Redis into "86 passed" on a machine without it, and nothing in the output said
 // which 14 were missing — so a green run meant two different things depending on
 // who ran it. This prints a warning at the end of any run that skipped one.
@@ -29,8 +29,12 @@ export default class RedisSkipReporter implements Reporter {
     }
     if (skipped === 0) return;
 
+    // Two suites skip for reasons other than Redis: gateway.integration needs a
+    // running backend at API_BASE, and happyPath.e2e runs only with E2E=1. Say so,
+    // or a reader with Redis up goes looking for a Redis problem that is not there.
     const reason = process.env.REDIS_URL
-      ? `Redis unreachable at REDIS_URL=${process.env.REDIS_URL}`
+      ? `Redis unreachable at REDIS_URL=${process.env.REDIS_URL}, or a suite needs more: ` +
+        'gateway.integration wants a live backend at API_BASE, happyPath.e2e wants E2E=1'
       : 'REDIS_URL is not set';
     // stderr and a box, deliberately: this has to survive being the second-last
     // thing printed before a wall of passing test names.

@@ -12,6 +12,7 @@
 5. Deploy
 
 После деплоя:
+
 - npx prisma db push (через Railway CLI или console)
 - API будет на https://ваш-домен.up.railway.app/api
 - WebSocket на wss://ваш-домен.up.railway.app/ws
