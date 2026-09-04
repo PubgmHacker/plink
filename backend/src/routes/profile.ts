@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
 import { logAudit, AuditActions } from '../utils/audit.js';
+import { computeAchievements, computeActivity, earnedBadges } from '../utils/profileStats.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +26,106 @@ function parseAvatarDataURL(avatarData: string): { mime: string; buffer: Buffer 
 }
 
 // ─── Social profile helpers (VK-style privacy + media art) ───
+
+/// Everything the profile face shows below the name — counters, the recent
+/// rail, friends preview, achievements with progress and the 30-day activity
+/// digest. One place for both /users/:id/profile and /users/me/profile so the
+/// two responses cannot drift apart again.
+async function loadProfileStats(id: string, isPremium: boolean, tzOffsetMinutes = 0) {
+  const since = new Date(Date.now() - 30 * 86_400_000);
+  const [friendsCount, roomsCreated, watchHistory, totalHistory, friends, recent] = await Promise.all([
+    prisma.friendship.count({ where: { userID: id } }),
+    prisma.room.count({ where: { hostID: id } }),
+    prisma.watchHistory.findMany({
+      where: { userID: id },
+      orderBy: { watchedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        mediaTitle: true,
+        mediaThumb: true,
+        mediaKind: true,
+        watchedAt: true,
+        roomID: true,
+        room: { select: { mediaItem: true } },
+      },
+    }),
+    prisma.watchHistory.count({ where: { userID: id } }),
+    friendsPreview(id, 12),
+    // Bounded by the 30-day window plus a hard cap — a digest, not an export.
+    prisma.watchHistory.findMany({
+      where: { userID: id, watchedAt: { gte: since } },
+      orderBy: { watchedAt: 'desc' },
+      take: 2000,
+      select: { watchedAt: true, mediaKind: true },
+    }),
+  ]);
+
+  const achievements = computeAchievements({ filmsWatched: totalHistory, friendsCount, isPremium });
+  const activity = computeActivity(
+    recent.map((r: { watchedAt: Date; mediaKind: string | null }) => ({
+      watchedAt: r.watchedAt,
+      kind: r.mediaKind,
+    })),
+    new Date(),
+    tzOffsetMinutes,
+  );
+
+  return {
+    friendsCount,
+    roomsCreated,
+    filmsWatched: totalHistory,
+    // No per-row duration is stored — a feature-length estimate, used for
+    // both the lifetime total and the monthly figure so they stay consistent.
+    watchTimeMinutes: totalHistory * 90,
+    watchHistory: watchHistory.map(
+      (h: {
+        id: string;
+        mediaTitle: string | null;
+        mediaThumb: string | null;
+        mediaKind: string | null;
+        watchedAt: Date;
+        roomID: string | null;
+        room: { mediaItem: string | null } | null;
+      }) => {
+        const media = historyMedia(h);
+        return {
+          id: h.id,
+          title: h.mediaTitle ?? 'Без названия',
+          thumb: media.thumb,
+          kind: media.kind,
+          watchedAt: h.watchedAt,
+          roomId: h.roomID,
+        };
+      },
+    ),
+    friends,
+    badges: earnedBadges(achievements),
+    achievements,
+    stats: {
+      week: activity.week,
+      weekFilms: activity.weekFilms,
+      monthFilms: activity.monthFilms,
+      monthMinutes: activity.monthFilms * 90,
+      streakDays: activity.streakDays,
+      topKind: activity.topKind,
+    },
+  };
+}
+
+/// `?tz=<minutes>` — the viewer's UTC offset (Date.getTimezoneOffset sign
+/// flipped: Moscow = 180). Day buckets of the activity digest follow the
+/// viewer's calendar, not the server's. Garbage falls back to UTC.
+function parseTzOffset(query: unknown): number {
+  const raw = (query as { tz?: unknown } | null | undefined)?.tz;
+  const value = typeof raw === 'string' ? Number.parseInt(raw, 10) : typeof raw === 'number' ? raw : NaN;
+  return Number.isFinite(value) ? value : 0;
+}
+
+/// ADMIN and FOUNDER carry the administrator seal on the profile face.
+function isAdminRole(role: unknown): boolean {
+  return role === 'ADMIN' || role === 'FOUNDER';
+}
 
 /// Watch-history poster with live fallback: rows written before the
 /// mediaThumb column existed pull art from the room's current mediaItem,
@@ -651,6 +752,7 @@ export default async function profileRoutes(fastify) {
             isOnline: true,
             lastSeenAt: true,
             isPremium: true,
+            role: true,
             createdAt: true,
             updatedAt: true,
             deletedAt: true,
@@ -699,6 +801,9 @@ export default async function profileRoutes(fastify) {
           watchHistory: [],
           friends: [],
           badges: [],
+          achievements: [],
+          stats: null,
+          isAdmin: false,
           joinedAt: raw.createdAt ?? null,
         });
       }
@@ -713,6 +818,7 @@ export default async function profileRoutes(fastify) {
         isOnline: Boolean(raw.isOnline),
         lastSeenAt: (raw.lastSeenAt as Date | null | undefined) ?? null,
         isPremium: Boolean(raw.isPremium),
+        isAdmin: isAdminRole((raw as any).role),
         createdAt: raw.createdAt as Date,
         updatedAt: (raw.updatedAt as Date | null | undefined) ?? null,
       };
@@ -763,46 +869,14 @@ export default async function profileRoutes(fastify) {
           watchHistory: [],
           friends: [],
           badges: [],
+          achievements: [],
+          stats: null,
+          isAdmin: profileUser.isAdmin,
           joinedAt: profileUser.createdAt,
         });
       }
 
-      // Explicit tuple types — never let Promise.all collapse into a giant union
-      const friendsCount: number = await prisma.friendship.count({ where: { userID: id } });
-      const roomsCreated: number = await prisma.room.count({ where: { hostID: id } });
-      const watchHistory: Array<{
-        id: string;
-        mediaTitle: string | null;
-        mediaThumb: string | null;
-        mediaKind: string | null;
-        watchedAt: Date;
-        roomID: string | null;
-        room: { mediaItem: string | null } | null;
-      }> = (await prisma.watchHistory.findMany({
-        where: { userID: id },
-        orderBy: { watchedAt: 'desc' },
-        take: 20,
-        select: {
-          id: true,
-          mediaTitle: true,
-          mediaThumb: true,
-          mediaKind: true,
-          watchedAt: true,
-          roomID: true,
-          room: { select: { mediaItem: true } },
-        },
-      })) as any;
-      const totalHistory: number = await prisma.watchHistory.count({ where: { userID: id } });
-      const watchTimeMinutes = totalHistory * 90;
-      const friends = await friendsPreview(id, 12);
-
-      const badges: string[] = [];
-      if (totalHistory >= 100) badges.push('cinemaniac');
-      if (friendsCount >= 50) badges.push('social');
-      if (roomsCreated >= 100) badges.push('host');
-      if (roomsCreated >= 10) badges.push('host_rising');
-      if (totalHistory >= 10) badges.push('regular');
-      if (profileUser.isPremium) badges.push('plink_plus');
+      const social = await loadProfileStats(id, profileUser.isPremium, parseTzOffset(request.query));
 
       return reply.send({
         id: profileUser.id,
@@ -818,23 +892,8 @@ export default async function profileRoutes(fastify) {
         isClosed: false,
         isSelf,
         isFriend,
-        friendsCount,
-        roomsCreated,
-        filmsWatched: totalHistory,
-        watchTimeMinutes,
-        watchHistory: watchHistory.map((h) => {
-          const media = historyMedia(h);
-          return {
-            id: h.id,
-            title: h.mediaTitle ?? 'Без названия',
-            thumb: media.thumb,
-            kind: media.kind,
-            watchedAt: h.watchedAt,
-            roomId: h.roomID,
-          };
-        }),
-        friends,
-        badges,
+        isAdmin: profileUser.isAdmin,
+        ...social,
         joinedAt: profileUser.createdAt,
       });
     },
@@ -896,39 +955,13 @@ export default async function profileRoutes(fastify) {
           profileClosed: true,
           isOnline: true,
           isPremium: true,
+          role: true,
           createdAt: true,
         },
       });
       if (!user) return reply.status(404).send({ error: 'User not found' });
 
-      const [friendsCount, roomsCreated, watchHistory, totalHistory, friends] = await Promise.all([
-        prisma.friendship.count({ where: { userID: id } }),
-        prisma.room.count({ where: { hostID: id } }),
-        prisma.watchHistory.findMany({
-          where: { userID: id },
-          orderBy: { watchedAt: 'desc' },
-          take: 20,
-          select: {
-            id: true,
-            mediaTitle: true,
-            mediaThumb: true,
-            mediaKind: true,
-            watchedAt: true,
-            roomID: true,
-            room: { select: { mediaItem: true } },
-          },
-        }),
-        prisma.watchHistory.count({ where: { userID: id } }),
-        friendsPreview(id, 12),
-      ]);
-
-      const badges: string[] = [];
-      if (totalHistory >= 100) badges.push('cinemaniac');
-      if (friendsCount >= 50) badges.push('social');
-      if (roomsCreated >= 100) badges.push('host');
-      if (roomsCreated >= 10) badges.push('host_rising');
-      if (totalHistory >= 10) badges.push('regular');
-      if (user.isPremium) badges.push('plink_plus');
+      const social = await loadProfileStats(id, user.isPremium, parseTzOffset(request.query));
 
       reply.send({
         id: user.id,
@@ -943,23 +976,8 @@ export default async function profileRoutes(fastify) {
         isClosed: Boolean((user as any).profileClosed),
         isSelf: true,
         isFriend: false,
-        friendsCount,
-        roomsCreated,
-        filmsWatched: totalHistory,
-        watchTimeMinutes: totalHistory * 90,
-        watchHistory: watchHistory.map((h: any) => {
-          const media = historyMedia(h);
-          return {
-            id: h.id,
-            title: h.mediaTitle ?? 'Без названия',
-            thumb: media.thumb,
-            kind: media.kind,
-            watchedAt: h.watchedAt,
-            roomId: h.roomID,
-          };
-        }),
-        friends,
-        badges,
+        isAdmin: isAdminRole((user as any).role),
+        ...social,
         joinedAt: user.createdAt,
       });
     },
