@@ -571,6 +571,42 @@ final class V4AIStore {
     private static let historyKey = "plink.ai.history.v1"
 
     init() {
+        #if DEBUG
+        // Дизайн-превью: `-plink.designaiseed` набивает разговор канонными
+        // репликами. Живой чат до первого ответа модели состоит из одного
+        // приветствия, а сфера ассистента рисуется Metal'ом и в offscreen-
+        // рендер `DesignAuditShots` не попадает — разговорное состояние
+        // экрана иначе нечем снять, кроме живого кадра в симуляторе.
+        if ProcessInfo.processInfo.arguments.contains("-plink.designaiseed") {
+            messages += [
+                Message(isOwn: true, text: "Что посмотреть сегодня вечером?", isBot: false),
+                Message(
+                    isOwn: false,
+                    text: "Под вечер вдвоём хорошо идёт «Прибытие»: медленная фантастика без экшена, 116 минут. Если хочется полегче — «Славные парни», комедийный детектив.",
+                    isBot: true
+                ),
+                Message(isOwn: true, text: "Собери комнату с «Прибытием»", isBot: false),
+                Message(
+                    isOwn: false,
+                    text: "Готово — комната на двоих, «Прибытие» первым в очереди. Подтвердите, и я её создам.",
+                    isBot: true,
+                    proposedAction: AIProposedAction(
+                        type: "create_room",
+                        confirmationId: "design-preview",
+                        expiresAt: nil,
+                        payloadPreview: AIPayloadPreview(
+                            title: "Прибытие",
+                            privacy: "private",
+                            queueCount: 1
+                        )
+                    )
+                ),
+            ]
+            lastSuggestions = ["Что смотрят друзья?", "Добавь ещё фильм в очередь"]
+            state = "Готов помочь"
+            return
+        }
+        #endif
         if let data = UserDefaults.standard.data(forKey: Self.historyKey),
            let saved = try? JSONDecoder().decode([SavedMessage].self, from: data),
            !saved.isEmpty {

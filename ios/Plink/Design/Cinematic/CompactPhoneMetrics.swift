@@ -58,6 +58,16 @@ enum Cinema2026 {
         endPoint: .bottomTrailing
     )
     static let outgoingBubble = accentAction
+    /// Входящий пузырь — тот же графит, что в личке (Telegram night incoming).
+    /// Раньше значение жило только внутри `PlinkBubbleStyle.fillLayer`, и чат
+    /// с ИИ рисовал свои пузыри `.ultraThinMaterial`: два разных разговора в
+    /// одном приложении выглядели по-разному, а стекло на слое контента ещё и
+    /// нарушает правило шапки `PlinkGlass.swift`.
+    static let incomingBubble = LinearGradient(
+        colors: [Color(hex: "#2B3138"), Color(hex: "#232930")],
+        startPoint: .top,
+        endPoint: .bottom
+    )
     static let timeline = LinearGradient(
         colors: [accent, secondary],
         startPoint: .leading,

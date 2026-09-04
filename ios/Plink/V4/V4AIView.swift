@@ -633,4 +633,19 @@ enum AIOrbState: Equatable {
     case error
 }
 
+extension AIOrbState {
+    /// То же состояние для шейдерной сферы `AssistantOrbView`: у Metal-модели
+    /// свой публичный enum `OrbState`, случаи совпадают один в один. Перевод
+    /// живёт здесь, а не в вызывающем экране: сфера нужна и вкладке, и чату.
+    var orb: OrbState {
+        switch self {
+        case .idle: return .idle
+        case .listening: return .listening
+        case .thinking: return .thinking
+        case .speaking: return .speaking
+        case .error: return .error
+        }
+    }
+}
+
 // AICompanionModel определён в AI3DCompanionSphere.swift (настоящая SceneKit-сфера).

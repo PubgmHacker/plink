@@ -834,14 +834,10 @@ struct PlinkMessageBubble: View {
                 Cinema2026.outgoingBubble
             } else {
                 // Telegram night incoming: clean graphite gray — readable on any wallpaper.
-                LinearGradient(
-                    colors: [
-                        Color(hex: "#2B3138"),
-                        Color(hex: "#232930")
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                // Значение переехало в `Cinema2026.incomingBubble`: тот же
+                // графит нужен чату с ИИ, а второй экземпляр тех же двух
+                // хексов разъезжается при первой же правке.
+                Cinema2026.incomingBubble
             }
         default:
             LinearGradient(

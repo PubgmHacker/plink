@@ -55,7 +55,17 @@ struct PlinkApprovedV4Root: View {
     // Накануне вкладку подменили разговором, и вместе с ним из приложения
     // исчезли рилсы и сфера. Раздел вернулся, разговор снова живёт отдельной
     // поверхностью поверх вкладок: у ленты и у чата разные роли.
-    @State private var showAIChat = false
+    // Дизайн-превью: `-plink.designaichat` открывает разговор сразу, поверх
+    // выбранной вкладки — кадр чата в симуляторе без ручных тапов. Сфера
+    // ассистента рисуется Metal'ом и в offscreen-рендер аудита не попадает
+    // (DesignAuditShots его не снимает), поэтому этот экран смотрят живым
+    // кадром через `simctl io screenshot`. Только DEBUG.
+    @State private var showAIChat: Bool = {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-plink.designaichat") { return true }
+        #endif
+        return false
+    }()
     /// «Спросить голосом» — тот же чат, но с сразу включённым микрофоном.
     @State private var aiChatAutoVoice = false
     @State private var lastSharedRoomCode: String?

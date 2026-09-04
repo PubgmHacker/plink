@@ -38,7 +38,11 @@ struct V4AIChatView: View {
 
     private var stateCaption: String {
         switch orbState {
-        case .idle: return "Подберёт фильм и соберёт комнату"
+        // Длинная присказка объясняет, что умеет ассистент, и уместна пока
+        // разговор не начался: под ней пусто. В переписке её место занимает
+        // сфера-аватар, и строка обрезалась многоточием («…и соберёт ком…»),
+        // хотя объяснять уже нечего — там короткое «в сети», как в личке.
+        case .idle: return isFresh ? "Подберёт фильм и соберёт комнату" : "в сети"
         case .listening: return "Слушаю…"
         case .thinking: return "Думаю…"
         case .speaking: return "Отвечаю…"
@@ -50,10 +54,25 @@ struct V4AIChatView: View {
         store.messages.last(where: { !$0.isBot })?.text
     }
 
+    /// Разговор ещё не начался: в ленте только приветствие ассистента.
+    /// Пользователь не мог ответить раньше, чем спросил, поэтому одна
+    /// единственная реплика бота — всегда приветствие (то же после «очистить»).
+    private var isFresh: Bool {
+        store.messages.count == 1 && store.messages[0].isBot
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
-            thread
+            // Пустой чат — это не «лента без сообщений»: до первого вопроса
+            // экран занимает сфера. Раньше здесь стояла та же лента, и она
+            // прижимала единственное приветствие к композеру, оставляя две
+            // трети экрана чёрными.
+            if isFresh {
+                hero
+            } else {
+                thread
+            }
 
             // Панель записи встаёт между лентой и композером: переписка остаётся
             // на экране, кнопка микрофона — прямо под пальцем.
@@ -135,6 +154,18 @@ struct V4AIChatView: View {
                 dismiss()
             }
 
+            // Пока разговор не начался, сфера стоит в полный рост посреди
+            // экрана (см. `hero`), и второй её копии в шапке быть не должно:
+            // это MTKView, каждый кадрирует свой Metal-проход. Как только
+            // пошла переписка, сфера сжимается в аватар собеседника — чат
+            // с ассистентом устроен как чат с человеком.
+            if !isFresh {
+                AssistantOrbView(state: orbState.orb)
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("ИИ-ассистент").font(.system(size: 16, weight: .heavy))
                 Text(stateCaption)
@@ -161,6 +192,67 @@ struct V4AIChatView: View {
         .frame(height: 61)
         .padding(.horizontal, 15)
         .accessibilityIdentifier("screen.aichat")
+    }
+
+    // MARK: Сфера
+
+    /// Лицо пустого чата: живая шейдерная сфера ассистента — та же модель и
+    /// того же вида, что на онбординге вкладки «ИИ» (`AssistantOrbView`), а не
+    /// 26-птшный значок у пузыря. Под ней — приветствие ассистента и три
+    /// подсказки, с чего начать.
+    ///
+    /// Высота 168 против 216 на онбординге: здесь под сферой ещё композер и
+    /// шапка, и на 5,4" (iPhone 13 mini, 375×812) 216 съедали подсказки.
+    /// Всё, что не влезло, скроллится — центрирование держится `minHeight`
+    /// по высоте окна, а не жёстким `Spacer`.
+    private var hero: some View {
+        GeometryReader { geo in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    AssistantOrbView(state: orbState.orb)
+                        .frame(width: 168, height: 168)
+                        .accessibilityHidden(true)
+
+                    Text(greeting)
+                        .font(.system(size: 15))
+                        .foregroundStyle(V4.ink.opacity(0.92))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .frame(maxWidth: 300)
+                        .padding(.top, 10)
+
+                    Text("С ЧЕГО НАЧАТЬ")
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(2.4)
+                        .foregroundStyle(V4.muted)
+                        .padding(.top, 26)
+
+                    // Ряд подсказок в пустом чате всегда состоит из трёх
+                    // зашитых чипов: серверные подсказки приходят только
+                    // вместе с ответом, то есть когда чат уже не пустой.
+                    // Поэтому здесь их можно просто отцентровать, а
+                    // `ViewThatFits` страхует длинные строки прокруткой.
+                    ViewThatFits(in: .horizontal) {
+                        chipRow
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            chipRow.padding(.horizontal, 16)
+                        }
+                    }
+                    .padding(.top, 10)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(minHeight: geo.size.height, alignment: .center)
+            }
+        }
+        .accessibilityIdentifier("aichat.hero")
+    }
+
+    /// Приветствие ассистента показывает сама сфера, отдельным пузырём его
+    /// рисовать незачем: в ленте оно единственное и висело бы у композера.
+    private var greeting: String {
+        store.messages.first?.text ?? ""
     }
 
     // MARK: Лента
@@ -236,12 +328,11 @@ struct V4AIChatView: View {
     }
 
     private func botBubble(id: String, text: String, action: AIProposedAction?) -> some View {
+        // Значка-сферы у пузыря больше нет: сфера ассистента — одна, живая, и
+        // стоит в шапке (в пустом чате — во весь экран). 26-птшная копия
+        // SceneKit-модели у каждой реплики повторяла собеседника, которого и
+        // так видно, и заводила по своему SCNView на строку ленты.
         HStack(alignment: .top, spacing: 8) {
-            AICompanionModel(theme: theme, size: 26, glow: 10, state: .idle)
-                .frame(width: 28, height: 28)
-                .clipped()
-                .padding(.top, 4)
-
             VStack(alignment: .leading, spacing: 8) {
                 Text(text)
                     .font(.system(size: 14))
@@ -299,7 +390,11 @@ struct V4AIChatView: View {
                 topTrailingRadius: 18,
                 style: .continuous
             )
-            .fill(.ultraThinMaterial)
+            // Тот же графит, что у входящего пузыря в личке
+            // (`Cinema2026.incomingBubble`). Было `.ultraThinMaterial`:
+            // стекло на слое контента — против правила шапки PlinkGlass.swift,
+            // и два разговора в одном приложении выглядели по-разному.
+            .fill(Cinema2026.incomingBubble)
             .overlay {
                 UnevenRoundedRectangle(
                     topLeadingRadius: 18,
@@ -341,18 +436,24 @@ struct V4AIChatView: View {
 
     private var suggestionChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
-                if store.lastSuggestions.isEmpty {
-                    chip("Очередь", "Собери очередь на просмотр")
-                    chip("У друзей", "Что смотрят друзья?")
-                    chip("Через AI", "Создай комнату с Inception")
-                } else {
-                    ForEach(store.lastSuggestions.prefix(4), id: \.self) { s in
-                        chip(String(s.prefix(22)), s)
-                    }
+            chipRow.padding(.vertical, 2)
+        }
+    }
+
+    /// Сам ряд подсказок, без прокрутки: в ленте он живёт внутри
+    /// горизонтального `ScrollView`, в пустом чате — по центру под сферой.
+    @ViewBuilder
+    private var chipRow: some View {
+        HStack(spacing: 7) {
+            if store.lastSuggestions.isEmpty {
+                chip("Очередь", "Собери очередь на просмотр")
+                chip("У друзей", "Что смотрят друзья?")
+                chip("Через AI", "Создай комнату с Inception")
+            } else {
+                ForEach(store.lastSuggestions.prefix(4), id: \.self) { s in
+                    chip(chipLabel(s), s)
                 }
             }
-            .padding(.vertical, 2)
         }
     }
 
@@ -447,6 +548,20 @@ struct V4AIChatView: View {
         }
     }
 
+    /// Подсказки приходят с сервера произвольной длины. Раньше их резали ровно
+    /// по 22 символа, и чип заканчивался на полуслове без многоточия («Добавь
+    /// ещё фильм в оче»). Отдать обрезку самому `Text` нельзя: чтобы поставить
+    /// потолок ширины, ему нужен гибкий `frame(maxWidth:)`, а с ним короткие
+    /// чипы в пустом чате растягиваются на всю строку вместо того, чтобы
+    /// облегать текст. Поэтому режем строку — но по границе слова и с «…».
+    private func chipLabel(_ text: String) -> String {
+        let limit = 26
+        guard text.count > limit else { return text }
+        let head = text.prefix(limit)
+        let cut = head.lastIndex(of: " ").map { head[head.startIndex..<$0] } ?? head
+        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:—-")) + "…"
+    }
+
     private func chip(_ label: String, _ prompt: String) -> some View {
         Button {
             input = prompt
@@ -456,6 +571,7 @@ struct V4AIChatView: View {
             Text(label)
                 .font(.system(size: 11.52, weight: .semibold))
                 .foregroundStyle(V4.ink)
+                .lineLimit(1)
                 .padding(.horizontal, 13)
                 .frame(minHeight: 36)
                 .plinkGlass(.overlay, in: Capsule())
