@@ -15,6 +15,16 @@ versioned sections and git tags begin there.
 
 ### Added
 
+- **Profile statistics rebuilt as a real screen.** A sliding period pill (week /
+  month / all time), hero figures with a seven-day activity strip, a daily streak,
+  the dominant media kind, the "What we watched" rail filtered by the same period,
+  achievements with visible progress towards each target, and lifetime totals. The
+  server now computes the activity digest in the viewer's calendar (`?tz=` offset)
+  and returns every achievement with its progress, not just the earned codes. A
+  friend's counters open the same read-only screen.
+- **"What we watched" is an expandable carousel.** The profile rail unfolds into a
+  three-column poster grid with the period filter; the full history screen groups
+  posters by day (Today / Yesterday / date) instead of a flat list.
 - **Synchronized playback with a visible drift figure.** One participant owns the
   timeline; every other client reconciles against it continuously and shows its own
   offset in the room header, so "are we actually in sync?" is answered on screen
@@ -46,6 +56,12 @@ versioned sections and git tags begin there.
 
 ### Changed
 
+- **Administrator and Plink+ are seals, not labels.** A Telegram-style scalloped
+  seal follows the name on the owner's and a friend's profile; the red "ADMIN" and
+  purple "PLINK+" capsules and the red-tinted name are gone. Owning a room is no
+  longer an "achievement" — the "host" badges were retired, since a room owner is a
+  plain fact and not a feat. Profile buttons and the status editor take the cover
+  accent rather than the app theme.
 - **One accent color across the whole app** instead of the three palettes that had
   drifted apart, with the admin surfaces moved onto shared design tokens rather
   than ad-hoc fills.

@@ -27,6 +27,8 @@ struct FriendProfileView: View {
     @State private var drillFriend: ProfileFriendPreview?
     /// Полный список друзей владельца профиля (дверь из заголовка рельсы).
     @State private var showAllFriends = false
+    /// Statistics screen — the same one the owner sees, read-only.
+    @State private var showStats = false
     /// CTA «Добавить в друзья» для не-друга: idle → отправка → отправлена.
     @State private var isSendingRequest = false
     @State private var friendRequestSent = false
@@ -114,6 +116,9 @@ struct FriendProfileView: View {
             .preferredColorScheme(.dark)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showStats) {
+            ProfileStatsSheet(profile: profile, accent: faceAccent, isSelf: false)
         }
         .sheet(isPresented: $showAllFriends) {
             NavigationStack {
@@ -362,11 +367,21 @@ struct FriendProfileView: View {
 
     private var identityBlock: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(profile?.displayTitle ?? (isDeleted ? "Удалённый аккаунт" : (usernameHint.isEmpty ? "Профиль" : usernameHint)))
-                .font(.system(size: 26, weight: .heavy))
-                .tracking(-0.7)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            // Name + seals — the same line as on the owner's face: the
+            // administrator seal and the Plink+ star follow the name.
+            HStack(alignment: .center, spacing: 6) {
+                Text(profile?.displayTitle ?? (isDeleted ? "Удалённый аккаунт" : (usernameHint.isEmpty ? "Профиль" : usernameHint)))
+                    .font(.system(size: 26, weight: .heavy))
+                    .tracking(-0.7)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if !isDeleted, profile?.isAdmin == true {
+                    PlinkIdentitySeal(kind: .admin, size: 21)
+                }
+                if !isDeleted, profile?.isPremium == true {
+                    PlinkIdentitySeal(kind: .plus, size: 21)
+                }
+            }
 
             HStack(spacing: 7) {
                 if isDeleted {
@@ -379,15 +394,6 @@ struct FriendProfileView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(V4.muted)
                             .lineLimit(1)
-                    }
-                    if profile?.isPremium == true {
-                        Text("PLINK+")
-                            .font(.system(size: 10, weight: .black))
-                            .tracking(0.5)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(Color(hex: "#A855F7"), in: Capsule())
                     }
                 }
             }
@@ -441,20 +447,28 @@ struct FriendProfileView: View {
     /// Стеклянная карта показателей. «Друзей» здесь есть — в отличие от
     /// своего профиля, у чужого нет карточки-двери в список друзей.
     private var countersCard: some View {
-        HStack(spacing: 0) {
-            counter(profile?.watchHoursText ?? "—", "время")
-            counterDivider
-            counter(profile.map { "\($0.filmsWatched)" } ?? "—", "фильмов")
-            counterDivider
-            counter(profile.map { "\($0.roomsCreated)" } ?? "—", "комнат")
-            counterDivider
-            counter(profile.map { "\($0.friendsCount)" } ?? "—", "друзей")
+        Button {
+            HapticManager.selection()
+            showStats = true
+        } label: {
+            HStack(spacing: 0) {
+                counter(profile?.watchHoursText ?? "—", "время")
+                counterDivider
+                counter(profile.map { "\($0.filmsWatched)" } ?? "—", "фильмов")
+                counterDivider
+                counter(profile.map { "\($0.roomsCreated)" } ?? "—", "комнат")
+                counterDivider
+                counter(profile.map { "\($0.friendsCount)" } ?? "—", "друзей")
+            }
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 13)
+        .buttonStyle(.plain)
         .plinkGlass(.control, cornerRadius: 20)
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .accessibilityElement(children: .combine)
+        .accessibilityHint("Открывает статистику и достижения")
     }
 
     private var counterDivider: some View {

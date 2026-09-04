@@ -158,7 +158,7 @@ struct V4ProfileViewLive: View {
             V4CoverPickerSheet(theme: theme, store: store)
         }
         .sheet(isPresented: $showStatusEditor) {
-            V4StatusEditorSheet(theme: theme, store: store)
+            V4StatusEditorSheet(accent: faceAccent, store: store)
         }
         .sheet(isPresented: $showAvatarPicker) {
             AvatarPickerSheet(store: store, theme: theme, onAvatarChanged: { url in
@@ -172,10 +172,10 @@ struct V4ProfileViewLive: View {
                 .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showStats) {
-            V4StatsSheet(theme: theme)
+            ProfileStatsSheet(profile: social, accent: faceAccent, isSelf: true)
         }
         .sheet(isPresented: $showHistory) {
-            V4WatchHistorySheet(theme: theme)
+            V4WatchHistorySheet(accent: faceAccent, entries: social?.watchHistory ?? [])
         }
         .sheet(item: $profileFriend) { friend in
             NavigationStack {
@@ -419,12 +419,23 @@ struct V4ProfileViewLive: View {
 
     private var identityBlock: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(store?.displayName ?? "Загрузка…")
-                .font(.system(size: 26, weight: .heavy))
-                .tracking(-0.7)
-                .foregroundStyle(isAdmin ? Color(red: 1, green: 0.3, blue: 0.4) : V4.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            // Name + seals (Telegram model): the administrator seal sits
+            // right after the name instead of recolouring it, Plink+ gets
+            // its own star seal. Nothing on the face is tinted by the theme.
+            HStack(alignment: .center, spacing: 6) {
+                Text(store?.displayName ?? "Загрузка…")
+                    .font(.system(size: 26, weight: .heavy))
+                    .tracking(-0.7)
+                    .foregroundStyle(V4.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if isAdmin {
+                    PlinkIdentitySeal(kind: .admin, size: 21)
+                }
+                if store?.isPremium == true {
+                    PlinkIdentitySeal(kind: .plus, size: 21)
+                }
+            }
 
             HStack(spacing: 7) {
                 if let username = store?.username, !username.isEmpty {
@@ -432,12 +443,6 @@ struct V4ProfileViewLive: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(V4.muted)
                         .lineLimit(1)
-                }
-                if isAdmin {
-                    roleChip(LocalizationManager.shared.string(.prAdmin), Color(red: 0.9, green: 0.1, blue: 0.2))
-                }
-                if store?.isPremium == true {
-                    roleChip("PLINK+", Color(hex: "#A855F7"))
                 }
             }
             .padding(.top, 5)
@@ -536,16 +541,6 @@ struct V4ProfileViewLive: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Сменить аватар")
         .accessibilityValue("В сети")
-    }
-
-    private func roleChip(_ text: String, _ color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .black))
-            .tracking(0.5)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(color, in: Capsule())
     }
 
     /// Счётчики — стеклянной картой под именем: показатели в шапке, как в ВК.
@@ -850,7 +845,9 @@ struct PlinkStatusBubbleShell<Content: View>: View {
 /// как на сервере (PATCH /profile обрезает и превращает «» в NULL).
 /// Сохранение мгновенно локально через store.applyStatus, PATCH — фоном.
 struct V4StatusEditorSheet: View {
-    let theme: V4Theme
+    /// Face accent (cover colour) — the editor belongs to the profile face,
+    /// not to the app theme.
+    let accent: Color
     var store: V4ProfileStore?
     @Environment(\.dismiss) private var dismiss
     @State private var text: String = ""
@@ -874,7 +871,7 @@ struct V4StatusEditorSheet: View {
             TextField("Чем занимаетесь?", text: $text, axis: .vertical)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(V4.ink)
-                .tint(theme.accentColor)
+                .tint(accent)
                 .lineLimit(2...3)
                 .focused($focused)
                 .padding(.horizontal, 14)
@@ -901,7 +898,7 @@ struct V4StatusEditorSheet: View {
                 Text("Сохранить")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(PlinkGlassButtonStyle(tint: theme.accentColor, height: 48, cornerRadius: 16))
+            .buttonStyle(PlinkGlassButtonStyle(tint: accent, height: 48, cornerRadius: 16))
             .padding(.top, 14)
 
             if hadStatus {
@@ -1817,204 +1814,6 @@ struct V4RowSeparator: View {
 
 // MARK: - Экран «Статистика и достижения»
 
-struct V4StatsSheet: View {
-    let theme: V4Theme
-    @Environment(\.dismiss) private var dismiss
-    @State private var profile: UserSocialProfile?
-    @State private var loadError: String?
-    @State private var isLoading = true
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                V4.canvas.ignoresSafeArea()
-                RadialGradient(
-                    colors: [theme.accentColor.opacity(0.10), .clear],
-                    center: UnitPoint(x: 0.5, y: 0), startRadius: 0, endRadius: 420
-                )
-                .ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        if isLoading {
-                            skeleton
-                        } else if let loadError {
-                            V4ProfileStateCard(
-                                theme: theme,
-                                icon: "wifi.exclamationmark",
-                                iconTint: V4.amber,
-                                title: loadError,
-                                message: "Проверь соединение — и попробуем ещё раз.",
-                                buttonTitle: "Повторить"
-                            ) {
-                                Task { await reload() }
-                            }
-                            .padding(.top, 48)
-                        } else {
-                            statsGrid
-                            achievements
-                            if let joined = joinedLine {
-                                Text(joined)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(V4.muted)
-                                    .padding(.top, 18)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 16)
-                    .padding(.bottom, 40)
-                }
-            }
-            .navigationTitle("Статистика")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // Крестик закрытия — всегда справа (единый паттерн шитов V4),
-                // обновление — слева.
-                ToolbarItem(placement: .topBarLeading) {
-                    if !isLoading {
-                        Button {
-                            HapticManager.selection()
-                            Task { await reload() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .tint(V4.ink)
-                        .accessibilityLabel("Обновить статистику")
-                    }
-                }
-                V4SheetCloseToolbarItem { dismiss() }
-            }
-        }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .preferredColorScheme(.dark)
-        .task { await reload() }
-    }
-
-    // Сетевая ошибка не маскируется под нули: пока данных нет — «—»,
-    // ноль появляется только когда сервер действительно вернул 0.
-    private var statsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            statTile("clock.fill", profile?.watchHoursText ?? "—", "Часы в Plink")
-            statTile("film.fill", profile.map { "\($0.filmsWatched)" } ?? "—", "Фильмов вместе")
-            statTile("person.2.fill", profile.map { "\($0.friendsCount)" } ?? "—", "Друзей")
-            statTile("rectangle.stack.badge.play.fill", profile.map { "\($0.roomsCreated)" } ?? "—", "Комнат создано")
-        }
-    }
-
-    private func statTile(_ icon: String, _ value: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack {
-                Circle().fill(theme.accentColor.opacity(0.14))
-                Circle().stroke(theme.accentColor.opacity(0.22), lineWidth: 1)
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.accentColor)
-            }
-            .frame(width: 32, height: 32)
-
-            Spacer(minLength: 10)
-
-            Text(value)
-                .font(.system(size: 27, weight: .heavy))
-                .tracking(-0.6)
-                .foregroundStyle(V4.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text(label)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(V4.muted)
-                .padding(.top, 3)
-        }
-        .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
-        .padding(14)
-        .plinkGlass(.control, cornerRadius: 20)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label): \(value)")
-    }
-
-    @ViewBuilder
-    private var achievements: some View {
-        Text("Достижения".uppercased())
-            .font(.system(size: 10.56, weight: .heavy))
-            .tracking(1.16)
-            .foregroundStyle(V4.muted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 24)
-            .padding(.bottom, 10)
-
-        if let badges = profile?.badges, !badges.isEmpty {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], alignment: .leading, spacing: 8) {
-                ForEach(badges, id: \.self) { code in
-                    let badge = ProfileBadge.from(code: code)
-                    HStack(spacing: 7) {
-                        Image(systemName: badge?.symbol ?? "star.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(V4.amber)
-                        Text(badge?.title ?? code)
-                            .font(.system(size: 12.5, weight: .bold))
-                            .foregroundStyle(V4.ink)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 38)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .plinkGlass(.control, cornerRadius: 12)
-                }
-            }
-            .accessibilityLabel("Достижения")
-        } else {
-            HStack(spacing: 10) {
-                Image(systemName: "trophy")
-                    .foregroundStyle(V4.muted)
-                Text(LocalizationManager.shared.string(.vpAchievementsHint))
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(V4.muted)
-                Spacer(minLength: 0)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity)
-            .background(V4.cardBG.opacity(0.5), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(V4.line))
-        }
-    }
-
-    private var skeleton: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            ForEach(0..<4, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(V4.cardBG)
-                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(V4.line, lineWidth: 1))
-                    .frame(height: 146)
-            }
-        }
-        .modifier(V4ProfileGhostPulse())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Загружаем статистику")
-    }
-
-    private var joinedLine: String? {
-        guard let joined = profile?.joinedAt else { return nil }
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "ru_RU")
-        df.dateFormat = "LLLL yyyy"
-        return "В Plink с \(df.string(from: joined))"
-    }
-
-    private func reload() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            profile = try await SocialProfileService.fetchMe()
-            loadError = nil
-        } catch {
-            loadError = "Не удалось загрузить статистику"
-        }
-    }
-}
-
 // MARK: - Экран «Общие настройки»
 
 /// Все настройки Плинка и приложения: аккаунт, приложение,
@@ -2240,7 +2039,9 @@ struct V4ProfileRowLabel: View {
 /// Каркас ошибки в языке приложения: иконка в мягком круге, заголовок,
 /// одна строка объяснения и кнопка следующего шага (единый стиль с «Комнатами»).
 struct V4ProfileStateCard: View {
-    let theme: V4Theme
+    /// Button tint — the face accent on profile screens.
+    let accent: Color
+    var accentInk: Color = .white
     let icon: String
     let iconTint: Color
     let title: String
@@ -2280,8 +2081,8 @@ struct V4ProfileStateCard: View {
             }
             .buttonStyle(
                 PlinkProminentButtonStyle(
-                    tint: theme.accentColor,
-                    textColor: theme.buttonTextColor,
+                    tint: accent,
+                    textColor: accentInk,
                     height: 46,
                     cornerRadius: 15,
                     fillsWidth: false

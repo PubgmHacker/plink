@@ -7,79 +7,155 @@ import SwiftUI
 
 // MARK: - Рельса просмотров
 
-/// «Недавно смотрел» как в ВК/Кинопоиске: горизонтальная рельса баннеров
-/// с названиями, а не текстовые строки. Без арта — жанровое полотно
-/// с иконкой типа медиа, чтобы рельса не разваливалась на старой истории.
+/// "What we watched" — a proper expandable carousel (VK / Kinopoisk model).
+/// Collapsed: a horizontal rail of the latest posters. Expanded (chevron
+/// on the right): a period pill and a three-column grid of everything in
+/// that period. The title is the door to the full history screen.
 struct ProfileWatchRailCard: View {
     let history: [UserSocialProfile.WatchHistoryEntry]
     var accent: Color
-    /// Тап по заголовку/шеврону (nil — заголовок не кнопка).
+    var accentInk: Color = .white
+    /// Tap on the title (nil — the title is not a button).
     var onHeader: (() -> Void)? = nil
+
+    @State private var expanded = false
+    @State private var period: PlinkStatsPeriod = .all
+
+    private var periodEntries: [UserSocialProfile.WatchHistoryEntry] {
+        period.filter(history)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(history.prefix(12)) { item in
-                        WatchRailTile(item: item, accent: accent)
+            if expanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    PlinkPeriodPill(selection: $period, accent: accent, accentInk: accentInk)
+                    let entries = periodEntries
+                    if entries.isEmpty {
+                        Text(LocalizationManager.shared.string(.stWatchedEmpty))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(V4.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                            alignment: .leading,
+                            spacing: 12
+                        ) {
+                            ForEach(entries.prefix(30)) { item in
+                                PlinkWatchTile(item: item, accent: accent, showsDate: true)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 14)
+                .padding(.bottom, 14)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(history.prefix(12)) { item in
+                            PlinkWatchTile(item: item, accent: accent, width: 150)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                }
+                .padding(.bottom, 14)
+                .transition(.opacity)
             }
-            .padding(.bottom, 14)
         }
         .plinkGlass(.control, cornerRadius: 20)
+        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: expanded)
+        .animation(.spring(response: 0.36, dampingFraction: 0.86), value: period)
     }
 
     @ViewBuilder private var header: some View {
-        let title = HStack(spacing: 6) {
-            Text(LocalizationManager.shared.string(.fpRecentlyWatched))
-                .font(.system(size: 16, weight: .heavy))
-                .tracking(-0.3)
-                .foregroundStyle(V4.ink)
-            if onHeader != nil {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .bold))
+        HStack(spacing: 8) {
+            let title = HStack(spacing: 6) {
+                Text(LocalizationManager.shared.string(.stWatched))
+                    .font(.system(size: 16, weight: .heavy))
+                    .tracking(-0.3)
+                    .foregroundStyle(V4.ink)
+                Text("\(history.count)")
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(V4.muted)
+                if onHeader != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(V4.muted)
+                }
             }
+            if let onHeader {
+                Button {
+                    HapticManager.selection()
+                    onHeader()
+                } label: { title.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Что смотрели. Открыть всю историю")
+            } else {
+                title
+            }
+
             Spacer(minLength: 0)
+
+            Button {
+                HapticManager.impact(.light)
+                expanded.toggle()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(V4.ink)
+                    .rotationEffect(.degrees(expanded ? 180 : 0))
+                    .frame(width: 30, height: 30)
+                    .plinkGlass(.control, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(LocalizationManager.shared.string(.wrExpand))
+            .accessibilityValue(expanded ? "развёрнуто" : "свёрнуто")
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
+        .padding(.top, 12)
         .padding(.bottom, 10)
-
-        if let onHeader {
-            Button {
-                HapticManager.selection()
-                onHeader()
-            } label: { title }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Недавно смотрел. Открыть всю историю")
-        } else {
-            title
-        }
     }
 }
 
-/// Один баннер рельсы: постер 138×78 со скруглением, название до двух строк.
-private struct WatchRailTile: View {
+/// One poster tile: 16:9 art with rounded corners, a kind glyph in the
+/// corner, the title up to two lines and an optional relative date. A fixed
+/// `width` makes a rail tile; nil lets the tile fill a grid cell.
+struct PlinkWatchTile: View {
     let item: UserSocialProfile.WatchHistoryEntry
-    let accent: Color
-
-    private var kindSymbol: String {
-        switch item.kind {
-        case "series": return "tv.fill"
-        case "music": return "music.note"
-        case "livestream": return "dot.radiowaves.left.and.right"
-        case "video": return "play.rectangle.fill"
-        default: return "film.fill"
-        }
-    }
+    var accent: Color
+    var width: CGFloat? = nil
+    var showsDate: Bool = false
+    /// Local playback progress 0…1 (device history only).
+    var progress: Double? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            ZStack {
+        VStack(alignment: .leading, spacing: 6) {
+            poster
+            Text(item.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(V4.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if showsDate, let date = item.watchedAt {
+                Text(date.formatted(.relative(presentation: .named)))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(V4.muted)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.title)
+    }
+
+    private var poster: some View {
+        ZStack(alignment: .bottomLeading) {
+            Group {
                 if let thumb = item.thumb, let url = URL(string: thumb) {
                     Color.clear
                         .overlay(
@@ -94,32 +170,50 @@ private struct WatchRailTile: View {
                     placeholderCanvas
                 }
             }
-            .frame(width: 138, height: 78)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(V4.line, lineWidth: 1)
-            )
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
 
-            Text(item.title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(V4.ink)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(width: 138, alignment: .leading)
+            HStack(spacing: 0) {
+                Image(systemName: PlinkMediaKind.symbol(for: item.kind))
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(.black.opacity(0.55), in: Circle())
+                    .padding(6)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+
+            if let progress {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.28))
+                        Capsule()
+                            .fill(accent)
+                            .frame(width: max(4, geo.size.width * progress))
+                    }
+                }
+                .frame(height: 3)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+                .allowsHitTesting(false)
+            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(item.title)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(V4.line, lineWidth: 1)
+        )
     }
 
-    /// Полотно без арта: тёмный градиент + иконка типа медиа в акценте.
+    /// Art-less canvas: dark gradient + the kind glyph in the accent.
     private var placeholderCanvas: some View {
         ZStack {
             LinearGradient(
                 colors: [Color(hex: "#232838"), Color(hex: "#141824")],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
-            Image(systemName: kindSymbol)
+            Image(systemName: PlinkMediaKind.symbol(for: item.kind))
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(accent.opacity(0.75))
         }

@@ -224,6 +224,57 @@ enum L10n {
         case fpUnavailableSub = "fp.unavailableSub"
         case fpAchievements = "fp.achievements"
         case fpRecentlyWatched = "fp.recentlyWatched"
+        // Achievements (profile stats) and the identity seals next to the name
+        case badgeRegular = "badge.regular"
+        case badgeRegularHint = "badge.regular.hint"
+        case badgeCinemaniac = "badge.cinemaniac"
+        case badgeCinemaniacHint = "badge.cinemaniac.hint"
+        case badgeSocial = "badge.social"
+        case badgeSocialHint = "badge.social.hint"
+        case badgePlinkPlus = "badge.plinkPlus"
+        case badgePlinkPlusHint = "badge.plinkPlus.hint"
+        case prAdminSeal = "pr.adminSeal"
+        case prPlusSeal = "pr.plusSeal"
+        // "What we watched" carousel: period filter and expand toggle
+        case wrPeriodWeek = "wr.period.week"
+        case wrPeriodMonth = "wr.period.month"
+        case wrPeriodAll = "wr.period.all"
+        case wrExpand = "wr.expand"
+        // Profile statistics screen + watch history grid
+        case stTitle = "st.title"
+        case stFilmOne = "st.film.one"
+        case stFilmFew = "st.film.few"
+        case stFilmMany = "st.film.many"
+        case stTimeLabel = "st.time"
+        case stRooms = "st.rooms"
+        case stFriends = "st.friends"
+        case stStreak = "st.streak"
+        case stTopKind = "st.topKind"
+        case stActivity = "st.activity"
+        case stLast7 = "st.last7"
+        case stActivityHidden = "st.activityHidden"
+        case stNoActivity = "st.noActivity"
+        case stWatched = "st.watched"
+        case stWatchedEmpty = "st.watchedEmpty"
+        case stAchievements = "st.achievements"
+        case stAchievementsOf = "st.achievementsOf"
+        case stTotals = "st.totals"
+        case stKindMovie = "st.kind.movie"
+        case stKindSeries = "st.kind.series"
+        case stKindMusic = "st.kind.music"
+        case stKindVideo = "st.kind.video"
+        case stKindLive = "st.kind.live"
+        case stCaptionWeek = "st.caption.week"
+        case stCaptionMonth = "st.caption.month"
+        case stCaptionAll = "st.caption.all"
+        case stEarned = "st.earned"
+        case stHistoryTitle = "st.history.title"
+        case stHistoryEmpty = "st.history.empty"
+        case stHistoryEmptySub = "st.history.emptySub"
+        case stToday = "st.today"
+        case stYesterday = "st.yesterday"
+        case wrCollapse = "wr.collapse"
+        case wrEmptyPeriod = "wr.emptyPeriod"
 
         // Auth flow (M27)
         case auTagline1 = "au.tagline1"
@@ -831,6 +882,54 @@ enum L10n {
         .fpUnavailableSub: [.russian: "История чата сохраняется, но написать или пригласить этого пользователя нельзя.", .english: "Chat history is kept, but you can’t message or invite this user.", .chinese: "聊天记录会保留，但无法向该用户发消息或发出邀请。"],
         .fpAchievements: [.russian: "Достижения", .english: "Achievements", .chinese: "成就"],
         .fpRecentlyWatched: [.russian: "Недавно смотрел", .english: "Recently watched", .chinese: "最近观看"],
+        .badgeRegular: [.russian: "Завсегдатай", .english: "Regular", .chinese: "常客"],
+        .badgeRegularHint: [.russian: "10 фильмов вместе", .english: "Watch 10 films together", .chinese: "一起观看 10 部影片"],
+        .badgeCinemaniac: [.russian: "Киноман", .english: "Cinephile", .chinese: "影迷"],
+        .badgeCinemaniacHint: [.russian: "100 фильмов вместе", .english: "Watch 100 films together", .chinese: "一起观看 100 部影片"],
+        .badgeSocial: [.russian: "Душа компании", .english: "Social", .chinese: "社交达人"],
+        .badgeSocialHint: [.russian: "50 друзей в Plink", .english: "Make 50 friends on Plink", .chinese: "在 Plink 结识 50 位好友"],
+        .badgePlinkPlus: [.russian: "Plink+", .english: "Plink+", .chinese: "Plink+"],
+        .badgePlinkPlusHint: [.russian: "Подписка Plink+", .english: "Plink+ subscription", .chinese: "Plink+ 订阅"],
+        .prAdminSeal: [.russian: "Администратор Plink", .english: "Plink administrator", .chinese: "Plink 管理员"],
+        .prPlusSeal: [.russian: "Подписчик Plink+", .english: "Plink+ member", .chinese: "Plink+ 会员"],
+        .wrPeriodWeek: [.russian: "Неделя", .english: "Week", .chinese: "本周"],
+        .wrPeriodMonth: [.russian: "Месяц", .english: "Month", .chinese: "本月"],
+        .wrPeriodAll: [.russian: "Всё", .english: "All", .chinese: "全部"],
+        .wrExpand: [.russian: "Развернуть", .english: "Expand", .chinese: "展开"],
+        .stTitle: [.russian: "Статистика", .english: "Statistics", .chinese: "统计"],
+        .stFilmOne: [.russian: "фильм", .english: "film", .chinese: "部影片"],
+        .stFilmFew: [.russian: "фильма", .english: "films", .chinese: "部影片"],
+        .stFilmMany: [.russian: "фильмов", .english: "films", .chinese: "部影片"],
+        .stTimeLabel: [.russian: "время", .english: "time", .chinese: "时长"],
+        .stRooms: [.russian: "комнат", .english: "rooms", .chinese: "房间"],
+        .stFriends: [.russian: "друзей", .english: "friends", .chinese: "好友"],
+        .stStreak: [.russian: "дней подряд", .english: "day streak", .chinese: "天连续"],
+        .stTopKind: [.russian: "чаще всего", .english: "most often", .chinese: "最常看"],
+        .stActivity: [.russian: "Активность", .english: "Activity", .chinese: "活跃度"],
+        .stLast7: [.russian: "Последние 7 дней", .english: "Last 7 days", .chinese: "最近 7 天"],
+        .stActivityHidden: [.russian: "Активность скрыта настройками приватности", .english: "Activity is hidden by privacy settings", .chinese: "活跃度已被隐私设置隐藏"],
+        .stNoActivity: [.russian: "Пока нет просмотров — соберите первый вечер", .english: "No watches yet — host your first night", .chinese: "还没有观影记录，开启第一场放映吧"],
+        .stWatched: [.russian: "Что смотрели", .english: "What we watched", .chinese: "看过的内容"],
+        .stWatchedEmpty: [.russian: "За этот период ничего не смотрели", .english: "Nothing watched in this period", .chinese: "此期间没有观看记录"],
+        .stAchievements: [.russian: "Достижения", .english: "Achievements", .chinese: "成就"],
+        .stAchievementsOf: [.russian: "%d из %d", .english: "%d of %d", .chinese: "%d / %d"],
+        .stTotals: [.russian: "Всего за всё время", .english: "All-time totals", .chinese: "累计"],
+        .stKindMovie: [.russian: "фильмы", .english: "films", .chinese: "电影"],
+        .stKindSeries: [.russian: "сериалы", .english: "series", .chinese: "剧集"],
+        .stKindMusic: [.russian: "музыка", .english: "music", .chinese: "音乐"],
+        .stKindVideo: [.russian: "видео", .english: "videos", .chinese: "视频"],
+        .stKindLive: [.russian: "эфиры", .english: "live", .chinese: "直播"],
+        .stCaptionWeek: [.russian: "за неделю", .english: "this week", .chinese: "本周"],
+        .stCaptionMonth: [.russian: "за месяц", .english: "this month", .chinese: "本月"],
+        .stCaptionAll: [.russian: "за всё время", .english: "all time", .chinese: "全部时间"],
+        .stEarned: [.russian: "Получено", .english: "Earned", .chinese: "已获得"],
+        .stHistoryTitle: [.russian: "История", .english: "History", .chinese: "历史"],
+        .stHistoryEmpty: [.russian: "Здесь будет история", .english: "Your history will live here", .chinese: "历史记录会显示在这里"],
+        .stHistoryEmptySub: [.russian: "Всё, что вы посмотрите вместе, соберётся сюда — по дням.", .english: "Everything you watch together gathers here, day by day.", .chinese: "你们一起看过的内容会按天汇总在这里。"],
+        .stToday: [.russian: "Сегодня", .english: "Today", .chinese: "今天"],
+        .stYesterday: [.russian: "Вчера", .english: "Yesterday", .chinese: "昨天"],
+        .wrCollapse: [.russian: "Свернуть", .english: "Collapse", .chinese: "收起"],
+        .wrEmptyPeriod: [.russian: "За этот период ничего не смотрели", .english: "Nothing watched in this period", .chinese: "该时段没有观看记录"],
         // Auth flow (M27)
         .auTagline1: [.russian: "Смотреть вместе.", .english: "Watch together.", .chinese: "一起观看。"],
         .auTagline2: [.russian: "Быть рядом.", .english: "Be close.", .chinese: "彼此相伴。"],

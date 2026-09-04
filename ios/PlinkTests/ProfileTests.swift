@@ -133,4 +133,69 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(user.isPremium, decoded.isPremium)
         XCTAssertEqual(user.role, decoded.role)
     }
+
+    // MARK: - Activity digest (client twin of backend computeActivity)
+
+    private func entry(_ id: String, daysAgo: Int, kind: String? = "movie", now: Date, cal: Calendar) -> UserSocialProfile.WatchHistoryEntry {
+        let at = cal.date(byAdding: .day, value: -daysAgo, to: now)!
+        return UserSocialProfile.WatchHistoryEntry(id: id, title: id, thumb: nil, kind: kind, watchedAt: at, roomId: nil)
+    }
+
+    func testActivityStats_derived_emptyHistory_isNil() {
+        XCTAssertNil(UserSocialProfile.ActivityStats.derived(from: []))
+        // Entries without a timestamp carry no evidence of recency either.
+        let undated = UserSocialProfile.WatchHistoryEntry(id: "x", title: "x", thumb: nil, kind: nil, watchedAt: nil, roomId: nil)
+        XCTAssertNil(UserSocialProfile.ActivityStats.derived(from: [undated]))
+    }
+
+    func testActivityStats_derived_bucketsWeekMonthAndStreak() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = cal.date(from: DateComponents(year: 2026, month: 9, day: 3, hour: 14))!
+        let history = [
+            entry("a", daysAgo: 0, kind: "movie", now: now, cal: cal),
+            entry("b", daysAgo: 0, kind: "video", now: now, cal: cal),
+            entry("c", daysAgo: 1, kind: "movie", now: now, cal: cal),
+            entry("d", daysAgo: 2, kind: "movie", now: now, cal: cal),
+            entry("e", daysAgo: 6, kind: "series", now: now, cal: cal),
+            entry("f", daysAgo: 7, kind: "series", now: now, cal: cal),   // outside the 7-day strip
+            entry("g", daysAgo: 29, kind: "series", now: now, cal: cal),  // last day of the month window
+            entry("h", daysAgo: 30, kind: "series", now: now, cal: cal),  // outside the month
+            entry("i", daysAgo: -1, kind: "series", now: now, cal: cal)   // clock skew — the future never counts
+        ]
+        let stats = UserSocialProfile.ActivityStats.derived(from: history, now: now, calendar: cal)!
+        XCTAssertEqual(stats.week, [1, 0, 0, 0, 1, 1, 2])
+        XCTAssertEqual(stats.weekFilms, 5)
+        XCTAssertEqual(stats.monthFilms, 7)
+        XCTAssertEqual(stats.monthMinutes, 7 * UserSocialProfile.ActivityStats.minutesPerFilm)
+        XCTAssertEqual(stats.streakDays, 3)
+        XCTAssertEqual(stats.topKind, "movie")
+    }
+
+    func testActivityStats_derived_streakKeptAliveByYesterday() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = cal.date(from: DateComponents(year: 2026, month: 9, day: 3, hour: 9))!
+        let history = [
+            entry("a", daysAgo: 1, now: now, cal: cal),
+            entry("b", daysAgo: 2, now: now, cal: cal),
+            entry("c", daysAgo: 4, now: now, cal: cal)
+        ]
+        let stats = UserSocialProfile.ActivityStats.derived(from: history, now: now, calendar: cal)!
+        XCTAssertEqual(stats.streakDays, 2, "yesterday keeps the streak alive; the gap at day 3 ends it")
+        XCTAssertEqual(stats.week, [0, 0, 1, 0, 1, 1, 0])
+    }
+
+    func testStatsPeriod_filter_boundsAndUndatedEntries() {
+        let now = Date()
+        let cal = Calendar.current
+        let fresh = entry("fresh", daysAgo: 2, now: now, cal: cal)
+        let stale = entry("stale", daysAgo: 12, now: now, cal: cal)
+        let old = entry("old", daysAgo: 45, now: now, cal: cal)
+        let undated = UserSocialProfile.WatchHistoryEntry(id: "u", title: "u", thumb: nil, kind: nil, watchedAt: nil, roomId: nil)
+        let all = [fresh, stale, old, undated]
+        XCTAssertEqual(PlinkStatsPeriod.week.filter(all, now: now).map(\.id), ["fresh"])
+        XCTAssertEqual(PlinkStatsPeriod.month.filter(all, now: now).map(\.id), ["fresh", "stale"])
+        XCTAssertEqual(PlinkStatsPeriod.all.filter(all, now: now).count, 4, "the unbounded period keeps undated entries")
+    }
 }

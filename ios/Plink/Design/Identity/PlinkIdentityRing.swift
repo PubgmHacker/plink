@@ -380,3 +380,50 @@ struct PlinkIdentityAvatar<Content: View>: View {
     .background(V4.canvas)
 }
 #endif
+
+// MARK: - Печать у имени
+
+/// Seal next to the display name — the Telegram "verified" model. A
+/// scalloped seal in the level colour with a bold glyph: the administrator
+/// keeps the shield, Plink+ the star. Replaces the old red name and the
+/// solid "АДМИН"/"PLINK+" capsules, which read as debug labels rather than
+/// status. The same view on the owner's face and on a friend's face.
+struct PlinkIdentitySeal: View {
+    let kind: PlinkBadgeKind
+    var size: CGFloat = 18
+
+    var body: some View {
+        ZStack {
+            Image(systemName: "seal.fill")
+                .font(.system(size: size, weight: .regular))
+                .foregroundStyle(kind.tint)
+                // Top light, the PlinkGlass button trick — flat fill reads as a sticker.
+                .overlay {
+                    LinearGradient(
+                        colors: [.white.opacity(0.42), .clear],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                    .blendMode(.overlay)
+                    .mask(
+                        Image(systemName: "seal.fill")
+                            .font(.system(size: size, weight: .regular))
+                    )
+                }
+            Image(systemName: kind.symbol)
+                .font(.system(size: size * 0.44, weight: .heavy))
+                .foregroundStyle(.white)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: kind.tint.opacity(0.45), radius: size * 0.22, y: 1)
+        .accessibilityLabel(label)
+    }
+
+    private var label: String {
+        switch kind {
+        case .admin: return LocalizationManager.shared.string(.prAdminSeal)
+        case .plus: return LocalizationManager.shared.string(.prPlusSeal)
+        case .verified: return "Verified"
+        }
+    }
+}
