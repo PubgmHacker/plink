@@ -1,6 +1,11 @@
 import { prisma } from '../config/db.js';
 import { pushToUser } from '../services/pushService.js';
 import { resolvePresence } from '../services/presence.js';
+import {
+  STORY_WINDOW_MS,
+  groupStorySlides,
+  orderStoryOwners,
+} from '../utils/friendStories.js';
 
 /** Минимальная длина поискового запроса (защита от перечисления профилей). */
 const MIN_SEARCH_LEN = 2;
@@ -624,6 +629,110 @@ export default async function friendRoutes(fastify: any) {
         });
       }
       reply.send(users);
+    },
+  );
+
+  // GET /api/friends/stories — the "stories" rail of the Friends tab.
+  // A story is what a friend watched over the last week (newest first, one
+  // slide per title) with their custom status as the opening slide. `me` is
+  // always returned so the client can draw the "my status" tile even when
+  // nobody else has a story. Closed profiles are friends-only by definition,
+  // so friends see them here; blocked pairs never do. Deleted accounts are
+  // skipped — a tombstone has nothing to tell.
+  fastify.get(
+    '/friends/stories',
+    { preHandler: [fastify.authenticate] },
+    async (request: any, reply: any) => {
+      const me: string = request.user.id;
+      const publicBase = process.env.PUBLIC_BASE_URL || 'https://plink-production.up.railway.app';
+
+      const [asInitiator, asTarget, blocks] = await Promise.all([
+        prisma.friendship.findMany({ where: { userID: me }, select: { friendID: true } }),
+        prisma.friendship.findMany({ where: { friendID: me }, select: { userID: true } }),
+        prisma.userBlock.findMany({
+          where: { OR: [{ blockerID: me }, { blockedID: me }] },
+          select: { blockerID: true, blockedID: true },
+        }),
+      ]);
+      const blocked = new Set<string>();
+      for (const b of blocks) {
+        blocked.add(b.blockerID === me ? b.blockedID : b.blockerID);
+      }
+      const friendIds = Array.from(
+        new Set<string>([
+          ...asInitiator.map((f: { friendID: string }) => f.friendID),
+          ...asTarget.map((f: { userID: string }) => f.userID),
+        ]),
+      ).filter((id) => id !== me && !blocked.has(id));
+      const ids = [...friendIds, me];
+      const since = new Date(Date.now() - STORY_WINDOW_MS);
+
+      const [users, rows] = await Promise.all([
+        prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarURL: true,
+            avatarUpdatedAt: true,
+            isOnline: true,
+            lastSeenAt: true,
+            statusText: true,
+            deletedAt: true,
+          } as any,
+        }),
+        prisma.watchHistory.findMany({
+          where: { userID: { in: ids }, watchedAt: { gte: since } },
+          orderBy: { watchedAt: 'desc' },
+          // A week of a whole friend list — bounded, the grouping caps per person.
+          take: 600,
+          select: {
+            id: true,
+            userID: true,
+            mediaTitle: true,
+            mediaThumb: true,
+            mediaKind: true,
+            watchedAt: true,
+            roomID: true,
+          },
+        }),
+      ]);
+
+      const slidesByUser = groupStorySlides(rows);
+      const avatarFor = (u: any): string | null => {
+        let versionMs = 0;
+        if (u.avatarUpdatedAt) {
+          const t = new Date(u.avatarUpdatedAt).getTime();
+          if (Number.isFinite(t)) versionMs = t;
+        }
+        if (!u.avatarURL && versionMs === 0) return null;
+        return versionMs > 0
+          ? `${publicBase}/api/users/${u.id}/avatar?v=${versionMs}`
+          : `${publicBase}/api/users/${u.id}/avatar`;
+      };
+
+      const owners = users
+        .filter((u: any) => !u.deletedAt && !String(u.username || '').startsWith('deleted_'))
+        .map((u: any) => {
+          const pres = resolvePresence(u);
+          const statusText = typeof u.statusText === 'string' && u.statusText.trim() ? u.statusText.trim() : null;
+          return {
+            id: u.id,
+            username: u.username,
+            displayName: u.displayName ?? null,
+            avatarURL: avatarFor(u),
+            isOnline: pres.isOnline,
+            lastSeenAt: pres.lastSeenAt,
+            statusText,
+            slides: slidesByUser.get(u.id) ?? [],
+          };
+        });
+
+      const mine = owners.find((o: { id: string }) => o.id === me) ?? null;
+      const friends = orderStoryOwners(owners.filter((o: { id: string }) => o.id !== me));
+      reply.header('Cache-Control', 'no-store');
+      reply.send({ me: mine, friends, windowDays: Math.round(STORY_WINDOW_MS / 86_400_000) });
     },
   );
 }
