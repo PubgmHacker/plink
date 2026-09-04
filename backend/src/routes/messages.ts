@@ -408,7 +408,7 @@ export default async function messageRoutes(fastify) {
       // Mark everything from this friend as read (user opened the chat).
       // При пагинации старых страниц (before) сайд-эффект не нужен.
       if (!beforeDate) {
-        await prisma.directMessage.updateMany({
+        const marked = await prisma.directMessage.updateMany({
           where: {
             senderID: friendId,
             receiverID: me,
@@ -416,6 +416,19 @@ export default async function messageRoutes(fastify) {
           },
           data: { isRead: true },
         });
+        // Telegram-style read receipts: the sender flips ticks instantly.
+        if (marked.count > 0) {
+          try {
+            (fastify as any).gateway?.notifyUser(friendId, {
+              type: 'dm.event',
+              event: 'read',
+              fromUserId: me,
+              count: marked.count,
+            });
+          } catch {
+            /* noop */
+          }
+        }
       }
 
       const cursorFilter = beforeDate ? { createdAt: { lt: beforeDate } } : {};
@@ -507,6 +520,18 @@ export default async function messageRoutes(fastify) {
         },
         data: { isRead: true },
       });
+      if (result.count > 0) {
+        try {
+          (fastify as any).gateway?.notifyUser(friendId, {
+            type: 'dm.event',
+            event: 'read',
+            fromUserId: me,
+            count: result.count,
+          });
+        } catch {
+          /* noop */
+        }
+      }
       reply.send({ success: true, marked: result.count });
     },
   );

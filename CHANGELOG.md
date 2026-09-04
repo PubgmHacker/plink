@@ -15,6 +15,14 @@ versioned sections and git tags begin there.
 
 ### Added
 
+- **Истории во вкладке «Друзья».** Рельса колец как в Telegram: первый тайл — свой
+  (статус добавляется и меняется прямо с него), дальше друзья с непросмотренными
+  историями, потом просмотренные. История друга — что он смотрел за неделю (по
+  одному слайду на название, постер и время) плюс его статус первым слайдом.
+  Полноэкранный просмотр с прогресс-полосами, тап вперёд/назад, удержание — пауза,
+  свайп вниз — закрыть; из истории — «Смотреть вместе», «Написать» и профиль.
+  Бэкенд: `GET /api/friends/stories` (недельное окно, заблокированные и удалённые
+  исключены).
 - **Profile statistics rebuilt as a real screen.** A sliding period pill (week /
   month / all time), hero figures with a seven-day activity strip, a daily streak,
   the dominant media kind, the "What we watched" rail filtered by the same period,
@@ -99,6 +107,11 @@ versioned sections and git tags begin there.
 
 ### Fixed
 
+- **Ставить видео в очередь комнаты снова можно.** Аварийный кэш очереди
+  (`setFallback`) вызывал сам себя вместо записи в Map — любая непустая очередь
+  уходила в бесконечную рекурсию, и `POST /api/rooms/:id/queue` отвечал
+  500 «Maximum call stack size exceeded». Ломались обе ветки: добавление ролика
+  и чтение непустой очереди. Регрессия закрыта юнит-тестом.
 - **The "return to room" capsule no longer sticks around after you left.** It
   disappears the moment you leave, refreshes when the app comes back to the
   foreground and every 45 seconds while it is showing, and can be swiped down

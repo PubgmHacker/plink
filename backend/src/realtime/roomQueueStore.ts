@@ -193,7 +193,7 @@ function setFallback(roomId: string, queue: QueuedMedia[]): void {
     const oldest = fallbackQueues.keys().next().value;
     if (oldest !== undefined) fallbackQueues.delete(oldest);
   }
-  setFallback(roomId, queue);
+  fallbackQueues.set(roomId, queue);
 }
 
 function setPending(roomId: string, items: QueuedMedia[]): void {

@@ -1173,6 +1173,11 @@ ${pageHead({
         box.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
     });
+    // Приложение открывает /plus?plan=12m — сразу раскрываем выбранный тариф,
+    // чтобы после перехода с телефона не искать кнопку второй раз.
+    var preselected = new URLSearchParams(window.location.search).get('plan');
+    var preBtn = preselected ? document.querySelector('.plan button[data-plan="' + preselected + '"]') : null;
+    if (preBtn && !preBtn.disabled) preBtn.click();
     var form = document.getElementById('pay-form');
     if (form) form.addEventListener('submit', function (e) {
       e.preventDefault();
