@@ -447,10 +447,23 @@ private struct PaywallFeatureTile: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(14)
-        .plinkGlass(.control, cornerRadius: 20)
+        // Плитка «что входит» — слой КОНТЕНТА, и стекла на ней быть не должно:
+        // правило шапки PlinkGlass.swift («стекло живёт только на слое навигации
+        // и управления»). Раньше здесь стояло .plinkGlass(.control), и на чёрном
+        // фоне рефракции нечего было преломлять, кроме единственного яркого
+        // пятна рядом — надписи «ЧТО ВХОДИТ» в 10 pt над сеткой. Линза затягивала
+        // её внутрь плитки, и заголовок раздела читался ВТОРОЙ раз поверх иконки
+        // с контрастом 2,79:1. Проба доказала связь: подменённый текст «ЖЖЖ ЩЩЩ»
+        // тут же проступил призраком вместо прежнего. Разведение на 20 pt не
+        // помогло — линза тянет и с большего расстояния, лечится только снятием
+        // стекла с плитки.
+        .background(Cinema2026.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(PlinkPlusBrand.violet.opacity(highlighted ? 0.6 : 0), lineWidth: 1.2)
+                .strokeBorder(
+                    highlighted ? PlinkPlusBrand.violet.opacity(0.6) : V4.line,
+                    lineWidth: highlighted ? 1.2 : 1
+                )
         )
     }
 }
