@@ -119,6 +119,17 @@ enum L10n {
         case frWatchingNow = "fr.watchingNow"
         case frOnline = "fr.online"
         case frAllFriends = "fr.allFriends"
+        // Friends tab — stories rail and viewer.
+        case frStories = "fr.stories"
+        case frMyStory = "fr.myStory"
+        case frStoryAddStatus = "fr.storyAddStatus"
+        case frStoryEditStatus = "fr.storyEditStatus"
+        case frStoryStatusHint = "fr.storyStatusHint"
+        case frStoryStatus = "fr.storyStatus"
+        case frStoryEmpty = "fr.storyEmpty"
+        case frStoryMessage = "fr.storyMessage"
+        case frStoryProfile = "fr.storyProfile"
+        case frStoryWatched = "fr.storyWatched"
         case frAdd = "fr.add"
         case frAccept = "fr.accept"
         case frDecline = "fr.decline"
@@ -372,6 +383,10 @@ enum L10n {
         case catchUpLoading = "catchup.loading"
         // Presence — социальный статус (только данные, которые реально есть)
         case presenceWatchingTogether = "presence.watchingTogether"
+        // «Смотрим вместе» в одиночной комнате было ложью — отзыв 02.09.
+        case presenceAlone = "presence.alone"
+        case roomOnlyYou = "room.onlyYou"
+        case roomInRoomCount = "room.inRoomCount"
         case presencePaused = "presence.paused"
         case presencePauseAsk = "presence.pauseAsk"
         case presenceResyncing = "presence.resyncing"
@@ -419,9 +434,7 @@ enum L10n {
         case authModeSignIn = "auth.mode.signIn"
         case authModeSignUp = "auth.mode.signUp"
         case authActionSignIn = "auth.action.signIn"
-        case authMethodEmail = "auth.method.email"
         case authHeroA11y = "auth.hero.a11y"
-        case authMethodPickerA11y = "auth.methodPicker.a11y"
         case authEmailTypo = "auth.email.typo"
         case authUsernameTitle = "auth.username.title"
         case authUsernameHint = "auth.username.hint"
@@ -445,6 +458,8 @@ enum L10n {
         case resetSent = "reset.sent"
         case authAppleSigningIn = "auth.apple.signingIn"
         case authAppleButton = "auth.apple.button"
+        case authAppleSignUpButton = "auth.apple.signUpButton"
+        case authOrDivider = "auth.or"
         case authAppleNoToken = "auth.apple.noToken"
         case authConsentPrefix = "auth.consent.prefix"
         case sessionExpiredSecure = "session.expired.secure"
@@ -749,6 +764,29 @@ enum L10n {
         case plusPrivacy = "plus.privacy"
         case plusPlansLoading = "plus.plans.loading"
         case plusPlansUnavailable = "plus.plans.unavailable"
+        case plusSiteCta = "plus.site.cta"
+        case plusSiteNote = "plus.site.note"
+        case plusAlreadyPaid = "plus.site.alreadyPaid"
+        case plusNotActiveYet = "plus.site.notActiveYet"
+        case plusPricesStale = "plus.site.pricesStale"
+        case plusPlanMonth = "plus.plan.month"
+        case plusPlanQuarter = "plus.plan.quarter"
+        case plusPlanYear = "plus.plan.year"
+        case plusPopular = "plus.plan.popular"
+        case plusIncluded = "plus.included"
+        case plusChoosePlan = "plus.choosePlan"
+        case plusFeatThemes = "plus.feat.themes"
+        case plusFeatThemesSub = "plus.feat.themes.sub"
+        case plusFeatCapacity = "plus.feat.capacity"
+        case plusFeatCapacitySub = "plus.feat.capacity.sub"
+        case plusFeatReactions = "plus.feat.reactions"
+        case plusFeatReactionsSub = "plus.feat.reactions.sub"
+        case plusFeatAI = "plus.feat.ai"
+        case plusFeatAISub = "plus.feat.ai.sub"
+        case plusFeatLooks = "plus.feat.looks"
+        case plusFeatLooksSub = "plus.feat.looks.sub"
+        case plusFeatBubbles = "plus.feat.bubbles"
+        case plusFeatBubblesSub = "plus.feat.bubbles.sub"
         case commonRetry = "common.retry"
         // Пейволл: пустое состояние тарифов и человеческие ошибки стора.
         // Сырые NSURLErrorDomain-строки наружу не выходят никогда.
@@ -780,6 +818,16 @@ enum L10n {
         .frWatchingNow: [.russian: "Сейчас смотрят", .english: "Watching now", .chinese: "正在观看"],
         .frOnline: [.russian: "В сети", .english: "Online", .chinese: "在线"],
         .frAllFriends: [.russian: "Все друзья", .english: "All friends", .chinese: "全部好友"],
+        .frStories: [.russian: "Истории", .english: "Stories", .chinese: "动态"],
+        .frMyStory: [.russian: "Моя история", .english: "My story", .chinese: "我的动态"],
+        .frStoryAddStatus: [.russian: "Добавить статус", .english: "Add a status", .chinese: "添加状态"],
+        .frStoryEditStatus: [.russian: "Изменить статус", .english: "Edit status", .chinese: "编辑状态"],
+        .frStoryStatusHint: [.russian: "Расскажи, что смотришь", .english: "Say what you're watching", .chinese: "说说你在看什么"],
+        .frStoryStatus: [.russian: "Статус", .english: "Status", .chinese: "状态"],
+        .frStoryEmpty: [.russian: "Здесь появится то, что смотрят друзья", .english: "What your friends watch shows up here", .chinese: "好友看过的内容会显示在这里"],
+        .frStoryMessage: [.russian: "Написать", .english: "Message", .chinese: "发消息"],
+        .frStoryProfile: [.russian: "Профиль", .english: "Profile", .chinese: "个人资料"],
+        .frStoryWatched: [.russian: "Смотрели", .english: "Watched", .chinese: "看过"],
         .frAdd: [.russian: "Добавить", .english: "Add", .chinese: "添加"],
         .frAccept: [.russian: "Принять", .english: "Accept", .chinese: "接受"],
         .frDecline: [.russian: "Отклонить", .english: "Decline", .chinese: "拒绝"],
@@ -1082,6 +1130,18 @@ enum L10n {
             .russian: "Смотрим вместе",
             .english: "Watching together",
             .chinese: "一起看"],
+        .presenceAlone: [
+            .russian: "Пока вы один — позовите друзей",
+            .english: "You're on your own — invite friends",
+            .chinese: "目前只有你 — 邀请朋友一起看"],
+        .roomOnlyYou: [
+            .russian: "Только вы",
+            .english: "Only you",
+            .chinese: "只有你"],
+        .roomInRoomCount: [
+            .russian: "%d в комнате",
+            .english: "%d in the room",
+            .chinese: "房间内 %d 人"],
         .presencePaused: [
             .russian: "На паузе", .english: "Paused", .chinese: "已暂停"],
         .presencePauseAsk: [
@@ -2341,14 +2401,14 @@ enum L10n {
             .chinese: "最超值"
         ],
         .plusSaveFormat: [
-            .russian: "Экономия %d%%",
+            .russian: "Выгода %d%%",
             .english: "Save %d%%",
             .chinese: "省 %d%%"
         ],
         .plusPerMonthFormat: [
-            .russian: "%@ / мес",
-            .english: "%@ / mo",
-            .chinese: "%@ / 月"
+            .russian: "≈ %@ в месяц",
+            .english: "≈ %@ a month",
+            .chinese: "≈ 每月 %@"
         ],
         .plusTrialFormat: [
             .russian: "%@ бесплатно",
@@ -2394,6 +2454,121 @@ enum L10n {
             .russian: "Загружаем тарифы…",
             .english: "Loading plans…",
             .chinese: "正在加载套餐…"
+        ],
+        .plusSiteCta: [
+            .russian: "Оформить на сайте",
+            .english: "Continue on the website",
+            .chinese: "前往官网订阅"
+        ],
+        .plusSiteNote: [
+            .russian: "Оплата проходит на сайте Plink. Подписка появится в приложении сама — обычно за минуту.",
+            .english: "Payment happens on the Plink website. The subscription shows up in the app on its own, usually within a minute.",
+            .chinese: "付款在 Plink 官网完成，订阅通常一分钟内自动出现在应用中。"
+        ],
+        .plusAlreadyPaid: [
+            .russian: "Уже оплатили? Обновить",
+            .english: "Already paid? Refresh",
+            .chinese: "已付款？刷新"
+        ],
+        .plusNotActiveYet: [
+            .russian: "Подписка пока не активна. После оплаты она подтягивается в течение минуты.",
+            .english: "Not active yet. It arrives within a minute after payment.",
+            .chinese: "订阅尚未激活，付款后约一分钟内生效。"
+        ],
+        .plusPricesStale: [
+            .russian: "Не удалось обновить цены — актуальные на сайте.",
+            .english: "Couldn’t refresh prices — the website has the current ones.",
+            .chinese: "无法更新价格，以官网为准。"
+        ],
+        .plusPlanMonth: [
+            .russian: "Месяц",
+            .english: "Month",
+            .chinese: "1 个月"
+        ],
+        .plusPlanQuarter: [
+            .russian: "3 месяца",
+            .english: "3 months",
+            .chinese: "3 个月"
+        ],
+        .plusPlanYear: [
+            .russian: "Год",
+            .english: "Year",
+            .chinese: "12 个月"
+        ],
+        .plusPopular: [
+            .russian: "Популярный",
+            .english: "Popular",
+            .chinese: "热门"
+        ],
+        .plusIncluded: [
+            .russian: "Что входит",
+            .english: "What’s included",
+            .chinese: "包含内容"
+        ],
+        .plusChoosePlan: [
+            .russian: "Тариф",
+            .english: "Plan",
+            .chinese: "套餐"
+        ],
+        .plusFeatThemes: [
+            .russian: "Живые темы",
+            .english: "Living themes",
+            .chinese: "动态主题"
+        ],
+        .plusFeatThemesSub: [
+            .russian: "Фон комнаты живёт и меняется под фильм",
+            .english: "A room backdrop that moves with the film",
+            .chinese: "随影片变化的房间背景"
+        ],
+        .plusFeatCapacity: [
+            .russian: "До 20 в комнате",
+            .english: "Up to 20 in a room",
+            .chinese: "房间最多 20 人"
+        ],
+        .plusFeatCapacitySub: [
+            .russian: "Вдвое больше друзей на одном вечере",
+            .english: "Twice as many friends at one screening",
+            .chinese: "一场放映容纳两倍好友"
+        ],
+        .plusFeatReactions: [
+            .russian: "Реакции и эмодзи",
+            .english: "Reactions & emoji",
+            .chinese: "反应与表情"
+        ],
+        .plusFeatReactionsSub: [
+            .russian: "Премиум-реакции и свои эмодзи в чате",
+            .english: "Premium reactions and custom emoji in chat",
+            .chinese: "聊天中的高级反应与自定义表情"
+        ],
+        .plusFeatAI: [
+            .russian: "Приоритет ИИ",
+            .english: "AI priority",
+            .chinese: "AI 优先"
+        ],
+        .plusFeatAISub: [
+            .russian: "Ответы ассистента без очереди",
+            .english: "Assistant replies without the queue",
+            .chinese: "助手回复无需排队"
+        ],
+        .plusFeatLooks: [
+            .russian: "Рамки и обложки",
+            .english: "Frames & covers",
+            .chinese: "边框与封面"
+        ],
+        .plusFeatLooksSub: [
+            .russian: "Рамки аватара и обложки-переливы в профиле",
+            .english: "Avatar frames and animated profile covers",
+            .chinese: "头像边框与流光个人封面"
+        ],
+        .plusFeatBubbles: [
+            .russian: "Кино-баблы",
+            .english: "Cinema bubbles",
+            .chinese: "影院气泡"
+        ],
+        .plusFeatBubblesSub: [
+            .russian: "Стеклянные пузыри сообщений поверх плеера",
+            .english: "Glass message bubbles over the player",
+            .chinese: "播放器上的玻璃质感消息气泡"
         ],
         .plusPlansUnavailable: [
             .russian: "Тарифы недоступны. Проверьте соединение.",

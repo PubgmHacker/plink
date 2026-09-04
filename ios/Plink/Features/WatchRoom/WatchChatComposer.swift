@@ -203,15 +203,18 @@ struct WatchChatComposer: View {
 
             // Telegram-style: [ + ] [ field ………………… ] [😊] [↑]
             HStack(alignment: .bottom, spacing: 8) {
+                // Единственный «+» в комнате — «Позвать» в шапке. Вложение — скрепка
+                // в том же стеклянном тоне, без второго акцентного плюса.
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Cinema2026.accent)
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.82))
                         .frame(width: 38, height: 40)
                         .background(Cinema2026.raised, in: Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Галерея")
+                .accessibilityLabel("Вложение")
                 .simultaneousGesture(TapGesture().onEnded { Task { await PlinkPermissions.preparePhotoPicker() } })
 
                 VStack(spacing: 4) {

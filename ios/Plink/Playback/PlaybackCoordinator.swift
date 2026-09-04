@@ -189,6 +189,14 @@ public final class PlaybackCoordinator: AnyObject {
         // PiP стартует сам при сворачивании приложения
         vc.canStartPictureInPictureAutomaticallyFromInline = true
         vc.allowsVideoFrameAnalysis = false
+        // Системную панель AVKit гасим намеренно: комната смотрит вместе, и
+        // перемотка тут — команда синхронизации, а не локальное действие.
+        // Родная панель этого не знает, дала бы гостю молча увести своё время
+        // и рисовалась бы поверх собственного хрома Plink. Управление —
+        // только PlinkPlayerControls, одно на всех провайдеров.
+        vc.showsPlaybackControls = false
+        vc.updatesNowPlayingInfoCenter = false
+        vc.videoGravity = .resizeAspect
         cachedPlayerViewController = vc
         return vc
     }

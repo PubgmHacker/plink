@@ -62,6 +62,18 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     /// Гард от наложения переключений источника при «включить сейчас».
     private var isSwitchingSource = false
 
+    #if DEBUG
+    /// Сев очереди для оффскрин-снимков дизайн-аудита (DesignAuditShots).
+    /// Очередь приезжает бродкастом, поэтому у неё `private(set)` — и снять
+    /// снимок панели очереди было нечем: без сети список всегда пустой, и на
+    /// снимке жило бы только пустое состояние. Сеть в снимках не поднимаем
+    /// намеренно: снимок обязан быть детерминированным. Роль хоста своего
+    /// хука не требует — её ставит `sessionDidConnect(role:)`.
+    func designSeed(queue: [RoomQueueWire.Item]) {
+        roomQueue = queue
+    }
+    #endif
+
     // Управление очередью — REST; broadcast обновит roomQueue у всех участников.
     func removeFromQueue(_ item: RoomQueueWire.Item) {
         let rid = _roomId
@@ -165,6 +177,10 @@ public final class WatchRoomModel: RealtimeClientDelegate {
 
         mediaSource = newSource
         if case .youtube(let ytId) = newSource { mediaId = ytId } else { mediaId = nil }
+        // Заставка и шапка должны звать новый ролик его именем, а не именем
+        // предыдущего. Превью в проводе очереди нет — гасим старое.
+        mediaTitle = item.title
+        mediaPoster = nil
     }
 
     // Синхронный отсчёт 3-2-1 перед стартом
@@ -306,6 +322,13 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     public private(set) var mediaId: String?  // Typed media ID for host commands
     public private(set) var roomCode: String?
 
+    /// Название того, что идёт в комнате. Показывает шапка плеера и заставка
+    /// кадра до первого показанного пикселя — раньше человек смотрел в
+    /// чёрный прямоугольник и не знал даже, что именно он открыл.
+    public private(set) var mediaTitle: String?
+    /// Постер/превью ролика. Заставка кадра рисует его, пока видео не пошло.
+    public private(set) var mediaPoster: String?
+
     /// Сервис, чья страница играет в комнате (кинотеатр, VK, Rutube).
     /// Картинку каждому отдаёт сам сервис — Plink синхронизирует только время.
     private(set) var subscriptionService: VideoService?
@@ -353,6 +376,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         mediaSource: PlaybackSource? = nil,
         mediaId: String? = nil,
         roomCode: String? = nil,
+        mediaTitle: String? = nil,
+        mediaPoster: String? = nil,
         chatCatchupClient: ChatCatchupClient? = nil,
         roomRecapClient: RoomRecapClient? = nil,
         clock: ClockSynchronizer? = nil,
@@ -365,6 +390,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         self.mediaSource = mediaSource
         self.mediaId = mediaId
         self.roomCode = roomCode
+        self.mediaTitle = mediaTitle
+        self.mediaPoster = mediaPoster
         self.chatCatchupClient = chatCatchupClient
         self.roomRecapClient = roomRecapClient
         self.roomHostId = roomHostId
@@ -574,6 +601,8 @@ public final class WatchRoomModel: RealtimeClientDelegate {
             if let recovered = await Self.refetchMediaSource(roomId: _roomId) {
                 mediaSource = recovered.source
                 if mediaId == nil { mediaId = recovered.mediaId }
+                if mediaTitle == nil { mediaTitle = recovered.title }
+                if mediaPoster == nil { mediaPoster = recovered.poster }
             }
         }
 
@@ -618,12 +647,14 @@ public final class WatchRoomModel: RealtimeClientDelegate {
     }
 
     /// Recover YouTube/media when create/join returned room without mediaItem.
-    private static func refetchMediaSource(roomId: String) async -> (source: PlaybackSource, mediaId: String?)? {
+    private static func refetchMediaSource(
+        roomId: String
+    ) async -> (source: PlaybackSource, mediaId: String?, title: String?, poster: String?)? {
         do {
             let room = try await RoomService(api: APIClient.shared).fetchRoom(id: roomId)
             guard let source = WatchRoomCompositionRoot.mediaSource(from: room) else { return nil }
             let mid = room.mediaItem?.videoId ?? room.mediaItem?.id
-            return (source, mid)
+            return (source, mid, room.mediaItem?.title, room.mediaItem?.thumbnailURL)
         } catch {
             Logger.api.error("[WatchRoom] refetch media failed: \(error.localizedDescription)")
             return nil
@@ -1634,7 +1665,22 @@ public final class WatchRoomModel: RealtimeClientDelegate {
         if lastDriftMs >= 250 {
             return l.string(.presenceResyncing)
         }
+        // Комната из одного человека не «смотрит вместе». Отзыв 02.09: пустая
+        // комната писала «1 в комнате · Смотрим вместе» — то есть уверяла, что
+        // рядом кто-то есть. Пока людей меньше двух, строка зовёт позвать.
+        if participants.count <= 1 {
+            return l.string(.presenceAlone)
+        }
         return l.string(.presenceWatchingTogether)
+    }
+
+    /// Строка «сколько нас» для полос присутствия. Ноль участников — это ещё
+    /// не подключённый presence, а не пустая комната: пока список не пришёл,
+    /// правдиво говорить «Только вы», а не подставлять единицу в счётчик.
+    public var presenceCountLine: String {
+        let l = LocalizationManager.shared
+        guard participants.count >= 2 else { return l.string(.roomOnlyYou) }
+        return String(format: l.string(.roomInRoomCount), participants.count)
     }
 
     /// Комната открыла страницу сервиса (`.embed`). Разбираем по домену, чей

@@ -13,8 +13,10 @@ import SwiftUI
 
 // MARK: - Знак
 
-/// Стрелка «play» из двух плоскостей: светлая A поверх тёмного хвоста B,
-/// по кромке A — тонкий светлый рим, как на макете.
+/// Стрелка «play» из двух плоскостей: светлая A поверх тёмного хвоста B.
+/// По кромке A — тонкий светлый рим с макета; по кромке B — свой, толще:
+/// на тёмном фоне заливка хвоста (44,6,136) стоит к грунту 1.45:1 и без
+/// обводки хвост пропадает целиком.
 struct PlinkBrandMark: View {
     /// Высота знака в пунктах. Ширина следует пропорции макета.
     var size: CGFloat = 96
@@ -27,14 +29,42 @@ struct PlinkBrandMark: View {
         let width = size * Self.aspect
         ZStack {
             if glow {
-                PlinkMarkSilhouette()
-                    .fill(PlinkBrandPalette.violetLight.opacity(0.55))
-                    .blur(radius: size * 0.16)
-                    .offset(y: size * 0.05)
-                    .frame(width: width, height: size)
+                // Гало живёт только ВОКРУГ знака. Раньше размытый силуэт лежал
+                // под ним целиком, и тёмный хвост B стоял на фиолетовой подушке,
+                // которую сам же и рисовал: на сплэше замер давал контраст
+                // 1.00:1 — ровно один тон, знак растворялся в фоне. Тот же знак
+                // с glow: false на иконке-плитке читался идеально, значит
+                // мешало именно свечение под ним. Вырезаем силуэт из гало
+                // дырой destinationOut — как вырез в шапке профиля. Дыра
+                // рисуется БЕЗ offset, по фактическому месту знака, поэтому
+                // резкую кромку выреза закрывает сам знак, и шва не видно.
+                ZStack {
+                    PlinkMarkSilhouette()
+                        .fill(PlinkBrandPalette.violetLight.opacity(0.55))
+                        .blur(radius: size * 0.16)
+                        .offset(y: size * 0.05)
+                    PlinkMarkSilhouette()
+                        .fill(.black)
+                        .blendMode(.destinationOut)
+                }
+                .compositingGroup()
+                .frame(width: width, height: size)
             }
             PlinkMarkShapeB()
                 .fill(PlinkBrandPalette.markB)
+            // Обводка хвоста рисуется ДО фигуры A: там, где плоскости
+            // сходятся, A ложится сверху и стирает шов, а наружу остаётся
+            // только внешняя дуга — единственная граница хвоста с фоном.
+            PlinkMarkShapeB()
+                .stroke(
+                    PlinkBrandPalette.rimB,
+                    // Пол 0.5 pt, а не 0.8: на плитке иконки знак 15 pt шириной,
+                    // и 0.8 pt давали 5.3 % ширины против 1.54 % на сплэше —
+                    // хвост читался пустым контуром, а не тёмной плоскостью.
+                    // 0.5 pt = ровно 1 px при 2x, ниже кромка растворяется
+                    // в сглаживании.
+                    lineWidth: max(0.5, width * PlinkBrandPalette.rimBWidthRatio)
+                )
             PlinkMarkShapeA()
                 .fill(PlinkBrandPalette.markA)
             PlinkMarkShapeA()

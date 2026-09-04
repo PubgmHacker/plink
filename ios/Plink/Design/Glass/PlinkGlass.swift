@@ -14,6 +14,97 @@
 
 import SwiftUI
 
+// MARK: - Класс устройства
+
+/// Два класса устройств, на которые продукт рисует по-разному.
+///
+/// Повод — «на iPhone 11 выглядит дешевле, чем на 17 Pro». Это не ощущение, у
+/// разницы две измеримые причины, и обе не про вкус.
+///
+/// 1. ЭКРАН. Все iPhone с экраном 2× (11, XR, SE) — LCD, а не OLED. Чёрный у
+///    LCD подсвечен, контраст панели порядка 1400:1 против миллионов у OLED.
+///    Продукт нарисован по тёмному #010008 с длинными фиолетовыми градиентами:
+///    на OLED это глубина, на LCD — серая муть, в которой плоскости стекла
+///    перестают отличаться от фона, а градиенты идут ступеньками. Значит
+///    классике нужна БОЛЬШАЯ плотность подложки и заметная кромка, а не
+///    меньшая: панель обязана читаться панелью на приподнятом чёрном.
+/// 2. ЦЕНА ДЕКОРА. Фон шелла держит три полноэкранных гауссовых размытия
+///    (90/70/80 pt) и пересчитывает их 30 раз в секунду из TimelineView. На
+///    A13 это самый дорогой кадр в приложении, и стоит он там, где продукт
+///    впервые показывают, — на сплэше и входе. Блик стекла вдобавок идёт
+///    через `.blendMode(.overlay)`, то есть отдельным офскрин-проходом на
+///    каждую стеклянную поверхность, а их в ряду чипов на Главной десяток.
+///
+/// Класс определяется по двум признакам сразу: экран 2× ИЛИ меньше 3,5 ГБ
+/// памяти. Одного мало. По экрану не проходит iPhone X/XS (3×, но A11/A12 и
+/// 3–4 ГБ), по памяти — iPhone 11 (4 ГБ, но LCD 2×).
+enum PlinkDeviceTier: Hashable {
+    /// Экран 2× (LCD) и/или A12–A13-класс: 11, XR, SE, старые iPad.
+    case classic
+    /// 3× OLED и современный SoC: 13 Pro и новее.
+    case modern
+
+    /// Память не меняется за жизнь процесса — считаем один раз.
+    static let hasScarceMemory: Bool = {
+        let bytes = ProcessInfo.processInfo.physicalMemory
+        return bytes > 0 && bytes < 3_758_096_384  // 3,5 ГБ
+    }()
+
+    /// `displayScale` берётся из окружения SwiftUI, а не из UIScreen: у
+    /// офскрин-рендера и внешнего дисплея он свой, и вид обязан следовать
+    /// тому, на чём его действительно рисуют.
+    static func resolve(displayScale: CGFloat, override: PlinkDeviceTier? = nil) -> PlinkDeviceTier {
+        if let override { return override }
+        if displayScale > 0, displayScale < 3 { return .classic }
+        return hasScarceMemory ? .classic : .modern
+    }
+
+    var isClassic: Bool { self == .classic }
+
+    /// Волосяная линия ровно в один физический пиксель. В пунктах «1» — это
+    /// два пикселя на 2× и три на 3×, то есть всегда толще волоса.
+    func hairline(displayScale: CGFloat) -> CGFloat {
+        displayScale > 0 ? 1 / displayScale : 0.5
+    }
+
+    /// Прибавка к белой подложке ручного стекла. На LCD без неё поверхность
+    /// сливается с фоном.
+    var glassFillBoost: Double { isClassic ? 0.05 : 0 }
+
+    /// Множитель прозрачностей градиентной кромки: на приподнятом чёрном
+    /// кромка обязана быть заметнее, иначе у панели нет края.
+    var glassEdgeGain: Double { isClassic ? 1.3 : 1 }
+
+    /// Верхний блик через `.blendMode(.overlay)`. На классике снят: офскрин
+    /// на каждую поверхность, а на LCD он вдобавок почти не виден.
+    var drawsGlassSpecular: Bool { !isClassic }
+
+    /// Рисовать ли декоративные пятна плотным диском под гауссовым размытием.
+    /// На классике — нет: то же пятно кладётся радиальным градиентом, без
+    /// офскрин-буфера под размытие и без кромки, которую урезанный радиус
+    /// размытия начинал показывать.
+    var usesBlurredOrbs: Bool { !isClassic }
+
+    /// Сколько орбов рисует фон шелла.
+    var decorativeOrbCount: Int { isClassic ? 2 : 3 }
+
+    /// Шаг таймлайна декора: 20 кадров в секунду против 30. Дыхание идёт с
+    /// периодом 3,4 с — на глаз разницы нет, а работы на треть меньше.
+    var decorativeFrameInterval: Double { isClassic ? 1.0 / 20 : 1.0 / 30 }
+}
+
+private struct PlinkDeviceTierOverrideKey: EnvironmentKey {
+    static let defaultValue: PlinkDeviceTier? = nil
+}
+
+extension EnvironmentValues {
+    /// Принудительный класс устройства — для снимков дизайна и превью.
+    var plinkDeviceTierOverride: PlinkDeviceTier? {
+        get { self[PlinkDeviceTierOverrideKey.self] }
+        set { self[PlinkDeviceTierOverrideKey.self] = newValue }
+    }
+}
+
 // MARK: - Роль стеклянной поверхности
 
 /// Насколько «плотное» стекло нужно поверхности.
@@ -35,10 +126,18 @@ enum PlinkGlassRole {
     }
 
     /// Радиус и смещение тени: крупные поверхности «толще» и дают мягче тень.
-    var shadow: (radius: CGFloat, y: CGFloat, opacity: Double) {
+    ///
+    /// У `.control` тени нет намеренно. Контрол сидит В контенте, а не парит
+    /// над ним, и системное стекло iOS 26 рисует контактную тень само —
+    /// вторая, чёрная, только пачкала кадр. На плотном ряду это было видно
+    /// прямо: чипы жанров на Главной стоят в считаные пункты друг от друга,
+    /// радиус тени (10) был шире промежутка, тени соседей складывались в
+    /// щели, а горизонтальный ScrollView срезал их по своей рамке ровной
+    /// чертой. Между кнопками получалась полоса грязи, а не глубина.
+    var shadow: (radius: CGFloat, y: CGFloat, opacity: Double)? {
         switch self {
         case .navigation: return (22, 10, 0.34)
-        case .control:    return (10, 4, 0.22)
+        case .control:    return nil
         case .overlay:    return (16, 8, 0.30)
         }
     }
@@ -99,10 +198,9 @@ private struct NativeGlass<S: InsettableShape>: ViewModifier {
     let isInteractive: Bool
 
     func body(content: Content) -> some View {
-        let shadow = role.shadow
-        return content
+        content
             .glassEffect(glass, in: shape)
-            .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
+            .plinkGlassShadow(role.shadow)
     }
 
     private var glass: Glass {
@@ -126,36 +224,47 @@ private struct HandRolledGlass<S: InsettableShape>: ViewModifier {
     let shape: S
     let tint: Color?
 
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.plinkDeviceTierOverride) private var tierOverride
+
+    private var tier: PlinkDeviceTier {
+        PlinkDeviceTier.resolve(displayScale: displayScale, override: tierOverride)
+    }
+
     func body(content: Content) -> some View {
-        let shadow = role.shadow
-        return content
+        content
             .background {
                 ZStack {
                     shape.fill(.ultraThinMaterial)
-                    shape.fill(Color.white.opacity(role.fallbackFill))
+                    // Подложка плотнее на LCD-классике: см. PlinkDeviceTier.
+                    shape.fill(Color.white.opacity(role.fallbackFill + tier.glassFillBoost))
                     if let tint {
                         shape.fill(tint.opacity(0.18))
                     }
                     // Блик смещён к верхней кромке, а не размазан по всей
-                    // площади — иначе поверхность читается плоской.
-                    shape
-                        .fill(
-                            LinearGradient(
-                                colors: [.white.opacity(0.30), .white.opacity(0.0)],
-                                startPoint: .top,
-                                endPoint: .center
+                    // площади — иначе поверхность читается плоской. На
+                    // классике снят: overlay-блендом он стоит офскрин-прохода
+                    // на каждую поверхность, а на LCD почти не виден.
+                    if tier.drawsGlassSpecular {
+                        shape
+                            .fill(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.30), .white.opacity(0.0)],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                )
                             )
-                        )
-                        .blendMode(.overlay)
+                            .blendMode(.overlay)
+                    }
                 }
             }
             .overlay {
                 shape.strokeBorder(
                     LinearGradient(
                         colors: [
-                            .white.opacity(0.55),
-                            .white.opacity(0.06),
-                            .white.opacity(0.22),
+                            .white.opacity(min(1, 0.55 * tier.glassEdgeGain)),
+                            .white.opacity(min(1, 0.06 * tier.glassEdgeGain)),
+                            .white.opacity(min(1, 0.22 * tier.glassEdgeGain)),
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -163,7 +272,23 @@ private struct HandRolledGlass<S: InsettableShape>: ViewModifier {
                     lineWidth: 1
                 )
             }
-            .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
+            .plinkGlassShadow(role.shadow)
+    }
+}
+
+// MARK: - Тень поверхности
+
+private extension View {
+    /// Тень стекла — только у ролей, которые действительно парят над
+    /// контентом. У `.control` роль возвращает nil, и модификатор ничего не
+    /// добавляет: лишний слой в дереве не появляется.
+    @ViewBuilder
+    func plinkGlassShadow(_ shadow: (radius: CGFloat, y: CGFloat, opacity: Double)?) -> some View {
+        if let shadow {
+            self.shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
+        } else {
+            self
+        }
     }
 }
 

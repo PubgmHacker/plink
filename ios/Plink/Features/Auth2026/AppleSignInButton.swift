@@ -5,6 +5,9 @@ import SwiftUI
 import AuthenticationServices
 
 struct AppleSignInButton: View {
+    /// Подпись кнопки. HIG: она обязана называть действие — «Войти через
+    /// Apple» на входе и «Регистрация через Apple» на регистрации.
+    var title: String = L10n.text(.authAppleButton)
     var onSuccess: () -> Void
     var onError: (String) -> Void
 
@@ -37,21 +40,30 @@ struct AppleSignInButton: View {
                 }
             }
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: "apple.logo")
-                    .font(.system(size: 17, weight: .medium))
-                Text(isLoading ? L10n.text(.authAppleSigningIn) : L10n.text(.authAppleButton))
-                    .font(.system(size: 15, weight: .semibold))
+                    // 19 pt при кегле 16,5: HIG задаёт знак чуть крупнее
+                    // прописной высоты подписи, иначе он читается точкой.
+                    .authFont(19, weight: .medium)
+                    .baselineOffset(-1)
+                Text(isLoading ? L10n.text(.authAppleSigningIn) : title)
+                    .authFont(16.5, weight: .semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .foregroundStyle(Color(hex: 0x101013))
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 50)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            // 56/16 — та же геометрия, что у главной кнопки. Было 50/14: две
+            // полноширинные кнопки разной высоты и разного радиуса читались
+            // как элементы из двух разных приложений.
+            .frame(minHeight: 56)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .opacity(isLoading ? 0.7 : 1)
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
         .accessibilityIdentifier("auth.signInWithApple")
-        .accessibilityLabel(L10n.text(.authAppleButton))
+        .accessibilityLabel(title)
     }
 }
 

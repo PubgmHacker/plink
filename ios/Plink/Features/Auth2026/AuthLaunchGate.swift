@@ -103,6 +103,34 @@ struct AuthLaunchGate: View {
         )
     }
 
+    #if DEBUG && targetEnvironment(simulator)
+    /// Комната для `-plink.designplayer`: ровно те поля, которые читает
+    /// WatchRoomCompositionRoot.mediaSourceFromRoom, чтобы `.mp4` ушёл в
+    /// NativePlayerController, а не в webview.
+    private static func debugRoom(mediaURL: URL) -> Room {
+        let me = AuthService.shared.currentUserValue
+        return Room(
+            id: "design-player",
+            name: "Проба плеера",
+            hostID: me?.id ?? "design-host",
+            hostName: me?.username ?? "design",
+            code: "DSGNPL",
+            participants: [],
+            mediaItem: MediaItem(
+                id: "design-player-media",
+                title: "Проба плеера",
+                streamURL: mediaURL.absoluteString,
+                mediaType: .video,
+                source: .url
+            ),
+            isActive: true,
+            maxParticipants: 10,
+            hostIsPremium: false,
+            createdAt: Date()
+        )
+    }
+    #endif
+
     private func restoreSession() async {
         #if DEBUG
         // Дизайн-превью: `-plink.designpreview` открывает оболочку приложения
@@ -166,6 +194,25 @@ struct AuthLaunchGate: View {
                             NotificationCenter.default.post(
                                 name: Notification.Name("plinkOpenCreateRoom"),
                                 object: nil
+                            )
+                        }
+                    }
+                    // `-plink.designplayer <url>` — открыть комнату сразу на
+                    // готовой ссылке, минуя мастера создания. Нужен, чтобы
+                    // снимать хром плеера в симуляторе: любой внешний сервис
+                    // здесь мёртв (VPN публикует пустой DNS, CFNetwork слеп),
+                    // а локальный mp4 через 127.0.0.1 играет по-настоящему.
+                    // Комната синтетическая и никуда не отправляется: сокет
+                    // просто не подключится, поверхность плеера — локальная.
+                    if let i = args.firstIndex(of: "-plink.designplayer"),
+                       args.indices.contains(i + 1),
+                       let mediaURL = URL(string: args[i + 1]) {
+                        let room = Self.debugRoom(mediaURL: mediaURL)
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(2500))
+                            NotificationCenter.default.post(
+                                name: .plinkRoomCreated,
+                                object: room
                             )
                         }
                     }
@@ -380,21 +427,43 @@ struct PlinkSplashView: View {
     @Environment(\.plinkAccessibilityOverride) private var override
     @State private var appeared = false
     @State private var pulsing = false
+    @State private var showProgress = false
 
     private var reduceMotion: Bool { systemReduceMotion || override.reduceMotion || frozen }
 
+    /// Куда смотрит и знак, и сияние, и гнездо под ними. Одна константа,
+    /// иначе три центра расходятся и композиция «плывёт».
+    private static let anchor = UnitPoint(x: 0.5, y: 0.40)
+
     var body: some View {
         ZStack {
-            // Сияние чуть ниже, чем на входе: там оно стоит над формой, здесь
-            // — ровно за знаком, который висит по центру.
-            PlinkShellBackground(glowCenter: UnitPoint(x: 0.5, y: 0.42))
+            PlinkShellBackground(glowCenter: Self.anchor, glowStrength: 1.15)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                Spacer()
+            // Гнездо под лок-апом.
+            //
+            // Раньше знак стоял ровно в ярчайшей точке сияния, и мерили это
+            // так: тёмная плоскость знака (#3C1588) шла по фону #2C0F68 —
+            // контраст 1,4:1. Второй план логотипа при таком контрасте не
+            // существует: глаз видит не две плоскости, а одну светлую стрелку
+            // и грязное пятно под ней. На иконке домашнего экрана тот же знак
+            // читается идеально, потому что там под ним чистый #010008.
+            //
+            // Гнездо возвращает лок-апу этот чёрный, а сияние остаётся тем,
+            // чем должно быть, — кольцом вокруг, а не заливкой под.
+            // Профиль спада подобран по лок-апу, а не на глаз. Чернота нужна
+            // плотной там, где стоит сам знак: хвост укладывается в 48 pt от
+            // якоря, а это опора 0,96 — фон под ним чистый. Дальше гнездо
+            // отпускает быстро, иначе оно душит сияние и на периферии: на
+            // радиусе 560 накрывало весь экран, кадр становился глухим.
+            // Сияние заодно усилено (1,15) — оно ушло из-под знака и обязано
+            // отработать вокруг, кольцом.
+            PlinkLockupNest(center: Self.anchor, radius: 300)
+                .ignoresSafeArea()
 
-                // Дышит только знак: вордмарк и теглайн под ним стоят на
-                // месте, иначе весь блок «плывёт» и читается как лаг.
+            // Дышит только знак: вордмарк и теглайн под ним стоят на
+            // месте, иначе весь блок «плывёт» и читается как лаг.
+            VStack(spacing: 0) {
                 PlinkBrandMark(size: 96)
                     .scaleEffect(pulsing ? 1.03 : 1.0)
 
@@ -403,20 +472,28 @@ struct PlinkSplashView: View {
 
                 PlinkTagline(size: 12)
                     .padding(.top, 12)
-
-                Spacer()
-
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(PlinkShell.accentSoft)
-                    .scaleEffect(0.9)
-                    .opacity(0.85)
-                    .padding(.bottom, 48)
             }
+            // Лок-ап стоит в оптическом центре, а не в геометрическом: блок
+            // тяжёлый снизу (вордмарк плюс теглайн), и по геометрии он
+            // читается просевшим. Раньше этот подъём получался случайно —
+            // из-за вертушки, которую VStack считал частью колонки.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: -46)
             .opacity(appeared ? 1 : 0)
             .offset(y: (appeared || reduceMotion) ? 0 : 10)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(L10n.text(.launchA11y))
+
+            // Индикатор — отдельным слоем, не в колонке лок-апа: иначе он
+            // тянет её вверх и центр логотипа зависит от того, показан
+            // индикатор или нет.
+            VStack {
+                Spacer()
+                PlinkSplashProgress(reduceMotion: reduceMotion)
+                    .opacity(showProgress ? 1 : 0)
+                    .padding(.bottom, 56)
+            }
+            .accessibilityHidden(true)
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -428,6 +505,64 @@ struct PlinkSplashView: View {
                 pulsing = true
             }
         }
+        // Индикатор не показывается сразу. Восстановление сессии держит сплэш
+        // минимум 650 мс, и на быстром запуске вертушка успевала только
+        // мигнуть — читалось как подёргивание, а не как загрузка. Появляется
+        // он только там, где действительно ждут.
+        .task {
+            try? await Task.sleep(for: .milliseconds(900))
+            withAnimation(.easeOut(duration: 0.3)) { showProgress = true }
+        }
+    }
+}
+
+// MARK: - Индикатор сплэша
+
+/// Дорожка с бегущим бликом в цвете знака.
+///
+/// Здесь стоял системный `ProgressView` — серая вертушка UIKit, единственная
+/// не своя деталь на первом кадре бренда. Она не совпадала с продуктом ни
+/// формой, ни цветом, ни весом, и на тёмном фоне читалась как системный
+/// индикатор поверх чужого экрана.
+private struct PlinkSplashProgress: View {
+    var reduceMotion: Bool
+
+    @State private var travel = false
+
+    private let width: CGFloat = 104
+    private let height: CGFloat = 3
+
+    private var runner: CGFloat { width * 0.42 }
+
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(Color.white.opacity(0.10))
+            .frame(width: width, height: height)
+            .overlay(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                PlinkShell.accentSoft.opacity(0),
+                                PlinkShell.accentSoft,
+                                PlinkShell.accentSoft.opacity(0),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: runner, height: height)
+                    // При Reduce Motion блик стоит в середине дорожки:
+                    // индикатор остаётся, движение уходит.
+                    .offset(x: reduceMotion ? (width - runner) / 2 : (travel ? width : -runner))
+            }
+            .clipShape(Capsule(style: .continuous))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: false)) {
+                    travel = true
+                }
+            }
     }
 }
 

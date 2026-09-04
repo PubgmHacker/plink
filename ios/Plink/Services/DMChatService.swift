@@ -370,6 +370,21 @@ final class DMChatService: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self?.typingByFriend[from] = false
             }
+        case "read":
+            // Собеседник открыл чат — наши галочки становятся двойными сразу,
+            // не дожидаясь следующего опроса истории (модель Telegram).
+            let convID = conversationID(with: from)
+            guard var list = conversations[convID], let me = currentUserId else { return }
+            var flipped = false
+            for i in list.indices where list[i].senderID == me && !list[i].isRead {
+                list[i].isRead = true
+                flipped = true
+            }
+            if flipped {
+                conversations[convID] = list
+                historyEpoch &+= 1
+                persistHistoryCache(friendId: from, convID: convID)
+            }
         case "message", "edited", "deleted":
             let isNewMessage = event.event == "message"
             Task { [weak self] in

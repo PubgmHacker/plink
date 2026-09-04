@@ -30,6 +30,55 @@ struct MediaItem: Codable, Identifiable, Sendable, Equatable, Hashable {
         case local = "local"
     }
 
+    // `mediaItem` едет с сервера как непрозрачный JSON: бэкенд его не валидирует,
+    // а пишет как есть. Раньше любое расхождение — новый сервис в `source`,
+    // забытый `mediaType` — роняло декод ВСЕГО MediaItem, комната получала
+    // mediaItem = nil и показывала «Нет медиа в комнате — выберите YouTube-видео
+    // при создании». То есть комната с абсолютно рабочей ссылкой выглядела
+    // сломанной, и выйти из неё было некуда. Неизвестные значения перечислений
+    // больше не фатальны: тип по умолчанию — video, источник — url (по нему
+    // playback всё равно решает по самой ссылке в effectivePlaybackMode).
+    private enum CodingKeys: String, CodingKey {
+        case id, title, artist, thumbnailURL, streamURL, duration, mediaType, source, videoId
+    }
+
+    // Явный memberwise-инициализатор: собственный init(from:) выше подавляет
+    // сгенерированный компилятором.
+    init(
+        id: String,
+        title: String,
+        artist: String? = nil,
+        thumbnailURL: String? = nil,
+        streamURL: String,
+        duration: TimeInterval? = nil,
+        mediaType: MediaType,
+        source: MediaSource,
+        videoId: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.artist = artist
+        self.thumbnailURL = thumbnailURL
+        self.streamURL = streamURL
+        self.duration = duration
+        self.mediaType = mediaType
+        self.source = source
+        self.videoId = videoId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        artist = try c.decodeIfPresent(String.self, forKey: .artist)
+        thumbnailURL = try c.decodeIfPresent(String.self, forKey: .thumbnailURL)
+        streamURL = try c.decode(String.self, forKey: .streamURL)
+        duration = try c.decodeIfPresent(TimeInterval.self, forKey: .duration)
+        mediaType = (try? c.decodeIfPresent(MediaType.self, forKey: .mediaType)).flatMap { $0 } ?? .video
+        source = (try? c.decodeIfPresent(MediaSource.self, forKey: .source)).flatMap { $0 } ?? .url
+        videoId = try? c.decodeIfPresent(String.self, forKey: .videoId)
+    }
+
     var displayTitle: String {
         if let artist {
             return "\(artist) — \(title)"

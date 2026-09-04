@@ -151,6 +151,7 @@ struct PlinkSidebarShell: View {
                 theme: theme,
                 store: friendsStore,
                 roomsStore: roomsStore,
+                profileStore: profileStore,
                 isActive: selection == .friends
             )
         case .profile:

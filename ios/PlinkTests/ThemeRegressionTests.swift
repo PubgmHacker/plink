@@ -81,4 +81,60 @@ final class ThemeRegressionTests: XCTestCase {
         let backgrounds = PlinkPlusLiveTheme.allCases.map { "\($0.colors.0)" }
         XCTAssertEqual(Set(backgrounds).count, backgrounds.count)
     }
+
+    // MARK: - Класс устройства
+
+    /// Класс определяется по экрану ИЛИ по памяти, и одного признака мало:
+    /// iPhone 11 проходит только по экрану (4 ГБ, но LCD 2×), iPhone X —
+    /// только по памяти (3× OLED, но 3 ГБ). Проверяем обе двери отдельно.
+    func testDeviceTierResolvesByScale() {
+        XCTAssertEqual(PlinkDeviceTier.resolve(displayScale: 2), .classic, "2× — LCD-класс")
+        XCTAssertEqual(PlinkDeviceTier.resolve(displayScale: 1), .classic)
+        // На 3× решает память, а она у машины теста своя — поэтому здесь
+        // сверяемся с тем же признаком, а не с константой.
+        XCTAssertEqual(
+            PlinkDeviceTier.resolve(displayScale: 3),
+            PlinkDeviceTier.hasScarceMemory ? .classic : .modern
+        )
+    }
+
+    func testDeviceTierOverrideWins() {
+        XCTAssertEqual(
+            PlinkDeviceTier.resolve(displayScale: 3, override: .classic), .classic,
+            "снимки дизайна обязаны уметь принудить класс"
+        )
+        XCTAssertEqual(PlinkDeviceTier.resolve(displayScale: 2, override: .modern), .modern)
+    }
+
+    /// Волосяная линия — ровно один физический пиксель, а не «1 pt».
+    func testDeviceTierHairlineIsOnePixel() {
+        XCTAssertEqual(PlinkDeviceTier.classic.hairline(displayScale: 2), 0.5)
+        XCTAssertEqual(PlinkDeviceTier.modern.hairline(displayScale: 3), 1.0 / 3.0, accuracy: 0.0001)
+        XCTAssertEqual(PlinkDeviceTier.modern.hairline(displayScale: 0), 0.5, "деления на ноль быть не должно")
+    }
+
+    /// Классика рисует дешевле и плотнее, современный класс — без изменений.
+    /// Второе важнее первого: правка не имела права затронуть 17 Pro.
+    func testDeviceTierModernIsUntouched() {
+        let modern = PlinkDeviceTier.modern
+        XCTAssertEqual(modern.glassFillBoost, 0)
+        XCTAssertEqual(modern.glassEdgeGain, 1)
+        XCTAssertTrue(modern.drawsGlassSpecular)
+        XCTAssertTrue(modern.usesBlurredOrbs)
+        XCTAssertEqual(modern.decorativeOrbCount, 3)
+        XCTAssertEqual(modern.decorativeFrameInterval, 1.0 / 30, accuracy: 0.0001)
+    }
+
+    func testDeviceTierClassicIsCheaperAndDenser() {
+        let classic = PlinkDeviceTier.classic
+        XCTAssertGreaterThan(classic.glassFillBoost, 0, "на LCD подложка обязана быть плотнее")
+        XCTAssertGreaterThan(classic.glassEdgeGain, 1, "кромка заметнее — у панели должен быть край")
+        XCTAssertFalse(classic.drawsGlassSpecular, "overlay-блик снят: офскрин на каждую поверхность")
+        XCTAssertFalse(classic.usesBlurredOrbs, "гауссов проход снят целиком, а не урезан")
+        XCTAssertLessThan(classic.decorativeOrbCount, PlinkDeviceTier.modern.decorativeOrbCount)
+        XCTAssertGreaterThan(
+            classic.decorativeFrameInterval, PlinkDeviceTier.modern.decorativeFrameInterval,
+            "шаг больше = кадров меньше"
+        )
+    }
 }

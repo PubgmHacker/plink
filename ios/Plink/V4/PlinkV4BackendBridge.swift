@@ -478,6 +478,13 @@ final class V4FriendsStore {
     private(set) var friends: [Friend] = []
     private(set) var requests: [FriendRequest] = []
     private(set) var outgoing: [FriendRequest] = []
+    /// Stories rail of the Friends tab: friends with a recent watch or a
+    /// status, newest watch first (server order).
+    private(set) var stories: [FriendStoryOwner] = []
+    /// The viewer's own tile — status plus recent watches.
+    private(set) var myStory: FriendStoryOwner?
+    /// First stories response landed — the rail may render its empty state.
+    private(set) var storiesLoaded = false
     /// Exposed for Add Friend sheet (search / send)
     let friendManager: FriendManager
 
@@ -485,6 +492,8 @@ final class V4FriendsStore {
 
     func load() async {
         state = .loading
+        // Stories ride alongside the friend list — one screen, one wait.
+        async let storiesRefresh: Void = loadStories()
         await friendManager.loadAll()
         friends = friendManager.friends
         requests = friendManager.incomingRequests
@@ -492,16 +501,34 @@ final class V4FriendsStore {
         // Chats section should show "loaded" whenever we have friends,
         // even if requests are empty (sender after accept on other phone).
         state = friends.isEmpty && requests.isEmpty && outgoing.isEmpty ? .empty : .loaded
+        await storiesRefresh
     }
 
     /// Quiet refresh without full-screen loading spinner (poll / tab focus).
     func refreshQuietly() async {
+        async let storiesRefresh: Void = loadStories()
         await friendManager.loadAll()
         friends = friendManager.friends
         requests = friendManager.incomingRequests
         outgoing = friendManager.outgoingRequests
-        if case .loading = state { return }
+        if case .loading = state { await storiesRefresh; return }
         state = friends.isEmpty && requests.isEmpty && outgoing.isEmpty ? .empty : .loaded
+        await storiesRefresh
+    }
+
+    /// GET /api/friends/stories. A failure keeps the previous rail: the friend
+    /// list itself reports connectivity, the rail just stays as it was.
+    func loadStories() async {
+        do {
+            let response: FriendStoriesResponse = try await APIClient.shared.request("friends/stories")
+            stories = response.friends
+            myStory = response.me
+            storiesLoaded = true
+        } catch {
+            #if DEBUG
+            print("[V4FriendsStore] stories failed: \(error)")
+            #endif
+        }
     }
 
     func invite(userID: String, username: String) async {

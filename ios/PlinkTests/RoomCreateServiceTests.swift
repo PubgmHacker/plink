@@ -85,10 +85,14 @@ final class RoomCreateServiceTests: XCTestCase {
 
     // MARK: - Cinema / OTT (ваш экран)
 
-    func testCinemaTitlePagesDetect() {
+    func testCinemaTitlePagesDetect() throws {
         let cases: [(VideoService, String)] = [
             (.kinopoisk, "https://www.kinopoisk.ru/film/12345/"),
-            (.ivi, "https://www.ivi.ru/watch/show"),
+            // Иви ловится ТОЛЬКО по странице плеера /watch/<число>.
+            // Было "/watch/show" — слаг без id: детектор его больше не
+            // принимает (иначе страница жанра создавала комнату без фильма),
+            // и тест падал на force-unwrap. Негативные случаи — ниже.
+            (.ivi, "https://www.ivi.ru/watch/123456"),
             (.okko, "https://okko.tv/movie/foo"),
             (.wink, "https://wink.ru/watch/1"),
             (.start, "https://start.ru/watch/x"),
@@ -99,9 +103,14 @@ final class RoomCreateServiceTests: XCTestCase {
             (.disney, "https://www.disneyplus.com/play/abc"),
         ]
         for (svc, href) in cases {
-            let d = VideoService.detectVideoURL(URL(string: href)!, for: svc, title: svc.rawValue)
-            XCTAssertNotNil(d, "\(svc.rawValue) should detect \(href)")
-            let item = RoomCreateMedia.mediaItem(service: svc, video: d!, roomName: svc.rawValue)
+            // XCTUnwrap, а не `d!`: при промахе детектора force-unwrap ронял
+            // весь бандл фатальной ошибкой, и остальные наборы тестов не
+            // добегали до конца — падение одного сервиса скрывало прогон.
+            let d = try XCTUnwrap(
+                VideoService.detectVideoURL(URL(string: href)!, for: svc, title: svc.rawValue),
+                "\(svc.rawValue) should detect \(href)"
+            )
+            let item = RoomCreateMedia.mediaItem(service: svc, video: d, roomName: svc.rawValue)
             XCTAssertEqual(item.source, .url)
             XCTAssertEqual(item.streamURL, href)
             let expectedBucket: DeliveryBucket = svc.serviceType.requiresAuth ? .bySubscription : .worksNow
@@ -118,6 +127,35 @@ final class RoomCreateServiceTests: XCTestCase {
         XCTAssertNil(VideoService.detectVideoURL(URL(string: "https://www.netflix.com/browse")!, for: .netflix, title: nil))
         XCTAssertNil(VideoService.detectVideoURL(URL(string: "https://kinopoisk.ru/")!, for: .kinopoisk, title: nil))
         XCTAssertNil(VideoService.detectVideoURL(URL(string: "https://www.disneyplus.com/")!, for: .disney, title: nil))
+    }
+
+    /// Иви — единственный сервис по подписке в бете, поэтому его детектор
+    /// сужен до страницы плеера. Запираем именно это: витрина, жанр и слаг
+    /// без числового id не имеют права создавать комнату — иначе человек
+    /// заходит в «сеанс», где играть нечего.
+    func testIviCatalogueAndSlugPagesDoNotDetect() {
+        let noVideo = [
+            "https://www.ivi.ru/",
+            "https://www.ivi.ru/movies",
+            "https://www.ivi.ru/movies/drama",
+            "https://www.ivi.ru/collections/new",
+            "https://www.ivi.ru/watch",
+            "https://www.ivi.ru/watch/show",
+        ]
+        for href in noVideo {
+            XCTAssertNil(
+                VideoService.detectVideoURL(URL(string: href)!, for: .ivi, title: nil),
+                href
+            )
+        }
+
+        // А страница плеера — ловится, в обеих раскладках Иви.
+        for href in ["https://www.ivi.ru/watch/123456", "https://www.ivi.ru/watch/nekiy-film/123456"] {
+            XCTAssertNotNil(
+                VideoService.detectVideoURL(URL(string: href)!, for: .ivi, title: nil),
+                href
+            )
+        }
     }
 
     // MARK: - Browser / custom
@@ -175,7 +213,7 @@ final class RoomCreateServiceTests: XCTestCase {
             (.browser, "https://example.com/watch"),
             (.customURL, "https://cdn.example.com/a.m3u8"),
             (.kinopoisk, "https://www.kinopoisk.ru/film/12345/"),
-            (.ivi, "https://www.ivi.ru/watch/show"),
+            (.ivi, "https://www.ivi.ru/watch/123456"),
             (.okko, "https://okko.tv/movie/foo"),
             (.wink, "https://wink.ru/watch/1"),
             (.start, "https://start.ru/watch/x"),
@@ -263,10 +301,15 @@ final class RoomCreateServiceTests: XCTestCase {
         XCTAssertNil(VideoService.detectVideoURL(URL(string: "https://rutube.ru/")!, for: .rutube, title: nil))
     }
 
-    /// First release ships exactly three watchable services; the rest are "soon".
-    func testBetaServicesAreYouTubeRutubeAndVK() {
+    /// First release ships exactly four watchable services; the rest are "soon".
+    ///
+    /// Иви добавлен четвёртым: он играет в комнате через свой веб-плеер —
+    /// человек входит в свой аккаунт Иви и время синхронизируется. Тест
+    /// раньше требовал ровно три сервиса и падал после этого расширения;
+    /// список держим здесь, чтобы новый провайдер не попадал в бету молча.
+    func testBetaServicesAreYouTubeRutubeVKAndIvi() {
         let beta = Set(VideoService.allCases.filter(\.isAvailableInBeta))
-        XCTAssertEqual(beta, [.youtube, .rutube, .vk])
+        XCTAssertEqual(beta, [.youtube, .rutube, .vk, .ivi])
     }
 }
 

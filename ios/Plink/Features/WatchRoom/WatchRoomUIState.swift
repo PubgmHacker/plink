@@ -14,7 +14,11 @@ struct WatchRoomUIState: Equatable {
     // Ephemeral UI state (existing — preserved for back-compat)
     var controlsVisible = true
     var chatPresented = false
-    var chatDrawerVisible = true
+    /// Ящик чата в ландшафте. По умолчанию закрыт: ландшафт — это «во весь
+    /// экран», и открывать поверх фильма панель на 40 % ширины за человека
+    /// неправильно. Чат в одном тапе — переключатель стоит в нижней панели
+    /// плеера рядом со звуком.
+    var chatDrawerVisible = false
     var isScrubbing = false
     var previewPosition: Double?
     var unreadCount = 0
@@ -24,6 +28,21 @@ struct WatchRoomUIState: Equatable {
     /// автоскрытия удалялся из иерархии вместе с презентованным шитом —
     /// панель схлопывалась прямо под пальцем хоста.
     var appearancePanelPresented = false
+    /// Stamp of the last chrome toggle. A web player surface reports taps
+    /// through a UIKit recognizer while the room root also has a SwiftUI tap;
+    /// one finger may reach both, so the toggle is collapsed per touch.
+    var controlsToggledAt: Date = .distantPast
+
+    /// Toggles the chrome once per touch; returns false when the tap was a
+    /// duplicate of one handled a moment ago.
+    @discardableResult
+    mutating func toggleControlsDebounced() -> Bool {
+        let now = Date()
+        guard now.timeIntervalSince(controlsToggledAt) > 0.35 else { return false }
+        controlsToggledAt = now
+        controlsVisible.toggle()
+        return true
+    }
 
     // The ambient palette, room identity and presence list are owned by
     // WatchRoomModel (ambient is fed by AmbientVideoSampler). The values below
@@ -57,3 +76,18 @@ struct PresencePill: Identifiable, Equatable, Sendable {
 }
 
 // MARK: - Presence
+
+/// Диагностика хрома: кто именно поднял или погасил панель. Пишется только
+/// в отладочной сборке и только под `-plink.designplayer`, читается из лога
+/// симулятора живым UI-кейсом. В релизе функции нет вовсе.
+enum PlinkChromeTrace {
+    #if DEBUG
+    static let enabled = ProcessInfo.processInfo.arguments.contains("-plink.designplayer")
+    static func log(_ what: String) {
+        guard enabled else { return }
+        NSLog("PLINKCHROME %@", what)
+    }
+    #else
+    static func log(_ what: String) {}
+    #endif
+}

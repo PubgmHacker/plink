@@ -240,6 +240,9 @@ struct V4Hero: View {
     /// мелкой меты источник было не разглядеть — а «чей это фильм и где
     /// показывается» для витрины агрегатора главный вопрос.
     var provider: String? = nil
+    /// Сервис карточки — источник настоящего логотипа. Отдельно от строки
+    /// `provider` потому, что у ролика в ней имя канала, а не бренда.
+    var service: VideoService? = nil
     /// Кадр контента. Без него герой — пустой градиент, который ничего не
     /// говорит о видео; градиенты ниже остаются фоном на время загрузки.
     var artworkURL: URL? = nil
@@ -282,20 +285,7 @@ struct V4Hero: View {
             )
             VStack(alignment: .leading, spacing: 10) {
                 if let provider, !provider.isEmpty {
-                    HStack(spacing: 7) {
-                        Circle()
-                            .fill(brandColor(provider))
-                            .frame(width: 7, height: 7)
-                        Text(provider.uppercased())
-                            .font(.system(size: 12.5, weight: .heavy))
-                            .tracking(2.0)
-                            .foregroundStyle(.white.opacity(0.95))
-                    }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .background(.black.opacity(0.55), in: Capsule())
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
-                    .accessibilityLabel("Сервис: \(provider)")
+                    V4ProviderMark(provider: provider, service: service)
                 }
                 // Названия с YouTube бывают в пять строк — такой заголовок
                 // съедает весь кадр героя целиком.
@@ -341,22 +331,64 @@ struct V4Hero: View {
     private func scrim(_ alpha: Double) -> Color {
         Color.oklch(0.06, 0.01, 190, alpha: alpha)
     }
+}
 
-    /// Фирменный цвет точки в бейдже сервиса. Неизвестный сервис получает
-    /// нейтральную белую точку — бейдж остаётся читаемым без словаря брендов.
-    private func brandColor(_ name: String) -> Color {
-        switch name.trimmingCharacters(in: .whitespaces).lowercased() {
-        case "иви", "ivi":     return Color(red: 0.92, green: 0.00, blue: 0.24)
-        case "netflix":        return Color(red: 0.90, green: 0.03, blue: 0.08)
-        case "youtube":        return Color(red: 1.00, green: 0.00, blue: 0.00)
-        case "кинопоиск":      return Color(red: 1.00, green: 0.40, blue: 0.00)
-        // Второй каталог витрины (26.08.2026): без своей строки точка героя
-        // была белой заглушкой — единственный кинотеатр без цвета бренда.
-        case "premier":        return Color(red: 0.94, green: 0.27, blue: 0.27)
-        case "окко", "okko":   return Color(red: 1.00, green: 0.00, blue: 0.20)
-        case "смотрим":        return Color(red: 0.00, green: 0.63, blue: 0.69)
-        default:               return .white.opacity(0.75)
+// MARK: - Марка сервиса
+
+/// Чей это контент — над заголовком героя. Настоящий логотип, а не цветная
+/// точка: кружок фирменного цвета рядом с именем — идиома индикатора
+/// состояния (LIVE, REC, «в сети») и о принадлежности контента не говорит
+/// ничего, а логотип узнаётся раньше, чем прочитано слово.
+///
+/// Плашки под маркой нет. Скрим героя уже затемняет низ кадра, и третий слой
+/// затемнения поверх него — язык нажимаемого элемента на подписи, которую
+/// нажать нельзя. Читаемость на светлом кадре держит не плашка, а ореол из
+/// двух теней: на тёмном кадре его не видно вовсе.
+struct V4ProviderMark: View {
+    /// Строка меты: имя кинотеатра у тайтла, имя канала у ролика.
+    let provider: String
+    /// Сервис карточки — источник логотипа. Отдельно от строки потому, что
+    /// у ролика в ней канал, а не бренд.
+    var service: VideoService? = nil
+
+    /// Сторона плитки логотипа. 24 pt — заголовок героя набран 26,4: марка
+    /// читается как равный ему элемент, а не как значок при тексте.
+    private static let side: CGFloat = 24
+    private static let corner: CGFloat = 6.5
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let service, service.assetName != nil {
+                ServiceLogoView(service: service, size: Self.side)
+                    // Половина марок (Netflix, YouTube, Disney) — прозрачные
+                    // знаки без своего фона: без плиты они висят в воздухе и
+                    // на карусели прыгают в размере рядом с полноформатными
+                    // иконками. Плита делает все марки одной плиткой 24×24.
+                    .background(Color.black.opacity(0.72))
+                    .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+                    // Логотипы на белой подложке (Wink, RuTube) на светлом
+                    // кадре сливаются с ним — обводка держит край плитки.
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
+                            .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.45), radius: 5, y: 2)
+            }
+            // Подпись остаётся и рядом со словесным знаком: на 24 pt имя
+            // внутри логотипа нечитаемо (у Netflix буквы высотой 3 pt) —
+            // марка работает узнаванием, имя произносит текст.
+            Text(provider)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+                // Плотная тень держит контраст вплотную к штриху, широкая
+                // сажает подпись на кадр. Обе чёрные: на тёмном кадре они
+                // ничего не добавляют, на белом дают букве свой фон.
+                .shadow(color: .black.opacity(0.80), radius: 2.5, y: 0.5)
+                .shadow(color: .black.opacity(0.55), radius: 8, y: 2)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(service.map { "\($0.brandName), \(provider)" } ?? "Сервис: \(provider)")
     }
 }
 

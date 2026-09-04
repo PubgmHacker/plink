@@ -21,20 +21,10 @@ extension L10n {
             .english: "Sign in",
             .chinese: "登录"
         ],
-        .authMethodEmail: [
-            .russian: "Почта",
-            .english: "Email",
-            .chinese: "邮箱"
-        ],
         .authHeroA11y: [
             .russian: "Plink. Смотрите вместе — кадр в кадр",
             .english: "Plink. Watch together, frame for frame",
             .chinese: "Plink。一起观看，同步每一帧"
-        ],
-        .authMethodPickerA11y: [
-            .russian: "Способ входа",
-            .english: "Sign-in method",
-            .chinese: "登录方式"
         ],
         .authEmailTypo: [
             .russian: "Похоже, в адресе опечатка",
@@ -150,6 +140,18 @@ extension L10n {
             .russian: "Войти через Apple",
             .english: "Sign in with Apple",
             .chinese: "通过 Apple 登录"
+        ],
+        // HIG требует, чтобы подпись совпадала с действием: на регистрации
+        // «Войти через Apple» — вранье, там создаётся аккаунт.
+        .authAppleSignUpButton: [
+            .russian: "Регистрация через Apple",
+            .english: "Sign up with Apple",
+            .chinese: "通过 Apple 注册"
+        ],
+        .authOrDivider: [
+            .russian: "или",
+            .english: "or",
+            .chinese: "或"
         ],
         .authAppleNoToken: [
             .russian: "Apple не вернул identity token",

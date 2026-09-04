@@ -798,14 +798,19 @@ struct PlinkMessageBubble: View {
     private var metaColor: Color {
         switch frame {
         case .accent, .pulse: return Color(hex: "#08222B").opacity(0.55)
-        default: return Color.white.opacity(isOwn ? 0.72 : 0.5)
+        default: return Color.white.opacity(isOwn ? 0.55 : 0.5)
         }
     }
 
+    /// Двойная галочка «прочитано» — синяя, как в ВК/Telegram: на циановых
+    /// заливках глубокий синий, на тёмных — небесный. Отправлено остаётся
+    /// приглушённым, разница читается с первого взгляда.
     private var metaReadColor: Color {
         switch frame {
-        case .accent, .pulse: return Color(hex: "#08222B").opacity(0.8)
-        default: return Color.white.opacity(0.95)
+        case .accent, .pulse: return Color(hex: "#0B3FD6")
+        // Свой пузырь залит акцентом темы (синий, фиолетовый…) — небесно-голубой
+        // на нём сливался с заливкой; аква читается на любом акценте.
+        default: return Color(hex: "#7DF3FF")
         }
     }
 

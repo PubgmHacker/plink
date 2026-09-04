@@ -134,7 +134,7 @@ struct PlinkApprovedV4Root: View {
                     // отдельным экраном (fullScreenCover ниже).
                     V4AIViewLive(theme: theme, store: aiStore, searchStore: searchStore, isActive: tab == 2)
                         .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
-                    V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, isActive: tab == 3)
+                    V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, profileStore: profileStore, isActive: tab == 3)
                         .opacity(tab == 3 ? 1 : 0).allowsHitTesting(tab == 3)
                     // Настройки — не вкладка: шесть кнопок теснили таббар, а
                     // маршрут не ежедневный. Вход — строка «Общие настройки»
@@ -578,42 +578,68 @@ struct PlinkOngoingRoomCapsule: View {
     @State private var dragOffset: CGFloat = 0
 
     var body: some View {
-        Button {
-            HapticManager.impact(.medium)
-            action()
-        } label: {
-            HStack(spacing: 11) {
-                thumb
-                VStack(alignment: .leading, spacing: 1.5) {
-                    Text(room.mediaItem?.title ?? room.name)
-                        .font(.system(size: 12.5, weight: .heavy))
-                        .foregroundStyle(V4.ink)
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(V4.muted)
-                        .lineLimit(1)
+        HStack(spacing: 0) {
+            Button {
+                HapticManager.impact(.medium)
+                action()
+            } label: {
+                HStack(spacing: 11) {
+                    thumb
+                    VStack(alignment: .leading, spacing: 1.5) {
+                        Text(title)
+                            .font(.system(size: 12.5, weight: .heavy))
+                            .foregroundStyle(V4.ink)
+                            .lineLimit(1)
+                        Text(subtitle)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(V4.muted)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundStyle(theme.buttonTextColor)
+                        .frame(width: 30, height: 30)
+                        .background(theme.accentColor, in: Circle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "play.fill")
-                    .font(.system(size: 12, weight: .black))
-                    .foregroundStyle(theme.buttonTextColor)
-                    .frame(width: 30, height: 30)
-                    .background(theme.accentColor, in: Circle())
+                .padding(.leading, 9)
+                .frame(minHeight: 48)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 9)
-            .frame(minHeight: 48)
-            .plinkGlass(.navigation, in: Capsule(style: .continuous))
+            .buttonStyle(.plain)
+            .accessibilityLabel("Вернуться в комнату \(room.name)")
+            .accessibilityHint(subtitle)
+
+            // Видимый выход. Раньше капсулу можно было убрать только
+            // протяжкой вниз — жестом, о котором никто не знает: в отзыве
+            // 02.09 это прочли как «висит внизу и его нельзя скрыть».
+            // Протяжка осталась, но у выхода теперь есть кнопка.
+            if onDismiss != nil {
+                Button {
+                    HapticManager.impact(.rigid)
+                    onDismiss?()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(V4.muted)
+                        .frame(width: 34, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Покинуть комнату")
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.trailing, onDismiss == nil ? 9 : 3)
+        .frame(minHeight: 48)
+        .plinkGlass(.navigation, in: Capsule(style: .continuous))
         .offset(y: dragOffset)
         .opacity(1 - Double(min(dragOffset, 60)) / 120)
         .simultaneousGesture(dismissGesture)
         .padding(.horizontal, 26)
-        .accessibilityLabel("Вернуться в комнату \(room.name)")
-        .accessibilityHint(subtitle)
-        .accessibilityAction(named: Text("Покинуть комнату")) { onDismiss?() }
     }
+
+    /// Название фильма, а если ролика нет — имя комнаты.
+    private var title: String { room.mediaItem?.title ?? room.name }
 
     /// Pull the pill down past the threshold to leave; a short pull springs back.
     private var dismissGesture: some Gesture {
@@ -633,19 +659,31 @@ struct PlinkOngoingRoomCapsule: View {
             }
     }
 
+    /// Вторая строка. Имя комнаты повторяем только тогда, когда сверху стоит
+    /// название фильма: у комнаты без ролика заголовок — это и есть её имя, и
+    /// подпись дублировала его слово в слово («суперпес · 1 человек» под
+    /// «суперпес»). И одинокая комната больше не притворяется людной: пока
+    /// человек один, вместо счётчика стоит «Только вы».
     private var subtitle: String {
         let n = room.participantCount
-        let word: String
-        switch n % 100 {
-        case 11...14: word = "человек"
-        default:
-            switch n % 10 {
-            case 1: word = "человек"
-            case 2...4: word = "человека"
-            default: word = "человек"
+        let people: String
+        if n <= 1 {
+            people = LocalizationManager.shared.string(.roomOnlyYou)
+        } else {
+            let word: String
+            switch n % 100 {
+            case 11...14: word = "человек"
+            default:
+                switch n % 10 {
+                case 1: word = "человек"
+                case 2...4: word = "человека"
+                default: word = "человек"
+                }
             }
+            people = "\(n) \(word)"
         }
-        return "\(room.name) · \(n) \(word)"
+        guard room.mediaItem?.title != nil, room.name != title else { return people }
+        return "\(room.name) · \(people)"
     }
 
     private var thumb: some View {

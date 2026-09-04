@@ -45,6 +45,17 @@ enum PlinkURLs {
     /// legal and support links at the same place.
     static var webOrigin: String { PlinkConfig.baseURLString }
 
+    /// Plink+ purchase page on the website (YooKassa). Purchases happen only
+    /// there; the app reads the resulting entitlement from
+    /// `/api/billing/entitlements`. `plan` preselects a tariff (`1m|3m|12m`).
+    static func plusSite(plan: String? = nil) -> URL? {
+        var components = URLComponents(string: webOrigin + "/plus")
+        if let plan, !plan.isEmpty {
+            components?.queryItems = [URLQueryItem(name: "plan", value: plan)]
+        }
+        return components?.url
+    }
+
     /// Host used in links the user hands to other people.
     static var shareOrigin: String {
         if let override = UserDefaults.standard.string(forKey: shareOriginOverrideKey),

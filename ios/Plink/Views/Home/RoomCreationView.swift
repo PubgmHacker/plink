@@ -20,6 +20,7 @@ struct RoomCreationView: View {
     @State private var roomName: String = ""
     @State private var isPublic: Bool = true
     @State private var showAuthSheet: Bool = false
+    @State private var showAccountLogin: Bool = false
     @State private var pendingAuthService: VideoService? = nil
     @State private var isCreating: Bool = false
     @State private var heroOffset: CGFloat = 0
@@ -165,6 +166,17 @@ struct RoomCreationView: View {
                         .foregroundStyle(Cinema2026.text)
                 }
                 V4SheetCloseToolbarItem { dismiss() }
+            }
+        }
+        .sheet(isPresented: $showAccountLogin) {
+            if let svc = pendingAuthService, let account = LinkedExternalAccount(service: svc) {
+                CinemaAccountLoginSheet(account: account) {
+                    account.markConnected()
+                    showAccountLogin = false
+                    selectedService = svc
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { step = .content }
+                }
+                .preferredColorScheme(.dark)
             }
         }
         .sheet(isPresented: $showAuthSheet) {
@@ -414,7 +426,14 @@ struct RoomCreationView: View {
         RecentServicesStore.note(svc)
         if svc.serviceType.requiresAuth && !ServiceAuthStore.hasAccess(to: svc.serviceType) {
             pendingAuthService = svc
-            showAuthSheet = true
+            // Cinemas with a linked account sign in for real (cookies persist
+            // into the room player) before the catalogue opens; the explainer
+            // sheet stays for services without one.
+            if LinkedExternalAccount(service: svc) != nil {
+                showAccountLogin = true
+            } else {
+                showAuthSheet = true
+            }
         } else {
             selectedService = svc
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { step = .content }
@@ -477,6 +496,7 @@ struct RoomCreationView: View {
                 .padding(14)
                 .background(Cinema2026.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .foregroundStyle(Cinema2026.text)
+                .accessibilityIdentifier("room.customLinkField")
             Button {
                 let raw = customURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard raw.hasPrefix("http"), URL(string: raw) != nil else { return }
@@ -498,6 +518,7 @@ struct RoomCreationView: View {
             }
             .buttonStyle(.plain)
             .disabled(!customURLDraft.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("http"))
+            .accessibilityIdentifier("room.customNext")
         }
         .padding(20)
     }
@@ -597,6 +618,7 @@ struct RoomCreationView: View {
                 .buttonStyle(.plain)
                 .disabled(isCreating || detectedVideo == nil)
                 .opacity(isCreating || detectedVideo == nil ? 0.55 : 1)
+                .accessibilityIdentifier("room.create")
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
@@ -957,6 +979,7 @@ struct BetaVideoSearchView: View {
                     .submitLabel(.go)
                     .onSubmit(useLink)
                     .onChange(of: linkDraft) { linkRejected = false }
+                    .accessibilityIdentifier("room.linkField")
                 if !linkDraft.isEmpty {
                     Button {
                         useLink()
@@ -968,6 +991,7 @@ struct BetaVideoSearchView: View {
                     .buttonStyle(.plain)
                     .frame(width: 44, height: 44)
                     .accessibilityLabel("Открыть ссылку")
+                    .accessibilityIdentifier("room.linkGo")
                 }
             }
             .padding(.horizontal, 14)

@@ -26,6 +26,9 @@ struct WatchChatView: View {
             ScrollView {
                 let visible = model.chatMessages.filter { !UserBlockManager.shared.isBlocked($0.senderId) }
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if visible.isEmpty {
+                        WatchChatEmptyState()
+                    }
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
                         let isOwn = message.senderId == model.currentUserId
                         let prevId = index > 0 ? visible[index - 1].senderId : nil
@@ -458,5 +461,31 @@ private struct V5WatchBubbleShape: Shape {
             topTrailing: isOwn ? 6 : 16
         )
         return Path(roundedRect: rect, cornerRadii: radii)
+    }
+}
+
+// MARK: - Пустой чат
+
+/// Пока в комнате никто не писал — вместо чёрной пустоты короткая подсказка
+/// в тоне плеера. Живёт в самой ленте и не перекрывает поле ввода.
+struct WatchChatEmptyState: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(.white.opacity(0.35))
+            Text("Пока тихо")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.8))
+            Text("Напиши первым — сообщения видят все, кто в комнате")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.45))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
+        .padding(.top, 56)
+        .padding(.bottom, 24)
+        .accessibilityElement(children: .combine)
     }
 }

@@ -26,8 +26,9 @@ struct PlinkSeekBar: View {
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            let trackHeight: CGFloat = isScrubbing ? 8 : 6
-            let thumbSize: CGFloat = isScrubbing ? 18 : 14
+            // Thin idle track that thickens under the finger, as in Netflix/YouTube.
+            let trackHeight: CGFloat = isScrubbing ? 7 : 4
+            let thumbSize: CGFloat = isScrubbing ? 18 : 12
             let played = max(0, min(1, value / duration))
             let loaded = max(0, min(1, buffered))
 

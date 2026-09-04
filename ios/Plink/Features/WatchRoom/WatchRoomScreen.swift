@@ -33,8 +33,6 @@ struct WatchRoomScreen: View {
     // Room polls composer
     @State private var showPollComposer = false
     // Одноразовый хинт про контролы
-    @AppStorage("plink.roomControlsHintShown") private var roomControlsHintShown = false
-    @State private var showControlsHint = false
     /// Сервис комнаты требует своего входа — открываем его настоящую страницу.
     @State private var loginAccount: LinkedExternalAccount?
 
@@ -66,7 +64,8 @@ struct WatchRoomScreen: View {
 
             switch layoutVariant {
             case .portrait:
-                PortraitWatchLayout(model: model, ui: $ui)
+                PortraitWatchLayout(model: model, ui: $ui,
+                                    onPoll: { showPollComposer = true })
                     .transition(.opacity)
             case .landscape:
                 LandscapeWatchLayout(model: model, ui: $ui)
@@ -76,7 +75,9 @@ struct WatchRoomScreen: View {
                     .transition(.opacity)
             }
 
-            if let line = model.serviceNoticeLine {
+            // Only an actionable notice stays over the video: the "everyone
+            // uses their own account" line is explained before the room opens.
+            if model.needsServiceLogin, let line = model.serviceNoticeLine {
                 VStack {
                     Button {
                         guard model.needsServiceLogin,
@@ -207,26 +208,6 @@ struct WatchRoomScreen: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            // Одноразовый хинт для первой комнаты
-            if showControlsHint {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Image(systemName: "hand.tap.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Тапни по экрану — появятся контролы")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .plinkGlass(.overlay, in: Capsule(style: .continuous))
-                    .padding(.bottom, 120)
-                }
-                .zIndex(490)
-                .transition(.opacity)
-                .allowsHitTesting(false)
-            }
         }
         .background(Cinema2026.background.ignoresSafeArea())
         // Единственная стабильная точка, по которой UI-смоук понимает,
@@ -246,10 +227,10 @@ struct WatchRoomScreen: View {
             }
             model.updateDanmakuLaneCount(laneCount)
 
-            // P0.3: in landscape, show chat drawer by default for YouTube
-            if newVariant == .landscape && !ui.chatDrawerVisible {
-                ui.chatDrawerVisible = true
-            }
+            // Ящик чата на повороте не трогаем. Раньше вход в ландшафт
+            // принудительно открывал его — фильм сразу терял 40 % ширины,
+            // хотя человек шёл именно в полный экран. Состояние ящика —
+            // выбор человека, переключатель в нижней панели плеера.
         }
         // Permanent close — always hit-testable (not only when chrome is visible)
         .overlay(alignment: .topLeading) {
@@ -318,8 +299,12 @@ struct WatchRoomScreen: View {
             .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86),
                        value: model.catchUpPrompt?.sinceMs)
         }
+        // Голосование. В портрете кнопка живёт в строке комнаты под кадром
+        // (RoomHeaderBar) — оверлеем она садилась на ряд перемотки внутри
+        // видео. В ландшафте и на планшете такой строки нет, там она
+        // остаётся у левого края, ниже постоянного крестика.
         .overlay(alignment: .topLeading) {
-            if model.activePoll == nil {
+            if layoutVariant != .portrait, model.activePoll == nil {
                 Button {
                     showPollComposer = true
                 } label: {
@@ -380,16 +365,6 @@ struct WatchRoomScreen: View {
             withAnimation(.easeOut(duration: 0.3)) { model.moderationBarVisible = false }
         }
         .task {
-            // Одноразовый хинт «тапни по экрану» — только при первом входе
-            if !roomControlsHintShown {
-                roomControlsHintShown = true
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                withAnimation(.easeOut(duration: 0.25)) { showControlsHint = true }
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                withAnimation(.easeOut(duration: 0.4)) { showControlsHint = false }
-            }
-        }
-        .task {
             // «Продолжить просмотр» — хост делает синхронный seek к таймкоду
             guard let resume = PlinkPendingResume.take() else { return }
             for _ in 0..<40 {
@@ -448,12 +423,23 @@ struct WatchRoomScreen: View {
         .onChange(of: model.wantsDismiss) { _, wants in
             if wants { dismiss() }
         }
-        .onTapGesture {
-            guard !ui.chatPresented else { return }
-            withAnimation(.plinkControls) {
-                ui.controlsVisible.toggle()
+        // Жеста «тап по экрану → хром» здесь БОЛЬШЕ НЕТ, и это не упрощение.
+        // Он висел на корневом стеке, то есть на предке всех кнопок панели,
+        // и забирал их касания себе: тап по «Звук» или «Полный экран» гасил
+        // хром вместо своего действия — из портрета было не выйти вовсе.
+        // Живой кейс PlayerChromeLiveUITests ловил это как «кнопка исчезла
+        // сразу после тапа». Переключение хрома переехало внутрь кадра
+        // (PlayerStage.surfaceTapLayer и зоны ±10 с в PlinkPlayerControls),
+        // где порядок ZStack сам отдаёт тап кнопкам, нарисованным выше.
+        .onChange(of: ui.controlsVisible) { _, visible in
+            PlinkChromeTrace.log("controlsVisible=\(visible)")
+            // Covers the in-stage tap layer and taps reported by the
+            // embedded web surface (PlayerSurfaceView.onSurfaceTap).
+            if visible {
+                scheduleControlsHide()
+            } else {
+                controlsHideTask?.cancel()
             }
-            scheduleControlsHide()
         }
         .sheet(isPresented: $ui.chatPresented) {
             WatchChatSheet(model: model)
@@ -470,6 +456,7 @@ struct WatchRoomScreen: View {
         controlsHideTask = Task {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
+            PlinkChromeTrace.log("autoHideFired")
             withAnimation(.plinkControls) {
                 ui.controlsVisible = false
             }

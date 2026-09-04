@@ -24,6 +24,10 @@ import SwiftUI
 struct PortraitWatchLayout: View {
     let model: WatchRoomModel
     @Binding var ui: WatchRoomUIState
+    /// Голосование запускает экран (у него живёт шит композера). В портрете
+    /// кнопка стоит в строке комнаты, а не оверлеем поверх кадра: там она
+    /// садилась ровно на ряд перемотки.
+    var onPoll: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,10 +38,7 @@ struct PortraitWatchLayout: View {
                 .layoutPriority(1)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
-            PresenceBar(model: model)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-
-            RoomControlsRowBridge(model: model)
+            RoomHeaderBar(model: model, onPoll: onPoll)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
             WatchChatView(model: model)
@@ -50,43 +51,66 @@ struct PortraitWatchLayout: View {
     }
 }
 
-// MARK: - Строка управления комнатой
+// MARK: - Room header bar
 
-/// Связывает `V4RoomControlsRow` с `WatchRoomModel`.
-///
-/// Вынесено в отдельный тип, потому что строке нужен `@Binding` на уровень
-/// приватности, а `@Bindable` требует собственного места хранения — в
-/// раскладке модель приходит как `let`.
-private struct RoomControlsRowBridge: View {
+/// One compact strip under the player: who is here, the privacy level and the
+/// two room actions (queue, invite). It replaces the former presence bar plus
+/// controls row, which stacked two dark bands under the video and carried a
+/// second, differently tinted "+" next to the one in the player chrome.
+private struct RoomHeaderBar: View {
     @Bindable var model: WatchRoomModel
+    var onPoll: (() -> Void)?
 
     @State private var privacySheetPresented = false
     @State private var invitePresented = false
     @State private var queuePresented = false
 
-    init(model: WatchRoomModel) {
+    init(model: WatchRoomModel, onPoll: (() -> Void)? = nil) {
         self.model = model
+        self.onPoll = onPoll
     }
 
+    private var accent: Color { PlinkRoomAccent.current }
+    private var shownParticipants: [ParticipantInfo] {
+        Array(model.participants.prefix(model.participants.count > 3 ? 3 : model.participants.count))
+    }
+    private var overflow: Int { max(0, model.participants.count - shownParticipants.count) }
+
     var body: some View {
-        V4RoomControlsRow(
-            privacy: $model.privacyLevel,
-            queueCount: model.roomQueue.count,
-            onTapPrivacy: {
-                // Уровень доступа меняет только хост — гостю шторка
-                // показала бы контролы, которые ничего не делают.
-                guard model.isHost else { return }
-                privacySheetPresented = true
-            },
-            onOpenQueue: { queuePresented = true },
-            onInvite: { invitePresented = true },
-            accent: V4.accent
-        )
+        HStack(spacing: 10) {
+            avatarStack
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(model.presenceCountLine)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Cinema2026.text)
+                Text(model.presenceStatusLine)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Cinema2026.secondary)
+            }
+            .lineLimit(1)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+
+            privacyChip
+
+            if let onPoll, model.activePoll == nil {
+                glassButton(glyph: .poll, label: "Создать голосование", action: onPoll)
+            }
+
+            glassButton(glyph: .queue, badge: model.roomQueue.count, label: "Очередь") {
+                queuePresented = true
+            }
+            glassButton(glyph: .plus, label: "Пригласить в комнату") {
+                invitePresented = true
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 54)
         .sheet(isPresented: $privacySheetPresented) {
             V4RoomPrivacySheet(
                 privacy: $model.privacyLevel,
                 roomCode: model.displayRoomCode,
-                accent: V4.accent,
+                accent: accent,
                 onCopyLink: {
                     #if canImport(UIKit)
                     UIPasteboard.general.string = model.roomShareText
@@ -103,6 +127,93 @@ private struct RoomControlsRowBridge: View {
             RoomQueueSheet(model: model)
         }
     }
+
+    private var avatarStack: some View {
+        HStack(spacing: -8) {
+            ForEach(shownParticipants) { participant in
+                Circle()
+                    .fill(Cinema2026.raised)
+                    .frame(width: 28, height: 28)
+                    .overlay(
+                        Text(String(participant.username.prefix(1)).uppercased())
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Cinema2026.text)
+                    )
+                    .overlay(
+                        Circle().stroke(
+                            participant.userId == model.hostId ? accent : Cinema2026.background,
+                            lineWidth: 1.5
+                        )
+                    )
+            }
+            if overflow > 0 {
+                Text("+\(overflow)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Cinema2026.text)
+                    .frame(width: 28, height: 28)
+                    .background(Cinema2026.raised, in: Circle())
+                    .overlay(Circle().stroke(Cinema2026.background, lineWidth: 1.5))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var privacyChip: some View {
+        Button {
+            // Only the host can change the level; a guest would get a sheet
+            // full of controls that do nothing.
+            guard model.isHost else { return }
+            HapticManager.impact(.light)
+            privacySheetPresented = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: model.privacyLevel.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(model.privacyLevel.chipTitle)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1)
+                if model.isHost {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .opacity(0.65)
+                }
+            }
+            .foregroundStyle(Color.white.opacity(0.88))
+            .padding(.horizontal, 11)
+            .frame(height: 34)
+            .plinkGlass(.control, in: Capsule(style: .continuous), interactive: model.isHost)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Приватность комнаты: \(model.privacyLevel.title)")
+    }
+
+    private func glassButton(
+        glyph: V4Glyph, badge: Int = 0, label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            HapticManager.impact(.light)
+            action()
+        } label: {
+            V4GlyphIcon(glyph: glyph, size: 14, weight: .regular)
+                .foregroundStyle(Color.white.opacity(0.9))
+                .frame(width: 34, height: 34)
+                .plinkGlass(.control, in: Circle(), interactive: true)
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 {
+                        Text(badge > 9 ? "9+" : "\(badge)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 15, minHeight: 15)
+                            .background(accent, in: Capsule())
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(badge > 0 ? "\(label), \(badge)" : label)
+    }
 }
 
 // MARK: - Landscape
@@ -112,35 +223,46 @@ struct LandscapeWatchLayout: View {
     @Binding var ui: WatchRoomUIState
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        // Геометрию читаем ДО .ignoresSafeArea() на кадре: сам кадр идёт от
+        // края до края, а хром обязан знать и вырез, и ширину ящика чата.
+        GeometryReader { proxy in
+            landscapeBody(size: proxy.size, safeArea: proxy.safeAreaInsets)
+        }
+    }
+
+    private func landscapeBody(size: CGSize, safeArea: EdgeInsets) -> some View {
+        let insets = WatchLandscapeMetrics.chromeInsets(
+            canvasWidth: size.width,
+            safeArea: safeArea,
+            drawerVisible: ui.chatDrawerVisible
+        )
+        PlinkChromeTrace.log(
+            "landscape size=\(size.width)x\(size.height)"
+            + " safe=l\(safeArea.leading)/t\(safeArea.trailing)"
+            + " drawer=\(ui.chatDrawerVisible ? 1 : 0)"
+            + " drawerW=\(WatchLandscapeMetrics.drawerWidth(for: size.width))"
+            + " insetTrailing=\(insets.trailing)"
+        )
+        return ZStack(alignment: .trailing) {
             // Same .id as Portrait/Tablet → SwiftUI preserves
             // the underlying PlayerSurfaceView across rotation.
-            PlayerStage(model: model, ui: $ui, variant: .landscape)
+            PlayerStage(
+                model: model,
+                ui: $ui,
+                variant: .landscape,
+                chromeInsets: insets
+            )
                 .id("plink.player.stage")
                 .ignoresSafeArea()
 
+            // Кнопки «открыть чат» поверх кадра больше нет: она висела у
+            // правого края над полосой перемотки и перекрывала её конец
+            // вместе со звуком и полным экраном. Переключатель чата теперь
+            // стоит в нижней панели плеера (PlinkPlayerControls).
             if ui.chatDrawerVisible {
-                LandscapeChatDrawer(model: model, isVisible: $ui.chatDrawerVisible)
+                LandscapeChatDrawer(model: model, isVisible: $ui.chatDrawerVisible,
+                                    containerWidth: size.width)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else {
-                VStack {
-                    Spacer()
-                    Button {
-                        withAnimation(.plinkDrawer) {
-                            ui.chatDrawerVisible = true
-                        }
-                    } label: {
-                        Image(systemName: "message.fill")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(Cinema2026.text)
-                            .frame(width: 44, height: 44)
-                            .plinkGlass(.overlay, in: Circle())
-                            .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
-                            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
-                    }
-                    .accessibilityLabel("Открыть чат")
-                    .padding(.trailing, 12)
-                }
             }
         }
     }

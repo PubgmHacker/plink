@@ -71,9 +71,40 @@ struct WatchChatSheet: View {
     }
 }
 
+/// Метрики ландшафтной раскладки. Ширина ящика чата нужна в двух местах —
+/// самому ящику и хрому плеера, который обязан держаться левее него: полоса
+/// перемотки и кнопки звука с полным экраном лежат под ящиком и там просто
+/// не нажимаются, а `.ultraThinMaterial` ещё и делает вид, что они видны.
+enum WatchLandscapeMetrics {
+    static func drawerWidth(for containerWidth: CGFloat) -> CGFloat {
+        min(420, max(320, containerWidth * 0.40))
+    }
+
+    /// Отступы хрома плеера в ландшафте. Кадр идёт от края до края, хром —
+    /// нет: слева и справа вырез, снизу домашняя полоса, справа сверх того
+    /// ящик чата, когда он открыт.
+    static func chromeInsets(
+        canvasWidth: CGFloat,
+        safeArea: EdgeInsets,
+        drawerVisible: Bool
+    ) -> EdgeInsets {
+        EdgeInsets(
+            top: safeArea.top,
+            leading: safeArea.leading,
+            bottom: safeArea.bottom,
+            trailing: drawerVisible
+                ? max(safeArea.trailing, drawerWidth(for: canvasWidth))
+                : safeArea.trailing
+        )
+    }
+}
+
 struct LandscapeChatDrawer: View {
     let model: WatchRoomModel
     @Binding var isVisible: Bool
+    /// Ширина канвы. Ящик считает от неё свою ширину тем же правилом, что и
+    /// плеер, — иначе отступ хрома разойдётся с реальным краем ящика.
+    var containerWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,7 +116,9 @@ struct LandscapeChatDrawer: View {
             WatchChatView(model: model)
             WatchChatComposer(model: model)
         }
-        .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
+        .frame(width: containerWidth > 0
+               ? WatchLandscapeMetrics.drawerWidth(for: containerWidth)
+               : 360)
         .background(.ultraThinMaterial)
         .overlay(alignment: .leading) {
             Rectangle()
@@ -93,6 +126,25 @@ struct LandscapeChatDrawer: View {
                 .frame(width: 0.5)
         }
         .shadow(color: .black.opacity(0.5), radius: 16, x: -4, y: 0)
+        // Два якоря вместо одного, и это не перестраховка. `.contain`
+        // обязателен: без него идентификатор висит на VStack, у которого
+        // есть свои доступные дети, и контейнер не становится отдельным
+        // элементом — XCUITest ящик не находит вовсе, хотя он на экране.
+        // Но и с `.contain` идентификатор контейнера перебивает
+        // `screen.room` с корня комнаты (WatchRoomScreen): корневой
+        // .accessibilityIdentifier протекает вниз и выигрывает у
+        // контейнеров, хотя листья со своим id — переживают. Поэтому
+        // геометрию ящика тесты читают по листу-якорю в фоне: он ровно
+        // размером с ящик, касаний не берёт и свой id держит.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("room.chatDrawer")
+        .background(
+            Color.clear
+                .accessibilityElement()
+                .accessibilityLabel("Ящик чата")
+                .accessibilityIdentifier("room.chatDrawerAnchor")
+                .allowsHitTesting(false)
+        )
     }
 }
 

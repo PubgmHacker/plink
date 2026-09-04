@@ -130,6 +130,24 @@ extension V4FriendsViewLive {
 
     var friendsPeopleBlock: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Stories rail — what friends watched this week and their
+            // statuses, Telegram-style rings. Own tile first.
+            if let s = store {
+                V4FriendStoriesRail(
+                    theme: theme,
+                    store: s,
+                    onOpen: { storyPresentation = $0 },
+                    onMine: { mine in
+                        if let mine {
+                            storyPresentation = PlinkStoryPresentation(owners: [mine], start: 0)
+                        } else {
+                            showStatusEditor = true
+                        }
+                    }
+                )
+                .padding(.top, 2)
+            }
+
             // «Друг сейчас смотрит — присоединиться»
             if !friendsWatchingNow.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {

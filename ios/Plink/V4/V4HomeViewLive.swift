@@ -139,13 +139,20 @@ struct V4HomeViewLive: View {
     var liveThemeIndex: Int = 0
     @ObservedObject private var historyMgr = WatchHistoryManager.shared
     @ObservedObject private var watchlist = WatchlistService.shared
-    @ObservedObject private var dmInbox = DMChatService.shared
-    @ObservedObject private var groupInbox = GroupChatService.shared
+    // Колокольчик считает СОБЫТИЯ, а не сообщения: заявки в друзья и
+    // приглашения в комнаты. Непрочитанные переписки живут на своей вкладке
+    // «Чаты» и в системном центре уведомлений (правка 04.09.2026).
+    @ObservedObject private var friendEvents = FriendManager.shared
+    @ObservedObject private var inviteEvents = RoomInviteService.shared
 
     @State private var showUnifiedSearch = false
     @State private var showInbox = false
     @State private var isRefreshing = false
     @State private var previewItem: V4SearchResult?
+    /// Ivi sign-in requested from a catalogue card; the card waits in
+    /// `pendingCinemaItem` and the room is created once the login completes.
+    @State private var cinemaLoginAccount: LinkedExternalAccount?
+    @State private var pendingCinemaItem: V4SearchResult?
     // Дизайн-превью: `-plink.designchip <чип>` открывает Главную сразу на
     // нужной полке — скриншоты чипов без ручных тапов. Только DEBUG,
     // тот же приём, что -plink.designtab в PlinkApprovedV4Root.
@@ -261,10 +268,10 @@ struct V4HomeViewLive: View {
 
                 searchRow
                     .padding(.horizontal, 19)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 6)
 
                 genreChips
-                    .padding(.bottom, 18)
+                    .padding(.bottom, 12)
 
                 if visibleTrending.isEmpty {
                     // Пустая полка при незавершённой загрузке — «ещё грузим»,
@@ -377,6 +384,17 @@ struct V4HomeViewLive: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $cinemaLoginAccount) { account in
+            CinemaAccountLoginSheet(account: account) {
+                account.markConnected()
+                cinemaLoginAccount = nil
+                if let item = pendingCinemaItem {
+                    pendingCinemaItem = nil
+                    Task { await createRoomFromTrending(item) }
+                }
+            }
+            .preferredColorScheme(.dark)
+        }
         .sheet(isPresented: $showInbox) {
             PlinkInboxView()
                 .preferredColorScheme(.dark)
@@ -465,7 +483,7 @@ struct V4HomeViewLive: View {
             // и кнопка дублировала бы её в том же кадре. Вход в разговор
             // один: таб «ИИ».
             NotificationInboxButton(
-                unreadCount: dmInbox.totalUnread + groupInbox.unreadTotal,
+                unreadCount: friendEvents.incomingRequests.count + inviteEvents.pendingInvites.count,
                 theme: theme,
                 action: { showInbox = true }
             )
@@ -509,7 +527,7 @@ struct V4HomeViewLive: View {
 
     private var genreChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
+            HStack(spacing: 9) {
                 ForEach(V4HomeViewLive.genres, id: \.self) { genre in
                     let active = genre == selectedGenre
 
@@ -543,6 +561,12 @@ struct V4HomeViewLive: View {
                 }
             }
             .padding(.horizontal, 19)
+            // Вертикальный воздух ВНУТРИ скролла. ScrollView режет содержимое
+            // по своей рамке: без этих 6 пунктов рамка проходила ровно по
+            // кромке капсул, и всё, что стекло рисует за краем, обрезалось
+            // прямой чертой. Столько же снято у соседей по стеку, поэтому
+            // расстояния на экране не изменились.
+            .padding(.vertical, 6)
         }
     }
 
@@ -586,6 +610,7 @@ struct V4HomeViewLive: View {
                     },
                     liveThemeIndex: liveThemeIndex,
                     provider: hasProvider ? first : nil,
+                    service: item.origin.service,
                     artworkURL: item.artworkURL
                 )
                 .padding(.horizontal, 13)
@@ -1041,7 +1066,8 @@ struct V4HomeViewLive: View {
             }
             return
         }
-        guard item.origin.isClip, item.origin.service.isAvailableInBeta else {
+        guard item.origin.isClip || item.origin.service == .ivi,
+              item.origin.service.isAvailableInBeta else {
             if let url = URL(string: item.watchURL) {
                 await MainActor.run { openURL(url) }
             }
@@ -1090,13 +1116,35 @@ struct V4HomeViewLive: View {
                 videoId: nil
             )
             analyticsSource = service.rawValue
-        case .cinema:
-            // Defensive branch for stale callers/cached UI. Never turn a
-            // non-playable catalogue page into a fake synchronized room.
-            if let url = URL(string: item.watchURL) {
-                await MainActor.run { openURL(url) }
+        case .cinema(let service):
+            // Ivi: the title page is the player. The viewer signs in to their
+            // own Ivi account first (cookies persist into the room WebView);
+            // other cinemas still open in the service itself.
+            guard service == .ivi, service.isAvailableInBeta else {
+                if let url = URL(string: item.watchURL) {
+                    await MainActor.run { openURL(url) }
+                }
+                return
             }
-            return
+            if !ServiceAuthStore.hasAccess(to: service.serviceType) {
+                await MainActor.run {
+                    pendingCinemaItem = item
+                    cinemaLoginAccount = LinkedExternalAccount(service: service)
+                }
+                return
+            }
+            mediaItem = MediaItem(
+                id: item.id,
+                title: item.title,
+                artist: nil,
+                thumbnailURL: item.artworkURL?.absoluteString,
+                streamURL: item.watchURL,
+                duration: nil,
+                mediaType: .video,
+                source: .url,
+                videoId: nil
+            )
+            analyticsSource = service.rawValue
         }
         AnalyticsService.shared.track(
             "room_create_from_trending",

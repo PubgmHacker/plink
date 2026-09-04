@@ -8,10 +8,24 @@
 // остаются на месте, меняются только поля: пилюля переключателя скользит,
 // поля появляются высотой и прозрачностью. Никакой смены страницы.
 //
-// Методы входа — компактный ряд. Выбран один, остальные скрыты.
+// Методы входа — ОДИН СТОЛБИК, не вкладки (правка 04.09.2026).
+//
+// Было два сегментированных переключателя друг над другом: «Почта | Apple»
+// и под ним «Вход | Регистрация». Человек видел два одинаковых элемента
+// управления и не мог сказать, какой из них главный; Apple при этом жил
+// вкладкой с яблочным глифом 15 pt.
+//
+// Так нельзя по двум причинам. Первая — продуктовая: почта и Apple не
+// «режимы экрана», а два действия, и оба должны быть видны сразу, иначе
+// половина людей не узнаёт, что вход через Apple вообще есть. Вторая —
+// формальная: HIG «Sign in with Apple» требует кнопку официального вида,
+// не менее заметную, чем остальные способы входа; вкладка этому не
+// соответствует и её снимают на ревью.
+//
+// Теперь на экране: форма почты → разделитель «или» → полноширинная кнопка
+// Apple. Единственный переключатель — «Вход | Регистрация».
 //   • Почта — единственный полностью рабочий путь (signin/signup).
 //   • Apple — кнопка + POST /auth/apple; нужен entitlement Apple Developer.
-//   • Яндекс — в выборе есть, OAuth ещё нет: «скоро».
 //
 // Что осознанно НЕ сделано:
 //
@@ -55,28 +69,6 @@ enum PlinkAuthMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// Способ входа. На экране видна только выбранная панель.
-enum AuthLoginMethod: String, CaseIterable, Identifiable {
-    case email
-    case apple
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .email: return L10n.text(.authMethodEmail)
-        case .apple: return "Apple"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .email: return "envelope.fill"
-        case .apple: return "apple.logo"
-        }
-    }
-}
-
 // MARK: - Экран
 
 struct PlinkAuthScreen: View {
@@ -90,6 +82,12 @@ struct PlinkAuthScreen: View {
     /// некому.
     var prefilledEmail: String? = nil
     var prefilledPassword: String? = nil
+    /// Показать пароль открытым текстом. Только для рендера кадров:
+    /// SecureField офскрином не рисует точки (нет первого респондера), и на
+    /// снимке заполненное поле выглядело пустым — судить по такому кадру
+    /// нельзя. В приложении это делает кнопка-глаз.
+    var revealPassword: Bool = false
+    var prefilledUsername: String? = nil
     let onAuthenticated: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -111,12 +109,10 @@ struct PlinkAuthScreen: View {
     /// это ругаться на пользователя за то, что он печатает.
     @State private var didAttempt = false
     @State private var appeared = false
-    @State private var loginMethod: AuthLoginMethod = .email
     @State private var showForgotPassword = false
 
     @FocusState private var focus: Field?
     @Namespace private var modeNS
-    @Namespace private var methodNS
 
     private enum Field: Hashable { case email, username, password }
 
@@ -151,11 +147,6 @@ struct PlinkAuthScreen: View {
 
     private var passwordIsValid: Bool { password.count >= 6 }
 
-    private var canSubmit: Bool {
-        guard !isLoading, emailIsValid, passwordIsValid else { return false }
-        return mode == .signIn || usernameIsValid
-    }
-
     // MARK: Тело
 
     var body: some View {
@@ -170,14 +161,23 @@ struct PlinkAuthScreen: View {
             GeometryReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // Верхний отступ ФИКСИРОВАННЫЙ, а разрыв ниже —
-                        // растягивающийся. Два обычных Spacer'а (было 24/26)
-                        // делили свободное место поровну и ставили шапку ровно
-                        // в центр пустоты — самая заметная черта шаблонного
-                        // экрана. Здесь знак стоит в верхней трети, а весь
-                        // излишек высоты уходит в разрыв перед формой.
+                        // РАСПРЕДЕЛЕНИЕ ИЗЛИШКА ВЫСОТЫ (правка 04.09.2026).
+                        //
+                        // Было: верхний отступ фиксированный, разрыв перед
+                        // формой без потолка — весь излишек уходил в него. На
+                        // 6,3" это дало 160 pt пустоты между теглайном и
+                        // первым элементом управления (замер по кадру
+                        // 10-auth-signin): пятая часть экрана — дыра, и она
+                        // читалась «экран не догрузился».
+                        //
+                        // Теперь наоборот: разрыв перед формой ОГРАНИЧЕН 68 pt
+                        // (всё ещё вчетверо больше расстояний внутри формы, то
+                        // есть иерархия блоков сохраняется), а излишек забирает
+                        // ВЕРХНИЙ отступ — он растягивающийся с полом 20 pt.
+                        // Лок-ап опускается к центру верхней половины, форма
+                        // остаётся у большого пальца, дыры между ними нет.
                         Spacer()
-                            .frame(height: max(24, proxy.size.height * 0.07))
+                            .frame(minHeight: max(20, proxy.size.height * 0.045))
 
                         header
 
@@ -187,25 +187,18 @@ struct PlinkAuthScreen: View {
                         // видно два блока — «кто мы» и «что сделать», — а не
                         // восемь равноудалённых элементов.
                         //
-                        // Потолка у разрыва НЕТ намеренно: с ним (пробовал 96)
-                        // весь излишек высоты уходил не в разрыв, а над
-                        // шапкой — стек прижимался к низу, и сверху
-                        // открывалась пустая треть экрана. Пусть лишнюю высоту
-                        // забирает пауза между блоками: она осмысленная.
-                        Spacer(minLength: 56)
+                        // Минимум снижен 56 → 30: форма выросла на кнопку
+                        // Apple и разделитель (замер: +91 pt).
+                        Spacer(minLength: 30)
+                            .frame(maxHeight: 68)
 
-                        methodPicker
-                            .padding(.bottom, 14)
-
-                        if loginMethod == .email {
-                            modeSwitch
-                                .padding(.bottom, 18)
-                        }
+                        modeSwitch
+                            .padding(.bottom, 16)
 
                         card
 
                         LegalConsentFooter()
-                            .padding(.top, 22)
+                            .padding(.top, 18)
                             // Нижний отступ, а не 8: футер упирался в край
                             // экрана и обрезался под домашним индикатором.
                             .padding(.bottom, 26)
@@ -231,6 +224,8 @@ struct PlinkAuthScreen: View {
             mode = initialMode
             if let prefilledEmail { email = prefilledEmail }
             if let prefilledPassword { password = prefilledPassword }
+            if let prefilledUsername { username = prefilledUsername }
+            if revealPassword { showPassword = true }
             if reduceMotion {
                 appeared = true
             } else {
@@ -247,7 +242,12 @@ struct PlinkAuthScreen: View {
         VStack(spacing: 0) {
             // Знак совпадает с иконкой на домашнем экране — и, после
             // редизайна 04.08.2026, нейтрален к темам (см. PlinkBrandMark).
+            // Гнездо: тот же приём, что на сплэше. Здесь знак стоит ровно в
+            // ярчайшей точке сияния шелла (glowCenter y 0,28) и без черноты
+            // под собой давал по хвосту 1,22:1 — знак растворялся в фиолетовом.
+            // Радиус 230 — это 300 сплэша, пересчитанные на знак 76 вместо 96.
             PlinkBrandMark(size: 76)
+                .plinkLockupNest(radius: 230)
                 .padding(.bottom, 20)
 
             PlinkWordmark(size: 42)
@@ -292,7 +292,7 @@ struct PlinkAuthScreen: View {
                     focus = nil
                 } label: {
                     Text(item.title)
-                        .font(.system(size: 14.5, weight: isOn ? .bold : .semibold))
+                        .authFont(14.5, weight: isOn ? .bold : .semibold)
                         .foregroundStyle(isOn ? PlinkShell.text : PlinkShell.muted)
                         .frame(maxWidth: .infinity)
                         // minHeight, а не фиксированная высота: при крупном
@@ -345,71 +345,11 @@ struct PlinkAuthScreen: View {
         )
     }
 
-    // MARK: Способ входа
-
-    /// Один ряд иконок. Выбранный подсвечен, форма ниже — только его.
-    private var methodPicker: some View {
-        HStack(spacing: 4) {
-            ForEach(AuthLoginMethod.allCases) { method in
-                let isOn = method == loginMethod
-                Button {
-                    guard method != loginMethod else { return }
-                    HapticManager.selection()
-                    focus = nil
-                    errorMessage = nil
-                    didAttempt = false
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86)) {
-                        loginMethod = method
-                    }
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: method.symbol)
-                            .font(.system(size: 15, weight: .semibold))
-                        Text(method.title)
-                            .font(.system(size: 10, weight: isOn ? .bold : .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .foregroundStyle(isOn ? PlinkShell.text : PlinkShell.muted)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background {
-                        if isOn {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(PlinkShell.surfaceLift)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .strokeBorder(PlinkShell.specular, lineWidth: 0.8)
-                                }
-                                .matchedGeometryEffect(id: "authMethodPill", in: methodNS)
-                        }
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("auth.method.\(method.rawValue)")
-                .accessibilityLabel(method.title)
-                .accessibilityAddTraits(isOn ? [.isSelected, .isButton] : .isButton)
-            }
-        }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.black.opacity(0.34))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(PlinkShell.hairline, lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.text(.authMethodPickerA11y))
-    }
-
     // MARK: Форма
 
     private var card: some View {
         VStack(spacing: 12) {
-            if let sessionMessage, loginMethod == .email, mode == .signIn {
+            if let sessionMessage, mode == .signIn {
                 AuthInlineNotice(text: sessionMessage, icon: "clock.arrow.circlepath")
             }
             if let errorMessage {
@@ -417,17 +357,40 @@ struct PlinkAuthScreen: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            switch loginMethod {
-            case .email:
-                emailFields
-            case .apple:
-                AppleSignInButton(
-                    onSuccess: onAuthenticated,
-                    onError: { errorMessage = $0 }
-                )
-            }
+            emailFields
+
+            orDivider
+                .padding(.top, 6)
+
+            AppleSignInButton(
+                title: mode == .signUp
+                    ? L10n.text(.authAppleSignUpButton)
+                    : L10n.text(.authAppleButton),
+                onSuccess: onAuthenticated,
+                onError: { errorMessage = $0 }
+            )
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: loginMethod)
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: mode)
+    }
+
+    /// Разделитель «или» — полоса с подписью, а не сегменты. Почта и Apple
+    /// стоят друг под другом: это два действия, а не выбор из двух вкладок.
+    private var orDivider: some View {
+        HStack(spacing: 12) {
+            dividerLine
+            Text(L10n.text(.authOrDivider))
+                .authFont(12, weight: .semibold)
+                .foregroundStyle(PlinkShell.muted)
+                .fixedSize()
+            dividerLine
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var dividerLine: some View {
+        Rectangle()
+            .fill(PlinkShell.hairline)
+            .frame(height: 1)
     }
 
     private var emailFields: some View {
@@ -470,14 +433,22 @@ struct PlinkAuthScreen: View {
                 contentType: mode == .signUp ? .newPassword : .password,
                 secure: !showPassword,
                 submitLabel: .go,
-                problem: showPasswordProblem ? L10n.text(.authPasswordMin) : nil,
+                // На регистрации требование показано СРАЗУ и живёт правилом,
+                // а не ошибкой: человек видит «не меньше 6 символов» до того,
+                // как ошибётся, и галочка подтверждает, что он уже прошёл.
+                // На входе правило не нужно — пароль там уже существует.
+                problem: mode == .signIn && showPasswordProblem
+                    ? L10n.text(.authPasswordMin)
+                    : nil,
+                rule: mode == .signUp ? L10n.text(.authPasswordMin) : nil,
+                ruleMet: passwordIsValid,
                 trailing: {
                     Button {
                         showPassword.toggle()
                         HapticManager.selection()
                     } label: {
                         Image(systemName: showPassword ? "eye.slash" : "eye")
-                            .font(.system(size: 15, weight: .regular))
+                            .authFont(15, weight: .regular)
                             .foregroundStyle(PlinkShell.muted)
                             .frame(width: 44, height: 44)
                     }
@@ -493,9 +464,16 @@ struct PlinkAuthScreen: View {
                     HapticManager.selection()
                     showForgotPassword = true
                 } label: {
+                    // ССЫЛКА ПРИГЛУШЕНА (правка 04.09.2026).
+                    //
+                    // Была PlinkShell.accentSoft — и на пустом экране это был
+                    // ЕДИНСТВЕННЫЙ цветной элемент: восстановление пароля
+                    // светилось ярче, чем «Войти». Иерархия наоборот.
+                    // Восстановление — путь для меньшинства, ему хватает
+                    // приглушённого текста рядом с полем пароля.
                     Text(L10n.text(.authForgotPassword))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(PlinkShell.accentSoft)
+                        .authFont(13, weight: .semibold)
+                        .foregroundStyle(PlinkShell.muted)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .frame(minHeight: 44)
                 }
@@ -525,6 +503,20 @@ struct PlinkAuthScreen: View {
 
     /// Ширина кнопки не меняется при загрузке: подпись прячется под спиннер,
     /// а не заменяется им — иначе кнопка «прыгает» в момент нажатия.
+    ///
+    /// КНОПКА НЕ ГАСНЕТ НА ПУСТОЙ ФОРМЕ (правка 04.09.2026).
+    ///
+    /// Было `.disabled(!canSubmit)`, а выключенный вид в AuthPrimaryButtonStyle —
+    /// это PlinkShell.surface с волосяной рамкой и радиусом 16, то есть
+    /// ровно то же, что у поля ввода. На первом кадре экрана (форма пуста)
+    /// «Войти» выглядела третьим полем, и у экрана не было главного действия
+    /// вообще: единственным цветным элементом оставалось «Забыли пароль?».
+    ///
+    /// Теперь кнопка всегда залита градиентом и всегда нажимается, а
+    /// проверка живёт в submit(): она ставит курсор в проблемное поле и
+    /// говорит, что именно не так. Это и есть поведение Google, Spotify,
+    /// Netflix и Duolingo — «нажми и узнай», а не «угадай, почему серая».
+    /// Выключение осталось только на время запроса.
     private var submitButton: some View {
         Button {
             Task { await submit() }
@@ -540,7 +532,7 @@ struct PlinkAuthScreen: View {
             }
         }
         .buttonStyle(AuthPrimaryButtonStyle())
-        .disabled(!canSubmit)
+        .disabled(isLoading)
         .animation(.easeOut(duration: 0.18), value: isLoading)
         .accessibilityLabel(mode.action)
         .accessibilityHint(isLoading ? L10n.text(.authInProgress) : "")
@@ -622,10 +614,28 @@ private struct AuthField<Trailing: View>: View {
     var submitLabel: SubmitLabel = .next
     /// Текст ошибки под полем. nil — поле в порядке.
     var problem: String? = nil
+    /// Живое правило под полем («Не меньше 6 символов»). Показывается вместо
+    /// ошибки: требование, которое видно ДО первой попытки, снимает саму
+    /// ошибку — человек не угадывает правила, он их читает.
+    var rule: String? = nil
+    var ruleMet: Bool = false
     @ViewBuilder var trailing: Trailing
     var onSubmit: (() -> Void)? = nil
 
     @FocusState private var focused: Bool
+
+    /// Раздвижка ярлыка и значения при поднятом ярлыке — ScaledMetric, а не
+    /// константы. При крупном Dynamic Type кегли растут (11 → ~15, 15 → ~20),
+    /// и фиксированные −12/+9 склеили бы ярлык со значением в одну кашу.
+    /// Иконка по той же причине: рядом с 20-пунктовым текстом 16 pt глиф
+    /// читается как случайный мусор.
+    @ScaledMetric(relativeTo: .body) private var labelLift: CGFloat = 12
+    @ScaledMetric(relativeTo: .body) private var valueDrop: CGFloat = 9
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 16
+
+    /// Ярлык поднят: поле в фокусе или уже с текстом. Пока поле пустое и не в
+    /// фокусе — ярлык стоит на месте текста и работает подсказкой.
+    private var labelFloats: Bool { focused || !text.isEmpty }
 
     /// UI-тесты: системный шит «Надёжный пароль?» от .newPassword перехватывает
     /// ввод в симуляторе и делает воронку непроходимой для XCUITest. Флаг
@@ -642,27 +652,61 @@ private struct AuthField<Trailing: View>: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 if let icon {
-                    V4GlyphIcon(glyph: icon, size: 16, weight: .regular)
+                    V4GlyphIcon(glyph: icon, size: iconSize, weight: .regular)
                         .foregroundStyle(focused ? PlinkShell.accentSoft : PlinkShell.muted)
-                        .frame(width: 20)
+                        .frame(width: iconSize + 4)
                 }
 
-                Group {
-                    if secure {
-                        SecureField("", text: $text, prompt: prompt)
-                    } else {
-                        TextField("", text: $text, prompt: prompt)
-                            .keyboardType(keyboard)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                // ПЛАВАЮЩИЙ ЯРЛЫК, А НЕ PLACEHOLDER-AS-LABEL.
+                //
+                // Было: название поля жило в prompt. Как только человек
+                // начинал печатать, оно исчезало — и заполненная форма
+                // превращалась в четыре безымянные плашки. На проверке перед
+                // отправкой (а её делают все) приходилось вспоминать, что где.
+                // Это давно известный дефект: подсказка-вместо-ярлыка не
+                // выдерживает ни правки, ни автозаполнения.
+                //
+                // Ярлык теперь не исчезает: он уезжает вверх и мельчает
+                // (15 → 11 pt, y −labelLift), текст опускается под него
+                // (y +valueDrop); обе величины масштабируются Dynamic Type.
+                // Так делают Material 3, Stripe и Revolut.
+                ZStack(alignment: .leading) {
+                    Text(title)
+                        .authFont(
+                            labelFloats ? 11 : 15,
+                            weight: labelFloats ? .semibold : .regular
+                        )
+                        .foregroundStyle(labelColor)
+                        .lineLimit(1)
+                        .offset(y: labelFloats ? -labelLift : 0)
+                        .allowsHitTesting(false)
+
+                    Group {
+                        if secure {
+                            SecureField("", text: $text)
+                        } else {
+                            TextField("", text: $text)
+                                .keyboardType(keyboard)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
                     }
+                    .textContentType(uiTestMode ? nil : contentType)
+                    .submitLabel(submitLabel)
+                    .onSubmit { onSubmit?() }
+                    .focused($focused)
+                    .foregroundStyle(PlinkShell.text)
+                    .tint(PlinkShell.accentSoft)
+                    .authFont(15)
+                    .offset(y: labelFloats ? valueDrop : 0)
                 }
-                .textContentType(uiTestMode ? nil : contentType)
-                .submitLabel(submitLabel)
-                .onSubmit { onSubmit?() }
-                .focused($focused)
-                .foregroundStyle(PlinkShell.text)
-                .tint(PlinkShell.accentSoft)
+                .animation(.easeOut(duration: 0.16), value: labelFloats)
+                // Тап по плашке ставит курсор: сама зона ярлыка иначе была
+                // мёртвой, и по ней приходилось попадать в тонкую строку.
+                // Жест висит на ZStack, а не на всём ряду, — иначе он спорил
+                // бы с кнопкой глаза справа.
+                .contentShape(Rectangle())
+                .onTapGesture { focused = true }
 
                 trailing
             }
@@ -718,15 +762,26 @@ private struct AuthField<Trailing: View>: View {
 
             if let problem {
                 Text(problem)
-                    .font(.system(size: 12, weight: .medium))
+                    .authFont(12, weight: .medium)
                     .foregroundStyle(PlinkShell.warning)
                     .padding(.leading, 4)
                     .transition(.opacity)
+            } else if let rule {
+                HStack(spacing: 5) {
+                    Image(systemName: ruleMet ? "checkmark.circle.fill" : "circle")
+                        .authFont(11, weight: .semibold)
+                    Text(rule)
+                        .authFont(12, weight: .medium)
+                }
+                .foregroundStyle(ruleMet ? PlinkShell.ok : PlinkShell.muted)
+                .padding(.leading, 4)
+                .animation(.easeOut(duration: 0.16), value: ruleMet)
+                .transition(.opacity)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
-        .accessibilityValue(problem ?? "")
+        .accessibilityValue(problem ?? (rule.map { ruleMet ? "\($0) — выполнено" : $0 } ?? ""))
     }
 
     private var borderColor: Color {
@@ -734,8 +789,12 @@ private struct AuthField<Trailing: View>: View {
         return focused ? PlinkShell.accentSoft.opacity(0.55) : PlinkShell.hairline
     }
 
-    private var prompt: Text {
-        Text(title).foregroundStyle(PlinkShell.muted.opacity(0.85))
+    /// Поднятый ярлык в фокусе — акцентом: он теперь несёт роль «активное
+    /// поле», которую раньше приходилось угадывать по рамке.
+    private var labelColor: Color {
+        if problem != nil { return PlinkShell.warning }
+        if labelFloats { return focused ? PlinkShell.accentSoft : PlinkShell.muted }
+        return PlinkShell.muted.opacity(0.85)
     }
 }
 
@@ -749,6 +808,8 @@ extension AuthField where Trailing == EmptyView {
         secure: Bool = false,
         submitLabel: SubmitLabel = .next,
         problem: String? = nil,
+        rule: String? = nil,
+        ruleMet: Bool = false,
         onSubmit: (() -> Void)? = nil
     ) {
         self.init(
@@ -760,6 +821,8 @@ extension AuthField where Trailing == EmptyView {
             secure: secure,
             submitLabel: submitLabel,
             problem: problem,
+            rule: rule,
+            ruleMet: ruleMet,
             trailing: { EmptyView() },
             onSubmit: onSubmit
         )
@@ -808,7 +871,7 @@ private struct ForgotPasswordSheet: View {
                         Text(step == .email
                              ? L10n.text(.resetIntroEmail)
                              : L10n.text(.resetIntroCode))
-                            .font(.system(size: 14, weight: .medium))
+                            .authFont(14, weight: .medium)
                             .foregroundStyle(PlinkShell.muted)
                             .padding(.top, 8)
 
@@ -859,7 +922,7 @@ private struct ForgotPasswordSheet: View {
                                         showPassword.toggle()
                                     } label: {
                                         Image(systemName: showPassword ? "eye.slash" : "eye")
-                                            .font(.system(size: 15, weight: .regular))
+                                            .authFont(15, weight: .regular)
                                             .foregroundStyle(PlinkShell.muted)
                                             .frame(width: 44, height: 44)
                                     }
@@ -894,7 +957,7 @@ private struct ForgotPasswordSheet: View {
                             Button(L10n.text(.resetResend)) {
                                 Task { await sendCode() }
                             }
-                            .font(.system(size: 13, weight: .semibold))
+                            .authFont(13, weight: .semibold)
                             .foregroundStyle(PlinkShell.accentSoft)
                             .frame(maxWidth: .infinity)
                             .frame(minHeight: 44)

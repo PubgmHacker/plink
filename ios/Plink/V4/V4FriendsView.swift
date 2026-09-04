@@ -75,6 +75,8 @@ struct V4FriendsViewLive: View {
     var store: V4FriendsStore?
     /// Активные комнаты — для «Друг сейчас смотрит».
     var roomsStore: V4RoomsStore?
+    /// Own profile — the stories rail edits the status through it.
+    var profileStore: V4ProfileStore? = nil
     /// When false (other tab), pause polling. Root passes tab == friends.
     var isActive: Bool = true
     /// Default: Друзья (not chats) — full friend list / carousel first.
@@ -88,6 +90,14 @@ struct V4FriendsViewLive: View {
     @State private var segPush: Edge = .trailing
     @State var dmFriend: Friend?
     @State var profileFriend: Friend?
+    /// Снимок вкладки под пушем лички/профиля — под уезжающим экраном виден
+    /// список друзей с параллаксом, как в Telegram, а не чёрный фон.
+    @State private var pushBackdrop: UIImage?
+    /// Stories viewer (Friends tab rail) and the own-status editor it opens.
+    @State var storyPresentation: PlinkStoryPresentation?
+    /// DEBUG design hook fired once per launch (see `presentDesignStoryIfRequested`).
+    @State var designStoryFired = false
+    @State var showStatusEditor = false
     @State var showCreateRoom = false
     @State var watchWithFriend: Friend?
     @State var showAddFriend = false
@@ -297,6 +307,12 @@ struct V4FriendsViewLive: View {
                                        avatarURL: nil, isOnline: false,
                                        friendsSince: Date())
             }
+            // `-plink.designstory <first|mine|userId>` — the stories viewer
+            // without taps. `store` is a plain property, so a task captured
+            // here could hold a nil store forever; the real trigger is
+            // `onChange(storiesLoaded)` below, this call covers a store that
+            // is already loaded.
+            presentDesignStoryIfRequested()
             // `-plink.designdm <userId> [имя]` — сразу личка с этим человеком.
             // Нужен, чтобы снимать шапку, поиск и разделители дней без прохода
             // через хаб. Имя необязательно: без него в шапке будет id.
@@ -332,6 +348,14 @@ struct V4FriendsViewLive: View {
             guard let target else { return }
             consumePendingChat(target)
         }
+        // Снимок делается до показа cover'а — fullScreenCover убирает
+        // вкладку из иерархии, и после этого снимать уже нечего.
+        .onChange(of: dmFriend?.id) { _, new in
+            if new != nil { pushBackdrop = PlinkPushBackdrop.capture() }
+        }
+        .onChange(of: profileFriend?.id) { _, new in
+            if new != nil { pushBackdrop = PlinkPushBackdrop.capture() }
+        }
         // Личка — полноэкранный экран, а не шит. Шит давал ручку-свайп сверху,
         // скруглённые углы и просвет родителя по краям: в мессенджерах чат
         // так не открывают. Теперь он занимает экран целиком, включая полосу
@@ -342,37 +366,49 @@ struct V4FriendsViewLive: View {
             view.fullScreenCover(item: $dmFriend, onDismiss: {
                 Task { await dmService.refreshUnread() }
             }) { friend in
-                PlinkPushCover(onClose: { dmFriend = nil }) {
+                PlinkPushCover(backdrop: pushBackdrop, onClose: { dmFriend = nil }) {
                     DMChatView(friend: friend)
                         .environmentObject(dmService)
                 }
                 .preferredColorScheme(.dark)
             }
         }
-        .sheet(item: $profileFriend) { friend in
-            NavigationStack {
-                FriendProfileView(
-                    userId: friend.id,
-                    usernameHint: friend.username,
-                    onWatchTogether: {
-                        watchWithFriend = friend
-                        profileFriend = nil
-                        showCreateRoom = true
-                    },
-                    // «Написать» (модель ТГ/ВК): из профиля — сразу в личку.
-                    // Тот же синхронный своп шитов, что у «Смотреть вместе».
-                    onMessage: {
-                        profileFriend = nil
-                        dmFriend = friend
+        // Профиль друга — тот же полноэкранный push, что и личка: въезжает
+        // справа, закрывается крестиком или свайпом от левого края, под ним
+        // виден список. Шит с ручкой сверху здесь смотрелся чужеродно.
+        .transaction({ $0.disablesAnimations = true }) { view in
+            view.fullScreenCover(item: $profileFriend) { friend in
+                PlinkPushCover(backdrop: pushBackdrop, onClose: { profileFriend = nil }) {
+                    PlinkPushCloseHost { close in
+                        NavigationStack {
+                            FriendProfileView(
+                                userId: friend.id,
+                                usernameHint: friend.username,
+                                onWatchTogether: {
+                                    watchWithFriend = friend
+                                    close()
+                                    // Шит создания комнаты — после ухода пуша,
+                                    // иначе система отбросит второй показ.
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                                        showCreateRoom = true
+                                    }
+                                },
+                                // «Написать» (модель ТГ/ВК): из профиля — сразу в личку.
+                                onMessage: {
+                                    close()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                                        dmFriend = friend
+                                    }
+                                }
+                            )
+                            .toolbar {
+                                V4SheetCloseToolbarItem(action: close)
+                            }
+                        }
                     }
-                )
-                .toolbar {
-                    V4SheetCloseToolbarItem { profileFriend = nil }
                 }
+                .preferredColorScheme(.dark)
             }
-            .preferredColorScheme(.dark)
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showCreateRoom, onDismiss: {
             // Keep watchWithFriend until create finishes if still creating; clear if cancelled
@@ -465,6 +501,34 @@ struct V4FriendsViewLive: View {
             WatchRoomContainer(room: room)
                 .preferredColorScheme(.dark)
         }
+        .fullScreenCover(item: $storyPresentation) { presentation in
+            PlinkStoryViewer(
+                theme: theme,
+                presentation: presentation,
+                myUserId: store?.myStory?.id,
+                onWatchTogether: { owner in
+                    watchWithFriend = owner.asFriend
+                    showCreateRoom = true
+                },
+                onMessage: { owner in dmFriend = owner.asFriend },
+                onProfile: { owner in profileFriend = owner.asFriend },
+                onEditStatus: { showStatusEditor = true }
+            )
+        }
+        .onChange(of: storiesLoadedFlag) { _, loaded in
+            if loaded { presentDesignStoryIfRequested() }
+        }
+        // Friend stories can arrive after `storiesLoaded` flips (statuses are
+        // merged in a second pass), so the design hook re-checks on count too.
+        .onChange(of: storiesCount) { _, _ in
+            presentDesignStoryIfRequested()
+        }
+        .sheet(isPresented: $showStatusEditor, onDismiss: {
+            // The rail's own tile mirrors the saved status.
+            Task { await store?.loadStories() }
+        }) {
+            V4StatusEditorSheet(accent: theme.accentColor, store: profileStore)
+        }
         .overlay(alignment: .top) {
             if let toast {
                 Text(toast)
@@ -512,40 +576,9 @@ struct V4FriendsViewLive: View {
         // Было 1 с — три параллельных цикла давали ~3 запроса
         // в секунду и жгли батарею/трафик. Мгновенные события идут по realtime,
         // поллинг оставлен fallback-ом и только для активной вкладки на переднем плане.
-        .task(id: isActive) {
-            guard isActive else { return }
-            // Беседы читаем сразу на входе. Раньше первый loadGroups() ждал
-            // конца двадцатисекундного сна ниже — и всё это время инбокс
-            // показывал «Пока нет чатов» поверх существующих бесед.
-            async let groupsReady: Void = groupService.loadGroups()
-            await store?.refreshQuietly()
-            await groupsReady
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 20_000_000_000) // 20s fallback
-                guard !Task.isCancelled, isActive else { break }
-                // scenePhase внутри долгоживущего .task «залипает» на значении момента
-                // старта, поэтому спрашиваем состояние приложения напрямую.
-                let foreground = await MainActor.run { UIApplication.shared.applicationState == .active }
-                guard foreground else { continue }
-                await store?.refreshQuietly()
-                // Бесед нет в realtime-доставке: добавленный в беседу узнаёт
-                // о ней только перечитыванием списка — обновляем тем же тактом.
-                await groupService.loadGroups()
-            }
-        }
+        .task(id: isActive) { await pollFriendsAndGroups() }
         // Unread DMs: realtime + редкий fallback-опрос внутри сервиса
-        .task {
-            dmService.startUnreadPolling()
-            await inviteService.refreshFromServer()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
-                guard !Task.isCancelled else { break }
-                let foreground = await MainActor.run { UIApplication.shared.applicationState == .active }
-                if foreground {
-                    await inviteService.refreshFromServer()
-                }
-            }
-        }
+        .task { await pollInvites() }
         .onAppear {
             dmService.startUnreadPolling()
             Task {
@@ -1707,4 +1740,98 @@ private struct AddFriendSheet: View {
             localError = manager.errorMessage ?? "Не удалось отправить"
         }
     }
+}
+
+// MARK: - Polling loops
+
+extension V4FriendsViewLive {
+    /// Loaded flag of the stories rail, hoisted out of the modifier chain:
+    /// `store?.storiesLoaded ?? false` inline pushed `body` past the
+    /// type-checker's time budget.
+    var storiesLoadedFlag: Bool { store?.storiesLoaded ?? false }
+    var storiesCount: Int { store?.stories.count ?? 0 }
+
+    /// Friends (presence + avatars) and group list while the tab is visible.
+    /// Was 1 s — three parallel loops made ~3 requests a second and burned
+    /// battery/traffic. Instant events arrive over realtime; polling stays as
+    /// a fallback and only for the active tab in the foreground.
+    func pollFriendsAndGroups() async {
+        guard isActive else { return }
+        // Groups are read right on entry. The first loadGroups() used to wait
+        // for the end of the twenty-second sleep below — and all that time the
+        // inbox showed "No chats yet" on top of existing groups.
+        async let groupsReady: Void = groupService.loadGroups()
+        await store?.refreshQuietly()
+        await groupsReady
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 20_000_000_000) // 20s fallback
+            guard !Task.isCancelled, isActive else { break }
+            // scenePhase inside a long-lived .task sticks to the value at start,
+            // so the application state is asked directly.
+            guard await Self.appIsForeground() else { continue }
+            await store?.refreshQuietly()
+            // Groups have no realtime delivery: a member added to a group learns
+            // about it only by re-reading the list — refreshed on the same tick.
+            await groupService.loadGroups()
+        }
+    }
+
+    /// Room invites: refresh on entry, then a slow foreground-only fallback.
+    func pollInvites() async {
+        dmService.startUnreadPolling()
+        await inviteService.refreshFromServer()
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            guard !Task.isCancelled else { break }
+            if await Self.appIsForeground() {
+                await inviteService.refreshFromServer()
+            }
+        }
+    }
+
+    @MainActor
+    static func appIsForeground() -> Bool {
+        UIApplication.shared.applicationState == .active
+    }
+}
+
+// MARK: - Design hook: stories viewer
+
+extension V4FriendsViewLive {
+    /// `-plink.designstory <first|mine|userId>` opens the stories viewer
+    /// without taps: `first` — the first friend with a story, `mine` — the
+    /// own tile, anything else — that person's id. Runs once per launch and
+    /// only after the rail has loaded. No-op outside DEBUG.
+    func presentDesignStoryIfRequested() {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard !designStoryFired,
+              let i = args.firstIndex(of: "-plink.designstory"), args.indices.contains(i + 1),
+              let s = store, s.storiesLoaded else { return }
+        let key = args[i + 1]
+        if key == "mine" {
+            guard let mine = s.myStory else { return }
+            designStoryFired = true
+            presentDesignStory(PlinkStoryPresentation(owners: [mine], start: 0))
+        } else if key == "first" {
+            guard !s.stories.isEmpty else { return }
+            designStoryFired = true
+            presentDesignStory(PlinkStoryPresentation(owners: s.stories, start: 0))
+        } else if let idx = s.stories.firstIndex(where: { $0.id == key }) {
+            designStoryFired = true
+            presentDesignStory(PlinkStoryPresentation(owners: s.stories, start: idx))
+        }
+        #endif
+    }
+
+    #if DEBUG
+    /// A cover presented in the same tick the tab switches is dropped by
+    /// SwiftUI on a cold launch; a short settle delay makes the hook reliable.
+    private func presentDesignStory(_ presentation: PlinkStoryPresentation) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            storyPresentation = presentation
+        }
+    }
+    #endif
 }

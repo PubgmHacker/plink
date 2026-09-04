@@ -24,6 +24,39 @@ extension EnvironmentValues {
     }
 }
 
+/// Снимок экрана под пушем. `fullScreenCover` убирает родителя из иерархии,
+/// а Telegram и ВК при свайпе «назад» показывают список чатов под уезжающим
+/// экраном — с параллаксом и затемнением. Снимок делается в момент открытия,
+/// пока родитель ещё на экране.
+enum PlinkPushBackdrop {
+    @MainActor
+    static func capture() -> UIImage? {
+        let scenes = UIApplication.shared.connectedScenes
+        guard let window = scenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else {
+            return nil
+        }
+        let format = UIGraphicsImageRendererFormat(for: window.traitCollection)
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(bounds: window.bounds, format: format)
+        return renderer.image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+    }
+}
+
+/// Отдаёт содержимому действие «закрыть» текущего `PlinkPushCover` — для
+/// крестика в тулбаре и кнопок, которым нужен тот же горизонтальный уход.
+/// Вне пуша (превью, обычный показ) сводится к системному `dismiss`.
+struct PlinkPushCloseHost<Content: View>: View {
+    @Environment(\.plinkPushDismiss) private var pushDismiss
+    @Environment(\.dismiss) private var dismiss
+    @ViewBuilder var content: (@escaping () -> Void) -> Content
+
+    var body: some View {
+        content { (pushDismiss ?? { dismiss() })() }
+    }
+}
+
 /// Экран поверх всего приложения по модели push из Telegram и ВК: въезжает
 /// справа, уезжает вправо, свайп от левого края возвращает назад.
 ///
@@ -35,7 +68,12 @@ extension EnvironmentValues {
 /// Собственная (вертикальная) анимация `.fullScreenCover` гасится снаружи
 /// через `.transaction { $0.disablesAnimations = true }` — горизонтальный ход
 /// рисует сам контейнер, поэтому появление читается как push, а не как штора.
+///
+/// `backdrop` — снимок родителя (`PlinkPushBackdrop.capture()`): под уезжающим
+/// экраном виден список, он едет за пальцем с параллаксом 30 % и светлеет,
+/// как в Telegram. Без снимка под экраном чёрный фон — так было раньше.
 struct PlinkPushCover<Content: View>: View {
+    var backdrop: UIImage? = nil
     let onClose: () -> Void
     @ViewBuilder var content: Content
 
@@ -60,27 +98,48 @@ struct PlinkPushCover<Content: View>: View {
 
     var body: some View {
         let w = screenWidth
+        // Доля хода «назад»: 0 — экран на месте, 1 — уехал целиком.
+        let leave = entered ? min(1, max(0, dragX / max(w, 1))) : 1
         content
             .environment(\.plinkPushDismiss, close)
             .offset(x: entered ? dragX : w)
             // Тень по левому краю — экран читается отдельным слоем над списком,
             // ровно как лист push-навигации.
             .shadow(color: .black.opacity(0.5), radius: 14, x: -8, y: 0)
-            .background(Color.black.ignoresSafeArea())
-            // Жест «назад» висит на всём экране и сам отбирает свои протяги по
-            // точке старта. Отдельной полосой-перехватчиком у края он быть не
-            // может: она накрывала стрелку «‹» (та стоит в 16 pt от края) и
-            // съедала по ней тап — чат не закрывался кнопкой.
-            .simultaneousGesture(backGesture(width: w))
-            .onAppear {
-                guard !entered else { return }
-                withAnimation(curve) { entered = true }
+            // Подложка лежит в background, а не в ZStack: снимок на всё окно
+            // раздувал бы ZStack за пределы safe area, и шапка чата уезжала
+            // под статус-бар. Фон на размер контента не влияет.
+            .background {
+                ZStack {
+                    Color.black
+                    if let backdrop {
+                        Image(uiImage: backdrop)
+                            .resizable()
+                            .scaledToFill()
+                            // Параллакс системного push: список стоит на −30 %
+                            // ширины и доезжает до нуля вместе с уходом экрана.
+                            .offset(x: -w * 0.3 * (1 - leave))
+                            .overlay(Color.black.opacity(0.42 * (1 - leave)))
+                    }
+                }
+                .clipped()
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
-            // Транзакция показа гасит анимации всему поддереву cover'а —
-            // внутри возвращаем их обратно. Иначе чат живёт без единого
-            // движения: не едет пилюля «вниз», не пружинит свайп-ответ,
-            // не доезжает и сам горизонтальный ход этого контейнера.
-            .transaction { $0.disablesAnimations = false }
+        // Жест «назад» висит на всём экране и сам отбирает свои протяги по
+        // точке старта. Отдельной полосой-перехватчиком у края он быть не
+        // может: она накрывала стрелку «‹» (та стоит в 16 pt от края) и
+        // съедала по ней тап — чат не закрывался кнопкой.
+        .simultaneousGesture(backGesture(width: w))
+        .onAppear {
+            guard !entered else { return }
+            withAnimation(curve) { entered = true }
+        }
+        // Транзакция показа гасит анимации всему поддереву cover'а —
+        // внутри возвращаем их обратно. Иначе чат живёт без единого
+        // движения: не едет пилюля «вниз», не пружинит свайп-ответ,
+        // не доезжает и сам горизонтальный ход этого контейнера.
+        .transaction { $0.disablesAnimations = false }
     }
 
     private func backGesture(width: CGFloat) -> some Gesture {

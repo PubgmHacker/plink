@@ -64,6 +64,7 @@ enum V4Glyph {
     /// Написать новое сообщение — ✎ в шапке «Чатов».
     case compose
     case leave
+    case poll
 
     var symbol: String {
         switch self {
@@ -86,6 +87,7 @@ enum V4Glyph {
         case .copy:          return "doc.on.doc"
         case .retry:         return "arrow.clockwise"
         case .trash:         return "trash"
+        case .poll:          return "chart.bar.xaxis"
         case .lock:          return "lock"
         case .people:        return "person.2"
         case .globe:         return "globe"

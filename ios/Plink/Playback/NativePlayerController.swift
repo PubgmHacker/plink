@@ -35,6 +35,15 @@ public final class NativePlayerController: PlaybackControlling {
     public private(set) var player: AVPlayer?
     public private(set) var pipController: AVPlayerViewController?
 
+    /// Доля загруженного вперёд буфера (0…1). Полоса перемотки рисует ею
+    /// «серый хвост»: у встроенных провайдеров это поле отдаёт JS-мост, у
+    /// родного плеера считаем сами из loadedTimeRanges.
+    public private(set) var buffered: Double = 0
+
+    /// Локальное отключение звука. К синхронизации отношения не имеет —
+    /// каждый участник глушит только свой аппарат.
+    public private(set) var isMuted: Bool = false
+
     private var provider: ProviderAdapter?
     private var timeControlObservation: NSKeyValueObservation?
     private var reasonObservation: NSKeyValueObservation?
@@ -88,7 +97,11 @@ public final class NativePlayerController: PlaybackControlling {
             p.allowsExternalPlayback = true
             item.preferredForwardBufferDuration = 16
             item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
+            // Выбор человека переносим на новый плеер: иначе на каждой смене
+            // ролика в очереди звук возвращался сам собой.
+            p.isMuted = isMuted
             self.player = p
+            self.buffered = 0
             observe(p, item)
         }
     }
@@ -203,6 +216,14 @@ public final class NativePlayerController: PlaybackControlling {
         player?.rate = rate
     }
 
+    /// Глушилка. Состояние переживает смену ролика: при prepare() оно
+    /// переносится на новый AVPlayer — иначе выключенный звук возвращался
+    /// сам собой на каждом переключении очереди.
+    public func setMuted(_ muted: Bool) {
+        isMuted = muted
+        player?.isMuted = muted
+    }
+
     public func teardown() {
         // Cancel pending seek + resume active/queued exactly once
         seekGeneration += 1
@@ -243,6 +264,7 @@ public final class NativePlayerController: PlaybackControlling {
         isPrerolled = false
         loadFailed = false
         lastErrorMessage = nil
+        buffered = 0
     }
 
     // ── KVO / periodic time observer wiring ────────────────────────────────
@@ -306,9 +328,34 @@ public final class NativePlayerController: PlaybackControlling {
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
-                self?.position = time.seconds
+                guard let self else { return }
+                self.position = time.seconds
+                self.recomputeBuffered(item: item)
             }
         }
+    }
+
+    /// Загруженная часть для полосы перемотки. Берём ИМЕННО тот диапазон,
+    /// который накрывает текущую позицию: после перемотки назад AVPlayer
+    /// держит в массиве и старые куски, и первый из них — чужой.
+    private func recomputeBuffered(item: AVPlayerItem) {
+        let total = duration
+        guard total > 0, total.isFinite else {
+            buffered = 0
+            return
+        }
+        let now = position
+        var ahead = now
+        for value in item.loadedTimeRanges {
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let end = start + range.duration.seconds
+            guard start.isFinite, end.isFinite else { continue }
+            // Полсекунды допуска: наблюдатель времени идёт с шагом 0.25 с и
+            // позиция может стоять на самой кромке диапазона.
+            if now >= start - 0.5, now <= end { ahead = max(ahead, end) }
+        }
+        buffered = min(1, max(0, ahead / total))
     }
 
     private func recomputeBuffering(player: AVPlayer, item: AVPlayerItem) {

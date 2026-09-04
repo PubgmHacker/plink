@@ -670,7 +670,9 @@ struct TrendingPreviewSheet: View {
     /// ощущение, что функция сломалась. Для таких карточек действие одно —
     /// открыть официальный тайтл в сервисе.
     private var canWatchTogether: Bool {
-        item.origin.isClip && service.isAvailableInBeta
+        // Ivi titles play inside the room through the Ivi web player once the
+        // viewer has signed in to their own Ivi account.
+        (item.origin.isClip || service == .ivi) && service.isAvailableInBeta
     }
 
     private var primaryActionTitle: String {

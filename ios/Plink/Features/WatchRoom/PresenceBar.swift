@@ -39,7 +39,7 @@ struct PresenceBar: View {
 
             // Identity + status
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(max(1, model.participants.count)) в комнате")
+                Text(model.presenceCountLine)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Cinema2026.text)
                 Text(model.presenceStatusLine)

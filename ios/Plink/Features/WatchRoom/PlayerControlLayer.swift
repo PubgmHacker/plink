@@ -18,16 +18,21 @@ struct PlayerTopChrome: View {
     /// по таймеру автоскрытия, унося с собой любой презентованный отсюда шит.
     /// Дефолт — no-op, чтобы превью/снапшоты рисовали хром без контекста экрана.
     var onOpenAppearance: () -> Void = {}
+    /// Название того, что идёт в комнате. Пока кадр закрыт заставкой, подпись
+    /// рисует она, и сюда приходит nil — иначе название стояло бы дважды.
+    var mediaTitle: String? = nil
+    /// Вырез, домашняя полоса и ящик чата. Затемнение сверху рисует сам кадр
+    /// и оно во всю ширину — отступ получает только содержимое.
+    var chromeInsets: EdgeInsets = EdgeInsets()
     // Шит приглашения (QR + шер-линк)
-    @State private var showInvite = false
 
     var body: some View {
         VStack {
             HStack(spacing: 8) {
-                PlayerChromeButton(systemName: "xmark") {
-                    model.leaveRoom()
-                }
-                .accessibilityLabel("Выйти из комнаты")
+                // Место постоянного крестика. Сам он живёт оверлеем экрана —
+                // выйти из комнаты можно и когда хром скрыт автотаймером,
+                // поэтому вторая такая же кнопка здесь была бы дублем.
+                Color.clear.frame(width: 40, height: 36)
 
                 Spacer()
 
@@ -74,26 +79,25 @@ struct PlayerTopChrome: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Тема комнаты")
                 }
-
-                // Полноценное приглашение: QR-код + шер-линк + копирование
-                Button {
-                    HapticManager.impact(.light)
-                    showInvite = true
-                } label: {
-                    V4GlyphIcon(glyph: .plus, size: 14, weight: .regular)
-                        .foregroundStyle(PlinkRoomAccent.current)
-                        .frame(width: 36, height: 36)
-                        .plinkGlass(.overlay, in: Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Пригласить в комнату")
-                .sheet(isPresented: $showInvite) {
-                    RoomInviteSheet(model: model)
-                }
             }
-            .padding(.horizontal, 14)
-            .padding(.top, variant == .landscape ? 12 : 8)
+            .padding(.leading, 14 + chromeInsets.leading)
+            .padding(.trailing, 14 + chromeInsets.trailing)
+            .padding(.top, (variant == .landscape ? 12 : 8) + chromeInsets.top)
+
+            if let mediaTitle, !mediaTitle.isEmpty {
+                HStack {
+                    Text(mediaTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                        .shadow(color: .black.opacity(0.65), radius: 5, y: 1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 16 + chromeInsets.leading)
+                .padding(.trailing, 16 + chromeInsets.trailing)
+                .padding(.top, 2)
+            }
+
             Spacer()
         }
     }
@@ -132,27 +136,9 @@ struct PlayerCenterControl: View {
     }
 }
 
-// MARK: - Chrome buttons
-
-struct PlayerChromeButton: View {
-    let systemName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Cinema2026.text)
-                .frame(width: 36, height: 36)
-                .plinkGlass(.overlay, in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// Неиспользуемый PlayerSmallButton удалён
-// (задумывался под PiP/fullscreen, но нигде не инстанцировался).
+// PlayerChromeButton удалён вместе со вторым крестиком: единственным его
+// вызовом был дубль кнопки выхода, а постоянный крестик экрана рисуется
+// собственным стилем. PlayerSmallButton удалён раньше по той же причине.
 
 // MARK: - Loading & buffering
 
@@ -199,6 +185,10 @@ struct PlinkPlayerControls: View {
     let model: WatchRoomModel
     @Binding var ui: WatchRoomUIState
     let variant: WatchRoomLayoutState.Variant
+    /// Вырез, домашняя полоса и ширина ящика чата справа. Отступ получает
+    /// содержимое, а не вся панель: затемнение под ней обязано доходить до
+    /// краёв кадра, иначе посреди картинки висит чёрный прямоугольник.
+    var chromeInsets: EdgeInsets = EdgeInsets()
 
     @State private var scrubValue: Double = 0
     @State private var showSpeedMenu = false
@@ -207,6 +197,37 @@ struct PlinkPlayerControls: View {
 
     private var embedded: EmbeddedPlaybackController? {
         model.coordinator.currentController as? EmbeddedPlaybackController
+    }
+
+    /// Родной AVPlayer (mp4/HLS). Панель одна на всех провайдеров, поэтому
+    /// каждый «локальный» параметр — буфер, звук — берётся у того контроллера,
+    /// который сейчас живой.
+    private var native: NativePlayerController? {
+        model.coordinator.currentController as? NativePlayerController
+    }
+
+    private var bufferedFraction: Double {
+        embedded?.buffered ?? native?.buffered ?? 0
+    }
+
+    private var isMuted: Bool {
+        embedded?.isMuted ?? native?.isMuted ?? false
+    }
+
+    /// Скорость меняет ТОЛЬКО тот провайдер, у которого она локальна.
+    /// У родного плеера `setRate` — это ручка синхронизатора: он правит ею
+    /// расхождение и вернёт свою величину на ближайшем тике, а комната
+    /// разъедется, потому что rate не входит в протокол sync. Поэтому у
+    /// родного пути пилюли скорости нет вовсе — вместо неё врущей.
+    private var canChangeRate: Bool { embedded != nil }
+
+    private func toggleMute() {
+        let next = !isMuted
+        if let embedded {
+            embedded.setMuted(next)
+        } else {
+            native?.setMuted(next)
+        }
     }
 
     private var canControl: Bool {
@@ -221,15 +242,37 @@ struct PlinkPlayerControls: View {
     var body: some View {
         ZStack {
             // Жесты двойного тапа: −10 с слева, +10 с справа (как в YouTube).
+            // Одиночный тап здесь же переключает хром — раньше этим занимался
+            // жест корневого стека комнаты, но он лежал НАД кнопками панели
+            // и глотал их касания (см. WatchRoomScreen).
+            //
+            // Полосы сверху и снизу вырезаны намеренно: в них живут ряд
+            // PlayerTopChrome и сама панель. Зоны занимали весь кадр и
+            // лежали выше верхнего хрома — его кнопки были недоступны.
             HStack(spacing: 0) {
                 seekZone(delta: -10, label: "−10")
                 seekZone(delta: 10, label: "+10")
             }
+            .padding(.top, Self.topBand(for: variant) + chromeInsets.top)
+            .padding(.bottom, Self.bottomBand(for: variant) + chromeInsets.bottom)
 
-            VStack {
-                Spacer()
+            VStack(spacing: 0) {
+                // Отступ сверху ровно под хром: в портрете сцена — всего
+                // 16:9 (≈221 pt на 393-точечном экране), и центрирование по
+                // всей высоте сажало кнопку play прямо на ряд «крестик —
+                // пилюля синхрона — щит».
+                //
+                // Касаний распорка не принимает: `Color` — обычная заливка и
+                // при прозрачности остаётся мишенью hit-test, а эта лежит
+                // ровно поверх кнопок PlayerTopChrome.
+                Color.clear
+                    .frame(height: chromeInset + chromeInsets.top)
+                    .allowsHitTesting(false)
+                Spacer(minLength: 0)
                 centerTransport
-                Spacer()
+                    .padding(.leading, chromeInsets.leading)
+                    .padding(.trailing, chromeInsets.trailing)
+                Spacer(minLength: 0)
                 bottomBar
             }
 
@@ -261,13 +304,39 @@ struct PlinkPlayerControls: View {
                 flash("\(label) с")
                 Task { await model.sendSeekCommand(to: target) }
             }
+            // Порядок важен: двойной тап объявлен первым, иначе одиночный
+            // срабатывает раньше и перемотки ±10 с не будет никогда.
+            .onTapGesture {
+                PlinkChromeTrace.log("seekZoneSingleTap")
+                guard !ui.chatPresented else { return }
+                withAnimation(.plinkControls) { ui.toggleControlsDebounced() }
+            }
+    }
+
+    /// Высота верхней полосы кадра — ряд PlayerTopChrome. Одна величина на
+    /// три места: отступ центрального транспорта, вырезанная у зон ±10 с
+    /// полоса и гейт тапа встроенной поверхности (PlayerStage).
+    static func topBand(for variant: WatchRoomLayoutState.Variant) -> CGFloat {
+        variant == .landscape ? 60 : 50
+    }
+
+    /// Высота нижней панели: ряд кнопок плюс полоса перемотки под ним.
+    static func bottomBand(for variant: WatchRoomLayoutState.Variant) -> CGFloat {
+        variant == .landscape ? 96 : 88
     }
 
     // MARK: Центр — перемотка и play/pause
 
+    /// Высота верхнего хрома вместе с названием — центральный ряд начинается
+    /// под ней, а не от верхнего края кадра.
+    private var chromeInset: CGFloat { Self.topBand(for: variant) }
+    private var playSize: CGFloat { variant == .landscape ? 74 : 58 }
+    private var sideSize: CGFloat { variant == .landscape ? 48 : 40 }
+    private var transportSpacing: CGFloat { variant == .landscape ? 40 : 30 }
+
     private var centerTransport: some View {
-        HStack(spacing: 28) {
-            transportButton("gobackward.10", size: 44) {
+        HStack(spacing: transportSpacing) {
+            transportButton("gobackward.10", size: sideSize) {
                 let target = max(0, model.coordinator.position - 10)
                 Task { await model.sendSeekCommand(to: target) }
             }
@@ -282,18 +351,18 @@ struct PlinkPlayerControls: View {
                 }
             } label: {
                 Image(systemName: model.coordinator.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: playSize * 0.4, weight: .bold))
                     .foregroundStyle(.white)
-                    .offset(x: model.coordinator.isPlaying ? 0 : 2)
-                    .frame(width: 68, height: 68)
+                    .offset(x: model.coordinator.isPlaying ? 0 : playSize * 0.04)
+                    .frame(width: playSize, height: playSize)
                     .plinkGlass(.overlay, in: Circle())
-                    .overlay(Circle().stroke(PlinkRoomAccent.current.opacity(0.65), lineWidth: 1.2))
-                    .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+                    .overlay(Circle().stroke(.white.opacity(0.14), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(model.coordinator.isPlaying ? "Пауза" : "Смотреть")
 
-            transportButton("goforward.10", size: 44) {
+            transportButton("goforward.10", size: sideSize) {
                 let target = min(duration > 0 ? duration : .greatestFiniteMagnitude,
                                  model.coordinator.position + 10)
                 Task { await model.sendSeekCommand(to: target) }
@@ -309,10 +378,11 @@ struct PlinkPlayerControls: View {
             action()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 19, weight: .medium))
+                .font(.system(size: size * 0.55, weight: .regular))
                 .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.55), radius: 6, y: 1)
                 .frame(width: size, height: size)
-                .plinkGlass(.overlay, in: Circle())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }
@@ -320,30 +390,21 @@ struct PlinkPlayerControls: View {
     // MARK: Нижняя панель — время, перемотка, скорость, качество, экран
 
     private var bottomBar: some View {
-        VStack(spacing: 8) {
+        // Форма как у YouTube/Netflix на телефоне: сначала строка «время и
+        // кнопки», под ней полоса перемотки во всю ширину. Прежняя раскладка
+        // зажимала полосу между двумя таймкодами и уводила звук с полным
+        // экраном в почти пустой второй ряд — в портрете, где под кадр
+        // отведено всего 16:9, это съедало высоту зря.
+        VStack(spacing: 4) {
             HStack(spacing: 10) {
-                Text(Self.timeLabel(position))
+                Text(Self.timeLabel(position) + " / " + Self.timeLabel(duration))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
+                    .accessibilityLabel(
+                        "Прошло " + Self.timeLabel(position)
+                        + ", осталось " + Self.timeLabel(max(0, duration - position))
+                    )
 
-                PlinkSeekBar(
-                    value: $scrubValue,
-                    buffered: embedded?.buffered ?? 0,
-                    duration: max(duration, 0.001),
-                    isScrubbing: $ui.isScrubbing,
-                    enabled: canControl && duration > 0,
-                    onCommit: { target in
-                        Task { await model.sendSeekCommand(to: target) }
-                    }
-                )
-                .frame(height: 28)
-
-                Text(Self.timeLabel(duration))
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-
-            HStack(spacing: 10) {
                 if !model.isHost {
                     // Раньше здесь стояла только подпись «Управляет хост» —
                     // констатация без выхода. Гость, которому надо отойти на
@@ -380,7 +441,7 @@ struct PlinkPlayerControls: View {
                 // в протокол sync.command, поэтому гость с 2× ломал себе синхрон
                 // (циклический жёсткий seek от OrderedSyncController). Для хоста
                 // скорость остаётся локальной, пока rate не добавлен в протокол.
-                if canControl {
+                if canControl && canChangeRate {
                     Menu {
                         ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
                             Button {
@@ -413,20 +474,44 @@ struct PlinkPlayerControls: View {
                     }
                 }
 
-                // Звук
+                // Чат — в общем ряду с остальными кнопками. Раньше его
+                // открывала плавающая кнопка у правого края кадра: она стояла
+                // ровно поверх конца полосы перемотки и кнопки полного экрана,
+                // так что нижние контролы было нечем нажать. Место кнопки —
+                // здесь, рядом со звуком, как переключатель чата у ютуба.
+                if variant == .landscape {
+                    Button {
+                        HapticManager.impact(.light)
+                        withAnimation(.plinkDrawer) { ui.chatDrawerVisible.toggle() }
+                    } label: {
+                        Image(systemName: ui.chatDrawerVisible
+                              ? "bubble.left.and.bubble.right.fill"
+                              : "bubble.left.and.bubble.right")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .plinkGlass(.overlay, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(ui.chatDrawerVisible ? "Закрыть чат" : "Открыть чат")
+                    .accessibilityIdentifier("player.chatToggle")
+                }
+
+                // Звук — локально у каждого участника, синхрон не трогает
                 Button {
-                    guard let embedded else { return }
+                    PlinkChromeTrace.log("muteButtonAction")
                     HapticManager.impact(.light)
-                    embedded.setMuted(!embedded.isMuted)
+                    toggleMute()
                 } label: {
-                    Image(systemName: (embedded?.isMuted ?? false) ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
                         .plinkGlass(.overlay, in: Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel((embedded?.isMuted ?? false) ? "Включить звук" : "Выключить звук")
+                .accessibilityLabel(isMuted ? "Включить звук" : "Выключить звук")
+                .accessibilityIdentifier("player.mute")
 
                 // Полный экран
                 Button {
@@ -447,10 +532,25 @@ struct PlinkPlayerControls: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(variant == .landscape ? "Выйти из полного экрана" : "Полный экран")
+                .accessibilityIdentifier("player.fullscreen")
             }
+
+            PlinkSeekBar(
+                value: $scrubValue,
+                buffered: bufferedFraction,
+                duration: max(duration, 0.001),
+                isScrubbing: $ui.isScrubbing,
+                enabled: canControl && duration > 0,
+                onCommit: { target in
+                    Task { await model.sendSeekCommand(to: target) }
+                }
+            )
+            .frame(height: 24)
+            .accessibilityIdentifier("player.seek")
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, variant == .landscape ? 14 : 10)
+        .padding(.leading, 14 + chromeInsets.leading)
+        .padding(.trailing, 14 + chromeInsets.trailing)
+        .padding(.bottom, (variant == .landscape ? 14 : 10) + chromeInsets.bottom)
         .background(
             LinearGradient(colors: [.clear, .black.opacity(0.65)],
                            startPoint: .top, endPoint: .bottom)

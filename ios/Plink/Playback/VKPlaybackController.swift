@@ -45,6 +45,12 @@ public final class VKPlaybackController: PlaybackControlling {
 
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        // Полноэкранный режим — только у Plink. Сайт, ушедший в свой
+        // element-fullscreen, отдаёт экран отдельному контроллеру WebKit:
+        // поверх него не рисуется ни крестик комнаты, ни хром плеера, и
+        // человек оказывается запертым в чужом плеере («из плеера
+        // невозможно выйти»). Свой разворот в ландшафт остаётся.
+        config.preferences.isElementFullscreenEnabled = false
         config.mediaTypesRequiringUserActionForPlayback = [.audio]
 
         let web = WKWebView(frame: .zero, configuration: config)

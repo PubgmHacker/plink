@@ -489,7 +489,25 @@ extension VideoService {
                 )
             }
 
-        case .kinopoisk, .ivi, .okko, .wink, .start, .premier, .smotrim, .kion, .netflix, .disney:
+        case .ivi:
+            // Only the player page counts: /watch/<id> or /watch/<slug>/<id>.
+            // The generic pattern list below matched /movies/<genre> catalogue
+            // pages too, so browsing a genre created a room with no film.
+            let path = url.path.lowercased()
+            let parts = path.split(separator: "/").map(String.init)
+            if PlinkHost.matches(host, anyOf: ["ivi.ru", "www.ivi.ru"]),
+               parts.first == "watch",
+               let last = parts.last, last != "watch",
+               last.allSatisfy(\.isNumber) {
+                return DetectedVideo(
+                    title: title,
+                    embedURL: urlString,
+                    originalURL: urlString,
+                    service: .ivi
+                )
+            }
+
+        case .kinopoisk, .okko, .wink, .start, .premier, .smotrim, .kion, .netflix, .disney:
             // DRM: страница и есть контент — её откроет плеер комнаты.
             // Netflix — /title/ и /watch/, Кинопоиск — /film/, Disney — /play/.
             let path = url.path.lowercased()
@@ -542,6 +560,12 @@ struct ServiceWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        // Полноэкранный режим — только у Plink. Сайт, ушедший в свой
+        // element-fullscreen, отдаёт экран отдельному контроллеру WebKit:
+        // поверх него не рисуется ни крестик комнаты, ни хром плеера, и
+        // человек оказывается запертым в чужом плеере («из плеера
+        // невозможно выйти»). Свой разворот в ландшафт остаётся.
+        config.preferences.isElementFullscreenEnabled = false
         config.mediaTypesRequiringUserActionForPlayback = []
 
         // ISOLATED, NON-PERSISTENT data store for the
