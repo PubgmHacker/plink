@@ -261,7 +261,7 @@ struct LandscapeWatchLayout: View {
             // стоит в нижней панели плеера (PlinkPlayerControls).
             if ui.chatDrawerVisible {
                 LandscapeChatDrawer(model: model, isVisible: $ui.chatDrawerVisible,
-                                    containerWidth: size.width)
+                                    containerWidth: size.width, safeArea: safeArea)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }

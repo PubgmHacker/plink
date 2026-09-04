@@ -585,7 +585,10 @@ final class DesignAuditShots: XCTestCase {
         )
         XCTAssertEqual(opened.leading, 59)
         XCTAssertEqual(opened.bottom, 21)
-        XCTAssertEqual(opened.trailing, WatchLandscapeMetrics.drawerWidth(for: 852))
+        // Ящик ПЛЮС вырез: ящик доходит до физического края и накрывает
+        // вырез своей полосой, поэтому хром отступает на сумму.
+        XCTAssertEqual(opened.trailing,
+                       WatchLandscapeMetrics.drawerWidth(for: 852) + safe.trailing)
         XCTAssertGreaterThanOrEqual(opened.trailing, 59)
     }
 
@@ -658,7 +661,8 @@ final class DesignAuditShots: XCTestCase {
                         LandscapeChatDrawer(
                             model: model,
                             isVisible: .constant(true),
-                            containerWidth: proxy.size.width
+                            containerWidth: proxy.size.width,
+                            safeArea: safeArea
                         )
                     }
                 }

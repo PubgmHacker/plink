@@ -102,7 +102,14 @@ struct WatchChatView: View {
                         Cinema2026.background.opacity(0.18)
                     }
                 }
-                .ignoresSafeArea()
+                // Края — да, верх — нет. Полный `.ignoresSafeArea()` разрешал
+                // этой подложке (0,92 ⊕ 0,18 — 93,4 % плотности) вылезти вверх
+                // за собственные границы ленты и накрыть шапку ящика чата в
+                // ландшафте: «Чат», счётчик участников и крестик оставались
+                // видны на 6 % — 1,18:1, закрыть чат было физически нечем.
+                // Проба непрозрачным пурпуром в шапке показывала (36,25,46)
+                // вместо (255,0,255) — ровно остаток от 93,4 %.
+                .ignoresSafeArea(edges: [.horizontal, .bottom])
             )
             .onChange(of: model.chatMessages.count) { _, _ in
                 guard atBottom, let last = model.chatMessages.last else { return }

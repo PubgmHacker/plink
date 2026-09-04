@@ -92,8 +92,12 @@ enum WatchLandscapeMetrics {
             top: safeArea.top,
             leading: safeArea.leading,
             bottom: safeArea.bottom,
+            // Ящик и вырез СКЛАДЫВАЮТСЯ, а не спорят за максимум: ящик идёт
+            // до физического края и своей же полосой накрывает вырез. Было
+            // max(), и на той стороне, где вырез, хром оставался под стеклом
+            // ящика ровно на ширину выреза — 59 pt неработающих кнопок.
             trailing: drawerVisible
-                ? max(safeArea.trailing, drawerWidth(for: canvasWidth))
+                ? drawerWidth(for: canvasWidth) + safeArea.trailing
                 : safeArea.trailing
         )
     }
@@ -105,6 +109,10 @@ struct LandscapeChatDrawer: View {
     /// Ширина канвы. Ящик считает от неё свою ширину тем же правилом, что и
     /// плеер, — иначе отступ хрома разойдётся с реальным краем ящика.
     var containerWidth: CGFloat = 0
+    /// Безопасная зона числом — тем же путём, каким её получает хром плеера
+    /// (`WatchLandscapeMetrics.chromeInsets`). Ящик стоит у трейлинг-края, а
+    /// на той стороне, где вырез, край экрана — это не край читаемой области.
+    var safeArea = EdgeInsets()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -119,6 +127,17 @@ struct LandscapeChatDrawer: View {
         .frame(width: containerWidth > 0
                ? WatchLandscapeMetrics.drawerWidth(for: containerWidth)
                : 360)
+        // Клип по колонке: горизонтальная лента реакций в поле ввода —
+        // ScrollView, и без него она рисовала эмодзи поверх полосы выреза,
+        // на 59 pt правее собственной подложки. Замер: правый край ленты
+        // 1584 px, а последний эмодзи доезжал до 1699 при кадре 1704.
+        .clipped()
+        // Стекло доходит до физического края, содержимое — нет. Без этой
+        // полосы одно из двух: либо ящик кладут внутрь безопасной зоны и у
+        // выреза остаётся чёрная щель между ящиком и краем, либо крестик,
+        // счётчик и микрофон уезжают под сам вырез. Ширина колонки чата при
+        // этом не меняется — полоса добавляется снаружи неё.
+        .padding(.trailing, safeArea.trailing)
         .background(.ultraThinMaterial)
         .overlay(alignment: .leading) {
             Rectangle()
@@ -145,6 +164,9 @@ struct LandscapeChatDrawer: View {
                 .accessibilityIdentifier("room.chatDrawerAnchor")
                 .allowsHitTesting(false)
         )
+        // Только трейлинг: снизу домашняя полоса, и поле ввода обязано
+        // остаться над ней.
+        .ignoresSafeArea(edges: .trailing)
     }
 }
 
@@ -153,6 +175,15 @@ struct WatchChatHeader: View {
     var closable: Bool = false
     var onClose: () -> Void = {}
 
+    // Шапку не красили заново, её раскрыли: до 04.09.2026 в ландшафтном
+    // ящике она лежала ПОД фоном ленты сообщений. Замер: «Чат» — пиксели
+    // (35,38,44) на (21,22,28), 1,18:1; крестик и счётчик — так же, то есть
+    // чат в ландшафте нечем было закрыть. Проба пурпуром доказала, что
+    // гаснут не буквы, а вся шапка целиком: непрозрачную заливку (255,0,255)
+    // кадр показывал как (36,25,46) — 6 % от своей силы, ровно остаток от
+    // 0,92⊕0,18 фона `WatchChatView`. Причина и правка — там же
+    // (WatchChatView.swift, `.ignoresSafeArea` у фона ленты). Токены здесь
+    // верные, менять их было бы лечением симптома.
     var body: some View {
         HStack(spacing: 8) {
             Text("Чат")
