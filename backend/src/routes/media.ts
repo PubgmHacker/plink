@@ -11,6 +11,7 @@ import { cacheGet, cacheSet } from '../config/redis.js';
 import { searchAllProviders } from '../services/videoSearch.js';
 
 const EXTRACT_CACHE_TTL = 3600; // 1 час — прямой URL живёт долго
+const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
 export default async function mediaRoutes(fastify, _options) {
   const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
@@ -212,7 +213,9 @@ export default async function mediaRoutes(fastify, _options) {
     },
     async (request: any, reply: any) => {
       const { id } = request.query as any;
-      if (!id) return reply.status(400).send({ error: 'Video ID required' });
+      if (typeof id !== 'string' || !YOUTUBE_ID_PATTERN.test(id)) {
+        return reply.status(400).send({ error: 'Valid video ID required' });
+      }
 
       // Cache extraction (URL YouTube живёт ~6 часов)
       const cacheKey = `yt:stream:${id}`;
@@ -226,7 +229,7 @@ export default async function mediaRoutes(fastify, _options) {
         await cacheSet(cacheKey, stream, EXTRACT_CACHE_TTL);
         reply.send(stream);
       } catch (e: any) {
-        console.error('YouTube extract error', e.message);
+        request.log.warn({ err: e }, 'YouTube extract failed; trying metadata fallback');
 
         // Fallback: oEmbed (только метаданные, без streamURL)
         try {
@@ -247,7 +250,8 @@ export default async function mediaRoutes(fastify, _options) {
           }
         } catch {}
 
-        reply.status(500).send({ error: 'Extract failed: ' + e.message });
+        request.log.warn({ err: e }, 'YouTube extraction and metadata fallback failed');
+        reply.status(502).send({ error: 'Video is temporarily unavailable' });
       }
     },
   );
@@ -262,8 +266,10 @@ export default async function mediaRoutes(fastify, _options) {
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
     async (request: any, reply: any) => {
-      const { url } = request.body;
-      if (!url) return reply.status(400).send({ error: 'URL required' });
+      const { url } = (request.body ?? {}) as { url?: unknown };
+      if (typeof url !== 'string' || url.length > 2_048) {
+        return reply.status(400).send({ error: 'A valid URL is required' });
+      }
 
       const cacheKey = `stream:${Buffer.from(url).toString('base64').slice(0, 40)}`;
       const cached = await cacheGet<any>(cacheKey);
@@ -274,8 +280,8 @@ export default async function mediaRoutes(fastify, _options) {
         await cacheSet(cacheKey, stream, EXTRACT_CACHE_TTL);
         reply.send(stream);
       } catch (e: any) {
-        console.error('Extract URL error', e.message);
-        reply.status(500).send({ error: 'Extract failed: ' + e.message });
+        request.log.warn({ err: e }, 'media URL extraction failed');
+        reply.status(422).send({ error: 'This video URL is not supported' });
       }
     },
   );
@@ -290,8 +296,10 @@ export default async function mediaRoutes(fastify, _options) {
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request: any, reply: any) => {
-      const { url } = request.query as any;
-      if (!url) return reply.status(400).send({ error: 'URL required' });
+      const { url } = request.query as { url?: unknown };
+      if (typeof url !== 'string' || url.length > 2_048) {
+        return reply.status(400).send({ error: 'A valid URL is required' });
+      }
 
       const cacheKey = `meta:${Buffer.from(url).toString('base64').slice(0, 40)}`;
       const cached = await cacheGet<any>(cacheKey);
@@ -302,7 +310,8 @@ export default async function mediaRoutes(fastify, _options) {
         await cacheSet(cacheKey, meta, 3600);
         reply.send(meta);
       } catch (e: any) {
-        reply.status(500).send({ error: 'Metadata failed: ' + e.message });
+        request.log.warn({ err: e }, 'media metadata extraction failed');
+        reply.status(422).send({ error: 'Metadata is unavailable for this video URL' });
       }
     },
   );
@@ -319,7 +328,10 @@ export default async function mediaRoutes(fastify, _options) {
       preHandler: [fastify.authenticate],
     },
     async (request: any, reply: any) => {
-      const token = fastify.jwt.sign({ id: request.user.id, scope: 'media' }, { expiresIn: '45m' });
+      const token = fastify.jwt.sign(
+        { id: request.user.id, scope: 'media', typ: 'media_stream' },
+        { expiresIn: '45m' },
+      );
       reply.send({ token, expiresInSec: 45 * 60 });
     },
   );
@@ -366,7 +378,7 @@ export default async function mediaRoutes(fastify, _options) {
       reply.header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
 
       const { id, token } = request.query as any;
-      if (!id || typeof id !== 'string' || id.length > 20) {
+      if (typeof id !== 'string' || !YOUTUBE_ID_PATTERN.test(id)) {
         return reply.status(400).send({ error: 'Valid video ID required' });
       }
       // Auth via query param (AVPlayer drops Authorization headers on Range requests)
@@ -374,7 +386,15 @@ export default async function mediaRoutes(fastify, _options) {
         return reply.status(401).send({ error: 'Token required' });
       }
       try {
-        const payload = fastify.jwt.verify(token);
+        const payload = fastify.jwt.verify(token) as { id?: string; scope?: string; typ?: string };
+        if (
+          payload.scope !== 'media' ||
+          payload.typ !== 'media_stream' ||
+          typeof payload.id !== 'string' ||
+          payload.id.length === 0
+        ) {
+          return reply.status(401).send({ error: 'Invalid media token' });
+        }
         (request as any).user = payload;
       } catch {
         return reply.status(401).send({ error: 'Invalid token' });
@@ -389,13 +409,14 @@ export default async function mediaRoutes(fastify, _options) {
           await cacheSet(cacheKey, streamInfo, EXTRACT_CACHE_TTL);
         } catch (e: any) {
           console.error('[youtube-stream] extract error', e.message);
-          return reply.status(500).send({ error: 'Extract failed: ' + e.message });
+          request.log.warn({ err: e }, 'youtube stream extraction failed');
+          return reply.status(502).send({ error: 'Video stream is temporarily unavailable' });
         }
       }
 
       const upstreamUrl = streamInfo.streamURL;
       if (!upstreamUrl) {
-        return reply.status(500).send({ error: 'No stream URL available' });
+        return reply.status(502).send({ error: 'Video stream is temporarily unavailable' });
       }
 
       // ── 2. Fetch from googlevideo (IP-bound to Railway = matches) ─────
@@ -500,7 +521,8 @@ export default async function mediaRoutes(fastify, _options) {
         // Клиент отключился в фазе заголовков → наш же abort. Не ошибка.
         if (e?.name === 'AbortError' && reply.raw.destroyed) return reply;
         console.error('[youtube-stream] proxy error', e.message);
-        return reply.status(500).send({ error: 'Stream proxy failed: ' + e.message });
+        request.log.warn({ err: e }, 'youtube stream proxy failed');
+        return reply.status(502).send({ error: 'Video stream is temporarily unavailable' });
       }
     },
   );
@@ -526,7 +548,7 @@ export default async function mediaRoutes(fastify, _options) {
     },
     async (request: any, reply: any) => {
       const { id } = request.query as any;
-      if (!id || typeof id !== 'string' || id.length > 20) {
+      if (typeof id !== 'string' || !YOUTUBE_ID_PATTERN.test(id)) {
         return reply.status(400).send('Valid video ID required');
       }
 
@@ -617,7 +639,8 @@ export default async function mediaRoutes(fastify, _options) {
         return reply.send(html);
       } catch (e: any) {
         console.error('[youtube-embed] proxy error', e.message);
-        return reply.status(500).send('Embed proxy failed: ' + e.message);
+        request.log.warn({ err: e }, 'youtube embed proxy failed');
+        return reply.status(502).send('Video embed is temporarily unavailable');
       }
     },
   );

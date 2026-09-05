@@ -50,28 +50,33 @@ final class PlinkURLsTests: XCTestCase {
         XCTAssertEqual(PlinkURLs.terms?.host, URL(string: PlinkConfig.baseURLString)?.host)
     }
 
-    // MARK: - Share links stay on the brand origin
+    // MARK: - Share links stay on a trusted, working origin
 
     func testShareLinksIgnoreTheAPIOrigin() {
         UserDefaults.standard.set("https://api.example.test", forKey: backendKey)
 
-        XCTAssertEqual(PlinkURLs.roomLink(code: "ABCDEF")?.absoluteString,
-                       "https://plink.app/r/ABCDEF")
-        XCTAssertEqual(PlinkURLs.profileLink("someone")?.absoluteString,
-                       "https://plink.app/u/someone")
+        XCTAssertEqual(PlinkURLs.roomLink(code: "ABCDEF")?.host,
+                       URL(string: PlinkURLs.shareOrigin)?.host)
+        XCTAssertEqual(PlinkURLs.profileLink("someone")?.host,
+                       URL(string: PlinkURLs.shareOrigin)?.host)
     }
 
     func testShareOriginOverrideAppliesAndDropsTrailingSlash() {
-        UserDefaults.standard.set("https://plink.example/", forKey: shareKey)
+        UserDefaults.standard.set("https://plink.app/", forKey: shareKey)
 
-        XCTAssertEqual(PlinkURLs.shareOrigin, "https://plink.example")
+        XCTAssertEqual(PlinkURLs.shareOrigin, "https://plink.app")
         XCTAssertEqual(PlinkURLs.roomLink(code: "ABCDEF")?.absoluteString,
-                       "https://plink.example/r/ABCDEF")
+                       "https://plink.app/r/ABCDEF")
     }
 
-    func testEmptyOverrideFallsBackToTheBrandOrigin() {
+    func testEmptyOverrideFallsBackToTheWorkingWebOrigin() {
         UserDefaults.standard.set("", forKey: shareKey)
-        XCTAssertEqual(PlinkURLs.shareOrigin, PlinkURLs.brandOrigin)
+        XCTAssertEqual(PlinkURLs.shareOrigin, PlinkURLs.webOrigin)
+    }
+
+    func testUntrustedShareOriginIsRejected() {
+        UserDefaults.standard.set("https://evil.example/phish", forKey: shareKey)
+        XCTAssertEqual(PlinkURLs.shareOrigin, PlinkURLs.webOrigin)
     }
 
     func testBlankRoomCodeProducesNoLink() {
@@ -93,8 +98,8 @@ final class PlinkURLsTests: XCTestCase {
     func testShareManagerUsesTheSameOrigin() {
         XCTAssertEqual(ShareManager.shareBaseURL, PlinkURLs.shareOrigin)
         XCTAssertEqual(ShareManager.shareURL(for: "room-id", code: "ABCDEF").absoluteString,
-                       "https://plink.app/r/ABCDEF")
+                       "\(PlinkURLs.shareOrigin)/r/ABCDEF")
         XCTAssertEqual(ShareManager.shareURL(for: "room-id").absoluteString,
-                       "https://plink.app/r/room-id")
+                       "\(PlinkURLs.shareOrigin)/r/room-id")
     }
 }

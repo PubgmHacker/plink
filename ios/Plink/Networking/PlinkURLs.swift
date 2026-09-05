@@ -17,10 +17,8 @@ import Foundation
 ///     someone else's chat is the product's face, and choosing what host appears
 ///     there is a product decision, not a networking detail.
 ///
-/// `shareOrigin` currently points at `https://plink.app`, which does not serve
-/// the app yet. Until it does, invite links do not open — and switching them to
-/// the API host is a one-line change here (or, without a rebuild, the
-/// `plink.share_origin` default below).
+/// The default share origin follows the currently deployed web origin so an
+/// invite remains usable while the branded domain is being provisioned.
 enum PlinkURLs {
 
     // MARK: - Origins
@@ -28,10 +26,9 @@ enum PlinkURLs {
     /// Brand origin as shipped. A literal, so it is also the safe fallback.
     static let brandOrigin = "https://plink.app"
 
-    /// Overrides `shareOrigin` at runtime. Same mechanism as
-    /// `plink.backend_base_url` in `PlinkConfig`: it exists so the host in
-    /// invite links can be changed on a device (or in a TestFlight build)
-    /// without shipping a new binary.
+    /// Optional staging override. It is accepted only for HTTPS hosts that the
+    /// app already trusts; an arbitrary UserDefaults value must never become an
+    /// open redirect or a phishing origin in a share sheet.
     ///
     /// One thing it does not change: `DeepLinkRouter.domain`, which decides
     /// which hosts the app accepts *inbound*. Host matching is strict on
@@ -59,10 +56,27 @@ enum PlinkURLs {
     /// Host used in links the user hands to other people.
     static var shareOrigin: String {
         if let override = UserDefaults.standard.string(forKey: shareOriginOverrideKey),
-           !override.isEmpty {
-            return override.hasSuffix("/") ? String(override.dropLast()) : override
+           let safeOverride = validatedShareOrigin(override) {
+            return safeOverride
         }
-        return brandOrigin
+        // The backend currently serves the working web join flow. Keep invites
+        // usable until plink.app has a live web deployment and universal links.
+        return webOrigin
+    }
+
+    private static func validatedShareOrigin(_ raw: String) -> String? {
+        guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              components.scheme == "https",
+              let host = components.host?.lowercased(),
+              host == "plink.app" || host == "www.plink.app" || host == URL(string: webOrigin)?.host?.lowercased(),
+              components.user == nil,
+              components.password == nil,
+              components.queryItems == nil,
+              components.fragment == nil else {
+            return nil
+        }
+        components.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
     /// Brand home page. Force-unwrapped on purpose: `brandOrigin` is a literal
@@ -105,7 +119,9 @@ enum PlinkURLs {
     /// opens in a browser when the deep link does not.
     static func roomLink(code: String) -> URL? {
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty, trimmed.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
+            return nil
+        }
         return URL(string: "\(shareOrigin)/r/\(trimmed)")
     }
 
@@ -113,7 +129,7 @@ enum PlinkURLs {
     /// served by `/u/:username` on the backend.
     static func profileLink(_ handle: String) -> URL? {
         let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return URL(string: "\(shareOrigin)/u/\(trimmed)")
+        guard !trimmed.isEmpty, trimmed.count <= 128 else { return nil }
+        return URL(string: "\(shareOrigin)/u/\(trimmed.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trimmed)")
     }
 }

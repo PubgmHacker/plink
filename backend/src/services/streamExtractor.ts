@@ -39,13 +39,36 @@ const PIPED_INSTANCES = [
 ];
 
 export function extractYouTubeId(url: string): string | null {
-  const shortMatch = url.match(/youtu\.be\/([\w-]{11})/);
-  if (shortMatch) return shortMatch[1];
-  const watchMatch = url.match(/[?&]v=([\w-]{11})/);
-  if (watchMatch) return watchMatch[1];
-  const embedMatch = url.match(/youtube\.com\/(?:embed|shorts|live)\/([\w-]{11})/);
-  if (embedMatch) return embedMatch[1];
   if (/^[\w-]{11}$/.test(url)) return url;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:') return null;
+
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  const isYouTube =
+    host === 'youtu.be' ||
+    host === 'youtube.com' ||
+    host.endsWith('.youtube.com') ||
+    host === 'youtube-nocookie.com' ||
+    host.endsWith('.youtube-nocookie.com');
+  if (!isYouTube) return null;
+
+  if (host === 'youtu.be') {
+    const shortId = parsed.pathname.split('/').filter(Boolean)[0];
+    return shortId && /^[\w-]{11}$/.test(shortId) ? shortId : null;
+  }
+
+  const watchId = parsed.searchParams.get('v');
+  if (watchId && /^[\w-]{11}$/.test(watchId)) return watchId;
+
+  const pathMatch = parsed.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]{11})(?:\/|$)/);
+  if (pathMatch) return pathMatch[1];
+
   return null;
 }
 
@@ -248,20 +271,9 @@ async function runExtractor(
  * the first extractor that produces either a muxed MP4 streamURL or HLS URL.
  */
 export async function extractStream(url: string): Promise<StreamInfo> {
-  let parsed: URL | null = null;
-  try {
-    parsed = new URL(url);
-  } catch {
-    // Accept raw 11-character YouTube IDs below.
-  }
-
-  if (parsed && !['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Invalid URL protocol');
-  }
-
   const videoId = extractYouTubeId(url);
   if (!videoId) {
-    throw new Error('Only YouTube URLs are supported');
+    throw new Error('Only HTTPS YouTube URLs are supported');
   }
 
   console.log(`[streamExtractor] YouTube video ${videoId} — racing yt-dlp, Piped, Innertube`);

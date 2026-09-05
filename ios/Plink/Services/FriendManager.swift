@@ -640,7 +640,7 @@ final class FriendManager: ObservableObject {
     }
 
     func generateInviteLink(userId: String) -> URL {
-        URL(string: "\(ShareManager.shareBaseURL)/u/\(userId)")!
+        PlinkURLs.profileLink(userId) ?? PlinkURLs.shareHome
     }
 
     private func friendlyError(_ error: Error) -> String {

@@ -110,6 +110,13 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     return reply.status(401).send({ error: 'No token' });
   }
 
+  // Scoped credentials (currently media stream tokens) are accepted only by
+  // their dedicated endpoint. They must never become a general API bearer
+  // token through copy/paste or a leaked query string.
+  if (payload.scope || payload.typ) {
+    return reply.status(401).send({ error: 'Scoped token cannot authenticate API requests' });
+  }
+
   // ── Reconcile against current database state ─────────────────────────
   let snapshot: UserSnapshot | null;
   try {

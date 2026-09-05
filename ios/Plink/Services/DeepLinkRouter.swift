@@ -43,7 +43,7 @@ final class DeepLinkRouter: ObservableObject {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
 
         // Universal Link: https://plink.app/r/<code>  или  /u/<userId>
-        if url.host == Self.domain || url.host == "www.\(Self.domain)" {
+        if Self.acceptedUniversalLinkHosts.contains(url.host?.lowercased() ?? "") {
             return parsePath(url.path, queryItems: components?.queryItems)
         }
 
@@ -124,11 +124,19 @@ final class DeepLinkRouter: ObservableObject {
 
     /// Генерирует ссылку на комнату для Share Sheet.
     static func roomURL(code: String) -> URL {
-        URL(string: "https://\(Self.domain)/r/\(code)")!
+        PlinkURLs.roomLink(code: code) ?? URL(string: "https://\(Self.domain)/r/\(code)")!
     }
 
     /// Генерирует ссылку-приглашение в друзья.
     static func friendInviteURL(userId: String) -> URL {
-        URL(string: "https://\(Self.domain)/u/\(userId)")!
+        PlinkURLs.profileLink(userId) ?? URL(string: "https://\(Self.domain)/u/\(userId)")!
+    }
+
+    private static var acceptedUniversalLinkHosts: Set<String> {
+        var hosts = [Self.domain, "www.\(Self.domain)"]
+        if let backendHost = URL(string: PlinkConfig.baseURLString)?.host?.lowercased() {
+            hosts.append(backendHost)
+        }
+        return Set(hosts.map { $0.lowercased() })
     }
 }

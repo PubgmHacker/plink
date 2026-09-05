@@ -99,8 +99,13 @@ final class APIClient: ObservableObject, @unchecked Sendable {
             if let date = fallback.date(from: dateString) {
                 return date
             }
-            // Last resort: текущая дата (не падать)
-            return Date()
+            // Never replace corrupted server data with the current time. That
+            // silently moves messages, rooms, and history into the wrong period
+            // and makes a backend contract failure look like valid user data.
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected an ISO-8601 date, got \(dateString)"
+            )
         }
     }
 
