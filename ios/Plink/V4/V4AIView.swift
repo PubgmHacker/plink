@@ -622,7 +622,7 @@ struct V4AIViewLive: View {
                     HStack(spacing: 9) {
                         V4GlyphIcon(glyph: .sparkle, size: 15, weight: .regular)
                             .foregroundStyle(theme.accentColor)
-                        Text("Спроси про фильмы и комнаты")
+                        Text("Спросите про фильмы и комнаты")
                             .font(.system(size: 13.5, weight: .medium))
                             .foregroundStyle(V4.muted)
                             .lineLimit(1)

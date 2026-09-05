@@ -198,7 +198,7 @@ struct RoomEmptyStateView: View {
                 }
             }
 
-            Text("Можно начать и одному — выбери видео,\nа друзья подтянутся по коду \(model.displayRoomCode)")
+            Text("Можно начать и одному — выберите видео,\nа друзья подтянутся по коду \(model.displayRoomCode)")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Cinema2026.secondary.opacity(0.85))
                 .multilineTextAlignment(.center)

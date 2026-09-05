@@ -496,7 +496,7 @@ struct V4AIChatView: View {
             }
             .accessibilityLabel("Быстрые действия")
 
-            TextField("Спроси про фильмы и комнаты", text: $input, axis: .vertical)
+            TextField("Спросите про фильмы и комнаты", text: $input, axis: .vertical)
                 .lineLimit(1...4)
                 .focused($inputFocused)
                 .foregroundStyle(V4.ink)

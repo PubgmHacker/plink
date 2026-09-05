@@ -587,7 +587,7 @@ extension V4FriendsViewLive {
                         emptyInside(
                             icon: "moon.zzz.fill",
                             title: "Сейчас никого нет в сети",
-                            subtitle: "Загляни позже — или напиши первым, сообщение дождётся.",
+                            subtitle: "Загляните позже — или напишите первым, сообщение дождётся.",
                             style: .plain
                         )
                     }

@@ -575,7 +575,7 @@ final class V4AIStore {
     }
 
     private(set) var messages: [Message] = [
-        Message(isOwn: false, text: "Привет! Я Plink AI. Спроси про фильмы, попроси создать комнату или узнать что смотрят друзья.", isBot: true)
+        Message(isOwn: false, text: "Привет! Я Plink AI. Спросите про фильмы, попросите создать комнату или узнать, что смотрят друзья.", isBot: true)
     ]
     private(set) var state: String = "Готов помочь"
     private(set) var lastSuggestions: [String] = []  // Подсказки после ответа
@@ -637,7 +637,7 @@ final class V4AIStore {
 
     // Очистить историю чата
     func clearHistory() {
-        messages = [Message(isOwn: false, text: "Привет! Я Plink AI. Спроси про фильмы, попроси создать комнату или узнать что смотрят друзья.", isBot: true)]
+        messages = [Message(isOwn: false, text: "Привет! Я Plink AI. Спросите про фильмы, попросите создать комнату или узнать, что смотрят друзья.", isBot: true)]
         lastSuggestions = []
         UserDefaults.standard.removeObject(forKey: Self.historyKey)
     }

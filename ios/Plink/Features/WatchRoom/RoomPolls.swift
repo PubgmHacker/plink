@@ -177,7 +177,7 @@ struct RoomPollCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.62))
         } else if !poll.isClosed {
-            Text("Голосов пока нет — выбери вариант")
+            Text("Голосов пока нет — выберите вариант")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.62))
         }

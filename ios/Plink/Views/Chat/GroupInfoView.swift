@@ -558,7 +558,7 @@ private extension GroupInfoView {
                         var reverted = current
                         apply(&reverted.permissions, !value)
                         detail = reverted
-                        notice = service.errorMessage ?? "Права не сохранились — попробуй ещё раз."
+                        notice = service.errorMessage ?? "Права не сохранились — попробуйте ещё раз."
                     }
                 }
             }

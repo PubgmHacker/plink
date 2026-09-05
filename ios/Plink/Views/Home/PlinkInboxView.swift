@@ -49,7 +49,7 @@ struct PlinkInboxView: View {
                             if !requests.isEmpty {
                                 section(
                                     title: L.string(.frIncoming),
-                                    subtitle: "Ответь — и появится в списке друзей",
+                                    subtitle: "Ответьте — и появится в списке друзей",
                                     count: requests.count
                                 ) {
                                     ForEach(requests) { request in
