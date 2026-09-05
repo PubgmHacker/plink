@@ -225,6 +225,46 @@ struct WatchChatHeader: View {
     }
 }
 
+// MARK: - Host mark
+
+/// Знак хоста. Намеренно не корона.
+///
+/// Корона в приложении занята премиумом: платные паки стикеров и эмодзи,
+/// строка Plink+ в профиле, раздел и пользователи премиума в админке, плюс
+/// сервис Premier. Хост под тем же значком читался как «проплаченный»,
+/// хотя роль техническая и достаётся даром — при выходе владельца её
+/// получает самый давний из оставшихся.
+///
+/// Что хост делает на самом деле — ведёт таймлайн: он один жмёт паузу и
+/// перематывает. Отсюда знак: янтарный диск с треугольником пуска, «у этого
+/// человека пульт». Ни с чем в приложении не пересекается.
+///
+/// Один компонент на все места, иначе знак разъедется, как разъехалась
+/// корона на четыре разных смысла.
+struct PlinkHostMark: View {
+    /// Диаметр янтарного диска без отбивки.
+    var size: CGFloat = 11
+    /// Тёмное кольцо-отбивка. Нужно поверх аватара и фотографии, вредит
+    /// внутри уже янтарной капсулы — там знак и так отделён.
+    var ring: Bool = true
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Cinema2026.amber)
+            Image(systemName: "play.fill")
+                // Треугольник тяжелее слева: сдвигаем к оптическому центру,
+                // иначе на диске он всегда выглядит осевшим влево.
+                .font(.system(size: size * 0.44, weight: .black))
+                .foregroundStyle(Cinema2026.background)
+                .offset(x: size * 0.045)
+        }
+        .frame(width: size, height: size)
+        .padding(ring ? size * 0.12 : 0)
+        .background(ring ? Cinema2026.background : .clear, in: Circle())
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Avatars
 
 struct ChatAvatar: View {
@@ -279,15 +319,12 @@ struct ParticipantAvatar: View {
                     .stroke(ringColor, lineWidth: 1.5)
             )
             .overlay(alignment: .bottomTrailing) {
-                if isHost {
-                    Image(systemName: "crown.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(Cinema2026.amber)
-                        .background(Cinema2026.background, in: Circle())
-                        .frame(width: 14, height: 14)
-                        .offset(x: 1, y: 1)
-                }
+                if isHost { PlinkHostMark(size: 11).offset(x: 2, y: 2) }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                isHost ? "\(participant.username), хост" : participant.username
+            )
     }
 
     private var ringColor: Color {

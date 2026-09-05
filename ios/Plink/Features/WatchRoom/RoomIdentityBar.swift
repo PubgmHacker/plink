@@ -44,13 +44,21 @@ struct RoomIdentityBar: View {
 
             HStack(spacing: 8) {
                 if model.isHost {
-                    Text("ХОСТ")
-                        .font(.system(size: 10, weight: .heavy))
-                        .foregroundStyle(Cinema2026.amber)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Cinema2026.amber.opacity(0.14), in: Capsule())
-                        .overlay(Capsule().stroke(Cinema2026.amber.opacity(0.3), lineWidth: 0.5))
+                    // Тот же знак, что в углу аватара участника: человек
+                    // должен узнать в списке себя по той же метке.
+                    HStack(spacing: 4) {
+                        PlinkHostMark(size: 10, ring: false)
+                        Text("ХОСТ")
+                            .font(.system(size: 10, weight: .heavy))
+                            .foregroundStyle(Cinema2026.amber)
+                    }
+                    .padding(.leading, 6)
+                    .padding(.trailing, 8)
+                    .padding(.vertical, 3)
+                    .background(Cinema2026.amber.opacity(0.14), in: Capsule())
+                    .overlay(Capsule().stroke(Cinema2026.amber.opacity(0.3), lineWidth: 0.5))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Вы хост комнаты")
                 }
 
                 ShareLink(item: model.roomShareText) {
