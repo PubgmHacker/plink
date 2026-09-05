@@ -199,9 +199,13 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
     /// Other services stay visible as a roadmap, never as a button that silently
     /// creates a room whose player cannot start.
     var isAvailableInBeta: Bool {
-        // Ivi plays inside the room through its own web player: the viewer
-        // signs in to their Ivi account before picking a title, time is shared.
-        self == .youtube || self == .rutube || self == .vk || self == .ivi
+        // Иви выведен из первого релиза 04.09.2026. Он обещал рабочий путь,
+        // а давал тупик: каталог не открывался, вход в аккаунт всплывал уже
+        // ВНУТРИ комнаты (то есть после того, как человек позвал друзей), и
+        // из плеера не было выхода. Пока нет своей страницы входа ДО выбора
+        // фильма и кнопки выхода в плеере, честнее стоять в каталоге как
+        // «Скоро» — там сервис остаётся, но комнату не создаёт.
+        self == .youtube || self == .rutube || self == .vk
     }
 
     var betaAvailabilityLabel: String {

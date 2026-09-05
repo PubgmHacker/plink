@@ -301,15 +301,18 @@ final class RoomCreateServiceTests: XCTestCase {
         XCTAssertNil(VideoService.detectVideoURL(URL(string: "https://rutube.ru/")!, for: .rutube, title: nil))
     }
 
-    /// First release ships exactly four watchable services; the rest are "soon".
+    /// В первом релизе смотрят ровно три сервиса, остальные — «Скоро».
     ///
-    /// Иви добавлен четвёртым: он играет в комнате через свой веб-плеер —
-    /// человек входит в свой аккаунт Иви и время синхронизируется. Тест
-    /// раньше требовал ровно три сервиса и падал после этого расширения;
-    /// список держим здесь, чтобы новый провайдер не попадал в бету молча.
-    func testBetaServicesAreYouTubeRutubeVKAndIvi() {
+    /// Иви побывал четвёртым и выведен обратно: каталог не открывался, вход
+    /// в аккаунт всплывал уже ВНУТРИ комнаты — после того, как человек позвал
+    /// друзей, — и выхода из плеера не было. Пока нет своей страницы входа ДО
+    /// выбора фильма и кнопки выхода, кинотеатр в бету не возвращаем. Список
+    /// заперт здесь, чтобы провайдер не попал в релиз молча.
+    func testBetaServicesAreYouTubeRutubeAndVK() {
         let beta = Set(VideoService.allCases.filter(\.isAvailableInBeta))
-        XCTAssertEqual(beta, [.youtube, .rutube, .vk, .ivi])
+        XCTAssertEqual(beta, [.youtube, .rutube, .vk])
+        XCTAssertFalse(VideoService.ivi.isAvailableInBeta)
+        XCTAssertEqual(VideoService.ivi.betaAvailabilityLabel, "Скоро")
     }
 }
 

@@ -149,10 +149,6 @@ struct V4HomeViewLive: View {
     @State private var showInbox = false
     @State private var isRefreshing = false
     @State private var previewItem: V4SearchResult?
-    /// Ivi sign-in requested from a catalogue card; the card waits in
-    /// `pendingCinemaItem` and the room is created once the login completes.
-    @State private var cinemaLoginAccount: LinkedExternalAccount?
-    @State private var pendingCinemaItem: V4SearchResult?
     // Дизайн-превью: `-plink.designchip <чип>` открывает Главную сразу на
     // нужной полке — скриншоты чипов без ручных тапов. Только DEBUG,
     // тот же приём, что -plink.designtab в PlinkApprovedV4Root.
@@ -383,17 +379,6 @@ struct V4HomeViewLive: View {
             .preferredColorScheme(.dark)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $cinemaLoginAccount) { account in
-            CinemaAccountLoginSheet(account: account) {
-                account.markConnected()
-                cinemaLoginAccount = nil
-                if let item = pendingCinemaItem {
-                    pendingCinemaItem = nil
-                    Task { await createRoomFromTrending(item) }
-                }
-            }
-            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showInbox) {
             PlinkInboxView()
@@ -1072,8 +1057,7 @@ struct V4HomeViewLive: View {
             }
             return
         }
-        guard item.origin.isClip || item.origin.service == .ivi,
-              item.origin.service.isAvailableInBeta else {
+        guard item.origin.isClip, item.origin.service.isAvailableInBeta else {
             if let url = URL(string: item.watchURL) {
                 await MainActor.run { openURL(url) }
             }
@@ -1087,9 +1071,9 @@ struct V4HomeViewLive: View {
             return
         }
 
-        // В beta в комнату попадают только ролики YouTube/RuTube с
-        // официальным embed-плеером. Каталоги кинотеатров открываются
-        // напрямую в самом сервисе (см. guard выше).
+        // В комнату попадают только ролики YouTube, RuTube и VK Видео —
+        // у них есть официальный embed-плеер. Каталоги кинотеатров
+        // открываются в самом сервисе (см. guard выше).
         let mediaItem: MediaItem
         let analyticsSource: String
         switch item.origin {
@@ -1122,35 +1106,14 @@ struct V4HomeViewLive: View {
                 videoId: nil
             )
             analyticsSource = service.rawValue
-        case .cinema(let service):
-            // Ivi: the title page is the player. The viewer signs in to their
-            // own Ivi account first (cookies persist into the room WebView);
-            // other cinemas still open in the service itself.
-            guard service == .ivi, service.isAvailableInBeta else {
-                if let url = URL(string: item.watchURL) {
-                    await MainActor.run { openURL(url) }
-                }
-                return
+        case .cinema:
+            // Кинотеатр комнату не создаёт: его страница — витрина со своим
+            // входом, а не плеер. Открываем тайтл в самом сервисе. Guard выше
+            // сюда не пускает, ветка держит switch полным.
+            if let url = URL(string: item.watchURL) {
+                await MainActor.run { openURL(url) }
             }
-            if !ServiceAuthStore.hasAccess(to: service.serviceType) {
-                await MainActor.run {
-                    pendingCinemaItem = item
-                    cinemaLoginAccount = LinkedExternalAccount(service: service)
-                }
-                return
-            }
-            mediaItem = MediaItem(
-                id: item.id,
-                title: item.title,
-                artist: nil,
-                thumbnailURL: item.artworkURL?.absoluteString,
-                streamURL: item.watchURL,
-                duration: nil,
-                mediaType: .video,
-                source: .url,
-                videoId: nil
-            )
-            analyticsSource = service.rawValue
+            return
         }
         AnalyticsService.shared.track(
             "room_create_from_trending",
