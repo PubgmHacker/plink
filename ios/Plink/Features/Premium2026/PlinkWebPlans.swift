@@ -30,6 +30,11 @@ struct PlinkWebPlansResponse: Decodable {
         let days: Int
     }
     let enabled: Bool
+    /// App Review 3.1.1 сигнал сервера. Необязательное: если поля нет
+    /// (старый бэкенд / протухший ответ) — считаем режим compliant, то есть
+    /// внешнюю веб-оплату НЕ показываем (fail-safe). Ослабить сборочный замок
+    /// это поле не может, только ужесточить.
+    let appStoreCompliant: Bool?
     let plans: [String: Plan]
 }
 
@@ -40,6 +45,10 @@ final class PlinkWebPlansLoader: ObservableObject {
     @Published private(set) var plans: [PlinkWebPlan] = PlinkWebPlan.fallback
     @Published private(set) var state: State = .idle
     @Published private(set) var siteEnabled = false
+    /// Сервер утверждает режим App-Store-compliance. По умолчанию true —
+    /// «ссылку на веб-оплату не показывать», чтобы отсутствующий или упавший
+    /// ответ не мог включить её обратно.
+    @Published private(set) var serverAppStoreCompliant = true
 
     func load() async {
         state = .loading
@@ -53,6 +62,7 @@ final class PlinkWebPlansLoader: ObservableObject {
             .sorted { $0.days < $1.days }
             if !parsed.isEmpty { plans = parsed }
             siteEnabled = response.enabled
+            serverAppStoreCompliant = response.appStoreCompliant ?? true
             state = .loaded
         } catch {
             state = .failed

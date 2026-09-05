@@ -780,6 +780,8 @@ enum L10n {
         case plusPopular = "plus.plan.popular"
         case plusIncluded = "plus.included"
         case plusChoosePlan = "plus.choosePlan"
+        case plusRestoreCta = "plus.restore.cta"
+        case plusCompliantNote = "plus.compliant.note"
         case plusFeatThemes = "plus.feat.themes"
         case plusFeatThemesSub = "plus.feat.themes.sub"
         case plusFeatCapacity = "plus.feat.capacity"
@@ -2188,7 +2190,7 @@ enum L10n {
             .chinese: "暂无消息"
         ],
         .groupsAddFriendsHint: [
-            .russian: "Сначала добавь друзей — их можно будет позвать в беседу",
+            .russian: "Сначала добавьте друзей — их можно будет позвать в беседу",
             .english: "Add friends first — invite them to a chat",
             .chinese: "先添加好友，再邀请入会话"
         ],
@@ -2520,6 +2522,19 @@ enum L10n {
             .english: "Plan",
             .chinese: "套餐"
         ],
+        // Reader-app режим (App-Store-сборка): в приложении нет внешней
+        // веб-оплаты. Формулировки НЕ содержат ссылок и призывов купить —
+        // только восстановление уже оформленной подписки и факт автоактивации.
+        .plusRestoreCta: [
+            .russian: "У меня уже есть Plink+",
+            .english: "I already have Plink+",
+            .chinese: "我已拥有 Plink+"
+        ],
+        .plusCompliantNote: [
+            .russian: "Активная подписка Plink+ подхватывается автоматически.",
+            .english: "An active Plink+ subscription is picked up automatically.",
+            .chinese: "有效的 Plink+ 订阅会自动生效。"
+        ],
         .plusFeatThemes: [
             .russian: "Живые темы",
             .english: "Living themes",
@@ -2611,12 +2626,12 @@ enum L10n {
             .chinese: "无法加载套餐,请重试。"
         ],
         .plusErrorPurchase: [
-            .russian: "Покупка не прошла. Деньги не списаны — попробуй ещё раз.",
+            .russian: "Покупка не прошла. Деньги не списаны — попробуйте ещё раз.",
             .english: "The purchase didn't go through. You weren't charged — try again.",
             .chinese: "购买未完成,未扣款,请重试。"
         ],
         .plusErrorServerReject: [
-            .russian: "Сервер не подтвердил покупку. Если списание прошло — напиши в поддержку.",
+            .russian: "Сервер не подтвердил покупку. Если списание прошло — напишите в поддержку.",
             .english: "The server couldn't confirm the purchase. If you were charged, contact support.",
             .chinese: "服务器未确认购买。如已扣款请联系客服。"
         ],

@@ -55,3 +55,29 @@ enum APIConfig {
     /// Realtime WebSocket: wss://<host>/ws
     static var wsURL: String { PlinkConfig.wsURLString }
 }
+
+// MARK: - App Store compliance
+
+/// App Review 3.1.1 guard, decided at COMPILE time.
+///
+/// Plink+ is sold on the website (YooKassa, `webpay.ts`). Guideline 3.1.1
+/// forbids an App Store build from sending the user out to that web purchase
+/// from inside the app. This constant is the primary lock, and it is `true` by
+/// default on purpose: the shipped binary is compliant unless someone
+/// deliberately builds a non-App-Store distribution and flips it here. Because
+/// the default is compliant, a missing or stale `/api/webpay/status` response
+/// can never re-enable the external purchase link — the build itself has
+/// already said "no".
+///
+/// The server flag (`/api/webpay/status` → `appStoreCompliant`, default `true`)
+/// is a second, remote lock: it can force compliance even on a non-App-Store
+/// build, but it cannot loosen this one. The external web-purchase path is
+/// therefore shown only when BOTH locks are open — a deliberate double opt-in.
+///
+/// Native StoreKit 2 (see `StoreManager`) is the eventual in-app purchase path;
+/// until App Store products are configured, the compliant build simply presents
+/// Plink+ and lets an existing subscriber restore their entitlement.
+enum PlinkCompliance {
+    /// `true` → App Store build: never surface the external web-purchase link.
+    static let appStoreCompliant = true
+}

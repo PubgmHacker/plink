@@ -43,9 +43,11 @@ struct PlinkPlusPaywall: View {
                     hero
                     sectionLabel(LocalizationManager.shared.string(.plusIncluded))
                     featureGrid
-                    sectionLabel(LocalizationManager.shared.string(.plusChoosePlan))
-                        .padding(.top, 26)
-                    planRow
+                    if showsWebPurchase {
+                        sectionLabel(LocalizationManager.shared.string(.plusChoosePlan))
+                            .padding(.top, 26)
+                        planRow
+                    }
                     footnotes
                         .padding(.top, 16)
                 }
@@ -153,6 +155,15 @@ struct PlinkPlusPaywall: View {
 
     private var plans: [PlinkWebPlan] { plansLoader.plans }
 
+    /// Можно ли из этой сборки уводить пользователя на веб-оплату (/plus).
+    /// Сборочный флаг — главный замок (по умолчанию true → «нельзя никогда»);
+    /// серверный флаг может только ужесточить, но не ослабить. Ссылка живёт,
+    /// лишь когда открыты ОБА замка (осознанный double opt-in). В App-Store-
+    /// сборке это всегда false → выполняется 3.1.1: внешней оплаты в UI нет.
+    private var showsWebPurchase: Bool {
+        !PlinkCompliance.appStoreCompliant && !plansLoader.serverAppStoreCompliant
+    }
+
     private var selectedPlan: PlinkWebPlan? {
         plans.first { $0.id == selectedID } ?? plans.last
     }
@@ -191,7 +202,7 @@ struct PlinkPlusPaywall: View {
 
     private var footnotes: some View {
         VStack(spacing: 12) {
-            if plansLoader.state == .failed {
+            if showsWebPurchase, plansLoader.state == .failed {
                 Label(LocalizationManager.shared.string(.plusPricesStale), systemImage: "wifi.exclamationmark")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Cinema2026.amber)
@@ -204,21 +215,25 @@ struct PlinkPlusPaywall: View {
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
             }
-            Button {
-                Task { await refreshEntitlement(announce: true) }
-            } label: {
-                HStack(spacing: 6) {
-                    if refreshing {
-                        ProgressView().controlSize(.small).tint(Cinema2026.secondary)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
+            if showsWebPurchase {
+                // В compliant-режиме восстановление вынесено в главную кнопку CTA,
+                // здесь дубль не нужен.
+                Button {
+                    Task { await refreshEntitlement(announce: true) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if refreshing {
+                            ProgressView().controlSize(.small).tint(Cinema2026.secondary)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text(LocalizationManager.shared.string(.plusAlreadyPaid))
                     }
-                    Text(LocalizationManager.shared.string(.plusAlreadyPaid))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Cinema2026.secondary)
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Cinema2026.secondary)
+                .disabled(refreshing)
             }
-            .disabled(refreshing)
             HStack(spacing: 14) {
                 if let terms = PlinkLegal.terms {
                     Link(LocalizationManager.shared.string(.plusTerms), destination: terms)
@@ -236,27 +251,60 @@ struct PlinkPlusPaywall: View {
 
     private var ctaBar: some View {
         VStack(spacing: 8) {
-            Button(action: openSite) {
-                HStack(spacing: 8) {
-                    Text(ctaText)
-                        .font(.system(size: 16, weight: .bold))
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 13, weight: .heavy))
+            if showsWebPurchase {
+                // Non-App-Store сборка с серверным разрешением: увод на /plus.
+                Button(action: openSite) {
+                    HStack(spacing: 8) {
+                        Text(ctaText)
+                            .font(.system(size: 16, weight: .bold))
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 13, weight: .heavy))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(PlinkPlusBrand.gradient, in: Capsule(style: .continuous))
+                    .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.18), lineWidth: 0.6))
+                    .shadow(color: PlinkPlusBrand.violet.opacity(0.42), radius: 16, y: 8)
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(PlinkPlusBrand.gradient, in: Capsule(style: .continuous))
-                .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.18), lineWidth: 0.6))
-                .shadow(color: PlinkPlusBrand.violet.opacity(0.42), radius: 16, y: 8)
+                .buttonStyle(.plain)
+                .disabled(selectedPlan == nil)
+                Text(LocalizationManager.shared.string(.plusSiteNote))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Cinema2026.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                // App-Store-режим (3.1.1): внешней оплаты нет. Главное действие —
+                // восстановить уже оформленную подписку; она подтянется с сервера.
+                Button {
+                    Task { await refreshEntitlement(announce: true) }
+                } label: {
+                    HStack(spacing: 8) {
+                        if refreshing {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 13, weight: .heavy))
+                        }
+                        Text(LocalizationManager.shared.string(.plusRestoreCta))
+                            .font(.system(size: 16, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(PlinkPlusBrand.gradient, in: Capsule(style: .continuous))
+                    .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.18), lineWidth: 0.6))
+                    .shadow(color: PlinkPlusBrand.violet.opacity(0.42), radius: 16, y: 8)
+                }
+                .buttonStyle(.plain)
+                .disabled(refreshing)
+                Text(LocalizationManager.shared.string(.plusCompliantNote))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Cinema2026.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.plain)
-            .disabled(selectedPlan == nil)
-            Text(LocalizationManager.shared.string(.plusSiteNote))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Cinema2026.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .plinkGlass(.navigation, cornerRadius: 28)
