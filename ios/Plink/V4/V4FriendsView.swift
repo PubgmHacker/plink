@@ -1295,7 +1295,7 @@ private struct ComposeMessageSheet: View {
                     Text("Новая беседа")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(V4.ink)
-                    Text("Групповой чат с несколькими друзьями")
+                    Text("Групповой чат с друзьями")
                         .font(.system(size: 12.5))
                         .foregroundStyle(V4.muted)
                         .lineLimit(1)
@@ -1342,14 +1342,19 @@ private struct ComposeMessageSheet: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(V4.ink)
                         .lineLimit(1)
-                    Text(friend.isOnline && !friend.deleted ? "в сети" : "@\(friend.username)")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(
-                            friend.isOnline && !friend.deleted
-                            ? Color(red: 0.3, green: 0.9, blue: 0.55)
-                            : V4.muted
-                        )
-                        .lineLimit(1)
+                    // Второй строкой — только то, чего нет в первой.
+                    // У человека без заданного имени displayTitle == username,
+                    // и строка «@ник» повторяла заголовок слово в слово.
+                    // Высота ряда от этого не пляшет: её задаёт аватар 48 pt,
+                    // текстовый блок в две строки — 34 pt.
+                    if let secondary = friend.secondaryLine {
+                        Text(secondary.text)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(secondary.isOnline
+                                             ? Color(red: 0.3, green: 0.9, blue: 0.55)
+                                             : V4.muted)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 6)
             }

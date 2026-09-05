@@ -221,7 +221,7 @@ struct RoomCreationView: View {
         case .service:  return "Создать комнату"
         case .content:  return selectedService?.title ?? "Выбор видео"
         case .setup:    return "Настройка"
-        case .creating: return "Создаём..."
+        case .creating: return "Создаём…"
         }
     }
 
@@ -476,7 +476,12 @@ struct RoomCreationView: View {
                     withAnimation { step = .setup }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 300)
+                // Сервис не выбран — в этот шаг попасть нельзя, но если
+                // состояние всё же разъедется, вечный спиннер соврёт про
+                // загрузку и запрёт мастер. Тихо возвращаем к выбору.
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                    .onAppear { step = .service }
             }
         }
     }
@@ -529,10 +534,12 @@ struct RoomCreationView: View {
             if let video = detectedVideo {
                 // Video preview
                 ZStack(alignment: .bottomLeading) {
-                    AsyncImage(url: URL(string: video.thumbnailURL ?? "")) { img in
-                        img.resizable().aspectRatio(16/9, contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(Cinema2026.surface)
+                    AsyncImage(url: URL(string: video.thumbnailURL ?? "")) { phase in
+                        if let image = phase.image {
+                            image.resizable().aspectRatio(16/9, contentMode: .fill)
+                        } else {
+                            PlinkArtlessPoster(seed: video.title ?? video.originalURL, glyph: "film")
+                        }
                     }
                     .frame(height: 200)
                     .clipped()
@@ -781,6 +788,13 @@ struct BetaVideoSearchView: View {
 
     private var supportsSearch: Bool { provider != nil }
 
+    /// Поиск отработал и вернул пусто. Вынесено в одно место: то же условие
+    /// прячет нижнюю кнопку каталога, иначе выход в каталог предлагался бы
+    /// дважды подряд — в пустом состоянии и сразу под ним.
+    private var showsEmptySearch: Bool {
+        results.isEmpty && didSearch && !isSearching
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
@@ -790,7 +804,7 @@ struct BetaVideoSearchView: View {
                     searchField
                     if !results.isEmpty {
                         resultsList
-                    } else if didSearch && !isSearching {
+                    } else if showsEmptySearch {
                         emptySearchState
                     } else if !isSearching {
                         hintState
@@ -801,7 +815,7 @@ struct BetaVideoSearchView: View {
 
                 linkField
 
-                if supportsSearch {
+                if supportsSearch && !showsEmptySearch {
                     catalogueButton
                 }
             }
@@ -849,15 +863,12 @@ struct BetaVideoSearchView: View {
                 .foregroundStyle(V4.ink)
             HStack(spacing: 7) {
                 ServiceLogoView(service: service, size: 18)
-                Text(service.brandName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(V4.muted)
-                Text("·")
-                    .foregroundStyle(V4.muted.opacity(0.6))
                 Text(supportsSearch ? "поиск без входа" : "каталог без входа")
-                    .font(.system(size: 13))
+                    .font(.system(size: 13.5, weight: .medium))
                     .foregroundStyle(V4.muted)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(service.brandName), \(supportsSearch ? "поиск без входа" : "каталог без входа")")
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
@@ -1032,29 +1043,29 @@ struct BetaVideoSearchView: View {
     }
 
     private var hintState: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("Начните с названия")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(V4.ink)
-            Text("Или откройте каталог и выберите ролик там.")
-                .font(.system(size: 14))
-                .foregroundStyle(V4.muted)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        Text("Начните с названия — или откройте каталог ниже.")
+            .font(.system(size: 14))
+            .foregroundStyle(V4.muted)
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
     }
 
     private var emptySearchState: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Ничего не нашли")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(V4.ink)
-            Text("Проверьте название или откройте каталог \(service.brandName).")
-                .font(.system(size: 14))
-                .foregroundStyle(V4.muted)
-        }
+        V4EmptyState(
+            icon: "magnifyingglass",
+            title: "Ничего не нашли",
+            subtitle: "Проверьте написание — или откройте каталог и выберите видео там.",
+            style: .plain,
+            primary: .init(
+                title: "Открыть каталог",
+                icon: "safari",
+                a11yID: "create.emptySearchCatalogue",
+                run: { showBrowser = true }
+            )
+        )
+        .padding(.top, 26)
+        .padding(.bottom, 8)
         .padding(.horizontal, 20)
-        .padding(.top, 18)
     }
 
     private func resultRow(_ item: V4SearchResult) -> some View {
@@ -1066,13 +1077,15 @@ struct BetaVideoSearchView: View {
             HStack(spacing: 12) {
                 Group {
                     if let artworkURL = item.artworkURL {
-                        AsyncImage(url: artworkURL) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Color.white.opacity(0.06)
+                        AsyncImage(url: artworkURL) { phase in
+                            if let image = phase.image {
+                                image.resizable().scaledToFill()
+                            } else {
+                                PlinkArtlessPoster(seed: item.title, glyph: "play.fill")
+                            }
                         }
                     } else {
-                        Color.white.opacity(0.06)
+                        PlinkArtlessPoster(seed: item.title, glyph: "play.fill")
                     }
                 }
                 .frame(width: 104, height: 60)

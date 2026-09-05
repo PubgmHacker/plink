@@ -58,6 +58,7 @@ struct PlayerTopChrome: View {
                             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
+                    .plinkHitTarget(36)
                     .accessibilityLabel("Модерация комнаты")
 
                     // P1 5.11: живая тема комнаты. Кнопки нет ни у кого, кроме
@@ -77,6 +78,7 @@ struct PlayerTopChrome: View {
                             .overlay(Circle().stroke(.white.opacity(0.08), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
+                    .plinkHitTarget(36)
                     .accessibilityLabel("Тема комнаты")
                 }
             }
@@ -493,6 +495,7 @@ struct PlinkPlayerControls: View {
                             .plinkGlass(.overlay, in: Circle())
                     }
                     .buttonStyle(.plain)
+                    .plinkHitTarget(32)
                     .accessibilityLabel(ui.chatDrawerVisible ? "Закрыть чат" : "Открыть чат")
                     .accessibilityIdentifier("player.chatToggle")
                 }
@@ -510,6 +513,7 @@ struct PlinkPlayerControls: View {
                         .plinkGlass(.overlay, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(32)
                 .accessibilityLabel(isMuted ? "Включить звук" : "Выключить звук")
                 .accessibilityIdentifier("player.mute")
 
@@ -941,6 +945,7 @@ struct SyncExplainerSheet: View {
                         .plinkGlass(.control, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(32)
                 .accessibilityLabel(l.string(.close))
             }
 

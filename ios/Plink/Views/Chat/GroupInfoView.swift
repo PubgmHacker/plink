@@ -105,7 +105,7 @@ struct GroupInfoView: View {
             showsClose: true
         ) {
             if let notice {
-                infoBanner(icon: "exclamationmark.triangle.fill", text: notice)
+                infoBanner(icon: "exclamationmark.triangle.fill", text: notice, tone: .warning)
             }
             if detail == nil {
                 if isLoading {
@@ -214,7 +214,7 @@ private extension GroupInfoView {
                 Text("Карточка беседы не загрузилась")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(V4.ink)
-                Text(service.errorMessage ?? "Проверь связь и попробуй ещё раз.")
+                Text(service.errorMessage ?? "Проверьте связь и попробуйте ещё раз.")
                     .font(.system(size: 13))
                     .foregroundStyle(V4.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -292,7 +292,7 @@ private extension GroupInfoView {
 
     func avatarHint(actionable: Bool) -> String {
         if !actionable { return "Менять фото и название могут владелец и админы" }
-        return hasPhoto ? "Нажми, чтобы заменить" : "Нажми и выбери картинку из галереи"
+        return hasPhoto ? "Нажмите, чтобы заменить" : "Нажмите и выберите картинку из галереи"
     }
 
     var infoSection: some View {
@@ -574,7 +574,7 @@ private extension GroupInfoView {
                     title: "Выйти из беседы",
                     subtitle: detail?.myRole == "owner"
                         ? "Владелец уходит — беседа остаётся у остальных"
-                        : "Беседа исчезнет из твоего списка чатов",
+                        : "Беседа исчезнет из вашего списка чатов",
                     iconColor: V4.danger,
                     showsChevron: false
                 ) {
@@ -950,7 +950,7 @@ private struct GroupAddMembersSheet: View {
             showsClose: true
         ) {
             if let notice {
-                infoBanner(icon: "exclamationmark.triangle.fill", text: notice)
+                infoBanner(icon: "exclamationmark.triangle.fill", text: notice, tone: .warning)
             }
             if candidates.isEmpty {
                 SettingsCard {
@@ -958,7 +958,7 @@ private struct GroupAddMembersSheet: View {
                         Text("Некого добавить")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(V4.ink)
-                        Text("Все друзья уже в беседе. Добавь друзей — и они появятся здесь.")
+                        Text("Все друзья уже в беседе. Добавьте друзей — и они появятся здесь.")
                             .font(.system(size: 13))
                             .foregroundStyle(V4.muted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -973,7 +973,7 @@ private struct GroupAddMembersSheet: View {
                     }
                 }
                 SettingsPrimaryButton(
-                    title: selected.isEmpty ? "Выбери друзей" : "Добавить \(selected.count)",
+                    title: selected.isEmpty ? "Выберите друзей" : "Добавить \(selected.count)",
                     isLoading: adding
                 ) {
                     Task { await add() }
@@ -991,7 +991,7 @@ private struct GroupAddMembersSheet: View {
         if let slotsLeft {
             return slotsLeft > 0 ? "Свободно ещё \(GroupCopy.slots(slotsLeft))" : "Беседа заполнена"
         }
-        return "Из твоего списка друзей"
+        return "Из вашего списка друзей"
     }
 
     private func candidateRow(_ friend: Friend) -> some View {
@@ -1019,10 +1019,12 @@ private struct GroupAddMembersSheet: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(V4.ink)
                         .lineLimit(1)
-                    Text(friend.isOnline ? "в сети" : "@\(friend.username)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(friend.isOnline ? Color(hex: 0x22C55E) : V4.muted)
-                        .lineLimit(1)
+                    if let secondary = friend.secondaryLine {
+                        Text(secondary.text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(secondary.isOnline ? Color(hex: 0x22C55E) : V4.muted)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 8)
                 // Галочка — состояние выбора, единственное место темы на экране.

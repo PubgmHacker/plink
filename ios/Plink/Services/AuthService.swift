@@ -29,6 +29,11 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
         static let tokenExpiry = "rave_token_expiry"        // ← Keychain (string)
         static let refreshToken = "rave_refresh_token"      // ← Keychain
         static let fcmToken = "rave_fcm_token"              // ← non-secret, OK in UserDefaults
+        // Момент, когда на этом устройстве завёлся сеанс. Не секрет —
+        // UserDefaults. Ставится один раз при входе (см. cacheToken:
+        // set-if-absent, иначе рефреш токена сбрасывал бы дату каждый час)
+        // и снимается в signOutLocally.
+        static let sessionStartedAt = "plink_session_started_at"
     }
 
     // MARK: - Stored User + Token
@@ -389,6 +394,18 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
         // Без этой строки у них был бы пустой токен до первой миграции, а кэш
         // хранилища оставался бы устаревшим после повторного входа.
         AuthTokenStore.shared.save(token)
+
+        // Только первый токен сеанса ставит дату: cacheToken зовётся и на
+        // рефреше, а «вход выполнен» — про вход, а не про последний рефреш.
+        if defaults.object(forKey: Keys.sessionStartedAt) == nil {
+            defaults.set(Date(), forKey: Keys.sessionStartedAt)
+        }
+    }
+
+    /// Когда на этом устройстве начался текущий сеанс. `nil`, если вход был
+    /// до появления отметки (старая установка) — экран просто не покажет строку.
+    var sessionStartedAt: Date? {
+        defaults.object(forKey: Keys.sessionStartedAt) as? Date
     }
 
     // POST /auth/signout-others отзывает ВСЕ refresh-токены
@@ -625,6 +642,7 @@ extension AuthService {
         AuthTokenStore.shared.clear()
         // Событие было описано, но не вызывалось — без него не посчитать отток.
         AnalyticsService.shared.logout()
+        defaults.removeObject(forKey: Keys.sessionStartedAt)
         defaults.removeObject(forKey: Keys.savedUser)
         defaults.removeObject(forKey: "plink_current_user_id")
         defaults.removeObject(forKey: "plink_current_username")

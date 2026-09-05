@@ -48,7 +48,18 @@ struct PlinkApprovedV4Root: View {
     @State private var friendsStore: V4FriendsStore?
     @State private var aiStore = V4AIStore()
     @State private var profileStore: V4ProfileStore?
-    @State private var showCreateRoom = false
+    // Дизайн-превью: `-plink.designcreate <сервис>` открывает мастер создания
+    // сразу. Флаг читается здесь, а не приходит уведомлением по таймеру из
+    // AuthLaunchGate: тот слал `plinkOpenCreateRoom` через фиксированные 2.5 с,
+    // а оболочка на реальном бэкенде монтируется позже — событие улетало в
+    // пустоту, и флаг молча открывал Главную. Состояние поверхности читает
+    // свой аргумент само, как showAIChat и tab выше.
+    @State private var showCreateRoom: Bool = {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-plink.designcreate") { return true }
+        #endif
+        return false
+    }()
     @State private var showJoinByCode = false
     // 26.08.2026, откат по замечанию владельца: вкладка «ИИ» — это раздел
     // (лента трейлеров, сфера ассистента и крупное «Скоро»), а не голый чат.
@@ -139,9 +150,10 @@ struct PlinkApprovedV4Root: View {
                     V4RoomsViewLive(theme:theme, roomsStore:roomsStore, friendsStore:friendsStore, openRoom:{ room in openRoom(room) }, createRoom:{showCreateRoom=true}, joinByCode:{showJoinByCode=true})
                         .opacity(tab == 1 ? 1 : 0).allowsHitTesting(tab == 1)
                     // Вкладка «ИИ» — раздел целиком: лента трейлеров в
-                    // превью-режиме, поверх неё онбординг со сферой и «Скоро»,
-                    // и два рабочих входа — чат и голос. Разговор поднимается
-                    // отдельным экраном (fullScreenCover ниже).
+                    // превью-режиме, поверх неё онбординг со сферой и двумя
+                    // рабочими входами — чат и голос; сама лента помечена
+                    // «Скоро» сноской. Разговор поднимается отдельным
+                    // экраном (fullScreenCover ниже).
                     V4AIViewLive(theme: theme, store: aiStore, searchStore: searchStore, isActive: tab == 2)
                         .opacity(tab == 2 ? 1 : 0).allowsHitTesting(tab == 2)
                     V4FriendsViewLive(theme:theme, store:friendsStore, roomsStore: roomsStore, profileStore: profileStore, isActive: tab == 3)
@@ -166,6 +178,29 @@ struct PlinkApprovedV4Root: View {
                 }
                 .animation(.easeInOut(duration: 0.15), value: tab)
             }
+            // Край прокрутки под плавающим баром. Бар висит над контентом, и
+            // без него постеры и подписи обрывались ровно по кромке экрана —
+            // буквы уходили под home-индикатор в полную резкость. Мягкий
+            // спуск в темноту делает то же, что делает системный scroll edge
+            // effect в iOS 26 у нативного TabView: контент не исчезает
+            // ножницами, а гаснет. Чёрный, а не V4.canvas: у каждой вкладки
+            // свой живой фон, и цветная плашка легла бы на него полосой.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0),    location: 0.00),
+                    .init(color: .black.opacity(0.10), location: 0.30),
+                    .init(color: .black.opacity(0.34), location: 0.58),
+                    .init(color: .black.opacity(0.58), location: 1.00),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 132)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
             VStack(spacing: 8) {
                 // 25.08.2026 (T5): пока идёт вечер, над баром живёт капсула
                 // «Сейчас смотрят» — вернуться в комнату одним тапом с любой
@@ -252,9 +287,6 @@ struct PlinkApprovedV4Root: View {
         .onReceive(NotificationCenter.default.publisher(for: .plinkAppearancePrefsChanged)) { _ in
             highContrast = PlinkAppearancePrefs.highContrast
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenCreateRoom"))) { _ in
-            showCreateRoom = true
-        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("plinkOpenJoinByCode"))) { _ in
             showJoinByCode = true
         }
@@ -310,7 +342,7 @@ struct PlinkApprovedV4Root: View {
         ) {
             Button("Скопировано — ОК") { lastSharedRoomCode = nil }
         } message: {
-            Text("Отправь другу код: \(lastSharedRoomCode ?? "")\n\nДруг: вкладка «Комнаты» → «Войти по коду» → ввести код.\nКод уже в буфере обмена.")
+            Text("Отправьте другу код: \(lastSharedRoomCode ?? "")\n\nДруг: вкладка «Комнаты» → «Войти по коду» → ввести код.\nКод уже в буфере обмена.")
         }
         // P0.2b: single fullScreenCover for WatchRoom — handles both join and create
         .fullScreenCover(item: $roomToPresent) { room in
@@ -636,6 +668,7 @@ struct PlinkOngoingRoomCapsule: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(34)
                 .accessibilityLabel("Покинуть комнату")
             }
         }

@@ -118,7 +118,7 @@ final class ScheduledSessionsService: ObservableObject {
         if session.startsAt > Date() {
             let content = UNMutableNotificationContent()
             content.title = "Время смотреть вместе 🎬"
-            content.body = "«\(session.title)» начинается прямо сейчас. Создай комнату в Plink!"
+            content.body = "«\(session.title)» начинается прямо сейчас. Создайте комнату в Plink!"
             content.sound = .default
             let trigger = UNCalendarNotificationTrigger(
                 dateMatching: Calendar.current.dateComponents(

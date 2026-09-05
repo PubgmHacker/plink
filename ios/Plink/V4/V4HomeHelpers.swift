@@ -489,7 +489,7 @@ struct HomeFallbackPlaceholder: View {
         V4EmptyState(
             icon: "film.stack",
             title: "Пока тихо",
-            subtitle: "Подборка обновляется. Найди видео вручную — и открой первую комнату.",
+            subtitle: "Подборка обновляется. Найдите видео вручную — и откройте первую комнату.",
             accent: theme.accentColor,
             accentInk: theme.buttonTextColor,
             // Вход в комнату, когда trending пуст (нет сети / пустая подборка).
@@ -604,7 +604,7 @@ struct NewThisWeekSection: View {
 
     private let items: [(icon: String, title: String, subtitle: String)] = [
         ("sparkles", "Умные подсказки ИИ", "Ассистент сам предлагает, что посмотреть компании"),
-        ("qrcode", "Вход в комнату по коду", "Шесть символов — и ты внутри, без ссылок и поиска"),
+        ("qrcode", "Вход в комнату по коду", "Шесть символов — и вы внутри, без ссылок и поиска"),
         ("clock.arrow.circlepath", "История просмотров", "Всё, что вы смотрели вместе — теперь в профиле"),
     ]
 
@@ -721,14 +721,22 @@ struct TrendingPreviewSheet: View {
                         Color.clear
                             .frame(height: 280)
                             .overlay {
+                                // Кадра может не быть или он может не
+                                // дойти — 280 pt цвета карточки в этом
+                                // случае читались сломанным шитом. Под
+                                // кадром лежит тон вещи с монограммой:
+                                // шапка остаётся шапкой, и два разных
+                                // фильма без постера выглядят по-разному.
                                 if let url = item.artworkURL {
-                                    AsyncImage(url: url) { image in
-                                        image.resizable().scaledToFill()
-                                    } placeholder: {
-                                        Rectangle().fill(V4.cardBG)
+                                    AsyncImage(url: url) { phase in
+                                        if let image = phase.image {
+                                            image.resizable().scaledToFill()
+                                        } else {
+                                            PlinkArtlessPoster(seed: item.title)
+                                        }
                                     }
                                 } else {
-                                    Rectangle().fill(V4.cardBG)
+                                    PlinkArtlessPoster(seed: item.title)
                                 }
                             }
                             .clipped()
@@ -886,5 +894,29 @@ struct TrendingPreviewSheet: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Смотреть «\(item.title)» на \(bridge.title)")
         }
+    }
+}
+
+// MARK: - Область нажатия
+
+/// Расширяет область попадания, не сдвигая вёрстку ни на пиксель: внутренний
+/// отступ даёт SwiftUI фигуру побольше, `contentShape` делает её кликабельной,
+/// внешний отрицательный — возвращает исходные габариты. HIG требует 44×44, а
+/// круглые кнопки «закрыть» и «скрыть» в комнате нарисованы 24–36 pt: промах
+/// по ним посреди фильма стоит дороже, чем лишний воздух вокруг.
+private struct PlinkHitTarget: ViewModifier {
+    let pad: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .padding(pad)
+            .contentShape(Rectangle())
+            .padding(-pad)
+    }
+}
+
+extension View {
+    /// - Parameter side: нарисованный размер кнопки — из него считается добор.
+    func plinkHitTarget(_ side: CGFloat, min minSide: CGFloat = 44) -> some View {
+        modifier(PlinkHitTarget(pad: max(0, (minSide - side) / 2)))
     }
 }

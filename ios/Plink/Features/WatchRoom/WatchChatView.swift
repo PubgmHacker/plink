@@ -484,7 +484,7 @@ struct WatchChatEmptyState: View {
             Text("Пока тихо")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.8))
-            Text("Напиши первым — сообщения видят все, кто в комнате")
+            Text("Напишите первым — сообщения видят все, кто в комнате")
                 .font(.system(size: 13))
                 .foregroundStyle(.white.opacity(0.45))
                 .multilineTextAlignment(.center)

@@ -185,18 +185,6 @@ struct AuthLaunchGate: View {
                             DeepLinkRouter.shared.handle(url)
                         }
                     }
-                    // `-plink.designcreate <service>` — open the room creation
-                    // wizard right after autologin (RoomCreationView.debugStart
-                    // reads the step and service). Same delay as the deep link.
-                    if args.contains("-plink.designcreate") {
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(2500))
-                            NotificationCenter.default.post(
-                                name: Notification.Name("plinkOpenCreateRoom"),
-                                object: nil
-                            )
-                        }
-                    }
                     // `-plink.designplayer <url>` — открыть комнату сразу на
                     // готовой ссылке, минуя мастера создания. Нужен, чтобы
                     // снимать хром плеера в симуляторе: любой внешний сервис

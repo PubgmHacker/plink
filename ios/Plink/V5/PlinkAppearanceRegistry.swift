@@ -457,35 +457,35 @@ internal enum AppearanceCatalog {
     static let appStatic: [AppearanceDescriptor] = [
         .init(
             id: "electric-static", kind: .appStatic,
-            title: "Electric", subtitle: "Тёмно-синий V4",
+            title: "Electric", subtitle: "Тёмно-синий",
             premium: false,
             previewAsset: "circle.hexagonpath.fill",
             previewColors: ["#0A0E27", "#1E2A5E", "#00D4FF"]
         ),
         .init(
             id: "plink-static", kind: .appStatic,
-            title: "Plink", subtitle: "Бирюзовый V4",
+            title: "Plink", subtitle: "Бирюзовый",
             premium: false,
             previewAsset: "drop.fill",
             previewColors: ["#06231F", "#0F4D45", "#3FE8C8"]
         ),
         .init(
             id: "ember-static", kind: .appStatic,
-            title: "Ember", subtitle: "Янтарный V4",
+            title: "Ember", subtitle: "Янтарный",
             premium: false,
             previewAsset: "flame.fill",
             previewColors: ["#1A1410", "#FF8A3D", "#F5C26B"]
         ),
         .init(
             id: "violet-static", kind: .appStatic,
-            title: "Violet", subtitle: "Фиолетовый V4",
+            title: "Violet", subtitle: "Фиолетовый",
             premium: false,
             previewAsset: "moon.stars.fill",
             previewColors: ["#160B2A", "#A855F7", "#F0ABFC"]
         ),
         .init(
             id: "bloom-static", kind: .appStatic,
-            title: "Bloom", subtitle: "Розовый V4",
+            title: "Bloom", subtitle: "Розовый",
             premium: false,
             previewAsset: "circle.dashed.inset.filled",
             previewColors: ["#2A0B1F", "#F472B6", "#FBCFE8"]
@@ -501,28 +501,28 @@ internal enum AppearanceCatalog {
     static let appLive: [AppearanceDescriptor] = [
         .init(
             id: "live-aurora", kind: .appLive,
-            title: "Aurora", subtitle: "Живое видео V4",
+            title: "Aurora", subtitle: "Живое видео",
             premium: true, previewAsset: "sparkles",
             previewColors: ["#280F21", "#FC6398", "#B63054"],
             fallbackID: "bloom-static"
         ),
         .init(
             id: "live-cosmos", kind: .appLive,
-            title: "Cosmos", subtitle: "Живое видео V4",
+            title: "Cosmos", subtitle: "Живое видео",
             premium: true, previewAsset: "moon.stars.fill",
             previewColors: ["#000000", "#012CED", "#1370FC"],
             fallbackID: "electric-static"
         ),
         .init(
             id: "live-verdant", kind: .appLive,
-            title: "Verdant", subtitle: "Живое видео V4",
+            title: "Verdant", subtitle: "Живое видео",
             premium: true, previewAsset: "leaf.fill",
             previewColors: ["#0E100B", "#9EF459", "#A4FF83"],
             fallbackID: "plink-static"
         ),
         .init(
             id: "live-magma", kind: .appLive,
-            title: "Magma", subtitle: "Живое видео V4",
+            title: "Magma", subtitle: "Живое видео",
             premium: true, previewAsset: "flame.fill",
             previewColors: ["#1A0503", "#AE0000", "#690003"],
             fallbackID: "ember-static"

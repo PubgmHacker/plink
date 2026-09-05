@@ -208,7 +208,6 @@ enum L10n {
         case phDisplayNameHint = "ph.displayNameHint"
         case phUsernameHint = "ph.usernameHint"
         case aiCompanion = "ai.companion"
-        case aiWhatToday = "ai.whatToday"
         case aiIntro = "ai.intro"
         case aiCancel = "ai.cancel"
         case pwPremium = "pw.premium"
@@ -258,8 +257,14 @@ enum L10n {
         case stFilmMany = "st.film.many"
         case stTimeLabel = "st.time"
         case stRooms = "st.rooms"
+        case stRoomOne = "st.room.one"
+        case stRoomFew = "st.room.few"
         case stFriends = "st.friends"
+        case stFriendOne = "st.friend.one"
+        case stFriendFew = "st.friend.few"
         case stStreak = "st.streak"
+        case stStreakOne = "st.streak.one"
+        case stStreakFew = "st.streak.few"
         case stTopKind = "st.topKind"
         case stActivity = "st.activity"
         case stLast7 = "st.last7"
@@ -822,7 +827,7 @@ enum L10n {
         .frMyStory: [.russian: "Моя история", .english: "My story", .chinese: "我的动态"],
         .frStoryAddStatus: [.russian: "Добавить статус", .english: "Add a status", .chinese: "添加状态"],
         .frStoryEditStatus: [.russian: "Изменить статус", .english: "Edit status", .chinese: "编辑状态"],
-        .frStoryStatusHint: [.russian: "Расскажи, что смотришь", .english: "Say what you're watching", .chinese: "说说你在看什么"],
+        .frStoryStatusHint: [.russian: "Расскажите, что смотрите", .english: "Say what you're watching", .chinese: "说说你在看什么"],
         .frStoryStatus: [.russian: "Статус", .english: "Status", .chinese: "状态"],
         .frStoryEmpty: [.russian: "Здесь появится то, что смотрят друзья", .english: "What your friends watch shows up here", .chinese: "好友看过的内容会显示在这里"],
         .frStoryMessage: [.russian: "Написать", .english: "Message", .chinese: "发消息"],
@@ -841,21 +846,21 @@ enum L10n {
         .frWantsToAdd: [.russian: "хочет добавить вас", .english: "wants to add you", .chinese: "想添加你"],
         .frNo: [.russian: "Нет", .english: "No", .chinese: "否"],
         .frAddByUsername: [.russian: "Добавить по @username", .english: "Add by @username", .chinese: "通过 @username 添加"],
-        .frAddHint: [.russian: "Друг получит заявку. Открой иконку «Заявки» в шапке, чтобы принять входящие.", .english: "Your friend will get a request. Open the Requests icon in the header to accept incoming ones.", .chinese: "好友将收到请求。点击顶部的“请求”图标接受。"],
+        .frAddHint: [.russian: "Друг получит заявку. Откройте иконку «Заявки» в шапке, чтобы принять входящие.", .english: "Your friend will get a request. Open the Requests icon in the header to accept incoming ones.", .chinese: "好友将收到请求。点击顶部的“请求”图标接受。"],
         .frOrSearch: [.russian: "Или найти", .english: "Or search", .chinese: "或搜索"],
         .frFriendBadge: [.russian: "Друг", .english: "Friend", .chinese: "好友"],
         .frSent: [.russian: "Отправлено", .english: "Sent", .chinese: "已发送"],
         .frNobodyFound: [.russian: "Никого не нашли", .english: "Nobody found", .chinese: "未找到用户"],
         .frEmptyTitle: [.russian: "Плинк начинается вдвоём", .english: "Plink starts with two", .chinese: "Plink 从两个人开始"],
-        .frEmptySub: [.russian: "Добавь друга — и включайте один фильм: пауза на двоих, реакции и чат поверх экрана.", .english: "Add a friend and press play on one film: a shared pause, reactions and chat over the screen.", .chinese: "添加好友，一起播放同一部电影：共享暂停、表情与悬浮聊天。"],
+        .frEmptySub: [.russian: "Добавьте друга — и включайте один фильм: пауза на двоих, реакции и чат поверх экрана.", .english: "Add a friend and press play on one film: a shared pause, reactions and chat over the screen.", .chinese: "添加好友，一起播放同一部电影：共享暂停、表情与悬浮聊天。"],
         .frFind: [.russian: "Найти друга", .english: "Find a friend", .chinese: "找好友"],
         .frInviteLink: [.russian: "Пригласить по ссылке", .english: "Invite via link", .chinese: "通过链接邀请"],
         .frEmptyHint: [.russian: "Ник виден в профиле друга — под именем", .english: "A username sits under the name on any profile", .chinese: "用户名显示在个人资料的名字下方"],
         .frEmptyPlaceholder: [.russian: "ник друга", .english: "friend’s username", .chinese: "好友的用户名"],
         .frEmptyFindTitle: [.russian: "Найти по имени", .english: "Search by name", .chinese: "按名字搜索"],
         .frEmptyFindSub: [.russian: "Поиск среди тех, кто уже в Плинке", .english: "Look through everyone already on Plink", .chinese: "在已加入 Plink 的人中查找"],
-        .frEmptyLinkSub: [.russian: "Твоя ссылка — в любой чат", .english: "Your link, in any chat", .chinese: "把你的链接发到任意聊天"],
-        .frEmptyRequests: [.russian: "Тебя уже зовут", .english: "Someone’s waiting", .chinese: "已经有人在等你"],
+        .frEmptyLinkSub: [.russian: "Ваша ссылка — в любой чат", .english: "Your link, in any chat", .chinese: "把你的链接发到任意聊天"],
+        .frEmptyRequests: [.russian: "Вас уже зовут", .english: "Someone’s waiting", .chinese: "已经有人在等你"],
         .frEmptyRequestsSub: [.russian: "Разобрать заявки", .english: "Review requests", .chinese: "查看好友请求"],
         .frEmptySendFailed: [.russian: "Не удалось отправить заявку", .english: "Couldn’t send the request", .chinese: "请求发送失败"],
         // DM chat extras (M26)
@@ -885,7 +890,7 @@ enum L10n {
         .pxNoSessions: [.russian: "Нет данных о сессиях", .english: "No session data", .chinese: "暂无会话数据"],
         .pxContactSupport: [.russian: "Написать в поддержку", .english: "Contact support", .chinese: "联系客服"],
         .pxEmptyList: [.russian: "Список пуст", .english: "List is empty", .chinese: "列表为空"],
-        .pxBlockHint: [.russian: "Заблокируй пользователя долгим нажатием на сообщение в комнате.", .english: "Block a user with a long press on their message in a room.", .chinese: "在房间中长按消息即可拉黑用户。"],
+        .pxBlockHint: [.russian: "Заблокируйте пользователя долгим нажатием на сообщение в комнате.", .english: "Block a user with a long press on their message in a room.", .chinese: "在房间中长按消息即可拉黑用户。"],
         .pxDeleteAccount: [.russian: "Удалить аккаунт", .english: "Delete account", .chinese: "删除账号"],
         .nothingFound: [.russian: "Ничего не найдено", .english: "Nothing found", .chinese: "未找到结果"],
         .roomLabel: [.russian: "Комната", .english: "Room", .chinese: "房间"],
@@ -903,11 +908,10 @@ enum L10n {
         .phDisplayNameHint: [.russian: "Показывается в чате и профиле. Можно использовать пробелы и эмодзи. Пусто — использовать @username.", .english: "Shown in chat and profile. Spaces and emoji allowed. Leave empty to use @username.", .chinese: "显示在聊天和资料中。可使用空格和表情。留空则使用 @username。"],
         .phUsernameHint: [.russian: "Уникальный тег для поиска. Только латиница, цифры, _ и точка. Длина 2–15 символов.", .english: "A unique tag for search. Latin letters, digits, _ and dot only. 2–15 characters.", .chinese: "用于搜索的唯一标签。仅限拉丁字母、数字、_ 和点。长度 2–15 个字符。"],
         .aiCompanion: [.russian: "Кинокомпаньон", .english: "Movie companion", .chinese: "观影伙伴"],
-        .aiWhatToday: [.russian: "Что смотрим сегодня?", .english: "What are we watching today?", .chinese: "今天看什么？"],
         .aiIntro: [.russian: "Соберу очередь, создам комнату, позову друзей после подтверждения.", .english: "I’ll build a queue, create a room, and invite friends once you confirm.", .chinese: "我会整理队列、创建房间，并在你确认后邀请好友。"],
         .aiCancel: [.russian: "Отмена", .english: "Cancel", .chinese: "取消"],
         .pwPremium: [.russian: "Премиум доступ", .english: "Premium access", .chinese: "高级会员"],
-        .pwSub: [.russian: "Смотри с друзьями без ограничений", .english: "Watch with friends without limits", .chinese: "与好友无限畅享"],
+        .pwSub: [.russian: "Смотрите с друзьями без ограничений", .english: "Watch with friends without limits", .chinese: "与好友无限畅享"],
         .pwTrial: [.russian: "Попробовать бесплатно 7 дней", .english: "Try 7 days free", .chinese: "免费试用 7 天"],
         .pwRestore: [.russian: "Восстановить покупку", .english: "Restore purchase", .chinese: "恢复购买"],
         .pwCancelAnytime: [.russian: "Отмена в любой момент в настройках Apple ID", .english: "Cancel anytime in Apple ID settings", .chinese: "可随时在 Apple ID 设置中取消"],
@@ -915,7 +919,7 @@ enum L10n {
         .sbHostAccount: [.russian: "Владелец комнаты использует свою подписку на этот сервис. Plink не предоставляет контент — мы только синхронизируем просмотр.", .english: "The host uses their own subscription for this service. Plink doesn’t provide content — we only sync playback.", .chinese: "该平台由房主使用自己的订阅账号。Plink 不提供内容，仅同步播放。"],
         .sbSignedIn: [.russian: "Я вошёл, продолжить", .english: "I’ve signed in, continue", .chinese: "已登录，继续"],
         .apTitle: [.russian: "Оформление", .english: "Appearance", .chinese: "外观"],
-        .apSub: [.russian: "Выбери, как выглядит Plink. Темы и эффекты сохраняются между устройствами.", .english: "Choose how Plink looks. Themes and effects sync across devices.", .chinese: "选择 Plink 的外观。主题和效果会在设备间同步。"],
+        .apSub: [.russian: "Выберите, как выглядит Plink. Темы и эффекты сохраняются между устройствами.", .english: "Choose how Plink looks. Themes and effects sync across devices.", .chinese: "选择 Plink 的外观。主题和效果会在设备间同步。"],
         .apMotion: [.russian: "Движение и доступность", .english: "Motion & accessibility", .chinese: "动效与无障碍"],
         .apPlusPitch: [.russian: "Живые темы, анимированные bubble-стили и авторские emoji-паки. Отменить можно в любой момент.", .english: "Live themes, animated bubble styles, and exclusive emoji packs. Cancel anytime.", .chinese: "动态主题、动画气泡样式和独家表情包。可随时取消。"],
         .apGetPlus: [.russian: "Оформить Plink+", .english: "Get Plink+", .chinese: "开通 Plink+"],
@@ -950,8 +954,14 @@ enum L10n {
         .stFilmMany: [.russian: "фильмов", .english: "films", .chinese: "部影片"],
         .stTimeLabel: [.russian: "время", .english: "time", .chinese: "时长"],
         .stRooms: [.russian: "комнат", .english: "rooms", .chinese: "房间"],
+        .stRoomOne: [.russian: "комната", .english: "room", .chinese: "房间"],
+        .stRoomFew: [.russian: "комнаты", .english: "rooms", .chinese: "房间"],
         .stFriends: [.russian: "друзей", .english: "friends", .chinese: "好友"],
+        .stFriendOne: [.russian: "друг", .english: "friend", .chinese: "好友"],
+        .stFriendFew: [.russian: "друга", .english: "friends", .chinese: "好友"],
         .stStreak: [.russian: "дней подряд", .english: "day streak", .chinese: "天连续"],
+        .stStreakOne: [.russian: "день подряд", .english: "day streak", .chinese: "天连续"],
+        .stStreakFew: [.russian: "дня подряд", .english: "day streak", .chinese: "天连续"],
         .stTopKind: [.russian: "чаще всего", .english: "most often", .chinese: "最常看"],
         .stActivity: [.russian: "Активность", .english: "Activity", .chinese: "活跃度"],
         .stLast7: [.russian: "Последние 7 дней", .english: "Last 7 days", .chinese: "最近 7 天"],
@@ -989,7 +999,7 @@ enum L10n {
         .auStep2: [.russian: "Шаг 2 из 3", .english: "Step 2 of 3", .chinese: "第 2 步，共 3 步"],
         .auStep3: [.russian: "Шаг 3 из 3", .english: "Step 3 of 3", .chinese: "第 3 步，共 3 步"],
         .auCreateAccount: [.russian: "Создайте аккаунт", .english: "Create your account", .chinese: "创建账号"],
-        .auWhatsYourName: [.russian: "Как тебя зовут?", .english: "What’s your name?", .chinese: "你叫什么名字？"],
+        .auWhatsYourName: [.russian: "Как вас зовут?", .english: "What’s your name?", .chinese: "你叫什么名字？"],
         .auSafety: [.russian: "Безопасность", .english: "Safety", .chinese: "安全"],
         .auOver16: [.russian: "Мне больше 16 лет", .english: "I’m over 16", .chinese: "我已年满16岁"],
         .auAcceptTerms: [.russian: "Я принимаю условия использования", .english: "I accept the Terms of Use", .chinese: "我接受使用条款"],
@@ -997,13 +1007,13 @@ enum L10n {
         .auNotifLater: [.russian: "Уведомления можно включить позже в настройках.", .english: "You can enable notifications later in Settings.", .chinese: "稍后可在设置中开启通知。"],
         // Room creation (M27)
         .rcBack: [.russian: "Назад", .english: "Back", .chinese: "返回"],
-        .rcWhatWatch: [.russian: "Что смотрим?", .english: "What are we watching?", .chinese: "看什么？"],
-        .rcPickService: [.russian: "Выбери сервис — пригласи друзей и смотрите вместе", .english: "Pick a service — invite friends and watch together", .chinese: "选择平台，邀请好友一起观看"],
+        .rcWhatWatch: [.russian: "Где смотрим?", .english: "Where are we watching?", .chinese: "在哪儿看？"],
+        .rcPickService: [.russian: "Выберите сервис — пригласите друзей и смотрите вместе", .english: "Pick a service — invite friends and watch together", .chinese: "选择平台，邀请好友一起观看"],
         .rcNoServices: [.russian: "Нет сервисов под этот фильтр", .english: "No services match this filter", .chinese: "没有符合筛选的平台"],
         .rcRoomName: [.russian: "Название комнаты", .english: "Room name", .chinese: "房间名称"],
         .rcWhoCanJoin: [.russian: "Кто может войти", .english: "Who can join", .chinese: "谁可以加入"],
         .rcCreate: [.russian: "Создать комнату", .english: "Create room", .chinese: "创建房间"],
-        .rcCreating: [.russian: "Создаём комнату...", .english: "Creating room...", .chinese: "正在创建房间..."],
+        .rcCreating: [.russian: "Создаём комнату…", .english: "Creating room…", .chinese: "正在创建房间…"],
         // Settings (M27)
         .stDeveloper: [.russian: "Разработчик", .english: "Developer", .chinese: "开发者"],
         .stPlusActive: [.russian: "Плинк+ активна", .english: "Plink+ active", .chinese: "Plink+ 已激活"],
@@ -1220,9 +1230,9 @@ enum L10n {
             .chinese: "错误"
         ],
         .loading: [
-            .russian: "Загрузка...",
-            .english: "Loading...",
-            .chinese: "加载中..."
+            .russian: "Загрузка…",
+            .english: "Loading…",
+            .chinese: "加载中…"
         ],
         .search: [
             .russian: "Поиск",
@@ -1262,9 +1272,9 @@ enum L10n {
             .chinese: "登录"
         ],
         .loginSigningIn: [
-            .russian: "Вход...",
-            .english: "Signing in...",
-            .chinese: "登录中..."
+            .russian: "Вход…",
+            .english: "Signing in…",
+            .chinese: "登录中…"
         ],
         .loginSignUp: [
             .russian: "Регистрация",
@@ -1329,9 +1339,9 @@ enum L10n {
             .chinese: "YouTube · 影院 · 直链"
         ],
         .homeSearchRooms: [
-            .russian: "Поиск комнат...",
-            .english: "Search rooms...",
-            .chinese: "搜索房间..."
+            .russian: "Поиск комнат…",
+            .english: "Search rooms…",
+            .chinese: "搜索房间…"
         ],
         .homePublicRooms: [
             .russian: "Общедоступные комнаты",
@@ -1349,9 +1359,9 @@ enum L10n {
             .chinese: "没有活跃房间"
         ],
         .homeLoadingRooms: [
-            .russian: "Загрузка комнат...",
-            .english: "Loading rooms...",
-            .chinese: "加载房间中..."
+            .russian: "Загрузка комнат…",
+            .english: "Loading rooms…",
+            .chinese: "加载房间中…"
         ],
 
         // Join
@@ -1381,9 +1391,9 @@ enum L10n {
             .chinese: "或粘贴链接"
         ],
         .joinPlaceholder: [
-            .russian: "ABC123 или https://...",
-            .english: "ABC123 or https://...",
-            .chinese: "ABC123 或 https://..."
+            .russian: "ABC123 или https://…",
+            .english: "ABC123 or https://…",
+            .chinese: "ABC123 或 https://…"
         ],
 
         // Profile
@@ -1632,9 +1642,9 @@ enum L10n {
             .chinese: "与好友分享邀请链接"
         ],
         .friendsSearchPlaceholder: [
-            .russian: "Поиск по имени, нику или ID...",
-            .english: "Search by name, nickname or ID...",
-            .chinese: "按名字、昵称或ID搜索..."
+            .russian: "Поиск по имени, нику или ID…",
+            .english: "Search by name, nickname or ID…",
+            .chinese: "按名字、昵称或ID搜索…"
         ],
         .friendsNoResults: [
             .russian: "Ничего не найдено",
@@ -1776,9 +1786,9 @@ enum L10n {
             .chinese: "聊天"
         ],
         .chatPlaceholder: [
-            .russian: "Написать сообщение...",
-            .english: "Type a message...",
-            .chinese: "输入消息..."
+            .russian: "Написать сообщение…",
+            .english: "Type a message…",
+            .chinese: "输入消息…"
         ],
         .chatReport: [
             .russian: "Пожаловаться",
@@ -1845,9 +1855,9 @@ enum L10n {
 
         // Room view
         .roomConnecting: [
-            .russian: "Подключение к комнате...",
-            .english: "Connecting to room...",
-            .chinese: "正在连接房间..."
+            .russian: "Подключение к комнате…",
+            .english: "Connecting to room…",
+            .chinese: "正在连接房间…"
         ],
         .roomLinkCopied: [
             .russian: "Ссылка скопирована!",
@@ -1870,14 +1880,14 @@ enum L10n {
             .chinese: "聊天"
         ],
         .roomMessagePlaceholder: [
-            .russian: "Сообщение...",
-            .english: "Message...",
-            .chinese: "消息..."
+            .russian: "Сообщение…",
+            .english: "Message…",
+            .chinese: "消息…"
         ],
         .roomLoading: [
-            .russian: "Загрузка...",
-            .english: "Loading...",
-            .chinese: "加载中..."
+            .russian: "Загрузка…",
+            .english: "Loading…",
+            .chinese: "加载中…"
         ],
         .roomPremiumActivated: [
             .russian: "Premium активирован! 🎉",
@@ -2109,9 +2119,9 @@ enum L10n {
             .chinese: "YouTube 搜索"
         ],
         .searchPlaceholder: [
-            .russian: "Введите название ролика...",
-            .english: "Type a video title...",
-            .chinese: "输入视频标题..."
+            .russian: "Введите название ролика…",
+            .english: "Type a video title…",
+            .chinese: "输入视频标题…"
         ],
         .searchButton: [
             .russian: "Искать",
@@ -2141,7 +2151,7 @@ enum L10n {
 
         // Home extras
         .homeNoRoomsEmpty: [
-            .russian: "Создай комнату и пригласи друзей!",
+            .russian: "Создайте комнату и пригласите друзей!",
             .english: "Create a room and invite friends!",
             .chinese: "创建房间并邀请好友！"
         ],
@@ -2151,7 +2161,7 @@ enum L10n {
             .chinese: "未找到房间"
         ],
         .homeNoResultsHint: [
-            .russian: "Попробуй другой запрос",
+            .russian: "Попробуйте другой запрос",
             .english: "Try another search",
             .chinese: "尝试其他搜索"
         ],
@@ -2163,7 +2173,7 @@ enum L10n {
             .chinese: "暂无会话"
         ],
         .groupsEmptySubtitle: [
-            .russian: "Создай групповой чат с друзьями — как в Telegram",
+            .russian: "Создайте групповой чат с друзьями — как в Telegram",
             .english: "Start a group chat with friends",
             .chinese: "与好友创建群聊"
         ],
@@ -2204,7 +2214,7 @@ enum L10n {
             .chinese: "未读消息"
         ],
         .inboxOpenFriendsHint: [
-            .russian: "Открой вкладку «Друзья» → «Чаты»",
+            .russian: "Откройте вкладку «Друзья» → «Чаты»",
             .english: "Open Friends → Chats tab",
             .chinese: "打开好友→聊天选项卡"
         ],
@@ -2586,7 +2596,7 @@ enum L10n {
             .chinese: "套餐未加载"
         ],
         .plusPlansUnavailableSub: [
-            .russian: "Похоже, нет соединения. Проверь интернет — и попробуй ещё раз.",
+            .russian: "Похоже, нет соединения. Проверьте интернет — и попробуйте ещё раз.",
             .english: "Looks like you're offline. Check your connection and try again.",
             .chinese: "似乎没有网络。请检查连接后重试。"
         ],
@@ -2596,7 +2606,7 @@ enum L10n {
             .chinese: "没有网络连接"
         ],
         .plusErrorLoad: [
-            .russian: "Не удалось загрузить тарифы. Попробуй ещё раз.",
+            .russian: "Не удалось загрузить тарифы. Попробуйте ещё раз.",
             .english: "Couldn't load plans. Try again.",
             .chinese: "无法加载套餐,请重试。"
         ],
@@ -2621,7 +2631,7 @@ enum L10n {
             .chinese: "未找到有效订阅"
         ],
         .plusErrorRestore: [
-            .russian: "Не удалось восстановить покупки. Попробуй ещё раз.",
+            .russian: "Не удалось восстановить покупки. Попробуйте ещё раз.",
             .english: "Couldn't restore purchases. Try again.",
             .chinese: "恢复购买失败,请重试。"
         ]

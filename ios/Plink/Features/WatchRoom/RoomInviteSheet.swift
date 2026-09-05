@@ -153,10 +153,10 @@ struct RoomEmptyStateView: View {
                 .overlay(Circle().stroke(accent.opacity(0.25), lineWidth: 1))
 
             VStack(spacing: 6) {
-                Text("Ты в комнате один")
+                Text("Вы в комнате один")
                     .font(.system(size: 21, weight: .bold))
                     .foregroundStyle(Cinema2026.text)
-                Text("Позови друзей — смотреть вместе веселее")
+                Text("Позовите друзей — смотреть вместе веселее")
                     .font(.system(size: 14))
                     .foregroundStyle(Cinema2026.secondary)
                     .multilineTextAlignment(.center)

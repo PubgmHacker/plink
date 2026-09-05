@@ -296,23 +296,24 @@ struct UnifiedSearchView: View {
                 }
             } label: {
                 HStack(spacing: 12) {
-                if let url = item.artworkURL {
-                    AsyncImage(url: url) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(Cinema2026.surface)
+                // Ветки «нет кадра» и «кадр не дошёл» раньше выглядели
+                // по-разному (глиф против пустой плашки) и обе одинаково
+                // для всех находок — список читался решёткой серых плиток.
+                Group {
+                    if let url = item.artworkURL {
+                        AsyncImage(url: url) { phase in
+                            if let image = phase.image {
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            } else {
+                                PlinkArtlessPoster(seed: item.title, glyph: "play.fill")
+                            }
+                        }
+                    } else {
+                        PlinkArtlessPoster(seed: item.title, glyph: "play.fill")
                     }
-                    .frame(width: 80, height: 45)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Cinema2026.surface)
-                        .frame(width: 80, height: 45)
-                        .overlay(
-                            Image(systemName: "play.rectangle.fill")
-                                .foregroundStyle(Cinema2026.accent)
-                        )
                 }
+                .frame(width: 80, height: 45)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
                         .font(.system(size: 14, weight: .medium))

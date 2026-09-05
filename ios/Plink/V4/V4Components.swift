@@ -49,7 +49,11 @@ struct V4Avatar: View {
         ZStack {
             Circle()
                 .fill(PlinkAvatarPalette.gradient(for: seed.isEmpty ? letter : seed))
-            Text(letter)
+            // Регистр поднимается здесь, а не у вызывающего: из девяти
+            // мест вызова заглавную букву передавало ровно одно, и
+            // «testdev» давал в аватаре строчную «t». Монограмма —
+            // всегда прописная.
+            Text(letter.uppercased())
                 // Буква растёт вместе с кругом: фиксированные 14–16 pt в
                 // аватаре 96 pt (хиро профиля) выглядели горошиной.
                 .font(.system(size: max(14, size * 0.375), weight: .black))
@@ -417,6 +421,7 @@ struct V4SheetCloseButton: View {
                 .plinkGlass(.control, in: Circle(), interactive: true)
         }
         .buttonStyle(.plain)
+        .plinkHitTarget(32)
         .accessibilityLabel("Закрыть")
         .accessibilityIdentifier("sheet.close")
     }

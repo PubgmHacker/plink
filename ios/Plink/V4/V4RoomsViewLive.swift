@@ -286,7 +286,7 @@ struct V4RoomsViewLive: View {
                     icon: "wifi.exclamationmark",
                     iconTint: V4.amber,
                     title: error,
-                    message: "Проверь соединение — и попробуем ещё раз.",
+                    message: "Проверьте соединение — и попробуем ещё раз.",
                     buttonTitle: "Повторить"
                 ) {
                     Task { await roomsStore?.load() }
@@ -406,7 +406,7 @@ struct V4RoomsViewLive: View {
                     .font(.system(size: 17, weight: .heavy))
                     .tracking(-0.3)
                     .foregroundStyle(V4.ink)
-                Text("Проверь название комнаты или имя владельца")
+                Text("Проверьте название комнаты или имя владельца")
                     .font(.system(size: 13))
                     .foregroundStyle(V4.muted)
                     .multilineTextAlignment(.center)
@@ -463,7 +463,7 @@ struct V4RoomsViewLive: View {
         V4EmptyState(
             icon: "popcorn.fill",
             title: "Пока никто не смотрит",
-            subtitle: "Создай комнату и позови друзей — или войди по коду из шести символов.",
+            subtitle: "Создайте комнату и позовите друзей — или войдите по коду из шести символов.",
             accent: theme.accentColor,
             accentInk: theme.buttonTextColor,
             primary: .init(title: "Создать комнату", icon: "plus",

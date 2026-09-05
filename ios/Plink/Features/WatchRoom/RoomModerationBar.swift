@@ -59,6 +59,7 @@ struct RoomModerationBar: View {
                         .background(.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(26)
                 .accessibilityLabel("Скрыть настройки модерации")
             }
 

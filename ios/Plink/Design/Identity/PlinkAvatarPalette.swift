@@ -166,3 +166,111 @@ enum PlinkCoverAccent {
         return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(bl)
     }
 }
+
+// MARK: - Обложка без обложки
+//
+// 04.09.2026. Каталог держится на постерах, а постер приходит по сети. Когда
+// картинки нет — её вырезал источник, оборвалась загрузка, лёг CDN — плитка
+// оставалась пустым серым прямоугольником, и рельса из трёх таких плиток
+// выглядела фотокопией самой себя. Хуже: `AsyncImage(url:content:placeholder:)`
+// в двухзамыкательной форме показывает `placeholder` и при загрузке, и при
+// ошибке, так что «пусто» становилось конечным состоянием, а не промежуточным.
+//
+// Тот же принцип, что у буквы-аватара: если нечего показать, показываем то,
+// что у нас точно есть, — название. Хеш заголовка задаёт оттенок, монограмма
+// даёт вещи лицо, и соседние плитки в рельсе перестают быть одинаковыми.
+// Тон намеренно приглушён: заглушка не должна перекрикивать настоящие постеры,
+// стоящие рядом в той же полке.
+
+extension PlinkAvatarPalette {
+
+    /// Пара под обложку: оттенок берётся из заголовка, насыщенность и яркость
+    /// фиксированы. Отсюда семейное сходство всех заглушек при том, что две
+    /// соседние различимы.
+    static func posterPair(for seed: String) -> (Color, Color) {
+        let key = seed.isEmpty ? "?" : seed
+        let hue = Double(hash(key) % 3600) / 3600.0
+        // 04.09.2026: на 0.30/0.27 оттенок съедался — в шапке шита плитка
+        // читалась графитовым прямоугольником, а не тоном вещи. Подняли до
+        // 0.38/0.33, оставаясь ниже настоящего постера: рядом на полке
+        // заглушка по-прежнему тише соседей, но две соседние различимы.
+        return (
+            Color(hue: hue, saturation: 0.38, brightness: 0.33),
+            Color(hue: (hue + 0.055).truncatingRemainder(dividingBy: 1),
+                  saturation: 0.48, brightness: 0.15)
+        )
+    }
+
+    /// Монограмма вещи: первая буква первого значащего слова. Служебные
+    /// префиксы вроде «The» пропускаем — иначе половина полки будет «T».
+    ///
+    /// Слова из цифр пропускаем тоже: у «10 Новых фильмов 2026» монограммой
+    /// вставала «1» — на постере это читается номером, а не именем. Буква
+    /// первого словесного слова («Н») вещь называет, цифра — нет. Если букв
+    /// в заголовке нет вовсе («2026»), берём что есть.
+    static func monogram(for title: String) -> String {
+        let skip: Set<String> = ["the", "a", "an", "и", "в", "на"]
+        let words = title
+            .replacingOccurrences(of: "[^\\p{L}\\p{N} ]", with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .map(String.init)
+        func isWord(_ w: String) -> Bool {
+            guard let f = w.unicodeScalars.first else { return false }
+            return CharacterSet.letters.contains(f)
+        }
+        let pick = words.first { isWord($0) && !skip.contains($0.lowercased()) }
+            ?? words.first { isWord($0) }
+            ?? words.first
+            ?? "?"
+        return String(pick.prefix(1)).uppercased()
+    }
+}
+
+/// Заглушка обложки: тонированный градиент, косой блик и монограмма.
+/// Ставится и на время загрузки, и вместо не пришедшей картинки — состояние
+/// одно и то же с точки зрения смотрящего: обложки нет.
+struct PlinkArtlessPoster: View {
+    /// Источник цвета и монограммы — заголовок вещи (или id, если его нет).
+    let seed: String
+    /// Символ вида носителя в углу (film, music.note…). nil — без угла.
+    var glyph: String? = nil
+    /// Монограмма мешает на плитке меньше 60 pt: там остаётся только тон.
+    var showsMonogram: Bool = true
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let (top, bottom) = PlinkAvatarPalette.posterPair(for: seed)
+            ZStack {
+                LinearGradient(colors: [top, bottom],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+
+                // Косой блик по верхнему углу — так плитка читается объёмной
+                // карточкой, а не залитым прямоугольником.
+                LinearGradient(colors: [.white.opacity(0.10), .clear],
+                               startPoint: .topLeading, endPoint: .center)
+
+                if showsMonogram && side >= 44 {
+                    Text(PlinkAvatarPalette.monogram(for: seed))
+                        .font(.system(size: side * 0.46, weight: .black, design: .serif))
+                        .foregroundStyle(.white.opacity(0.16))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                }
+
+                if let glyph, side >= 44 {
+                    VStack {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Image(systemName: glyph)
+                                .font(.system(size: max(8, side * 0.11), weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.42))
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(max(5, side * 0.07))
+                }
+            }
+        }
+    }
+}

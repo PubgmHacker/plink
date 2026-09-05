@@ -370,8 +370,8 @@ enum VideoService: String, CaseIterable, Identifiable, Sendable, Codable, Equata
     var placeholder: String {
         switch self {
         case .youtube: return "YouTube ссылка или нажмите «Поиск»"
-        case .vk: return "https://vk.com/video..."
-        case .rutube: return "https://rutube.ru/video/..."
+        case .vk: return "https://vk.com/video…"
+        case .rutube: return "https://rutube.ru/video/…"
         case .browser: return "https://любой-сайт.ru"
         case .customURL: return ".mp4 / .m3u8 / .mp3 URL"
         default:

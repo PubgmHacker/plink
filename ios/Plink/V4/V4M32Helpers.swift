@@ -183,6 +183,12 @@ struct V4WatchHistorySheet: View {
             ) {
                 ForEach(section.cells) { cell in
                     PlinkWatchTile(item: cell.entry, accent: accent, progress: cell.progress)
+                        // Ячейка висит на верхней кромке ряда. Без этого
+                        // LazyVGrid центрирует ячейки по высоте, и сосед с
+                        // двухстрочной подписью («Большой кролик Бак»)
+                        // поднимал свой постер на 22 pt выше соседей —
+                        // верхние кромки плиток в ряду не сходились.
+                        .frame(maxHeight: .infinity, alignment: .top)
                         .contextMenu {
                             if let local = cell.local {
                                 Button(role: .destructive) {

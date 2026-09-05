@@ -178,10 +178,18 @@ extension V4FriendsViewLive {
                     if !isEmpty {
                         // Без текстового «Добавить»: вход один — «+» в шапке
                         // хаба, дубль в заголовке секции путал.
+                        // Заголовок обязан описывать то, что под ним. Он брал
+                        // общее число друзей мимо чипа и поиска: включённый
+                        // «В сети» при нуле онлайн оставлял «Все друзья 3»
+                        // прямо над плашкой «Сейчас никого нет в сети».
+                        // Теперь и подпись, и счёт идут за фильтром — заодно
+                        // исчез дубль числа с чипом «Все» (ниже).
                         sectionHeader(
-                            title: LocalizationManager.shared.string(.frAllFriends),
+                            title: friendsFilter == .online
+                                ? LocalizationManager.shared.string(.frOnline)
+                                : LocalizationManager.shared.string(.frAllFriends),
                             icon: "person.2.fill",
-                            count: s.friends.count,
+                            count: filteredPeople.count,
                             actionTitle: nil,
                             action: nil
                         )
@@ -204,7 +212,7 @@ extension V4FriendsViewLive {
                                 emptyInside(
                                     icon: "wifi.exclamationmark",
                                     title: "Друзья не загрузились",
-                                    subtitle: "Похоже, нет соединения. Проверь интернет — и попробуй ещё раз.",
+                                    subtitle: "Похоже, нет соединения. Проверьте интернет — и попробуйте ещё раз.",
                                     ctaIcon: "arrow.clockwise",
                                     cta: "Повторить",
                                     style: .plain
@@ -572,7 +580,7 @@ extension V4FriendsViewLive {
                         emptyInside(
                             icon: "magnifyingglass",
                             title: "Никого не нашли",
-                            subtitle: "Проверь написание или поищи по нику.",
+                            subtitle: "Проверьте написание или поищите по нику.",
                             style: .plain
                         )
                     } else {
@@ -614,9 +622,12 @@ extension V4FriendsViewLive {
         let requests = store?.requests.count ?? 0
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                // Без счётчика: при активном «Все» это ровно то же число,
+                // что стоит в заголовке секции в 90 pt выше — «Все друзья 3»
+                // и «Все 3» читались как две разные цифры.
                 peopleChip(
                     title: "Все",
-                    count: peopleFriends.count,
+                    count: nil,
                     isOn: friendsFilter == .all
                 ) { friendsFilter = .all }
 
@@ -663,7 +674,10 @@ extension V4FriendsViewLive {
 
     private func peopleChip(
         title: String,
-        count: Int,
+        /// `nil` — «счётчика у чипа нет» (у «Все» его держит заголовок секции).
+        /// Ноль — «есть, но пусто»: он тоже не рисуется, чтобы «В сети 0» не
+        /// выглядел ошибкой рядом с зелёной точкой.
+        count: Int?,
         isOn: Bool,
         dot: Bool = false,
         action: @escaping () -> Void
@@ -680,7 +694,7 @@ extension V4FriendsViewLive {
                 }
                 Text(title)
                     .font(.system(size: 13.5, weight: .semibold))
-                if count > 0 {
+                if let count, count > 0 {
                     Text("\(count)")
                         .font(.system(size: 12, weight: .semibold))
                         .opacity(0.7)
@@ -820,6 +834,7 @@ extension V4FriendsViewLive {
                         .overlay(Circle().stroke(V4.line.opacity(0.55), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(36)
                 .accessibilityLabel("Чат с \(friend.displayTitle)")
             }
         }

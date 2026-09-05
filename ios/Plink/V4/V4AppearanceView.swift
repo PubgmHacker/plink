@@ -141,7 +141,7 @@ struct V4AppearanceView: View {
                     V4Heading(
                         eyebrow: "ЧАТ",
                         title: "Бабл-стиль сообщений",
-                        subtitle: "Так выглядят твои сообщения в чате с другом и в комнате."
+                        subtitle: "Так выглядят ваши сообщения в чате с другом и в комнате."
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 19)

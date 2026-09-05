@@ -114,18 +114,6 @@ enum CinemaRadius {
     static let extraLarge: CGFloat = 28
 }
 
-// MARK: - PosterImage (used by CompactRoomRail)
-struct PosterImage: View {
-    let url: String?
-    var body: some View {
-        AsyncImage(url: URL(string: url ?? "")) { image in
-            image.resizable().aspectRatio(contentMode: .fill)
-        } placeholder: {
-            Rectangle().fill(Cinema2026.surface)
-        }
-    }
-}
-
 // MARK: - adminStroke + premiumStroke (used by AvatarView's RingModifier)
 
 private struct VIPAvatarRingModifier: ViewModifier {

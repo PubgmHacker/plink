@@ -112,6 +112,7 @@ struct ProfileWatchRailCard: View {
                     .plinkGlass(.control, in: Circle())
             }
             .buttonStyle(.plain)
+            .plinkHitTarget(30)
             .accessibilityLabel(LocalizationManager.shared.string(.wrExpand))
             .accessibilityValue(expanded ? "развёрнуто" : "свёрнуто")
         }
@@ -159,10 +160,15 @@ struct PlinkWatchTile: View {
                 if let thumb = item.thumb, let url = URL(string: thumb) {
                     Color.clear
                         .overlay(
-                            AsyncImage(url: url) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                placeholderCanvas
+                            // Форма с `phase`, а не двухзамыкательная: у той
+                            // `placeholder` показывается и при ошибке, и не
+                            // пришедший постер оставался пустым навсегда.
+                            AsyncImage(url: url) { phase in
+                                if let image = phase.image {
+                                    image.resizable().scaledToFill()
+                                } else {
+                                    placeholderCanvas
+                                }
                             }
                         )
                         .clipped()
@@ -206,17 +212,11 @@ struct PlinkWatchTile: View {
         )
     }
 
-    /// Art-less canvas: dark gradient + the kind glyph in the accent.
+    /// Обложка, которой нет: тон и монограмма из названия. Раньше здесь был
+    /// один и тот же тёмный градиент с одним и тем же значком вида — рельса
+    /// из трёх вещей без постеров выглядела тремя копиями одной плитки.
     private var placeholderCanvas: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(hex: "#232838"), Color(hex: "#141824")],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-            Image(systemName: PlinkMediaKind.symbol(for: item.kind))
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(accent.opacity(0.75))
-        }
+        PlinkArtlessPoster(seed: item.title.isEmpty ? item.id : item.title)
     }
 }
 

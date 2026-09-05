@@ -49,6 +49,22 @@ struct Friend: Codable, Identifiable, Sendable, Equatable, Hashable {
         return username
     }
 
+    /// Вторая строка в списках людей. «в сети» важнее ника и показывается
+    /// всегда; ник — только когда он добавляет факт. Без этого у человека
+    /// без заданного имени displayTitle сам равен username (см. выше), и
+    /// ряд читался «plink_sim_demo» / «@plink_sim_demo» — одно и то же дважды.
+    /// `nil` означает «второй строки нет»: высоту ряда задаёт аватар, так что
+    /// список от этого не становится рваным.
+    var secondaryLine: (text: String, isOnline: Bool)? {
+        if deleted { return nil }
+        if isOnline { return ("в сети", true) }
+        let handle = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !handle.isEmpty,
+              handle.caseInsensitiveCompare(displayTitle) != .orderedSame
+        else { return nil }
+        return ("@\(handle)", false)
+    }
+
     /// Single letter for avatar fallback — never uses current user.
     var initials: String {
         if deleted { return "—" }
@@ -69,7 +85,9 @@ struct Friend: Codable, Identifiable, Sendable, Equatable, Hashable {
 /// назад», потому что 43 не попадало ни в одну ветку. Правило смотрит на
 /// последнюю цифру, кроме подросткового диапазона 11–14.
 enum RussianPlural {
-    static func word(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
+    /// Обобщённая по типу: вызывающему бывает нужно выбрать не готовое слово,
+    /// а ключ локализации — правило от этого не меняется.
+    static func word<T>(_ count: Int, _ one: T, _ few: T, _ many: T) -> T {
         let mod100 = abs(count) % 100
         let mod10 = abs(count) % 10
         if mod100 >= 11 && mod100 <= 14 { return many }
@@ -116,9 +134,18 @@ enum FriendPresence {
                 let d = max(1, Int(sec / 86_400))
                 return "был(а) \(RussianPlural.counted(d, "день", "дня", "дней")) назад"
             }
+            // Дальше недели — дата. Две правки против прежнего "d MMM":
+            // месяц пишется целиком (у всех соседних веток единица времени
+            // написана словом — «3 дня назад», «вчера в 21:03», — и только
+            // здесь торчало «26 авг.»), а год появляется, когда он не
+            // текущий: без года «был(а) 26 авг.» одинаково значило прошлый
+            // август и позапрошлый.
             let df = DateFormatter()
             df.locale = Locale(identifier: "ru_RU")
-            df.dateFormat = "d MMM"
+            let thisYear = cal.component(.year, from: Date())
+            df.dateFormat = cal.component(.year, from: last) == thisYear
+                ? "d MMMM"
+                : "d MMMM y"
             return "был(а) \(df.string(from: last))"
         }
         if isOnline { return "в сети · можно смотреть вместе" }

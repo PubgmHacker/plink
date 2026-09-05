@@ -101,7 +101,7 @@ struct NotificationsView: View {
                     SettingsToggleRow(
                         icon: "at",
                         title: "Упоминания",
-                        subtitle: "Когда тебя упоминают в чате",
+                        subtitle: "Когда вас упоминают в чате",
                         isOn: $mentions,
                         enabled: !doNotDisturb
                     )

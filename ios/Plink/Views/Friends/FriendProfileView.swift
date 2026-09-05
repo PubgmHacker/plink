@@ -454,11 +454,14 @@ struct FriendProfileView: View {
             HStack(spacing: 0) {
                 counter(profile?.watchHoursText ?? "—", "время")
                 counterDivider
-                counter(profile.map { "\($0.filmsWatched)" } ?? "—", "фильмов")
+                counter(profile.map { "\($0.filmsWatched)" } ?? "—",
+                        PlinkPlural.films(profile?.filmsWatched ?? 0))
                 counterDivider
-                counter(profile.map { "\($0.roomsCreated)" } ?? "—", "комнат")
+                counter(profile.map { "\($0.roomsCreated)" } ?? "—",
+                        PlinkPlural.rooms(profile?.roomsCreated ?? 0))
                 counterDivider
-                counter(profile.map { "\($0.friendsCount)" } ?? "—", "друзей")
+                counter(profile.map { "\($0.friendsCount)" } ?? "—",
+                        PlinkPlural.friends(profile?.friendsCount ?? 0))
             }
             .padding(.vertical, 13)
             .contentShape(Rectangle())
@@ -674,6 +677,7 @@ private struct FriendAvatarViewer: View {
                         .background(.white.opacity(0.14), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(34)
                 .padding(.top, 16)
                 .padding(.trailing, 18)
                 .accessibilityLabel("Закрыть")

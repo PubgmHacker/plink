@@ -302,10 +302,24 @@ export default async function webpayRoutes(fastify: any) {
     },
   );
 
-  // ── Статус для страницы /plus (что вообще доступно) ────────────────
+  // ── Статус, который читает iOS-приложение (PlinkWebPlansLoader) ─────
+  //
+  // App Review 3.1.1: в App-Store-сборке из приложения НЕЛЬЗЯ уводить на
+  // веб-оплату /plus. `appStoreCompliant` — авторитетный серверный сигнал
+  // этого режима: тот же env-флаг APP_STORE_COMPLIANT (его канон —
+  // config/index.ts, читаем здесь напрямую, чтобы не тянуть тяжёлый модуль
+  // config на этапе загрузки роутов), поэтому флаг теперь реально управляет
+  // контрактом, который видит клиент, а не только строкой в /health. Клиент
+  // обязан его соблюдать; при этом сам клиент по умолчанию compliant на
+  // этапе сборки —
+  // так что пропавший/протухший ответ этого эндпоинта не может ВКЛЮЧИТЬ
+  // ссылку обратно (fail-safe). `enabled` сохраняет прежний смысл — «веб-
+  // оплата вообще настроена (ключи ЮKassa есть)» — и здесь не завязан на
+  // флаг, чтобы не менять семантику существующего поля.
   fastify.get('/webpay/status', async (_request: any, reply: any) => {
     reply.send({
       enabled: webPayConfigured(),
+      appStoreCompliant: process.env.APP_STORE_COMPLIANT !== 'false',
       plans: Object.fromEntries(
         Object.entries(WEB_PLANS).map(([id, p]) => [
           id,

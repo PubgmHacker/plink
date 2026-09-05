@@ -71,17 +71,23 @@ enum PlinkMediaKind {
 /// Russian-aware plural for "N films" (one / few / many forms).
 @MainActor
 enum PlinkPlural {
-    static func films(_ n: Int) -> String {
+    /// Правило склонения в приложении одно — `RussianPlural`. Здесь была его
+    /// вторая копия, и жила она только ради «фильмов»: у соседних счётчиков
+    /// (серия дней, комнаты, друзья) формы не было вовсе, и статистика
+    /// показывала «3 дней подряд».
+    private static func pick(_ n: Int, _ one: L10n.Key,
+                             _ few: L10n.Key, _ many: L10n.Key) -> String {
         let l = LocalizationManager.shared
-        let one = l.string(.stFilmOne), few = l.string(.stFilmFew), many = l.string(.stFilmMany)
-        if l.currentLanguage == .russian {
-            let mod10 = n % 10, mod100 = n % 100
-            if mod10 == 1 && mod100 != 11 { return one }
-            if (2...4).contains(mod10) && !(12...14).contains(mod100) { return few }
-            return many
+        guard l.currentLanguage == .russian else {
+            return l.string(n == 1 ? one : many)
         }
-        return n == 1 ? one : many
+        return l.string(RussianPlural.word(n, one, few, many))
     }
+
+    static func films(_ n: Int) -> String { pick(n, .stFilmOne, .stFilmFew, .stFilmMany) }
+    static func streak(_ n: Int) -> String { pick(n, .stStreakOne, .stStreakFew, .stStreak) }
+    static func rooms(_ n: Int) -> String { pick(n, .stRoomOne, .stRoomFew, .stRooms) }
+    static func friends(_ n: Int) -> String { pick(n, .stFriendOne, .stFriendFew, .stFriends) }
 }
 
 // MARK: - Period pill
@@ -191,12 +197,13 @@ struct ProfileStatsSheet: View {
         guard let profile else {
             return [Metric(id: "hero", value: "—", label: l.string(.stFilmMany), symbol: "film.fill")]
         }
+        let streakDays = stats?.streakDays ?? 0
         switch period {
         case .week:
             let films = stats?.weekFilms ?? 0
             return [
                 Metric(id: "hero", value: "\(films)", label: PlinkPlural.films(films), symbol: "film.fill"),
-                Metric(id: "streak", value: "\(stats?.streakDays ?? 0)", label: l.string(.stStreak), symbol: "flame.fill"),
+                Metric(id: "streak", value: "\(streakDays)", label: PlinkPlural.streak(streakDays), symbol: "flame.fill"),
                 Metric(id: "kind", value: PlinkMediaKind.title(for: stats?.topKind) ?? "—",
                        label: l.string(.stTopKind), symbol: PlinkMediaKind.symbol(for: stats?.topKind))
             ]
@@ -206,14 +213,14 @@ struct ProfileStatsSheet: View {
                 Metric(id: "hero", value: "\(films)", label: PlinkPlural.films(films), symbol: "film.fill"),
                 Metric(id: "time", value: UserSocialProfile.durationText(minutes: stats?.monthMinutes ?? 0),
                        label: l.string(.stTimeLabel), symbol: "clock.fill"),
-                Metric(id: "streak", value: "\(stats?.streakDays ?? 0)", label: l.string(.stStreak), symbol: "flame.fill")
+                Metric(id: "streak", value: "\(streakDays)", label: PlinkPlural.streak(streakDays), symbol: "flame.fill")
             ]
         case .all:
             return [
                 Metric(id: "hero", value: "\(profile.filmsWatched)", label: PlinkPlural.films(profile.filmsWatched), symbol: "film.fill"),
                 Metric(id: "time", value: profile.watchHoursText, label: l.string(.stTimeLabel), symbol: "clock.fill"),
-                Metric(id: "rooms", value: "\(profile.roomsCreated)", label: l.string(.stRooms), symbol: "rectangle.stack.fill"),
-                Metric(id: "friends", value: "\(profile.friendsCount)", label: l.string(.stFriends), symbol: "person.2.fill")
+                Metric(id: "rooms", value: "\(profile.roomsCreated)", label: PlinkPlural.rooms(profile.roomsCreated), symbol: "rectangle.stack.fill"),
+                Metric(id: "friends", value: "\(profile.friendsCount)", label: PlinkPlural.friends(profile.friendsCount), symbol: "person.2.fill")
             ]
         }
     }

@@ -813,6 +813,7 @@ struct DMChatView: View {
                 .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.7))
         }
         .buttonStyle(.plain)
+        .plinkHitTarget(36)
         .disabled(!enabled)
         .accessibilityLabel(label)
     }
@@ -1104,6 +1105,7 @@ struct DMChatView: View {
                         .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.7))
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(34)
                 .accessibilityLabel("Смотреть вместе")
             }
 
@@ -1434,6 +1436,7 @@ struct DMChatView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .plinkHitTarget(30)
             .accessibilityLabel(showEmojiPicker ? "Клавиатура" : "Эмодзи")
 
             TextField("Сообщение", text: $messageText, axis: .vertical)

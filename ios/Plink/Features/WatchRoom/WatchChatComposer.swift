@@ -133,6 +133,7 @@ struct WatchChatComposer: View {
                                 .background(Cinema2026.raised, in: Capsule())
                         }
                         .buttonStyle(.plain)
+                        .plinkHitTarget(36)
                         .accessibilityLabel("Reaction \(emoji)")
                     }
                 }

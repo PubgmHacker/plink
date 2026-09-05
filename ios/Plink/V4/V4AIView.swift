@@ -365,6 +365,7 @@ struct V4VoiceErrorBanner: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(32)
                 .accessibilityLabel("Закрыть уведомление")
             }
             .foregroundStyle(V4.ink)
@@ -461,8 +462,14 @@ struct V4AIViewLive: View {
     }
 
     /// Онбординг раздела: фрост поверх ленты — карточки позади читаются
-    /// силуэтами, — живая Metal-сфера ассистента, крупное «Скоро» и два
-    /// уже работающих входа: чат с ИИ и голосовой ввод.
+    /// силуэтами, — живая Metal-сфера ассистента и два уже работающих
+    /// входа: чат с ИИ и голосовой ввод.
+    ///
+    /// 04.09.2026: слой и силуэты остались (решение 23.08), но 44-птшным
+    /// заголовком было слово «Скоро» — вкладка крупнее всего рекламировала
+    /// собственную пустоту, хотя чат и голос под ней работают. Теперь наверху
+    /// то, что работает, а «Скоро» — бейдж в сноске под кнопками, у той
+    /// единственной части раздела, которой правда ещё нет.
     private var onboarding: some View {
         ZStack {
             Rectangle()
@@ -485,19 +492,19 @@ struct V4AIViewLive: View {
                     .frame(width: 216, height: 216)
                     .accessibilityHidden(true)
 
-                Text("ЛЕНТА ТРЕЙЛЕРОВ И РИЛСОВ")
+                Text("ПОМОЩНИК PLINK")
                     .font(.system(size: 11, weight: .heavy))
                     .tracking(2.4)
                     .foregroundStyle(.white.opacity(0.65))
                     .padding(.top, 16)
 
-                Text("Скоро")
+                Text("Опишите вечер")
                     .font(.system(size: 44, weight: .heavy))
                     .tracking(-1)
                     .foregroundStyle(V4.ink)
                     .padding(.top, 2)
 
-                Text("Подборки трейлеров под то, что вы смотрите, уже в работе. А чат с ИИ и голосовой ввод работают прямо сейчас.")
+                Text("Подберём кино под настроение и соберём очередь на вечер — текстом или голосом.")
                     .font(.system(size: 13.5))
                     .foregroundStyle(V4.muted)
                     .multilineTextAlignment(.center)
@@ -540,6 +547,27 @@ struct V4AIViewLive: View {
                 }
                 .frame(maxWidth: 300)
                 .padding(.top, 26)
+
+                // Единственное, чего в разделе правда ещё нет, — и сказано
+                // это ровно один раз, шрифтом сноски, а не заголовком.
+                HStack(spacing: 8) {
+                    Text("СКОРО")
+                        .font(.system(size: 9.5, weight: .heavy))
+                        .tracking(1.2)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(.white.opacity(0.16))
+                        )
+                    Text("Лента трейлеров и рилсов")
+                        .font(.system(size: 12))
+                        .foregroundStyle(V4.muted)
+                }
+                .padding(.top, 18)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Лента трейлеров и рилсов — скоро")
+                .accessibilityIdentifier("ai.onboarding.soon")
 
                 Spacer(minLength: 0)
             }

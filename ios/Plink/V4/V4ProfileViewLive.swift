@@ -325,6 +325,7 @@ struct V4ProfileViewLive: View {
                         .plinkGlass(.control, in: Circle(), interactive: true)
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(32)
                 .accessibilityLabel("Сменить обложку")
                 .padding(.top, 62)
                 .padding(.trailing, 14)
@@ -398,7 +399,7 @@ struct V4ProfileViewLive: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(V4.muted)
-                        Text("Что смотрим сегодня?")
+                        Text(LocalizationManager.shared.string(.frStoryAddStatus))
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(V4.muted)
                     } else {
@@ -438,7 +439,11 @@ struct V4ProfileViewLive: View {
             }
 
             HStack(spacing: 7) {
-                if let username = store?.username, !username.isEmpty {
+                // Ник под именем — только когда он не повторяет имя: у
+                // аккаунта без заданного имени displayName берётся из
+                // username, и лицо профиля читалось «testdev» / «@testdev».
+                if let username = store?.username, !username.isEmpty,
+                   username.caseInsensitiveCompare(store?.displayName ?? "") != .orderedSame {
                     Text("@\(username)")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(V4.muted)
@@ -563,9 +568,11 @@ struct V4ProfileViewLive: View {
             HStack(spacing: 0) {
                 counter(social?.watchHoursText ?? "—", "время")
                 counterDivider
-                counter(social.map { "\($0.filmsWatched)" } ?? "—", "фильмов")
+                counter(social.map { "\($0.filmsWatched)" } ?? "—",
+                        PlinkPlural.films(social?.filmsWatched ?? 0))
                 counterDivider
-                counter(social.map { "\($0.roomsCreated)" } ?? "—", "комнат")
+                counter(social.map { "\($0.roomsCreated)" } ?? "—",
+                        PlinkPlural.rooms(social?.roomsCreated ?? 0))
             }
             // .plain не бьёт по прозрачным зазорам лейбла — без явной формы
             // тап между колонками уходил в пустоту.

@@ -803,15 +803,19 @@ struct V4HomeViewLive: View {
     private func artwork(_ item: V4SearchResult, poster: Bool = false) -> some View {
         // Вертикальные карточки просят настоящий постер (есть у кино из
         // каталога); широкий кадр — запасной путь и для YouTube, и для героя.
+        // Не пришедший постер — не пустая карточка. Двухзамыкательная форма
+        // `AsyncImage` показывает `placeholder` и при ошибке тоже, поэтому
+        // берём `phase`: заглушка одна и та же, но состояние честное.
         if let url = (poster ? item.posterURL : nil) ?? item.artworkURL {
-            AsyncImage(url: url) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Rectangle().fill(V4.cardBG)
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    PlinkArtlessPoster(seed: item.title, glyph: "film")
+                }
             }
         } else {
-            Rectangle().fill(V4.cardBG)
-                .overlay(Image(systemName: "film").foregroundStyle(V4.muted))
+            PlinkArtlessPoster(seed: item.title, glyph: "film")
         }
     }
 
@@ -911,14 +915,15 @@ struct V4HomeViewLive: View {
                 ZStack(alignment: .bottomLeading) {
                     Group {
                         if let thumb = item.thumbnailURL, let url = URL(string: thumb) {
-                            AsyncImage(url: url) { img in
-                                img.resizable().aspectRatio(contentMode: .fill)
-                            } placeholder: {
-                                Rectangle().fill(V4.cardBG)
+                            AsyncImage(url: url) { phase in
+                                if let img = phase.image {
+                                    img.resizable().aspectRatio(contentMode: .fill)
+                                } else {
+                                    PlinkArtlessPoster(seed: item.title, glyph: "film")
+                                }
                             }
                         } else {
-                            Rectangle().fill(V4.cardBG)
-                                .overlay(Image(systemName: "film").foregroundStyle(V4.muted))
+                            PlinkArtlessPoster(seed: item.title, glyph: "film")
                         }
                     }
                     if let progress = item.progress {
@@ -970,14 +975,15 @@ struct V4HomeViewLive: View {
             VStack(alignment: .leading, spacing: 8) {
                 Group {
                     if let thumb = entry.mediaItem.thumbnailURL, let url = URL(string: thumb) {
-                        AsyncImage(url: url) { img in
-                            img.resizable().aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            Rectangle().fill(V4.cardBG)
+                        AsyncImage(url: url) { phase in
+                            if let img = phase.image {
+                                img.resizable().aspectRatio(contentMode: .fill)
+                            } else {
+                                PlinkArtlessPoster(seed: entry.mediaItem.title, glyph: "bookmark.fill")
+                            }
                         }
                     } else {
-                        Rectangle().fill(V4.cardBG)
-                            .overlay(Image(systemName: "bookmark.fill").foregroundStyle(V4.muted))
+                        PlinkArtlessPoster(seed: entry.mediaItem.title, glyph: "bookmark.fill")
                     }
                 }
                 // 172×97 — 16:9 (у закладок YouTube-миниатюры, вертикального

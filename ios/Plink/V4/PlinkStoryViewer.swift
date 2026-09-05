@@ -235,6 +235,7 @@ struct PlinkStoryViewer: View {
                     .background(.white.opacity(0.14), in: Circle())
             }
             .buttonStyle(.plain)
+            .plinkHitTarget(36)
             .accessibilityLabel("Close")
         }
     }

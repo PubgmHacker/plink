@@ -404,6 +404,17 @@ final class V4SearchStore {
     }
 }
 
+extension String {
+    /// Схлопывает любые подряд идущие пробельные символы в один пробел и
+    /// подрезает края. Заголовки приезжают из чужих каталогов как есть:
+    /// «УБЕЖИЩЕ  самое лучшее качество» с двойным пробелом (замер по кадру —
+    /// разрыв 23 px против 14 px у обычного пробела) висел на витрине живьём.
+    /// Один `trimmingCharacters` края чистил, а середину — нет.
+    var plinkTidiedTitle: String {
+        split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+}
+
 // Codable — ради дискового кэша полок: карточка целиком сериализуется
 // в UserDefaults и встаёт на витрину при следующем запуске без сети.
 struct V4SearchResult: Identifiable, Hashable, Sendable, Codable {
@@ -440,8 +451,11 @@ struct V4SearchResult: Identifiable, Hashable, Sendable, Codable {
         isFreeOnService: Bool, isSeries: Bool
     ) {
         self.id = id
-        self.title = title
-        self.subtitle = subtitle
+        // Чистка здесь, а не у шести вызывающих: это единственная дверь, через
+        // которую карточка попадает в приложение. Кэш полок, записанный до
+        // этой правки, дочистится сам при первом же обновлении с сетью.
+        self.title = title.plinkTidiedTitle
+        self.subtitle = subtitle.plinkTidiedTitle
         self.artworkURL = artworkURL
         self.posterURL = posterURL
         self.duration = duration

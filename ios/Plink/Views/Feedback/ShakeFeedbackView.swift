@@ -109,7 +109,7 @@ struct FeedbackSheetView: View {
                             RoundedRectangle(cornerRadius: 12).stroke(V4.line, lineWidth: 1)
                         }
                     if feedbackText.isEmpty {
-                        Text("Опиши что случилось... ")
+                        Text("Опиши, что случилось…")
                             .foregroundStyle(V4.muted.opacity(0.7))
                             .padding(14)
                     }

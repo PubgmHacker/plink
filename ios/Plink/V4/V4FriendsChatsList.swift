@@ -170,7 +170,7 @@ extension V4FriendsViewLive {
                     emptyCanvas(
                         icon: "bubble.left.and.bubble.right.fill",
                         title: "Здесь появятся переписки",
-                        subtitle: "Добавь друга — и напиши первым",
+                        subtitle: "Добавьте друга — и напишите первым",
                         ctaIcon: "magnifyingglass",
                         cta: "Найти друга"
                     ) { showAddFriend = true }
@@ -184,7 +184,7 @@ extension V4FriendsViewLive {
                     // в пустом списке Signal и как компоуз Telegram.
                     emptyCanvas(
                         icon: "square.and.pencil",
-                        title: "Начни переписку",
+                        title: "Начните переписку",
                         subtitle: "Отсюда зовут в комнату и договариваются, что смотреть."
                     ) {
                         chatsSuggestions

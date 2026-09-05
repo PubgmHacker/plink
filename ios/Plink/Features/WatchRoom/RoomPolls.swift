@@ -165,6 +165,7 @@ struct RoomPollCard: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .plinkHitTarget(24)
             .accessibilityLabel("Скрыть голосование")
         }
     }
@@ -516,7 +517,7 @@ struct PollComposerSheet: View {
                         options: filledOptions,
                         votes: [:],
                         createdBy: "preview",
-                        createdByName: "ты"
+                        createdByName: "Вы"
                     ),
                     myUserId: "preview",
                     canClose: false,

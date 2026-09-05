@@ -431,6 +431,7 @@ struct V4AIChatView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .plinkHitTarget(34)
         .accessibilityLabel(label)
     }
 

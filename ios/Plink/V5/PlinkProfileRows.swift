@@ -215,6 +215,48 @@ struct SettingsInfoRow: View {
     }
 }
 
+/// Строка ещё не сделанной возможности. `SettingsInfoRow` для этого не
+/// годится: он устроен «подпись сверху, значение снизу» и правильно читается
+/// на «Это устройство / iPhone · iOS 26.5». На двухфакторной защите он
+/// переворачивал смысл — крупным и белым становилось слово «Скоро», а название
+/// возможности уходило в мелкую серую подпись. Здесь порядок обычный,
+/// как у соседей по карте, а статус — бледная пилюля справа.
+struct SettingsPendingRow: View {
+    let icon: String
+    let title: String
+    var subtitle: String? = nil
+    var badge: String = "Скоро"
+    var iconColor: Color = V4Theme.saved.accentColor
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SettingsIconBadge(systemName: icon, color: iconColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(V4.ink)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(V4.muted)
+                }
+            }
+            Spacer(minLength: 8)
+            Text(badge)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(V4.muted)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(V4.line.opacity(0.55), in: Capsule())
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .opacity(0.72)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). \(badge)")
+    }
+}
+
 struct SettingsNavRow: View {
     let icon: String
     let title: String
@@ -372,7 +414,7 @@ internal struct PersonalDataView: View {
                                 .foregroundStyle(V4.muted)
                                 .padding(.horizontal, 14)
                                 .padding(.top, 12)
-                            TextField("Как тебя видят друзья", text: $displayName)
+                            TextField("Как вас видят друзья", text: $displayName)
                                 .textInputAutocapitalization(.words)
                                 .padding(.horizontal, 14)
                                 .padding(.bottom, 10)
@@ -551,7 +593,7 @@ internal struct PrivacySecurityView: View {
     var body: some View {
         SettingsScaffold(
             title: "Приватность",
-            subtitle: "Кто может тебя находить, приглашать и писать",
+            subtitle: "Кто может вас находить, приглашать и писать",
             eyebrow: "Управление аккаунтом"
         ) {
             // Без секционного лейбла: карта одна, а «ПРИВАТНОСТЬ» под
@@ -581,7 +623,7 @@ internal struct PrivacySecurityView: View {
                     SettingsToggleRow(
                         icon: "magnifyingglass",
                         title: "Виден в поиске",
-                        subtitle: "Другие могут найти тебя по @username",
+                        subtitle: "Другие могут найти вас по @username",
                         isOn: $discoverable
                     )
                     SettingsToggleRow(
@@ -636,12 +678,26 @@ struct ActiveSessionsView: View {
         "\(UIDevice.current.model) · iOS \(UIDevice.current.systemVersion)"
     }
 
+    /// «Сегодня, 09:41» / «4 сент. 2026 г., 09:41» — относительная дата там,
+    /// где система умеет. Экран называется «Активные сессии», и до этой строки
+    /// единственным фактом о сессии была модель устройства.
+    private var sessionStartedTitle: String? {
+        guard let started = AuthService.shared.sessionStartedAt else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale.current
+        f.doesRelativeDateFormatting = true
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f.string(from: started)
+    }
+
+
     var body: some View {
         SettingsScaffold(
             // Тот же заголовок, что у строки-входа: «Активные сессии» —
             // название не меняется по пути (когезия навигации).
             title: "Активные сессии",
-            subtitle: "Сервер пока не хранит список устройств — видно только текущее",
+            subtitle: "Устройство, с которого вы вошли, и выход со всех остальных",
             eyebrow: "Безопасность и вход"
         ) {
             SettingsCard {
@@ -650,6 +706,13 @@ struct ActiveSessionsView: View {
                     title: "Это устройство",
                     value: currentDeviceTitle
                 )
+                if let sessionStartedTitle {
+                    SettingsInfoRow(
+                        icon: "clock",
+                        title: "Вход выполнен",
+                        value: sessionStartedTitle
+                    )
+                }
             }
 
             SettingsCard {
@@ -786,7 +849,8 @@ internal struct ChangePasswordView: View {
             if done {
                 infoBanner(
                     icon: "checkmark.shield.fill",
-                    text: "Пароль обновлён. На других устройствах может потребоваться войти заново."
+                    text: "Пароль обновлён. На других устройствах может потребоваться войти заново.",
+                    tone: .success
                 )
             } else if codeSent {
                 SettingsPrimaryButton(title: "Сменить пароль", isLoading: working) {
@@ -966,17 +1030,20 @@ internal struct AccountCenterView: View {
                     AccountNavRow(
                         icon: "laptopcomputer.and.iphone",
                         title: "Активные сессии",
-                        subtitle: "Устройства, где выполнен вход",
+                        // Экран за строкой показывает ОДНО устройство —
+                        // текущее — и кнопку выхода с остальных. Обещать
+                        // список устройств здесь было нечестно.
+                        subtitle: "Это устройство и выход с остальных",
                         iconColor: Color(hex: 0x3B82F6)
                     ) {
                         ActiveSessionsView()
                     }
                     // На сервере есть поля twofaEnabled/twofaSecret, но нет
                     // пользовательских роутов включения — честная строка «Скоро».
-                    SettingsInfoRow(
+                    SettingsPendingRow(
                         icon: "lock.shield.fill",
                         title: "Двухфакторная защита",
-                        value: "Скоро",
+                        subtitle: "Второй шаг при входе с нового устройства",
                         iconColor: Color(hex: 0xA855F7)
                     )
                 }
@@ -1091,7 +1158,11 @@ internal struct AccountCenterView: View {
                     .tracking(-0.3)
                     .foregroundStyle(V4.ink)
                     .lineLimit(1)
-                if !username.isEmpty {
+                // Ник только тогда, когда он не повторяет имя: у аккаунта без
+                // заданного имени displayName сам берётся из username, и
+                // карточка читалась «testdev» / «@testdev» / почта.
+                if !username.isEmpty,
+                   username.caseInsensitiveCompare(displayName) != .orderedSame {
                     Text("@\(username)")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(V4.muted)
@@ -1384,7 +1455,27 @@ internal struct BlockedUsersView: View {
             eyebrow: "Данные и доступ"
         ) {
             if loading {
-                ProgressView().tint(V4Theme.saved.accentColor).frame(maxWidth: .infinity).padding(.top, 40)
+                // Скелет строк, а не спиннер посреди пустоты: экран ждёт
+                // список людей, и ожидание должно иметь форму этого списка.
+                // Крутилка тем более не к месту теперь, когда к запросу
+                // блокировок добавились запросы имён — пауза стала заметной,
+                // а прыжок «пустой круг → готовая карта» резче.
+                // Скелетоны здесь те же, что у полок и списка групп.
+                SettingsCard {
+                    ForEach(0..<3, id: \.self) { _ in
+                        HStack(spacing: 12) {
+                            SkeletonCircle(size: SettingsUI.iconSize)
+                            VStack(alignment: .leading, spacing: 6) {
+                                SkeletonRect(width: 124, height: 13)
+                                SkeletonRect(width: 76, height: 10)
+                            }
+                            Spacer(minLength: 8)
+                            SkeletonRect(width: 96, height: 12, cornerRadius: 6)
+                        }
+                        .padding(14)
+                    }
+                }
+                .accessibilityLabel("Загрузка списка заблокированных")
             } else if blocked.isEmpty {
                 // Пустое состояние — в общем каркасе состояний V4: иконка в
                 // мягком круге на стеклянной карте, а не плоская заливка.
@@ -1416,10 +1507,18 @@ internal struct BlockedUsersView: View {
                     ForEach(blocked) { u in
                         HStack(spacing: 12) {
                             SettingsIconBadge(systemName: "person.fill", color: V4.danger)
-                            Text(u.nickname)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(V4.ink)
-                            Spacer()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(u.nickname)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(V4.ink)
+                                if let handle = u.handle {
+                                    Text("@\(handle)")
+                                        .font(.system(size: 12.5, weight: .medium))
+                                        .foregroundStyle(V4.muted)
+                                }
+                            }
+                            .lineLimit(1)
+                            Spacer(minLength: 8)
                             Button("Разблокировать") {
                                 HapticManager.selection()
                                 UserBlockManager.shared.unblockUser(u.id)
@@ -1436,11 +1535,52 @@ internal struct BlockedUsersView: View {
         .task {
             loading = true
             await UserBlockManager.shared.refreshBlocksFromServer()
-            blocked = UserBlockManager.shared.blockedUserIds.map {
-                BlockedUser(id: $0, nickname: String($0.prefix(8)))
-            }
-            // Prefer usernames if we ever store them; for now show short ids
+            blocked = await Self.resolveNames(for: UserBlockManager.shared.blockedUserIds)
             loading = false
+        }
+    }
+
+    /// `GET moderation/blocked` отдаёт только идентификаторы, поэтому имена
+    /// приходится дотягивать отдельно — тем же `users/:id`, которым личка
+    /// достаёт собеседника. Раньше их не тянули вовсе и в ряду стояли первые
+    /// 8 символов сырого id: строка «a3f9c210» с кнопкой «Разблокировать» не
+    /// говорит, кого разблокируют, — список блокировок нельзя разобрать.
+    ///
+    /// Запросы идут разом, а не в цикле: список короткий (люди блокируют
+    /// единицы), зато последовательный обход растянул бы открытие экрана на
+    /// сумму всех задержек. Кто не ответил — остаётся с коротким id: это
+    /// хуже имени, но лучше пустой строки, и кнопка всё равно работает.
+    private static func resolveNames(for ids: Set<String>) async -> [BlockedUser] {
+        struct UserDTO: Decodable {
+            let username: String?
+            let displayName: String?
+        }
+
+        let people = await withTaskGroup(of: BlockedUser.self) { group in
+            for id in ids {
+                group.addTask {
+                    let dto: UserDTO? = try? await APIClient.shared.request("users/\(id)")
+                    let handle = dto?.username?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let name = dto?.displayName?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let title = !name.isEmpty ? name
+                        : (!handle.isEmpty ? handle : String(id.prefix(8)))
+                    let secondary = !handle.isEmpty
+                        && handle.caseInsensitiveCompare(title) != .orderedSame
+                        ? handle : nil
+                    return BlockedUser(id: id, nickname: title, handle: secondary)
+                }
+            }
+            var out: [BlockedUser] = []
+            for await person in group { out.append(person) }
+            return out
+        }
+
+        // Порядок в Set не определён и меняется между запусками — без
+        // сортировки список перетасовывался бы при каждом открытии экрана.
+        return people.sorted {
+            $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending
         }
     }
 }
@@ -1448,6 +1588,11 @@ internal struct BlockedUsersView: View {
 internal struct BlockedUser: Identifiable, Sendable {
     let id: String
     let nickname: String
+    /// @-ник второй строкой. `nil`, когда он ничего не добавляет: у человека
+    /// без заданного имени displayTitle сам равен username, и ряд читался бы
+    /// «plink_sim_demo» / «@plink_sim_demo» — то же самое дважды. Правило
+    /// повторяет Friendship.secondaryLine.
+    let handle: String?
 }
 
 // MARK: - DeleteAccountView
@@ -1467,7 +1612,8 @@ internal struct DeleteAccountView: View {
         ) {
             infoBanner(
                 icon: "exclamationmark.triangle.fill",
-                text: "Комнаты, друзья, история и аватар будут удалены. В течение 14 дней можно отменить, войдя снова."
+                text: "Комнаты, друзья, история и аватар будут удалены. В течение 14 дней можно отменить, войдя снова.",
+                tone: .danger
             )
 
             SettingsCard {
@@ -1525,8 +1671,30 @@ internal struct DeleteAccountView: View {
 
 // MARK: - Shared helpers
 
-internal func infoBanner(icon: String, text: String) -> some View {
-    let accent = V4Theme.saved.accentColor
+/// Смысловой цвет плашки. По умолчанию — акцент темы: плашка нейтральна и
+/// читается как фирменная подсказка. Но на экране «Опасная зона» треугольник
+/// внимания, покрашенный в акцент, — единственный не-красный элемент среди
+/// красного щита и красной кнопки: буквальный знак опасности выглядел
+/// декорацией. Тон привязывает цвет к смыслу, а не к бренду.
+internal enum InfoBannerTone {
+    case info, warning, danger, success
+
+    var color: Color {
+        switch self {
+        case .info:    return V4Theme.saved.accentColor
+        case .warning: return V4.amber
+        case .danger:  return V4.danger
+        case .success: return V4.free
+        }
+    }
+}
+
+internal func infoBanner(
+    icon: String,
+    text: String,
+    tone: InfoBannerTone = .info
+) -> some View {
+    let accent = tone.color
     return HStack(alignment: .top, spacing: 12) {
         Image(systemName: icon)
             .font(.system(size: 16, weight: .semibold))

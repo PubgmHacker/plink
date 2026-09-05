@@ -221,6 +221,7 @@ struct RoomQueueSheet: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .plinkHitTarget(34)
                 .accessibilityLabel("Включить «\(item.title)» сейчас")
             }
         }
