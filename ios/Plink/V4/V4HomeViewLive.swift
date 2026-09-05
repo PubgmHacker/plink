@@ -361,7 +361,7 @@ struct V4HomeViewLive: View {
                     .padding(.bottom, 20)
                 }
             }
-            .padding(.bottom, 96)
+            .padding(.bottom, PlinkLiquidTabBar.contentReserve)
         }
         .foregroundStyle(V4.ink)
         .refreshable {
@@ -793,9 +793,15 @@ struct V4HomeViewLive: View {
         // берём `phase`: заглушка одна и та же, но состояние честное.
         if let url = (poster ? item.posterURL : nil) ?? item.artworkURL {
             AsyncImage(url: url) { phase in
-                if let image = phase.image {
+                switch phase {
+                case .success(let image):
                     image.resizable().aspectRatio(contentMode: .fill)
-                } else {
+                case .empty:
+                    // Ждём картинку — показываем только тон. Монограмма во весь
+                    // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                    // а не ожиданием; её место — состояние «постера не будет».
+                    PlinkArtlessPoster(seed: item.title, glyph: "film", showsMonogram: false)
+                default:
                     PlinkArtlessPoster(seed: item.title, glyph: "film")
                 }
             }
@@ -901,9 +907,15 @@ struct V4HomeViewLive: View {
                     Group {
                         if let thumb = item.thumbnailURL, let url = URL(string: thumb) {
                             AsyncImage(url: url) { phase in
-                                if let img = phase.image {
+                                switch phase {
+                                case .success(let img):
                                     img.resizable().aspectRatio(contentMode: .fill)
-                                } else {
+                                case .empty:
+                                    // Ждём картинку — показываем только тон. Монограмма во весь
+                                    // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                                    // а не ожиданием; её место — состояние «постера не будет».
+                                    PlinkArtlessPoster(seed: item.title, glyph: "film", showsMonogram: false)
+                                default:
                                     PlinkArtlessPoster(seed: item.title, glyph: "film")
                                 }
                             }
@@ -961,9 +973,15 @@ struct V4HomeViewLive: View {
                 Group {
                     if let thumb = entry.mediaItem.thumbnailURL, let url = URL(string: thumb) {
                         AsyncImage(url: url) { phase in
-                            if let img = phase.image {
+                            switch phase {
+                            case .success(let img):
                                 img.resizable().aspectRatio(contentMode: .fill)
-                            } else {
+                            case .empty:
+                                // Ждём картинку — показываем только тон. Монограмма во весь
+                                // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                                // а не ожиданием; её место — состояние «постера не будет».
+                                PlinkArtlessPoster(seed: entry.mediaItem.title, glyph: "bookmark.fill", showsMonogram: false)
+                            default:
                                 PlinkArtlessPoster(seed: entry.mediaItem.title, glyph: "bookmark.fill")
                             }
                         }

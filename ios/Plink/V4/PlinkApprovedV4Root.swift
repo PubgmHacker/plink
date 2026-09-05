@@ -758,6 +758,17 @@ struct PlinkOngoingRoomCapsule: View {
 // MARK: - Liquid Glass Tab Bar
 
 struct PlinkLiquidTabBar: View {
+    /// Резерв под плавающий бар в конце любой прокручиваемой вкладки.
+    /// Сам бар — 64 pt высоты + 2 pt отступа над home indicator, поверх
+    /// уже учтённой нижней safe area. Остаток до 100 pt — воздух, чтобы
+    /// последняя строка не липла к стеклу.
+    ///
+    /// Контракт «у всех вкладок один резерв» был записан комментарием в
+    /// оболочке ещё раньше, но экраны продолжали держать свои числа:
+    /// 96 на Главной, Комнатах и ИИ, 100 у Друзей, 110 в Профиле. Число
+    /// живёт здесь, рядом с баром, который его и задаёт.
+    static let contentReserve: CGFloat = 100
+
     @Binding var selection: Int
     var theme: V4Theme = .electric
     /// Unread DMs — red badge on «Друзья» tab when user is not in that chat.

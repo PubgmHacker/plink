@@ -991,7 +991,22 @@ internal struct AccountCenterView: View {
     #endif
 
     private var user: User? { AuthService.shared.currentUserValue }
-    private var displayName: String { store?.displayName ?? user?.displayName ?? user?.username ?? "—" }
+    /// `??` пропускает только nil, поэтому пустое имя из стора (самый
+    /// первый вход) раньше побеждало данные, уже лежащие в AuthService.
+    private var displayName: String {
+        for candidate in [store?.displayName, user?.displayName, user?.username] {
+            if let candidate, !candidate.isEmpty { return candidate }
+        }
+        return ""
+    }
+
+    /// Буква аватара: имя → ник → нейтральный знак. Пустая строка рисовала
+    /// пустой кружок.
+    private var avatarLetter: String {
+        if let first = displayName.first { return String(first) }
+        if let first = username.first { return String(first) }
+        return "?"
+    }
     private var username: String { store?.username ?? user?.username ?? "" }
     private var email: String { store?.email ?? user?.email ?? "" }
 
@@ -1141,11 +1156,11 @@ internal struct AccountCenterView: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            V4Avatar(letter: String(displayName.prefix(1)), seed: user?.id ?? username, size: 56)
+                            V4Avatar(letter: avatarLetter, seed: user?.id ?? username, size: 56)
                         }
                     }
                 } else {
-                    V4Avatar(letter: String(displayName.prefix(1)), seed: user?.id ?? username, size: 56)
+                    V4Avatar(letter: avatarLetter, seed: user?.id ?? username, size: 56)
                 }
             }
             .frame(width: 56, height: 56)
@@ -1153,11 +1168,14 @@ internal struct AccountCenterView: View {
             .overlay(Circle().stroke(V4.line, lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(displayName)
+                Text(displayName.isEmpty ? "Имя" : displayName)
                     .font(.system(size: 17, weight: .heavy))
                     .tracking(-0.3)
                     .foregroundStyle(V4.ink)
                     .lineLimit(1)
+                    // Первый вход, имени ещё нет ни в сторе, ни в кэше:
+                    // серая плашка честнее подписи «Загрузка…».
+                    .redacted(reason: displayName.isEmpty ? .placeholder : [])
                 // Ник только тогда, когда он не повторяет имя: у аккаунта без
                 // заданного имени displayName сам берётся из username, и
                 // карточка читалась «testdev» / «@testdev» / почта.

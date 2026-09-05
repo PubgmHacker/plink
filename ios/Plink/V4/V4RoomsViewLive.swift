@@ -72,7 +72,7 @@ struct V4RoomsViewLive: View {
 
                 recentBlock
             }
-            .padding(.bottom, 96)
+            .padding(.bottom, PlinkLiquidTabBar.contentReserve)
         }
         .foregroundStyle(V4.ink)
         .refreshable {
@@ -219,6 +219,12 @@ struct V4RoomsViewLive: View {
                 .lineSpacing(2)
                 .foregroundStyle(accent ? theme.buttonTextColor.opacity(0.76) : V4.muted)
                 .multilineTextAlignment(.leading)
+                // Подпись всегда занимает две строки, даже когда текст в одну.
+                // Текст прижат к низу плитки, поэтому у соседа с однострочной
+                // подписью заголовок уезжал на строку ниже: «Создать комнату»
+                // и «Войти по коду» стояли на разной высоте. Резерв строки
+                // выравнивает пару без жёстких констант высоты.
+                .lineLimit(2, reservesSpace: true)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

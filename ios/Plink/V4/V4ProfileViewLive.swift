@@ -92,7 +92,7 @@ struct V4ProfileViewLive: View {
                 sectionsGroup
                     .padding(.top, 14)
             }
-            .padding(.bottom, 110)
+            .padding(.bottom, PlinkLiquidTabBar.contentReserve)
             // Задник шапки: обложка + амбиент одним композитом, в котором
             // под аватар пробит прозрачный вырез (модель Discord) — лицо и
             // карты живут в свете обложки, а не на постороннем живом фоне.
@@ -418,18 +418,33 @@ struct V4ProfileViewLive: View {
 
     // MARK: Идентичность
 
+    /// Буква на аватаре: имя → ник → нейтральный знак. Раньше здесь стояло
+    /// `store?.displayName.prefix(1) ?? "П"`, и `??` не спасал: у стора
+    /// имя не Optional, поэтому до ответа сервера в кружке жила буква «З»
+    /// от слова «Загрузка…», а сама «П» не показывалась никогда.
+    private var avatarLetter: String {
+        if let first = store?.displayName.first { return String(first) }
+        if let first = store?.username.first { return String(first) }
+        return "?"
+    }
+
     private var identityBlock: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Name + seals (Telegram model): the administrator seal sits
             // right after the name instead of recolouring it, Plink+ gets
             // its own star seal. Nothing on the face is tinted by the theme.
             HStack(alignment: .center, spacing: 6) {
-                Text(store?.displayName ?? "Загрузка…")
+                // Имя приходит из кэша ещё до /users/me. Пусто бывает
+                // только на самом первом входе — там плашка-скелетон
+                // вместо слова «Загрузка…» поверх собственного имени.
+                let name = store?.displayName ?? ""
+                Text(name.isEmpty ? "Имя пользователя" : name)
                     .font(.system(size: 26, weight: .heavy))
                     .tracking(-0.7)
                     .foregroundStyle(V4.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    .redacted(reason: name.isEmpty ? .placeholder : [])
                 if isAdmin {
                     PlinkIdentitySeal(kind: .admin, size: 21)
                 }
@@ -514,11 +529,11 @@ struct V4ProfileViewLive: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), seed: AuthService.shared.currentUserValue?.id ?? store?.username ?? "", size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
+                            V4Avatar(letter: avatarLetter, seed: AuthService.shared.currentUserValue?.id ?? store?.username ?? "", size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                         }
                     }
                 } else {
-                    V4Avatar(letter: String((store?.displayName.prefix(1) ?? "П")), seed: AuthService.shared.currentUserValue?.id ?? store?.username ?? "", size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
+                    V4Avatar(letter: avatarLetter, seed: AuthService.shared.currentUserValue?.id ?? store?.username ?? "", size: 112, isPremium: store?.isPremium == true, isAdmin: isAdmin)
                 }
             }
             .frame(width: 112, height: 112)
@@ -1863,7 +1878,7 @@ struct V4SettingsView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(alignment: .top, spacing: 12) {
-                            V4Heading(eyebrow: "Plink и приложение", title: "Общие настройки")
+                            V4Heading(eyebrow: "Профиль", title: "Общие настройки")
                             Spacer(minLength: 0)
                             if inSheet {
                                 V4SheetCloseButton { dismiss() }
@@ -1886,11 +1901,11 @@ struct V4SettingsView: View {
                                     openAppearance()
                                 }
                                 V4RowSeparator()
-                                pushRow("bell.fill", "Уведомления") { NotificationsView() }
+                                pushRow("bell.fill", "Уведомления", tint: V4.amber) { NotificationsView() }
                                 V4RowSeparator()
-                                pushRow("play.fill", "Воспроизведение") { PlaybackSettingsView() }
+                                pushRow("play.fill", "Воспроизведение", tint: V4.free) { PlaybackSettingsView() }
                                 V4RowSeparator()
-                                pushRow("questionmark.circle.fill", "Помощь") { HelpView() }
+                                pushRow("questionmark.circle.fill", "Помощь", tint: V4.accent) { HelpView() }
                             }
 
                             if store?.isAdmin == true {
@@ -1966,10 +1981,15 @@ struct V4SettingsView: View {
     }
 
     /// Строка-переход внутри NavigationStack настроек.
+    /// `tint` по умолчанию — акцент темы; строки списка настроек передают
+    /// свой цвет. Один акцент на все значки превращал их в четыре одинаковых
+    /// кружка: цвет ничего не сообщал, и строку приходилось искать чтением,
+    /// а не взглядом (модель «Настроек» iOS и Telegram — свой цвет на раздел).
     private func pushRow<D: View>(
         _ icon: String,
         _ title: String,
         value: String? = nil,
+        tint: Color? = nil,
         danger: Bool = false,
         @ViewBuilder destination: @escaping () -> D
     ) -> some View {
@@ -1977,7 +1997,7 @@ struct V4SettingsView: View {
             destination()
                 .preferredColorScheme(.dark)
         } label: {
-            V4ProfileRowLabel(icon: icon, tint: danger ? V4.danger : theme.accentColor, title: title, value: value, danger: danger)
+            V4ProfileRowLabel(icon: icon, tint: danger ? V4.danger : (tint ?? theme.accentColor), title: title, value: value, danger: danger)
         }
         .buttonStyle(.plain)
     }

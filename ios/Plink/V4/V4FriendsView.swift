@@ -276,7 +276,7 @@ struct V4FriendsViewLive: View {
                         ))
                     }
                 }
-                .padding(.bottom, 100)
+                .padding(.bottom, PlinkLiquidTabBar.contentReserve)
             }
             .scrollContentBackground(.hidden)
             .background(

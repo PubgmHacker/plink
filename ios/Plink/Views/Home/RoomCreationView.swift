@@ -535,9 +535,15 @@ struct RoomCreationView: View {
                 // Video preview
                 ZStack(alignment: .bottomLeading) {
                     AsyncImage(url: URL(string: video.thumbnailURL ?? "")) { phase in
-                        if let image = phase.image {
+                        switch phase {
+                        case .success(let image):
                             image.resizable().aspectRatio(16/9, contentMode: .fill)
-                        } else {
+                        case .empty:
+                            // Ждём картинку — показываем только тон. Монограмма во весь
+                            // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                            // а не ожиданием; её место — состояние «постера не будет».
+                            PlinkArtlessPoster(seed: video.title ?? video.originalURL, glyph: "film", showsMonogram: false)
+                        default:
                             PlinkArtlessPoster(seed: video.title ?? video.originalURL, glyph: "film")
                         }
                     }
@@ -1078,9 +1084,15 @@ struct BetaVideoSearchView: View {
                 Group {
                     if let artworkURL = item.artworkURL {
                         AsyncImage(url: artworkURL) { phase in
-                            if let image = phase.image {
+                            switch phase {
+                            case .success(let image):
                                 image.resizable().scaledToFill()
-                            } else {
+                            case .empty:
+                                // Ждём картинку — показываем только тон. Монограмма во весь
+                                // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                                // а не ожиданием; её место — состояние «постера не будет».
+                                PlinkArtlessPoster(seed: item.title, glyph: "play.fill", showsMonogram: false)
+                            default:
                                 PlinkArtlessPoster(seed: item.title, glyph: "play.fill")
                             }
                         }

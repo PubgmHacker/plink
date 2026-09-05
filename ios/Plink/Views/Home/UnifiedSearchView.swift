@@ -302,9 +302,15 @@ struct UnifiedSearchView: View {
                 Group {
                     if let url = item.artworkURL {
                         AsyncImage(url: url) { phase in
-                            if let image = phase.image {
+                            switch phase {
+                            case .success(let image):
                                 image.resizable().aspectRatio(contentMode: .fill)
-                            } else {
+                            case .empty:
+                                // Ждём картинку — показываем только тон. Монограмма во весь
+                                // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                                // а не ожиданием; её место — состояние «постера не будет».
+                                PlinkArtlessPoster(seed: item.title, glyph: "play.fill", showsMonogram: false)
+                            default:
                                 PlinkArtlessPoster(seed: item.title, glyph: "play.fill")
                             }
                         }

@@ -164,9 +164,17 @@ struct PlinkWatchTile: View {
                             // `placeholder` показывается и при ошибке, и не
                             // пришедший постер оставался пустым навсегда.
                             AsyncImage(url: url) { phase in
-                                if let image = phase.image {
+                                switch phase {
+                                case .success(let image):
                                     image.resizable().scaledToFill()
-                                } else {
+                                case .empty:
+                                    // Пока кадр летит — только тон: монограмма
+                                    // во весь просмотр, мигающая на каждой
+                                    // быстрой загрузке, читается сбоем.
+                                    PlinkArtlessPoster(
+                                        seed: item.title.isEmpty ? item.id : item.title,
+                                        showsMonogram: false)
+                                default:
                                     placeholderCanvas
                                 }
                             }

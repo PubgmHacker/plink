@@ -447,9 +447,15 @@ struct V4AIChatView: View {
     private var chipRow: some View {
         HStack(spacing: 7) {
             if store.lastSuggestions.isEmpty {
-                chip("Очередь", "Собери очередь на просмотр")
-                chip("У друзей", "Что смотрят друзья?")
-                chip("Через AI", "Создай комнату с Inception")
+                // Подпись чипа — сам вопрос, а не ярлык рядом с ним: раньше
+                // «Через AI» отправляло «Создай комнату с Inception», и по
+                // чипу нельзя было угадать, что уедет ассистенту. Ярлыки
+                // прогоняются через тот же chipLabel, что и серверные
+                // подсказки, — длинные строки режутся по слову, а ряд
+                // страхует ViewThatFits прокруткой.
+                ForEach(Self.seedPrompts, id: \.self) { prompt in
+                    chip(chipLabel(prompt), prompt)
+                }
             } else {
                 ForEach(store.lastSuggestions.prefix(4), id: \.self) { s in
                     chip(chipLabel(s), s)
@@ -496,7 +502,7 @@ struct V4AIChatView: View {
             }
             .accessibilityLabel("Быстрые действия")
 
-            TextField("Спросите про фильмы и комнаты", text: $input, axis: .vertical)
+            TextField("Спросите про фильмы", text: $input, axis: .vertical)
                 .lineLimit(1...4)
                 .focused($inputFocused)
                 .foregroundStyle(V4.ink)
@@ -548,6 +554,15 @@ struct V4AIChatView: View {
         case .error: return Color(red: 1.0, green: 0.4, blue: 0.4)
         }
     }
+
+    /// Затравочные подсказки пустого чата. Серверные приходят только вместе
+    /// с ответом, то есть когда чат уже не пустой, — этот список и есть
+    /// единственное, что видит новый пользователь.
+    private static let seedPrompts = [
+        "Собери очередь на просмотр",
+        "Что смотрят друзья?",
+        "Создай комнату с Inception",
+    ]
 
     /// Подсказки приходят с сервера произвольной длины. Раньше их резали ровно
     /// по 22 символа, и чип заканчивался на полуслове без многоточия («Добавь

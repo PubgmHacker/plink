@@ -573,7 +573,7 @@ struct V4AIViewLive: View {
             }
             .padding(.horizontal, 24)
             // Контент — выше таб-бара; сам слой закрывает раздел целиком.
-            .padding(.bottom, 96)
+            .padding(.bottom, PlinkLiquidTabBar.contentReserve)
         }
         .accessibilityIdentifier("ai.onboarding")
     }

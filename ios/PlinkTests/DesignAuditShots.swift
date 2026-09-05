@@ -17,6 +17,15 @@
 //     -destination 'platform=iOS Simulator,name=iPhone 17' \
 //     -only-testing:PlinkTests/DesignAuditShots
 //   rm /tmp/plink-design-audit
+//
+// ГРАНИЦА ДОВЕРИЯ. `drawHierarchy(in:afterScreenUpdates:)` рисует вне экрана,
+// без композитора, и на `.plinkGlass` он врёт: материал уходит в плоскую
+// заливку, тени и преломление пропадают. Проверено 04.09.2026 — кадр отсюда
+// и `simctl io screenshot` того же экрана разошлись именно на стекле.
+// Отсюда правило: этот файл годится, чтобы ДОБРАТЬСЯ до экрана, который иначе
+// требует живого бэкенда и платного аккаунта, и посмотреть вёрстку, текст,
+// отступы. Судить по нему материалы, свечение и «современно / несовременно»
+// нельзя — только по снимку живого симулятора.
 
 import XCTest
 import SwiftUI
@@ -786,6 +795,86 @@ final class DesignAuditShots: XCTestCase {
             .padding(.top, 26)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(V4.canvas)
+        }
+    }
+
+    // MARK: - Разделы, до 04.09.2026 не снимавшиеся ни разу
+    //
+    // Стенд покрывал комнату, авторизацию, онбординг и главную, но четыре из
+    // пяти вкладок и весь стек настроек судить было нечем — их смотрели
+    // руками на симуляторе, то есть не смотрели. Ниже кадры на каждый раздел,
+    // чтобы «проверь каждый раздел» имело предмет.
+
+    /// Профиль — вкладка 5. Обложка, лицо, рельсы, строки настроек.
+    func testProfileShot() throws {
+        try requireEnabled()
+        try shoot(ProfileHost(), named: "34-profile")
+    }
+
+    /// Комнаты — вкладка 2. Сегмент «Открытые/Мои», поиск, пустое состояние.
+    func testRoomsShot() throws {
+        try requireEnabled()
+        try shoot(
+            V4RoomsViewLive(
+                theme: .electric,
+                roomsStore: nil,
+                friendsStore: nil,
+                openRoom: { _ in },
+                createRoom: {},
+                joinByCode: {}
+            ),
+            named: "35-rooms"
+        )
+    }
+
+    /// Вкладка «ИИ» — раздел целиком. Кадр судит главный вопрос: что человек
+    /// видит на пятой части нижнего бара. Пока это слой «Скоро» поверх ленты
+    /// из нарисованных градиентов.
+    func testAITabShot() throws {
+        try requireEnabled()
+        try shoot(
+            V4AIViewLive(
+                theme: .electric,
+                store: V4AIStore(),
+                searchStore: V4SearchStore(),
+                isActive: true
+            ),
+            named: "36-ai-tab"
+        )
+    }
+
+    /// Корень настроек — тринадцать экранов стека начинаются здесь.
+    func testSettingsShot() throws {
+        try requireEnabled()
+        try shoot(
+            V4SettingsView(theme: .electric, store: nil, openAppearance: {}, inSheet: true),
+            named: "37-settings"
+        )
+    }
+
+    /// Личка. Полноэкранная с 26.08.2026, но кадра у неё не было.
+    func testDirectMessageShot() throws {
+        try requireEnabled()
+        try shoot(
+            DMChatView(
+                friend: Friend(
+                    id: "u2",
+                    username: "kiravolkova",
+                    avatarURL: nil,
+                    isOnline: true,
+                    friendsSince: Date(timeIntervalSince1970: 1_752_000_000)
+                )
+            )
+            .environmentObject(DMChatService.shared),
+            named: "38-dm"
+        )
+    }
+
+    /// `V4ProfileViewLive` держит биндинг оверлея «Оформление».
+    private struct ProfileHost: View {
+        @State private var appearance = false
+        var body: some View {
+            V4ProfileViewLive(theme: .electric, store: nil, showAppearance: $appearance)
         }
     }
 

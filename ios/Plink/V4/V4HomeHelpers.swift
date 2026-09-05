@@ -727,9 +727,15 @@ struct TrendingPreviewSheet: View {
                                 // фильма без постера выглядят по-разному.
                                 if let url = item.artworkURL {
                                     AsyncImage(url: url) { phase in
-                                        if let image = phase.image {
+                                        switch phase {
+                                        case .success(let image):
                                             image.resizable().scaledToFill()
-                                        } else {
+                                        case .empty:
+                                            // Ждём картинку — показываем только тон. Монограмма во весь
+                                            // кадр, мигающая на каждой быстрой загрузке, читается сбоем,
+                                            // а не ожиданием; её место — состояние «постера не будет».
+                                            PlinkArtlessPoster(seed: item.title, showsMonogram: false)
+                                        default:
                                             PlinkArtlessPoster(seed: item.title)
                                         }
                                     }

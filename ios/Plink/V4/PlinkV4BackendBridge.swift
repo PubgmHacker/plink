@@ -754,7 +754,13 @@ struct AIPayloadPreview: Decodable, Hashable {
 @MainActor
 @Observable
 final class V4ProfileStore {
-    private(set) var displayName: String = "Загрузка…"
+    /// Имя рисуется ДО первого /users/me. И `AuthService`, и `applyUser`
+    /// пишут его в `plink_current_display_name`, но раньше этот ключ никто
+    /// не читал обратно — поэтому на каждом холодном старте поверх уже
+    /// известного имени висело слово «Загрузка…» (и буква «З» в аватаре).
+    /// Пустая строка = самый первый вход, её экраны рисуют скелетоном.
+    private(set) var displayName: String = UserDefaults.standard
+        .string(forKey: "plink_current_display_name") ?? ""
     private(set) var username: String = ""
     private(set) var email: String = ""
     /// Discord-статус на карточке профиля. Пустая строка = не задан.
