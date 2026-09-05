@@ -253,8 +253,10 @@ struct PlinkHostMark: View {
             Circle().fill(Cinema2026.amber)
             Image(systemName: "play.fill")
                 // Треугольник тяжелее слева: сдвигаем к оптическому центру,
-                // иначе на диске он всегда выглядит осевшим влево.
-                .font(.system(size: size * 0.44, weight: .black))
+                // иначе на диске он всегда выглядит осевшим влево. Доля 0.5,
+                // а не 0.44: на замере угла аватара треугольник терялся и
+                // знак читался просто янтарной точкой.
+                .font(.system(size: size * 0.5, weight: .black))
                 .foregroundStyle(Cinema2026.background)
                 .offset(x: size * 0.045)
         }
@@ -319,7 +321,7 @@ struct ParticipantAvatar: View {
                     .stroke(ringColor, lineWidth: 1.5)
             )
             .overlay(alignment: .bottomTrailing) {
-                if isHost { PlinkHostMark(size: 11).offset(x: 2, y: 2) }
+                if isHost { PlinkHostMark(size: 12).offset(x: 2, y: 2) }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(

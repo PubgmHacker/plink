@@ -452,6 +452,52 @@ final class DesignAuditShots: XCTestCase {
         try shoot(RoomQueueSheet(model: makePlayerModel()), named: "22c-room-queue-empty")
     }
 
+    /// Знак хоста рядом с обычными участниками и рядом с короной, которую
+    /// он заменил. Кадр существует ровно затем, чтобы новый знак нельзя было
+    /// вернуть к глифу премиума молча: если различие пропадёт, это будет
+    /// видно на картинке, а не в чьём-то отзыве через месяц.
+    func testHostMarkShot() throws {
+        try requireEnabled()
+        try shoot(
+            VStack(spacing: 26) {
+                HStack(spacing: 18) {
+                    ParticipantAvatar(
+                        participant: ParticipantInfo(
+                            userId: "u1", username: "Аня", isLocal: true
+                        ),
+                        hostId: "u1"
+                    )
+                    ParticipantAvatar(
+                        participant: ParticipantInfo(
+                            userId: "u2", username: "Борис", isLocal: false
+                        ),
+                        hostId: "u1"
+                    )
+                    ParticipantAvatar(
+                        participant: ParticipantInfo(
+                            userId: "u3", username: "Вера", isLocal: false
+                        ),
+                        hostId: "u1",
+                        isSpeaking: true
+                    )
+                }
+                // Знак крупно и корона рядом: они не должны читаться как одно.
+                HStack(spacing: 20) {
+                    PlinkHostMark(size: 44)
+                    PlinkHostMark(size: 44, ring: false)
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(Cinema2026.amber)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Cinema2026.background),
+            named: "33-host-mark",
+            canvas: CGSize(width: 393, height: 260),
+            safeArea: .zero
+        )
+    }
+
     /// Карточка голосования поверх кадра: открытая (свой голос отдан),
     /// открытая без голоса и закрытая с победителем. Раньше это была серая
     /// полоска на 18 % белого — «дешёвое и несовременное» окно из отзыва.
